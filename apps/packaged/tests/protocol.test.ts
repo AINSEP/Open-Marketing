@@ -1,8 +1,8 @@
 /**
- * Regression coverage for the `od://` protocol proxy in
+ * Regression coverage for the packaged protocol proxy in
  * apps/packaged/src/protocol.ts.
  *
- * The packaged Electron entry registers `od://` as the loader for the
+ * The packaged Electron entry registers `om://` as the loader for the
  * web runtime and forwards every renderer request to the local web
  * sidecar through Node's global `fetch` (which is undici under the
  * hood). Without a try/catch in the handler, undici throwing
@@ -30,13 +30,17 @@ vi.mock('electron', () => ({
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { handleOdRequest } from '../src/protocol.js';
+import { handleOdRequest, packagedEntryUrl } from '../src/protocol.js';
 
 afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('od:// protocol proxy', () => {
+describe('packaged protocol proxy', () => {
+  it('uses om:// as the packaged entry URL', () => {
+    expect(packagedEntryUrl()).toBe('om://app/');
+  });
+
   it('proxies the request through fetchImpl with the rewritten target URL', async () => {
     const captured: Request[] = [];
     const fetchImpl: typeof fetch = async (input) => {
@@ -44,7 +48,7 @@ describe('od:// protocol proxy', () => {
       return new Response('ok', { status: 200 });
     };
 
-    const request = new Request('od://app/api/codex-pets/sync', { method: 'POST' });
+    const request = new Request('om://app/api/codex-pets/sync', { method: 'POST' });
     const response = await handleOdRequest(request, 'http://127.0.0.1:17579/', fetchImpl);
 
     expect(response.status).toBe(200);
@@ -60,7 +64,7 @@ describe('od:// protocol proxy', () => {
       return new Response('', { status: 204 });
     };
 
-    const request = new Request('od://app/api/projects?limit=5#section', { method: 'GET' });
+    const request = new Request('om://app/api/projects?limit=5#section', { method: 'GET' });
     await handleOdRequest(request, 'http://127.0.0.1:42424/', fetchImpl);
 
     const target = new URL(captured[0]!.url);
@@ -87,7 +91,7 @@ describe('od:// protocol proxy', () => {
       throw error;
     };
 
-    const request = new Request('od://app/api/codex-pets/sync', { method: 'POST' });
+    const request = new Request('om://app/api/codex-pets/sync', { method: 'POST' });
     const response = await handleOdRequest(request, 'http://127.0.0.1:17579/', fetchImpl);
 
     expect(response.status).toBe(502);
@@ -110,7 +114,7 @@ describe('od:// protocol proxy', () => {
 
     // The promise must resolve with a Response, never reject.
     await expect(
-      handleOdRequest(new Request('od://app/'), 'http://127.0.0.1:1/', fetchImpl),
+      handleOdRequest(new Request('om://app/'), 'http://127.0.0.1:1/', fetchImpl),
     ).resolves.toBeInstanceOf(Response);
   });
 
@@ -121,12 +125,24 @@ describe('od:// protocol proxy', () => {
     };
 
     const response = await handleOdRequest(
-      new Request('od://app/api/probe'),
+      new Request('om://app/api/probe'),
       'http://127.0.0.1:1/',
       fetchImpl,
     );
     expect(response.status).toBe(502);
     const body = (await response.json()) as { message: string };
     expect(body.message).toBe('sync timeout');
+  });
+
+  it('keeps od:// requests working as a legacy alias', async () => {
+    const captured: Request[] = [];
+    const fetchImpl: typeof fetch = async (input) => {
+      captured.push(input as Request);
+      return new Response('ok', { status: 200 });
+    };
+
+    await handleOdRequest(new Request('od://app/api/projects'), 'http://127.0.0.1:42424/', fetchImpl);
+
+    expect(captured[0]!.url).toBe('http://127.0.0.1:42424/api/projects');
   });
 });

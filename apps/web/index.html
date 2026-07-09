@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#F4EFE6" />
+    <title>Open Marketing</title>
+  </head>
+  <body>
+    <!-- Vite dev entry. Parallels the Next.js app/ shell (which is kept for
+         `next build`); both mount the same src/App SPA. -->
+    <div id="root"><div class="od-loading-shell">Loading Open Marketing...</div></div>
+    <!-- src/lib/* is written for Next and reads process.env.NEXT_PUBLIC_DAEMON_URL.
+         `process` doesn't exist in the browser under Vite, so shim it before the
+         app loads. Empty string → daemon calls stay same-origin and hit the Vite
+         /api proxy (see vite.config.ts). Next ignores this file entirely. -->
+    <script>
+      window.process = { env: { NEXT_PUBLIC_DAEMON_URL: '' } };
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from 'react';
-import type { ConnectorDetail } from '@open-design/contracts';
+import type { ConnectorDetail, MarketingOverviewResponse } from '@open-design/contracts';
 import type { OpenDesignHostProjectImportSuccess } from '@open-design/host';
 import {
   DEFAULT_AUDIO_MODEL,
@@ -37,6 +37,7 @@ import type {
   PluginShareAction,
   PluginShareProjectOutcome,
 } from '../state/projects';
+import { fetchMarketingOverview } from '../state/marketing';
 
 interface Props {
   // Union of functional skills + design templates — used for id-based
@@ -265,6 +266,8 @@ export function EntryView({
 }: Props) {
   const [connectors, setConnectors] = useState<ConnectorDetail[]>([]);
   const [connectorsLoading, setConnectorsLoading] = useState(false);
+  const [marketingOverview, setMarketingOverview] = useState<MarketingOverviewResponse | null>(null);
+  const [marketingOverviewLoading, setMarketingOverviewLoading] = useState(false);
 
   const reloadConnectorCatalog = useCallback(async (options: { refreshDiscovery?: boolean } = {}) => {
     setConnectors(await fetchConnectorCatalogSnapshot(options));
@@ -282,6 +285,27 @@ export function EntryView({
       setConnectors(next);
       setConnectorsLoading(false);
     })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setMarketingOverviewLoading(true);
+    void fetchMarketingOverview()
+      .then((overview) => {
+        if (cancelled) return;
+        setMarketingOverview(overview);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setMarketingOverview(null);
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setMarketingOverviewLoading(false);
+      });
     return () => {
       cancelled = true;
     };
@@ -340,6 +364,8 @@ export function EntryView({
       defaultDesignSystemId={defaultDesignSystemId}
       connectors={connectors}
       connectorsLoading={connectorsLoading}
+      marketingOverview={marketingOverview}
+      marketingOverviewLoading={marketingOverviewLoading}
       {...(integrationInitialTab ? { integrationInitialTab } : {})}
       composioConfigLoading={composioConfigLoading}
       skillsLoading={skillsLoading}

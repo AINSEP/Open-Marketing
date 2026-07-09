@@ -1,0 +1,196 @@
+/* Scoped CopilotKit overrides. Keep this global because CopilotKit renders
+   third-party markup under data-copilotkit rather than CSS Modules classes. */
+[data-copilotkit] {
+  --cpk-font-sans: var(--sans);
+  --cpk-font-mono: var(--mono);
+  --copilotkit-app-border: color-mix(in srgb, var(--text) 12%, transparent);
+  --copilotkit-app-border-soft: color-mix(in srgb, var(--text) 7%, transparent);
+  --copilotkit-app-radius: 8px;
+  --background: var(--bg-panel);
+  --foreground: var(--text);
+  --card: var(--bg-elevated);
+  --card-foreground: var(--text);
+  --popover: var(--bg-elevated);
+  --popover-foreground: var(--text);
+  --primary: var(--accent-strong);
+  --primary-foreground: var(--accent-contrast, #fff);
+  --secondary: var(--bg-subtle);
+  --secondary-foreground: var(--text);
+  --muted: var(--bg-subtle);
+  --muted-foreground: var(--text-muted);
+  --accent: var(--accent-tint);
+  --accent-foreground: var(--accent-strong);
+  --destructive: var(--red);
+  --destructive-foreground: var(--red-bg);
+  --border: var(--copilotkit-app-border);
+  --input: var(--copilotkit-app-border);
+  --ring: var(--accent-strong);
+  --radius: var(--copilotkit-app-radius);
+  --sidebar: var(--bg-panel);
+  --sidebar-foreground: var(--text);
+  --sidebar-primary: var(--accent-strong);
+  --sidebar-primary-foreground: var(--accent-contrast, #fff);
+  --sidebar-accent: var(--bg-subtle);
+  --sidebar-accent-foreground: var(--text);
+  --sidebar-border: var(--copilotkit-app-border);
+  --sidebar-ring: var(--accent-strong);
+  color: var(--text);
+  color-scheme: light;
+}
+
+[data-theme="dark"] [data-copilotkit] {
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme]) [data-copilotkit] {
+    color-scheme: dark;
+  }
+}
+
+[data-copilotkit] [data-sidebar-chat],
+[data-copilotkit] [data-popup-chat],
+[data-copilot-sidebar],
+[data-copilot-popup] {
+  background: var(--bg-panel);
+  border-color: transparent;
+  border-left-color: transparent;
+  border-right-color: transparent;
+  box-shadow: var(--shadow-md);
+}
+
+[data-copilotkit] [data-copilot-sidebar],
+[data-copilotkit] [data-copilot-popup] {
+  background: var(--bg-panel);
+  border-color: transparent;
+  color: var(--text);
+}
+
+[data-copilotkit] [data-testid="copilot-modal-header"],
+[data-copilotkit] .copilotKitHeader {
+  background: color-mix(in srgb, var(--bg-panel) 94%, transparent);
+  border-color: var(--copilotkit-app-border-soft);
+}
+
+[data-copilotkit] [data-testid="copilot-modal-header"] {
+  border-bottom-color: var(--copilotkit-app-border-soft);
+}
+
+[data-copilotkit] [data-sidebar-chat],
+[data-copilotkit] [data-popup-chat] {
+  background: var(--bg-app);
+}
+
+[data-copilotkit] button,
+[data-copilotkit] textarea,
+[data-copilotkit] input {
+  font-family: var(--sans);
+  letter-spacing: 0;
+}
+
+[data-copilotkit] textarea,
+[data-copilotkit] input {
+  background: var(--bg-elevated);
+  color: var(--text);
+  border-color: var(--border);
+  border-radius: var(--radius-sm);
+}
+
+[data-copilotkit] [data-testid="copilot-chat-textarea"],
+[data-copilotkit] .copilotKitInput textarea {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  color: var(--text);
+}
+
+[data-copilotkit] .copilotKitInput {
+  background: var(--bg-elevated);
+  border: 1px solid var(--copilotkit-app-border-soft);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+[data-copilotkit] [data-testid="copilot-chat-input"] {
+  background: var(--bg-elevated);
+  border: 1px solid var(--copilotkit-app-border-soft);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+[data-copilotkit] [data-testid="copilot-slash-menu"] {
+  background: var(--bg-elevated);
+  border-color: var(--border);
+  box-shadow: var(--shadow-md);
+}
+
+[data-copilotkit] [data-testid="copilot-send-button"],
+[data-copilotkit] [data-testid="copilot-add-menu-button"],
+[data-copilotkit] [data-testid="copilot-start-transcribe-button"],
+[data-copilotkit] [data-testid="copilot-cancel-transcribe-button"],
+[data-copilotkit] [data-testid="copilot-finish-transcribe-button"],
+[data-copilotkit] [data-testid="copilot-close-button"] {
+  background: var(--bg-subtle);
+  color: var(--text);
+  border: 1px solid var(--copilotkit-app-border-soft);
+}
+
+[data-copilotkit] [data-testid="copilot-send-button"]:hover,
+[data-copilotkit] [data-testid="copilot-add-menu-button"]:hover,
+[data-copilotkit] [data-testid="copilot-start-transcribe-button"]:hover,
+[data-copilotkit] [data-testid="copilot-cancel-transcribe-button"]:hover,
+[data-copilotkit] [data-testid="copilot-finish-transcribe-button"]:hover,
+[data-copilotkit] [data-testid="copilot-close-button"]:hover {
+  background: var(--bg-muted);
+  color: var(--text-strong);
+}
+
+[data-copilotkit] [data-testid="copilot-send-button"] {
+  border-radius: var(--radius-sm);
+}
+
+[data-copilotkit] [data-testid="copilot-add-menu-button"],
+[data-copilotkit] [data-testid="copilot-start-transcribe-button"],
+[data-copilotkit] [data-testid="copilot-cancel-transcribe-button"],
+[data-copilotkit] [data-testid="copilot-finish-transcribe-button"],
+[data-copilotkit] [data-testid="copilot-close-button"] {
+  border-radius: var(--radius-sm);
+}
+
+[data-copilotkit] [data-testid="copilot-send-button"]:disabled,
+[data-copilotkit] [data-testid="copilot-add-menu-button"]:disabled,
+[data-copilotkit] [data-testid="copilot-start-transcribe-button"]:disabled,
+[data-copilotkit] [data-testid="copilot-cancel-transcribe-button"]:disabled,
+[data-copilotkit] [data-testid="copilot-finish-transcribe-button"]:disabled {
+  background: var(--bg-fill-tertiary);
+  color: var(--text-soft);
+  border-color: var(--copilotkit-app-border-soft);
+}
+
+[data-copilotkit] [data-testid="copilot-send-button"],
+[data-copilotkit] [data-testid="copilot-add-menu-button"] {
+  box-shadow: none;
+}
+
+[data-copilotkit] [data-testid="copilot-header-title"],
+[data-copilotkit] [data-testid="copilot-modal-header"] {
+  color: var(--text);
+}
+
+[data-copilotkit] textarea:focus,
+[data-copilotkit] input:focus {
+  outline: 2px solid color-mix(in srgb, var(--primary) 40%, transparent);
+  outline-offset: 1px;
+}
+
+[data-copilotkit] [data-streamdown=link] {
+  color: var(--primary);
+}
+
+[data-copilotkit] ::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text-muted) 28%, transparent);
+}
+
+[data-copilotkit] * {
+  scrollbar-color: color-mix(in srgb, var(--text-muted) 28%, transparent) transparent;
+}

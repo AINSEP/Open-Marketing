@@ -41,6 +41,7 @@ describe('isHttpUrl', () => {
   });
 
   it('rejects non-http schemes', () => {
+    expect(isHttpUrl('om://app/foo')).toBe(false);
     expect(isHttpUrl('od://app/foo')).toBe(false);
     expect(isHttpUrl('file:///etc/passwd')).toBe(false);
     expect(isHttpUrl('blob:http://x/abc')).toBe(false);
@@ -55,12 +56,17 @@ describe('isHttpUrl', () => {
 });
 
 describe('isAllowedChildWindowUrl (issue #911)', () => {
-  it('allows the packaged od:// scheme so live artifact previews open in a child BrowserWindow', () => {
+  it('allows the packaged om:// scheme so live artifact previews open in a child BrowserWindow', () => {
     // The flagship #911 case: the Orbit panel's "Open artifact"
     // button is an `<a target="_blank" href="/api/live-artifacts/.../preview?projectId=...">`.
-    // In packaged builds the renderer lives at `od://app/`, so that
-    // relative href resolves to `od://app/api/live-artifacts/.../preview?projectId=...`
+    // In packaged builds the renderer lives at `om://app/`, so that
+    // relative href resolves to `om://app/api/live-artifacts/.../preview?projectId=...`
     // by the time `setWindowOpenHandler` sees it.
+    expect(isAllowedChildWindowUrl('om://app/api/live-artifacts/abc/preview?projectId=p1')).toBe(true);
+    expect(isAllowedChildWindowUrl('om://app/')).toBe(true);
+  });
+
+  it('keeps the legacy od:// scheme allowed for compatibility', () => {
     expect(isAllowedChildWindowUrl('od://app/api/live-artifacts/abc/preview?projectId=p1')).toBe(true);
     expect(isAllowedChildWindowUrl('od://app/')).toBe(true);
   });
@@ -118,6 +124,7 @@ describe('isAllowedEmbeddedBrowserUrl', () => {
   it('rejects executable or privileged schemes for embedded browser startup', () => {
     expect(isAllowedEmbeddedBrowserUrl('javascript:alert(1)')).toBe(false);
     expect(isAllowedEmbeddedBrowserUrl('data:text/html,<script>alert(1)</script>')).toBe(false);
+    expect(isAllowedEmbeddedBrowserUrl('om://app/')).toBe(false);
     expect(isAllowedEmbeddedBrowserUrl('od://app/')).toBe(false);
     expect(isAllowedEmbeddedBrowserUrl('not a url')).toBe(false);
   });
@@ -125,12 +132,12 @@ describe('isAllowedEmbeddedBrowserUrl', () => {
 
 describe('resolveDesktopStatusUrl', () => {
   it('reports the pending URL while navigation is in flight', () => {
-    expect(resolveDesktopStatusUrl(null, 'od://app/')).toBe('od://app/');
-    expect(resolveDesktopStatusUrl('http://127.0.0.1:3000/', 'od://app/')).toBe('od://app/');
+    expect(resolveDesktopStatusUrl(null, 'om://app/')).toBe('om://app/');
+    expect(resolveDesktopStatusUrl('http://127.0.0.1:3000/', 'om://app/')).toBe('om://app/');
   });
 
   it('falls back to the last successful URL when no navigation is pending', () => {
-    expect(resolveDesktopStatusUrl('od://app/', null)).toBe('od://app/');
+    expect(resolveDesktopStatusUrl('om://app/', null)).toBe('om://app/');
     expect(resolveDesktopStatusUrl(null, null)).toBe(null);
   });
 });

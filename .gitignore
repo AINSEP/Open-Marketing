@@ -92,3 +92,10 @@ growth/**
 
 # Agent long-running task memory
 .task/
+
+# Nested unrelated project (its own git repo) and ad-hoc debug screenshots
+/AI-Dev-Shop/
+/[0-9][0-9]-*.png
+
+# codebase-memory-mcp local graph DB (regenerable, ~14MB)
+/.codebase-memory/

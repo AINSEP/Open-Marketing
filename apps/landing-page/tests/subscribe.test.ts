@@ -67,7 +67,13 @@ function createEnv(kv: TestKv) {
 }
 
 describe("newsletter subscribe welcome email", () => {
-  it("allows packaged desktop app requests from the od protocol", () => {
+  it("allows packaged desktop app requests from the om protocol", () => {
+    const headers = __newsletterSubscribeTest.corsHeaders("om://app");
+
+    assert.equal(headers["Access-Control-Allow-Origin"], "om://app");
+  });
+
+  it("keeps packaged desktop app requests from the legacy od protocol working", () => {
     const headers = __newsletterSubscribeTest.corsHeaders("od://app");
 
     assert.equal(headers["Access-Control-Allow-Origin"], "od://app");

@@ -1,10 +1,21 @@
 import { protocol } from "electron";
 
+const OM_SCHEME = "om";
 const OD_SCHEME = "od";
-const OD_ENTRY_URL = `${OD_SCHEME}://app/`;
+const OM_ENTRY_URL = `${OM_SCHEME}://app/`;
 type OdProtocolFetch = (request: Request) => Promise<Response>;
 
 protocol.registerSchemesAsPrivileged([
+  {
+    privileges: {
+      corsEnabled: true,
+      secure: true,
+      standard: true,
+      stream: true,
+      supportFetchAPI: true,
+    },
+    scheme: OM_SCHEME,
+  },
   {
     privileges: {
       corsEnabled: true,
@@ -47,7 +58,7 @@ function buildProxyErrorResponse(error: unknown, target: string): Response {
 }
 
 /**
- * Inner request handler for the `od://` Electron protocol — every
+ * Inner request handler for the packaged Electron protocol — every
  * renderer fetch flows through here and gets proxied to the local web
  * sidecar via Node's global `fetch` (which is undici under the hood).
  *
@@ -78,11 +89,13 @@ export async function handleOdRequest(
 }
 
 export function packagedEntryUrl(): string {
-  return OD_ENTRY_URL;
+  return OM_ENTRY_URL;
 }
 
 export function registerOdProtocol(webRuntimeUrl: string): void {
-  protocol.handle(OD_SCHEME, async (request) => {
+  const handleRequest = async (request: Request) => {
     return await handleOdRequest(request, webRuntimeUrl);
-  });
+  };
+  protocol.handle(OM_SCHEME, handleRequest);
+  protocol.handle(OD_SCHEME, handleRequest);
 }

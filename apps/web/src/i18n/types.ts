@@ -912,6 +912,7 @@ export interface Dict {
   'workspaceTabs.marketplace': string;
 
   // Entry home
+  'homeHero.brandName': string;
   'homeHero.title': string;
   'homeHero.startWithTemplate': string;
   'homeHero.startBlankProject': string;

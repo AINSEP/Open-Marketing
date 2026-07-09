@@ -26,6 +26,7 @@ import {
   type ChatSessionMode,
   type ConnectorDetail,
   type InstalledPluginRecord,
+  type MarketingOverviewResponse,
   type UpsertMemoryRequest,
 } from '@open-design/contracts';
 import type { OpenDesignHostProjectImportSuccess } from '@open-design/host';
@@ -310,6 +311,8 @@ interface Props {
   defaultDesignSystemId: string | null;
   connectors: ConnectorDetail[];
   connectorsLoading: boolean;
+  marketingOverview?: MarketingOverviewResponse | null;
+  marketingOverviewLoading?: boolean;
   integrationInitialTab?: IntegrationTab;
   composioConfigLoading?: boolean;
   skillsLoading?: boolean;
@@ -442,6 +445,8 @@ export function EntryShell({
   defaultDesignSystemId,
   connectors,
   connectorsLoading,
+  marketingOverview = null,
+  marketingOverviewLoading = false,
   integrationInitialTab = 'mcp',
   composioConfigLoading = false,
   skillsLoading = false,
@@ -879,6 +884,8 @@ export function EntryShell({
                 skills={skills}
                 skillsLoading={skillsLoading}
                 connectors={connectors}
+                marketingOverview={marketingOverview}
+                marketingOverviewLoading={marketingOverviewLoading}
                 promptTemplates={promptTemplates}
                 executionSwitcher={view === 'home' ? homeExecutionSwitcher : undefined}
               />

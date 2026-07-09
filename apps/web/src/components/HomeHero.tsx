@@ -1078,7 +1078,7 @@ export const HomeHero = forwardRef<HomeHeroHandle, Props>(function HomeHero(
         <span className="home-hero__brand-mark">
           <img src="/app-icon.svg" alt="" draggable={false} />
         </span>
-        <span className="home-hero__brand-name">Open Design</span>
+        <span className="home-hero__brand-name">{t('homeHero.brandName')}</span>
       </div>
       <h1 className="home-hero__title">{t('homeHero.title')}</h1>
       <p className="home-hero__subtitle">
@@ -3148,6 +3148,9 @@ function ShortcutsMenu({
 // Scenario subtitle shown under the title on the illustrated card rail.
 function homeHeroChipDescription(chipId: string, t: ReturnType<typeof useT>): string {
   switch (chipId) {
+    case 'instagram-ads': return 'Meta/IG campaign drafts';
+    case 'google-ads-tracking': return 'Read-only reporting';
+    case 'tiktok-ads': return 'Short-form ad drafts';
     case 'prototype': return t('homeHero.chip.prototypeDesc');
     case 'wireframe': return t('homeHero.chip.wireframeDesc');
     case 'mobile': return t('homeHero.chip.mobileDesc');
@@ -3167,6 +3170,9 @@ function homeHeroChipDescription(chipId: string, t: ReturnType<typeof useT>): st
 // consumed once picked (e.g. "Open a chat that builds a clickable prototype").
 function homeHeroChipTitle(chip: HomeHeroChip, t: ReturnType<typeof useT>): string {
   switch (chip.id) {
+    case 'instagram-ads': return 'Create paused Instagram campaign drafts with audience, creative variants, budget, and approval steps.';
+    case 'google-ads-tracking': return 'Open a read-only reporting workflow for Google Ads metrics, search themes, and next actions.';
+    case 'tiktok-ads': return 'Draft TikTok hooks, creator-style scripts, video variants, targeting, and approval steps.';
     case 'prototype': return t('homeHero.chip.prototypeNext');
     case 'wireframe': return t('homeHero.chip.wireframeNext');
     case 'mobile': return t('homeHero.chip.mobileNext');
@@ -3552,6 +3558,24 @@ function fallbackPluginPresetPrompt(
 
 const HOME_PROMPT_EXAMPLES: Record<Locale, Record<string, string[]>> = {
   "en": {
+    "instagram-ads": [
+      "Launch an Instagram campaign for my LA dating app beta: define the audience, offer, budget, 5 creative variants, and approval checklist",
+      "Create paused Meta/Instagram ad drafts for a new local fitness studio with story, reels, feed, and retargeting variants",
+      "Plan an Instagram lead-gen campaign for a founder newsletter, including hooks, visual directions, CTA, audience, and reporting metrics",
+      "Turn my ecommerce product page into an Instagram campaign with 3 angles, asset needs, ad-set structure, and launch approval steps",
+    ],
+    "google-ads-tracking": [
+      "Track my Google Ads account for a SaaS trial funnel: summarize spend, CTR, CPC, CPA, search themes, and what to change next",
+      "Build a read-only Google Ads reporting view that compares brand, competitor, and high-intent search campaigns",
+      "Analyze Google search intent for my landing page and recommend which themes should become Meta/Instagram ad angles",
+      "Create a weekly Google Ads performance report with anomalies, wasted spend, winning keywords, and next experiments",
+    ],
+    "tiktok-ads": [
+      "Create TikTok ad drafts for my skincare brand with 6 hooks, creator-style scripts, video shot lists, and approval steps",
+      "Plan a TikTok launch campaign for a mobile app using problem-solution hooks, UGC concepts, budget, and audience tests",
+      "Draft TikTok Spark Ads concepts for a founder-led product launch, including creator brief, CTA, and reporting metrics",
+      "Turn my product benefits into TikTok ad variants with opening hooks, visual beats, captions, and performance hypotheses",
+    ],
     prototype: [
       "Design a high-converting website for an AI CRM with a clear hero, feature story, proof points, and trial CTA",
       "Create a desktop dashboard for a team knowledge base with search, recent updates, permissions, and collaboration entry points",
@@ -4294,6 +4318,9 @@ const HOME_PROMPT_EXAMPLES: Record<Locale, Record<string, string[]>> = {
 };
 
 export const HOME_PROMPT_EXAMPLE_CHIP_IDS = [
+  'instagram-ads',
+  'google-ads-tracking',
+  'tiktok-ads',
   'prototype',
   'deck',
   'image',
@@ -4316,6 +4343,24 @@ function homeHeroChipPromptExamples(chipId: string, locale: Locale): string[] {
 
 function briefForChipId(chipId: string): Record<string, string> {
   switch (chipId) {
+    case 'instagram-ads':
+      return {
+        artifact_type: 'Instagram campaign workspace',
+        channel: 'Meta / Instagram',
+        approval: 'drafts stay paused until explicit launch approval',
+      };
+    case 'google-ads-tracking':
+      return {
+        artifact_type: 'Google Ads reporting workspace',
+        channel: 'Google Ads',
+        mode: 'read-only analytics and recommendations',
+      };
+    case 'tiktok-ads':
+      return {
+        artifact_type: 'TikTok ads draft workspace',
+        channel: 'TikTok Ads',
+        approval: 'drafts stay paused until explicit launch approval',
+      };
     case 'prototype':
       return { artifact_type: 'web prototype', audience: 'product evaluators', fidelity: 'high-fidelity' };
     case 'wireframe':

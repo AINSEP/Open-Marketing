@@ -28,6 +28,18 @@ import {
 } from './mcp-agent-install.js';
 
 const argv = process.argv.slice(2);
+const CLI_NAME = resolveCliName(process.argv[1]);
+
+function resolveCliName(entrypoint: string | undefined): 'om' | 'od' {
+  const name = basename(entrypoint ?? '');
+  return name === 'od' || name === 'od.mjs' ? 'od' : 'om';
+}
+
+function formatCliHelp(text: string): string {
+  return text
+    .replace(/\bod\b/g, CLI_NAME)
+    .replace(/Open Design/g, 'Open Marketing');
+}
 
 // ---- Subcommand router ----------------------------------------------------
 //
@@ -524,7 +536,7 @@ if (argv[0] === 'tools' && argv[1] === 'live-artifacts') {
 }
 
 function printRootHelp() {
-  console.log(`Usage:
+  console.log(formatCliHelp(`Usage:
   od [--port <n>] [--host <addr>] [--no-open]
       Start the local daemon and open the web UI.
 
@@ -611,7 +623,7 @@ What the daemon does:
   * serves the chat UI at http://<host>:<port>
   * proxies messages (text + images) to the selected agent via child-process spawn
   * exposes /api/projects/:id/media/generate — the unified image/video/audio
-     dispatcher that the agent calls via \`od media generate\`.`);
+     dispatcher that the agent calls via \`od media generate\`.`));
 }
 
 // ---------------------------------------------------------------------------
@@ -1100,7 +1112,7 @@ async function cliDaemonBaseUrl(flags) {
 }
 
 function printMediaHelp() {
-  console.log(`Usage: od media generate --surface <image|video|audio> --model <id> [opts]
+  console.log(formatCliHelp(`Usage: od media generate --surface <image|video|audio> --model <id> [opts]
        "$OD_NODE_BIN" "$OD_BIN" media generate --surface <image|video|audio> --model <id> [opts]
 
 Required:
@@ -1134,7 +1146,7 @@ Output: a single line of JSON: {"file": { name, size, kind, mime, ... }}
 
 Skills should call this and then reference the returned filename in their
 artifact / message body. The daemon writes the bytes into the project's
-files folder so the FileViewer can preview them immediately.`);
+files folder so the FileViewer can preview them immediately.`));
 }
 
 // ---------------------------------------------------------------------------
@@ -1168,7 +1180,7 @@ async function runMcp(args) {
 }
 
 function printMcpHelp() {
-  console.log(`Usage: od mcp [--daemon-url <url>]
+  console.log(formatCliHelp(`Usage: od mcp [--daemon-url <url>]
 
 Run a stdio MCP (Model Context Protocol) server that proxies project
 tool calls to a running Open Design daemon. Wire it into a coding agent
@@ -1210,7 +1222,7 @@ for tool calls to succeed.
 
 To register this server into a coding agent's own config automatically:
   od mcp install <agent> [--uninstall] [--print] [--json] [--daemon-url <url>]
-  Agents: ${AGENT_SLUGS.join(' ')}`);
+  Agents: ${AGENT_SLUGS.join(' ')}`));
 }
 
 // ---------------------------------------------------------------------------

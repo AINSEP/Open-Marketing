@@ -232,7 +232,12 @@ import {
 import { createDesignSystemGenerationJobStore } from './design-systems/generation-jobs.js';
 import { createDesignSystemServerServices } from './design-systems/server-services.js';
 import { prepareDesignTokenContractRebuild } from './design-systems/token-contract-rebuild.js';
+import { createServer as createHttpServer } from 'node:http';
 import { registerBrandRoutes } from './brand-routes.js';
+import { createAguiHttpHandler } from './agui-copilot/index.js';
+// Side-effect import: registers the marketing assistant as the default
+// agui-copilot capability before createAguiHttpHandler() builds the runtime.
+import './marketing/index.js';
 import {
   applyDiffReviewDecisionToCwd,
   applyPlugin,
@@ -539,6 +544,7 @@ import { registerPluginAssetRoutes } from './routes/plugins/assets.js';
 import { registerPluginMarketplaceRoutes } from './routes/plugins/marketplaces.js';
 import { registerPluginEventRoutes, registerPluginRoutes, registerProjectPluginRoutes } from './routes/plugins/index.js';
 import { registerMcpRoutes } from './mcp-routes.js';
+import { registerMarketingRoutes } from './routes/marketing.js';
 import { registerXaiRoutes } from './routes/xai.js';
 import { registerLiveArtifactRoutes } from './routes/live-artifact.js';
 import { registerDesignSystemToolRoutes } from './routes/design-system-tool.js';
@@ -653,6 +659,9 @@ const PLUGIN_PREVIEWS_DIR = resolveDaemonPluginPreviewsDir({
   projectRoot: PROJECT_ROOT,
 });
 const OD_BIN = resolveDaemonCliPath();
+const OM_BIN = OD_BIN.endsWith(`${path.sep}od.mjs`)
+  ? path.join(path.dirname(OD_BIN), 'om.mjs')
+  : OD_BIN;
 const OD_NODE_BIN = process.execPath;
 const SKILLS_DIR = resolveDaemonResourceDir(
   DAEMON_RESOURCE_ROOT,
@@ -1086,6 +1095,10 @@ export function createAgentRuntimeEnv(
       OD_DATA_DIR: RUNTIME_DATA_DIR,
       OD_DAEMON_URL: daemonUrl,
       OD_NODE_BIN: nodeBin,
+      OM_BIN,
+      OM_DATA_DIR: RUNTIME_DATA_DIR,
+      OM_DAEMON_URL: daemonUrl,
+      OM_NODE_BIN: nodeBin,
     },
     SANDBOX_RUNTIME,
   );
@@ -1131,8 +1144,10 @@ export function createAgentRuntimeEnv(
 
   if (toolTokenGrant?.token) {
     env.OD_TOOL_TOKEN = toolTokenGrant.token;
+    env.OM_TOOL_TOKEN = toolTokenGrant.token;
   } else {
     delete env.OD_TOOL_TOKEN;
+    delete env.OM_TOOL_TOKEN;
   }
 
   return env;
@@ -1149,12 +1164,12 @@ export function createAgentRuntimeToolPrompt(
   return [
     '## Runtime tool environment',
     '',
-    `- Daemon URL: \`${daemonUrl}\` (also available as \`OD_DAEMON_URL\`).`,
-    '- `OD_NODE_BIN` is the absolute path to the Node-compatible runtime that started the daemon; packaged desktop installs provide this even when the user has no system `node` on PATH.',
-    '- `OD_BIN` is the absolute path to the Open Design CLI script. On POSIX shells run wrappers with `"$OD_NODE_BIN" "$OD_BIN" tools ...`; do not call bare `od`, which may resolve to the system octal-dump command on Unix-like systems.',
-    '- On PowerShell use `& $env:OD_NODE_BIN $env:OD_BIN tools ...`; on cmd.exe use `"%OD_NODE_BIN%" "%OD_BIN%" tools ...`.',
+    `- Daemon URL: \`${daemonUrl}\` (also available as \`OM_DAEMON_URL\`; legacy \`OD_DAEMON_URL\` remains set).`,
+    '- `OM_NODE_BIN` is the absolute path to the Node-compatible runtime that started the daemon; packaged desktop installs provide this even when the user has no system `node` on PATH.',
+    '- `OM_BIN` is the absolute path to the Open Marketing CLI script. On POSIX shells run wrappers with `"$OM_NODE_BIN" "$OM_BIN" tools ...`.',
+    '- On PowerShell use `& $env:OM_NODE_BIN $env:OM_BIN tools ...`; on cmd.exe use `"%OM_NODE_BIN%" "%OM_BIN%" tools ...`.',
     tokenLine,
-    '- Prefer project wrapper commands through `OD_NODE_BIN` + `OD_BIN` over raw HTTP. The wrappers read these environment values automatically.',
+    '- Legacy `OD_*` aliases remain set for existing wrappers. Prefer `OM_NODE_BIN` + `OM_BIN` in new instructions.',
   ].join('\n');
 }
 
@@ -3396,6 +3411,12 @@ export async function startServer({
   // wall — well past 4mb for image/markup-heavy sites. Give it a dedicated limit
   // (registered before the global parser so it claims the body first).
   app.use('/api/brands/:id/extract-from-html', express.json({ limit: '32mb' }));
+  // NOTE: the agui-copilot route (/api/copilotkit) is intentionally NOT mounted
+  // on the Express app. CopilotKit's node handler needs the untouched raw Node
+  // (req, res); routed inside Express (even before express.json) the request is
+  // reshaped enough that the single-route handler rejects it with HTTP 415. It
+  // is instead intercepted ahead of Express, at the http.Server level where this
+  // app is wrapped for listen() below. Search "createAguiHttpHandler".
   app.use(express.json({ limit: '4mb' }));
   const projectPreviewScopes = createProjectPreviewScopeRegistry();
 
@@ -3933,6 +3954,10 @@ export async function startServer({
     projectsRoot: PROJECTS_DIR,
     requireLocalDaemonRequest,
     composio: composioConnectorProvider,
+  });
+  registerMarketingRoutes(app, {
+    db,
+    http: httpDeps,
   });
 
   // Gate the diagnostics export behind requireLocalDaemonRequest so it stays
@@ -7137,10 +7162,15 @@ export async function startServer({
       OD_BIN,
       OD_NODE_BIN,
       OD_DAEMON_URL: daemonUrl,
+      OM_BIN,
+      OM_NODE_BIN: OD_NODE_BIN,
+      OM_DAEMON_URL: daemonUrl,
       ...(typeof projectId === 'string' && projectId && cwd
         ? {
             OD_PROJECT_ID: projectId,
             OD_PROJECT_DIR: cwd,
+            OM_PROJECT_ID: projectId,
+            OM_PROJECT_DIR: cwd,
           }
         : {}),
     };
@@ -9318,7 +9348,20 @@ export async function startServer({
     };
     let server;
     try {
-      server = app.listen(port, host);
+      // Wrap the Express app in a raw http.Server so the agui-copilot route can
+      // receive the untouched Node (req, res) before Express sees it. The
+      // agui-copilot module owns the path matching + content-type normalization
+      // + CopilotKit runtime; here we just delegate. Built once, after the
+      // marketing capability has registered (side-effect import above).
+      const aguiChat = createAguiHttpHandler();
+      const httpServer = createHttpServer((req, res) => {
+        if (aguiChat.matches(req.url)) {
+          aguiChat.handle(req, res);
+          return;
+        }
+        app(req, res);
+      });
+      server = httpServer.listen(port, host);
       server.once('listening', () => {
         // Widen the between-request idle window so kept-alive sockets
         // belonging to chat/SSE clients survive the gaps between bursts.

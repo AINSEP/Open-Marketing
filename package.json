@@ -1,16 +1,19 @@
 {
-  "name": "open-design",
+  "name": "open-marketing",
   "version": "0.12.1",
   "private": true,
   "packageManager": "pnpm@10.33.2",
   "type": "module",
-  "description": "Local-first design product: detects your installed code-agent CLI, runs design skills + design systems, streams artifacts into a sandboxed preview.",
+  "description": "Local-first marketing workspace: detects installed code-agent CLIs, drafts campaign work, and keeps design templates and brand systems available for creative production.",
   "license": "Apache-2.0",
   "bin": {
+    "om": "./apps/daemon/bin/om.mjs",
     "od": "./apps/daemon/bin/od.mjs"
   },
   "scripts": {
     "postinstall": "node ./scripts/postinstall.mjs",
+    "dev": "pnpm run web",
+    "web": "tsx tools/dev-vite.ts",
     "tools-dev": "pnpm exec tools-dev",
     "tools-pack": "pnpm exec tools-pack",
     "tools-release": "pnpm exec tools-release",

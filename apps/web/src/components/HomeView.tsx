@@ -16,6 +16,10 @@ import type {
   InputFieldSpec,
   McpServerConfig,
   InstalledPluginRecord,
+  MarketingCampaignSummary,
+  MarketingConnectorSummary,
+  MarketingOverviewResponse,
+  MarketingRecommendationSummary,
   ProjectKind,
   AudioVoiceOption,
 } from '@open-design/contracts';
@@ -222,6 +226,8 @@ interface Props {
   skills?: SkillSummary[];
   skillsLoading?: boolean;
   connectors?: ConnectorDetail[];
+  marketingOverview?: MarketingOverviewResponse | null;
+  marketingOverviewLoading?: boolean;
   promptTemplates?: PromptTemplateSummary[];
   executionSwitcher?: ReactNode;
 }
@@ -250,6 +256,8 @@ export function HomeView({
   skills = EMPTY_SKILLS,
   skillsLoading = false,
   connectors = EMPTY_CONNECTORS,
+  marketingOverview = null,
+  marketingOverviewLoading = false,
   promptTemplates = EMPTY_PROMPT_TEMPLATES,
   executionSwitcher,
 }: Props) {
@@ -1925,6 +1933,11 @@ export function HomeView({
         executionSwitcher={executionSwitcher}
       />
 
+      <MarketingOverviewSection
+        overview={marketingOverview}
+        loading={marketingOverviewLoading}
+      />
+
       <RecentProjectsStrip
         projects={projects}
         designSystems={designSystems}
@@ -2140,6 +2153,209 @@ export function HomeView({
       ) : null}
     </div>
   );
+}
+
+function MarketingOverviewSection({
+  overview,
+  loading,
+}: {
+  overview: MarketingOverviewResponse | null;
+  loading: boolean;
+}) {
+  if (loading) {
+    return (
+      <section className="marketing-overview" aria-label="Open Marketing overview">
+        <div className="marketing-overview__loading">Loading marketing workspace...</div>
+      </section>
+    );
+  }
+
+  if (!overview) return null;
+
+  const primaryConnector =
+    overview.connectors.find((connector) => connector.isPrimary)
+    ?? overview.connectors[0]
+    ?? null;
+  const supportingConnectors = overview.connectors.filter((connector) => !connector.isPrimary).slice(0, 5);
+
+  return (
+    <section className="marketing-overview" aria-label="Open Marketing overview">
+      <header className="marketing-overview__head">
+        <div>
+          <p className="marketing-overview__eyebrow">Meta/Instagram first</p>
+          <h2 className="marketing-overview__title">Campaign drafts, assets, approvals, reporting</h2>
+        </div>
+        <p className="marketing-overview__guardrail">
+          AI can draft campaigns and ads. Spend and publishing stay paused until explicit human approval.
+        </p>
+      </header>
+
+      <div className="marketing-overview__grid">
+        <div className="marketing-overview__panel marketing-overview__panel--connectors">
+          <div className="marketing-overview__panel-head">
+            <h3>First integration</h3>
+            {primaryConnector ? (
+              <StatusPill label={connectorStatusLabel(primaryConnector.status)} tone={primaryConnector.status} />
+            ) : null}
+          </div>
+          {primaryConnector ? (
+            <ConnectorCard connector={primaryConnector} />
+          ) : (
+            <div className="marketing-overview__empty">No marketing connectors found.</div>
+          )}
+          {supportingConnectors.length > 0 ? (
+            <div className="marketing-overview__connector-list" aria-label="Planned marketing integrations">
+              {supportingConnectors.map((connector) => (
+                <div key={connector.id} className="marketing-overview__connector-row">
+                  <span>{connector.name}</span>
+                  <StatusPill label={connectorStatusLabel(connector.status)} tone={connector.status} compact />
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="marketing-overview__panel marketing-overview__panel--campaigns">
+          <div className="marketing-overview__panel-head">
+            <h3>Draft campaigns</h3>
+            <span className="marketing-overview__count">{overview.sampleCampaigns.length}</span>
+          </div>
+          <div className="marketing-overview__campaign-list">
+            {overview.sampleCampaigns.map((campaign) => (
+              <CampaignCard key={campaign.id} campaign={campaign} />
+            ))}
+          </div>
+        </div>
+
+        <div className="marketing-overview__panel marketing-overview__panel--recommendations">
+          <div className="marketing-overview__panel-head">
+            <h3>Recommendations</h3>
+            <span className="marketing-overview__count">{overview.recommendations.length}</span>
+          </div>
+          <div className="marketing-overview__recommendation-list">
+            {overview.recommendations.map((recommendation) => (
+              <RecommendationCard key={recommendation.id} recommendation={recommendation} />
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ConnectorCard({ connector }: { connector: MarketingConnectorSummary }) {
+  return (
+    <article className="marketing-overview__connector-card">
+      <div>
+        <h4>{connector.name}</h4>
+        <p>{connector.description}</p>
+      </div>
+      <span className="marketing-overview__role">{connectorRoleLabel(connector.role)}</span>
+    </article>
+  );
+}
+
+function CampaignCard({ campaign }: { campaign: MarketingCampaignSummary }) {
+  return (
+    <article className="marketing-overview__campaign-card">
+      <div className="marketing-overview__campaign-main">
+        <div>
+          <h4>{campaign.name}</h4>
+          <p>{campaign.brief}</p>
+        </div>
+        <StatusPill label={campaignStatusLabel(campaign.status)} tone={campaign.status} />
+      </div>
+      <dl className="marketing-overview__metrics">
+        <div>
+          <dt>Channel</dt>
+          <dd>{campaign.channel}</dd>
+        </div>
+        <div>
+          <dt>Budget</dt>
+          <dd>{campaign.budgetLabel}</dd>
+        </div>
+        <div>
+          <dt>Audience</dt>
+          <dd>{campaign.audienceLabel}</dd>
+        </div>
+        {campaign.primaryMetricLabel && campaign.primaryMetricValue ? (
+          <div>
+            <dt>{campaign.primaryMetricLabel}</dt>
+            <dd>{campaign.primaryMetricValue}</dd>
+          </div>
+        ) : null}
+      </dl>
+      <p className="marketing-overview__next-action">{campaign.nextAction}</p>
+    </article>
+  );
+}
+
+function RecommendationCard({ recommendation }: { recommendation: MarketingRecommendationSummary }) {
+  return (
+    <article className="marketing-overview__recommendation-card">
+      <div className="marketing-overview__recommendation-top">
+        <StatusPill label={recommendation.priority} tone={recommendation.priority} compact />
+        <span>{recommendation.status}</span>
+      </div>
+      <h4>{recommendation.action}</h4>
+      <p>{recommendation.rationale}</p>
+    </article>
+  );
+}
+
+function StatusPill({
+  label,
+  tone,
+  compact = false,
+}: {
+  label: string;
+  tone: string;
+  compact?: boolean;
+}) {
+  return (
+    <span className={`marketing-overview__pill marketing-overview__pill--${tone}${compact ? ' marketing-overview__pill--compact' : ''}`}>
+      {label}
+    </span>
+  );
+}
+
+function connectorStatusLabel(status: MarketingConnectorSummary['status']): string {
+  switch (status) {
+    case 'read_only':
+      return 'Read-only';
+    case 'primary':
+      return 'Primary';
+    default:
+      return titleCase(status);
+  }
+}
+
+function connectorRoleLabel(role: MarketingConnectorSummary['role']): string {
+  switch (role) {
+    case 'campaign_launch':
+      return 'Campaign drafts';
+    case 'asset_library':
+      return 'Asset library';
+    default:
+      return titleCase(role);
+  }
+}
+
+function campaignStatusLabel(status: MarketingCampaignSummary['status']): string {
+  switch (status) {
+    case 'needs_approval':
+      return 'Needs approval';
+    default:
+      return titleCase(status);
+  }
+}
+
+function titleCase(value: string): string {
+  return value
+    .split('_')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
 }
 
 function projectKindForSkill(skill: SkillSummary | null): ProjectKind | null {

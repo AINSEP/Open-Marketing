@@ -8,6 +8,7 @@ import { resolveProjectRelativePath } from './home-expansion.js';
 const require = createRequire(import.meta.url);
 
 export const DAEMON_CLI_PATH_ENV = 'OD_DAEMON_CLI_PATH';
+export const MARKETING_DAEMON_CLI_PATH_ENV = 'OM_DAEMON_CLI_PATH';
 export const RESOURCE_ROOT_ENV = 'OD_RESOURCE_ROOT';
 
 function cleanOptionalPath(value: string | undefined): string | null {
@@ -17,7 +18,11 @@ function cleanOptionalPath(value: string | undefined): string | null {
 }
 
 export function resolveDaemonCliPath(env: NodeJS.ProcessEnv = process.env): string {
-  const configured = cleanOptionalPath(env[DAEMON_CLI_PATH_ENV]) ?? cleanOptionalPath(env.OD_BIN);
+  const configured =
+    cleanOptionalPath(env[MARKETING_DAEMON_CLI_PATH_ENV]) ??
+    cleanOptionalPath(env[DAEMON_CLI_PATH_ENV]) ??
+    cleanOptionalPath(env.OM_BIN) ??
+    cleanOptionalPath(env.OD_BIN);
   if (configured) return configured;
 
   const packageJsonPath = require.resolve('@open-design/daemon/package.json');

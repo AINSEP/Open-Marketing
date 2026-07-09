@@ -80,6 +80,69 @@ export interface HomeHeroChip {
 
 export const HOME_HERO_CHIPS: ReadonlyArray<HomeHeroChip> = [
   {
+    id: 'instagram-ads',
+    label: 'Advertise on Instagram',
+    icon: 'image',
+    group: 'create',
+    description: 'Meta/IG campaign drafts',
+    hint: 'Turn a business goal into paused Instagram campaign drafts, creative variants, and approval steps.',
+    action: {
+      kind: 'apply-scenario',
+      pluginId: 'od-new-generation',
+      projectKind: 'other',
+      inputs: {
+        artifactKind: 'Instagram campaign workspace',
+        audience: 'growth marketers and founders',
+        topic: 'a paused Meta and Instagram ads campaign with creative variants, budget, audience, and approval steps',
+      },
+      projectMetadata: {
+        kind: 'other',
+      },
+    },
+  },
+  {
+    id: 'google-ads-tracking',
+    label: 'Track your Google Ads',
+    icon: 'sliders',
+    group: 'create',
+    description: 'Read-only reporting',
+    hint: 'Analyze Google Ads performance and translate search intent into next campaign actions.',
+    action: {
+      kind: 'apply-scenario',
+      pluginId: 'od-new-generation',
+      projectKind: 'other',
+      inputs: {
+        artifactKind: 'Google Ads reporting workspace',
+        audience: 'performance marketers and founders',
+        topic: 'a read-only Google Ads dashboard with spend, CTR, CPC, CPA, search themes, and recommended next actions',
+      },
+      projectMetadata: {
+        kind: 'other',
+      },
+    },
+  },
+  {
+    id: 'tiktok-ads',
+    label: 'Create TikTok Ads',
+    icon: 'play',
+    group: 'create',
+    description: 'Short-form ad drafts',
+    hint: 'Plan TikTok ad concepts, hooks, video variants, and approval-ready draft structure.',
+    action: {
+      kind: 'apply-scenario',
+      pluginId: 'od-new-generation',
+      projectKind: 'other',
+      inputs: {
+        artifactKind: 'TikTok ads draft workspace',
+        audience: 'short-form growth marketers and founders',
+        topic: 'TikTok campaign drafts with hooks, creator-style scripts, video variants, budget, and approval steps',
+      },
+      projectMetadata: {
+        kind: 'other',
+      },
+    },
+  },
+  {
     id: 'create-brand-kit',
     // Inline English fallback only — the rendered label is localized through
     // the `homeHero.chip.createBrandKit` Dict key (see `homeHeroChipLabel` in
@@ -333,6 +396,9 @@ export function chipsForGroup(group: ChipGroup): HomeHeroChip[] {
 // rather than seeding a scenario plugin. Any create chip not listed keeps its
 // catalog order after the explicit entries (see `orderedCreateChips`).
 export const CREATE_RAIL_ORDER = [
+  'instagram-ads',
+  'google-ads-tracking',
+  'tiktok-ads',
   'deck',
   'prototype',
   'wireframe',

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { AnimatePresence, motion, MotionConfig } from 'motion/react';
+import { CopilotProvider, CopilotSidebar } from './agui-copilot';
 import { useAnalytics } from './analytics/provider';
 import {
   trackFileUploadResult,
@@ -327,9 +328,16 @@ export function App() {
   // it they keep springing/sliding for users who asked us not to animate.
   return (
     <MotionConfig reducedMotion="user">
-      <IframeKeepAliveProvider>
-        <AppInner />
-      </IframeKeepAliveProvider>
+      {/* agui-copilot: the system-wide agentic interface (CopilotKit v2 + ag-ui)
+          fronting the daemon at /api/copilotkit. All CopilotKit specifics are
+          confined to apps/web/src/agui-copilot/. The chat sidebar renders
+          alongside Open Marketing's native UI. */}
+      <CopilotProvider>
+        <IframeKeepAliveProvider>
+          <AppInner />
+          <CopilotSidebar />
+        </IframeKeepAliveProvider>
+      </CopilotProvider>
     </MotionConfig>
   );
 }
@@ -342,7 +350,7 @@ function AppInner() {
   // Observability marker. `apps/web/src/observability/white-screen.ts`
   // keys its "app actually mounted" success condition on this attribute
   // because the dynamic-import loading shell (`<div class="od-loading-shell">
-  // Loading Open Design…</div>`) is itself >MIN_VISIBLE_TEXT and would
+  // Loading Open Marketing...</div>`) is itself >MIN_VISIBLE_TEXT and would
   // otherwise be mistaken for a real mount. Survives subsequent render
   // crashes — once App has mounted at least once, it's no longer a white
   // screen (subsequent failures show up as `$exception`).
