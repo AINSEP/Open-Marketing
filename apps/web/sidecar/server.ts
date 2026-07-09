@@ -38,6 +38,7 @@ const WEB_DIST_DIR_ENV = SIDECAR_ENV.WEB_DIST_DIR;
 const WEB_PORT_ENV = SIDECAR_ENV.WEB_PORT;
 const TOOLS_DEV_PARENT_PID_ENV = SIDECAR_ENV.TOOLS_DEV_PARENT_PID;
 const WEB_OUTPUT_MODE_ENV = "OD_WEB_OUTPUT_MODE";
+const WEB_DEV_SERVER_ENV = "OD_WEB_DEV_SERVER";
 const WEB_STANDALONE_ROOT_ENV = "OD_WEB_STANDALONE_ROOT";
 const STANDALONE_PARENT_PID_ENV = "OD_STANDALONE_PARENT_PID";
 const STANDALONE_STARTUP_TIMEOUT_ENV = "OD_STANDALONE_STARTUP_TIMEOUT_MS";
@@ -900,6 +901,59 @@ function createDaemonProxyHandler(
   };
 }
 
+async function startViteDevSidecar(
+  runtime: SidecarRuntimeContext<SidecarStamp>,
+  webRoot: string,
+): Promise<WebSidecarHandle> {
+  const daemonOrigin = resolveDaemonOrigin();
+  // Vite runs in-process in middleware mode: no child process, no extra port,
+  // and its HMR websocket attaches directly to this sidecar's HTTP server. The
+  // sidecar keeps owning the port the desktop shell discovers plus the
+  // daemon-proxy for /api, /artifacts, /frames, so nothing downstream changes.
+  let vite: import("vite").ViteDevServer | null = null;
+
+  const handleRequest = (request: IncomingMessage, response: ServerResponse): Promise<void> =>
+    new Promise<void>((resolveRequest) => {
+      response.once("finish", resolveRequest);
+      response.once("close", resolveRequest);
+      if (vite == null) {
+        response.statusCode = 503;
+        response.end("vite dev server is starting");
+        return;
+      }
+      vite.middlewares(request, response, () => {
+        if (!response.headersSent) {
+          response.statusCode = 404;
+          response.end("Not Found");
+        } else {
+          response.end();
+        }
+      });
+    });
+
+  const httpServer = createHttpServer(createDaemonProxyHandler(daemonOrigin, handleRequest));
+
+  console.log(`[open-design web] starting in-process Vite dev server from ${webRoot}`);
+  const { createServer: createViteServer } = await import("vite");
+  vite = await createViteServer({
+    root: webRoot,
+    appType: "spa",
+    server: {
+      middlewareMode: true,
+      hmr: { server: httpServer },
+    },
+  });
+
+  try {
+    return await createWebSidecarHandle(runtime, httpServer, async () => {
+      await vite?.close();
+    });
+  } catch (error) {
+    await vite.close().catch(() => undefined);
+    throw error;
+  }
+}
+
 async function startRegularNextSidecar(
   runtime: SidecarRuntimeContext<SidecarStamp>,
   webRoot: string,
@@ -953,5 +1007,16 @@ export async function startWebSidecar(runtime: SidecarRuntimeContext<SidecarStam
   }
 
   const webRoot = resolveWebRoot();
+  if (shouldUseViteDevServer(runtime)) {
+    return await startViteDevSidecar(runtime, webRoot);
+  }
   return await startRegularNextSidecar(runtime, webRoot);
+}
+
+function shouldUseViteDevServer(runtime: SidecarRuntimeContext<SidecarStamp>): boolean {
+  return (
+    runtime.mode === "dev" &&
+    process.env.OD_WEB_PROD !== "1" &&
+    process.env[WEB_DEV_SERVER_ENV] === "vite"
+  );
 }
