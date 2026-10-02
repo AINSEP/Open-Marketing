@@ -1,0 +1,1 @@
+function Component(required: {}) { const handler = () => {}; return null; }

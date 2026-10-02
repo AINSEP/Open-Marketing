@@ -1,58 +1,16 @@
-# Agent Entry Point — Open Marketing
+# Open Marketing agent entry point
 
-Read this file first when entering the repository. Agent behavior boots from
-`AI-Dev-Shop/AGENTS.md`; that is mandatory. This file adds the project-specific
-map and rules.
+Read `AI-Dev-Shop/AGENTS.md` and the dispatched persona first. AI-Dev-Shop is a separate read-only repository.
 
-## What this repo is
+Authoritative architecture: `ADS-memory/reports/2026-10-01-om-target-architecture-v2.md`.
+Engineering contract: `development/COMMON.md` (repeat unchanged in every job brief).
+Feature job ownership and commands: `development/JOBS.md`.
 
-Open Marketing (OM) is an open-source marketing app: AI creative production
-(Higgsfield and other vendors), ad campaigns (Google Search and Meta first), and
-measurement (tracked links, server-side conversions, CAC). Vendor integrations
-are Agent Plugins (agent-plugins.org spec v1.1.0). Shared infrastructure comes
-only from published `@jini-ai/*` packages. Code may be copied from Tovu, but OM
-never imports Tovu.
+Prefer codebase-memory-mcp search_graph/trace_path/get_code_snippet/query_graph/get_architecture for code discovery. Refresh the index when needed; use direct source discovery when unavailable or insufficient. Strings/config/docs may use rg.
 
-The repository was cleared of its Open Design ancestry on 2026-10-01. The old
-code lives in git history (commit `9d343ab68` and earlier) and in the upstream
-`origin` remote (`nexu-io/open-design`). Do not restore it.
+Four inert applications: studio (React/Vite), desktop (Electron host port), server (HTTP/DB/workers/plugin composition), agent (separate runtime port).
+Features import only public `@open-marketing/<name>` packages; caller-owned ports adapt cross-feature needs. Only safety/measure may import policy pure gates. Contracts stay pure. Vendor implementation and configuration live in `content/agent-plugins`. Parked source is linted and stays outside runtime/workspaces.
 
-## Where things are
-
-- **Target architecture (read first):**
-  `ADS-project-knowledge/reports/2026-10-01-om-target-architecture-v2.md`
-  (v1 alongside it is superseded).
-- **Marketing research:** `ADS-project-knowledge/knowledge/marketing-recon/`.
-  Start with `capability-synthesis.md`, then `open-marketing-build-plan.md`. It
-  holds 13 per-repo deep dives, the five architect reviews and each repo's notes.
-- **Preserved OM work, awaiting relocation by the skeleton job:**
-  `packages/{spine,om-clock,om-outbox,om-pg,segments,render}`,
-  `apps/web/src/components/om-chat/`, `apps/daemon/src/tools-app-control-cli.ts`.
-
-## Target shape (summary; the architecture doc is authoritative)
-
-- `apps/studio`: operator UI. Features on the left, canvas in the center, AI
-  chat on the right.
-- `apps/desktop`: Electron shell hosting studio.
-- `apps/server`: API, database, workers, plugin/MCP federation host,
-  credentials, safety.
-- `apps/agent`: agent runtime as a separate process. It talks only to the
-  server's OM tool surface.
-- `features/<name>/`: feature modules imported by package name only.
-- `packages/contracts`: shared DTOs.
-- `content/agent-plugins/`: vendor plugins.
-
-## Engineering rules
-
-Every design or implementation brief restates the owner's full rule set: see the
-"OM engineering contract" (COMMON.md block) in the architecture doc, and
-`AI-Dev-Shop/framework/templates/bootstrap/starter-conventions-typescript.md`.
-In short: feature slices with `index.ts` as the only public API; modular and
-reversible first; dependency injection via ports; `fn(requiredArgs,
-optionalArgs?)`; cognitive complexity ≤10 and nesting ≤3; no functions in .tsx
-component bodies; one general approval rule for external tools; self-contained
-plugins.
-
-## Git
-
-- Commit only Open Marketing work. Don't add co-author trailers.
+Run `corepack pnpm om:check` and package-scoped test/build/typecheck. No inherited application commands, old UI, vendor spend, or live migrations. Imports/factories do not start services.
+Preserve dirty/untracked work. Never edit another active job's files. Shared contracts/manifests/lockfile/composition have one integrator. Report NEEDS for collisions.
+Commit only OM work when instructed; no co-author trailers. j00 is not authorized to commit or push.

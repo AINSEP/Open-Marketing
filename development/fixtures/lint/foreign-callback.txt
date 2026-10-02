@@ -1,0 +1,1 @@
+export function check(required: { values: number[] }) { return required.values.map((value, index) => value + index); }

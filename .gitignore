@@ -34,3 +34,6 @@ playwright-report/
 
 # codebase-memory-mcp local graph DB (regenerable)
 /.codebase-memory/
+
+# pnpm store created locally by sandboxed installs (regenerable)
+/.pnpm-store/

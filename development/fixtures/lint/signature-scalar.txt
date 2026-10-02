@@ -1,0 +1,1 @@
+type Scalar = number; export function check(required: Scalar) { return required; }

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.1.0/plugin.schema.json",
+  "name": "meta-ads",
+  "version": "0.0.0",
+  "description": "Disabled Open Marketing skeleton; no admitted vendor capability.",
+  "license": "Apache-2.0",
+  "extensions": {
+    "io.github.ainsep.openmarketing": {
+      "version": 1,
+      "enabled": false,
+      "admitted": false,
+      "capabilities": {}
+    }
+  }
+}

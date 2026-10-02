@@ -1,0 +1,44 @@
+{
+  "name": "open-marketing",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "packageManager": "pnpm@10.24.0",
+  "engines": {
+    "node": "24.2.0",
+    "pnpm": "10.24.0"
+  },
+  "scripts": {
+    "om:lint": "node development/scripts/lint.mjs",
+    "om:boundaries": "node development/scripts/boundaries.mjs",
+    "om:typecheck": "pnpm -r typecheck && tsc -p tsconfig.json",
+    "om:gate-tests": "vitest run development/tests",
+    "om:metrics": "node development/scripts/metrics.mjs",
+    "om:check": "pnpm om:lint && pnpm om:boundaries && pnpm om:typecheck && pnpm om:gate-tests && pnpm om:metrics",
+    "om:dev": "node development/scripts/dev.mjs",
+    "om:package": "node development/scripts/unavailable.mjs package",
+    "om:serve": "node development/scripts/unavailable.mjs serve"
+  },
+  "devDependencies": {
+    "@open-marketing/contracts": "workspace:*",
+    "zod": "4.1.13",
+    "@eslint/js": "9.39.1",
+    "@typescript-eslint/parser": "8.48.1",
+    "eslint": "9.39.1",
+    "eslint-plugin-sonarjs": "3.0.5",
+    "typescript": "5.9.3",
+    "dependency-cruiser": "17.3.2",
+    "fast-glob": "3.3.3",
+    "yaml": "2.8.1",
+    "vitest": "3.2.4",
+    "@vitest/coverage-v8": "3.2.4",
+    "fast-check": "4.3.0",
+    "@types/node": "24.10.1",
+    "tsx": "4.20.6",
+    "esbuild": "0.25.12",
+    "@playwright/test": "1.56.1",
+    "@testing-library/react": "16.3.0",
+    "@testing-library/user-event": "14.6.1",
+    "jsdom": "27.2.0"
+  }
+}

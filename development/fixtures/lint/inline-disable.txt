@@ -1,0 +1,2 @@
+/* eslint-disable sonarjs/cognitive-complexity */
+export function check(required: {}) { return required; }

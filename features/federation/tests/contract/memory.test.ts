@@ -1,0 +1,11 @@
+import { FederationConnectionRepoPortSuite, McpTransportPortSuite, FederationCredentialPortSuite, FederatedToolPermissionGateSuite, FederatedCallConfirmationSuite, ExternalMcpToolApprovalRepoPortSuite, FederatedDispatchGatePortSuite, FederationAuditPortSuite, ToolRegistryPortSuite } from "./port-suites.js";
+import { createMemoryFederationConnectionRepo, createMemoryMcpTransport, createMemoryFederationCredential, createMemoryFederatedToolPermissionGate, createMemoryFederatedCallConfirmation, createMemoryExternalMcpToolApprovalRepo, createMemoryFederatedDispatchGate, createMemoryFederationAudit, createMemoryToolRegistry } from "../../index.js";
+FederationConnectionRepoPortSuite({ create: () => createMemoryFederationConnectionRepo({}) });
+McpTransportPortSuite({ create: () => createMemoryMcpTransport({}) });
+FederationCredentialPortSuite({ create: () => createMemoryFederationCredential({}) });
+FederatedToolPermissionGateSuite({ create: () => createMemoryFederatedToolPermissionGate({}) });
+FederatedCallConfirmationSuite({ create: () => createMemoryFederatedCallConfirmation({}) });
+ExternalMcpToolApprovalRepoPortSuite({ create: () => createMemoryExternalMcpToolApprovalRepo({}) });
+FederatedDispatchGatePortSuite({ create: () => createMemoryFederatedDispatchGate({}) });
+FederationAuditPortSuite({ create: () => createMemoryFederationAudit({}) });
+ToolRegistryPortSuite({ create: () => createMemoryToolRegistry({}) });

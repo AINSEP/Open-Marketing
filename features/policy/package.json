@@ -1,0 +1,31 @@
+{
+  "name": "@open-marketing/policy",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "om": {
+    "kind": "feature"
+  },
+  "exports": {
+    ".": {
+      "types": "./index.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.tests.json",
+    "build": "node ../../development/scripts/build.mjs",
+    "test": "vitest run tests"
+  },
+  "dependencies": {
+    "zod": "4.1.13",
+    "@open-marketing/contracts": "workspace:*",
+    "@open-marketing/om-clock": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "3.2.4",
+    "fast-check": "4.3.0",
+    "better-sqlite3": "13.0.3",
+    "@types/better-sqlite3": "9.6.0"
+  }
+}

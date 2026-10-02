@@ -1,0 +1,5 @@
+export { createFederationHost } from "./src/service.js";
+export type { ExternalToolCall, ExternalToolResult, ReloadReceipt, FederationConnection, FederatedToolDescriptor, FederationHost } from "./src/types.js";
+export type { FederationConnectionRepoPort, McpTransportPort, FederationCredentialPort, FederatedToolPermissionGate, FederatedCallConfirmation, ExternalMcpToolApprovalRepoPort, FederatedDispatchGatePort, FederationAuditPort, ToolRegistryPort, FederationObserverPort } from "./src/ports.js";
+export { createMemoryFederationConnectionRepo, createMemoryMcpTransport, createMemoryFederationCredential, createMemoryFederatedToolPermissionGate, createMemoryFederatedCallConfirmation, createMemoryExternalMcpToolApprovalRepo, createMemoryFederatedDispatchGate, createMemoryFederationAudit, createMemoryToolRegistry } from "./src/memory.js";
+export type { Outcome, CallContext, CallOptions, ClockPort, IdPort, Scope, ConfirmationCard, HaltStopRequest, HaltStopPermit, GenerationAllowanceSettings, GenerationCostQuote, GenerationApprovalRequirement, MeasurementGrant } from "@open-marketing/contracts";

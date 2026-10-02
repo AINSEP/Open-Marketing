@@ -1,0 +1,1 @@
+function Component(required: {}) { function handler() {} return null; }

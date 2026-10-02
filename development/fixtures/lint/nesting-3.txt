@@ -1,0 +1,1 @@
+export function check(required: { yes: boolean }) { if(required.yes) { if(required.yes) { if(required.yes) { return 1; } } } return 0; }

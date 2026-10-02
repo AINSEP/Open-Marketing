@@ -1,0 +1,10 @@
+import { SafetyRepoPortSuite, SpendPolicyPortSuite, ConfirmationExchangePortSuite, VerifiedEffectResolverPortSuite, PlatformLimitEvidencePortSuite, AccountDispatchLockPortSuite, SafetyAuditPortSuite } from "./port-suites.js";
+import { createMemorySpendPolicy, createMemoryConfirmationExchange, createMemoryVerifiedEffectResolver, createMemoryPlatformLimitEvidence, createMemoryAccountDispatchLock, createMemorySafetyAudit } from "../../index.js";
+import { capEvidence, context, createHarness, spendRequest, timing } from "../fixtures.js";
+SafetyRepoPortSuite({ create: () => createHarness({ backend: "memory" }) });
+SpendPolicyPortSuite({ create: () => createMemorySpendPolicy({}) });
+ConfirmationExchangePortSuite({ create: () => createMemoryConfirmationExchange(timing()) });
+VerifiedEffectResolverPortSuite({ create: () => createMemoryVerifiedEffectResolver({ effects: [{ scope: context.scope, request: spendRequest(), envelope: spendRequest().envelope }] }) });
+PlatformLimitEvidencePortSuite({ create: () => createMemoryPlatformLimitEvidence({ evidence: [{ scope: context.scope, evidence: capEvidence() }] }) });
+AccountDispatchLockPortSuite({ create: () => createMemoryAccountDispatchLock(timing()) });
+SafetyAuditPortSuite({ create: () => createMemorySafetyAudit({}) });

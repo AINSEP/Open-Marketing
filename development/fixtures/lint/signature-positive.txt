@@ -1,0 +1,1 @@
+interface Required { value: number } export function check(required: Required, optional: { mode?: string } = {}) { return required.value; }

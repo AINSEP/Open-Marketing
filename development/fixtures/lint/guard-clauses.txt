@@ -1,0 +1,1 @@
+export function check(required: { flags: boolean[] }) { if (required.flags[0]) return 0; if (required.flags[1]) return 1; if (required.flags[2]) return 2; if (required.flags[3]) return 3; return -1; }

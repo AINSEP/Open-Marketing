@@ -1,0 +1,27 @@
+{
+  "name": "@open-marketing/desktop",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "om": {
+    "kind": "app",
+    "composition": "src/composition/index.ts"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.tests.json",
+    "build": "node ../../development/scripts/build.mjs",
+    "test": "vitest run tests"
+  },
+  "dependencies": {
+    "@open-marketing/contracts": "workspace:*",
+    "@open-marketing/om-clock": "workspace:*",
+    "zod": "4.1.13",
+    "electron": "39.2.3"
+  }
+}
