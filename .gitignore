@@ -1,0 +1,36 @@
+# Dependencies and build output
+node_modules/
+dist/
+out/
+coverage/
+.vite/
+tsconfig.tsbuildinfo
+*.tsbuildinfo
+
+# Runtime data, logs and scratch
+.tmp/
+*.log
+.DS_Store
+test-results/
+playwright-report/
+.playwright-mcp/
+
+# Secrets and local environment
+.env
+.env.local
+.env.*.local
+
+# Agent hosts' personal state
+.claude/*
+.codex/
+.cursor/
+.agents/
+.task/
+
+# AI Dev Shop is its own git repo; its local artifacts stay local
+/AI-Dev-Shop/
+/ADS-project-knowledge/.local-artifacts/
+/ADS-memory/.local-artifacts/
+
+# codebase-memory-mcp local graph DB (regenerable)
+/.codebase-memory/

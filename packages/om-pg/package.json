@@ -1,0 +1,27 @@
+{
+  "name": "@open-marketing/om-pg",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Injected Postgres transactions, migrations and bounded queue claims.",
+  "main": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "files": ["dist", "migrations"],
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.mjs", "require": "./dist/index.cjs", "default": "./dist/index.mjs" },
+    "./migrations/0001_spine.sql": "./migrations/0001_spine.sql"
+  },
+  "scripts": {
+    "build": "tsx ./esbuild.config.ts && tsc -p tsconfig.json --emitDeclarationOnly",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.tests.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "24.12.2",
+    "esbuild": "0.28.0",
+    "tsx": "4.22.3",
+    "typescript": "6.0.3",
+    "vitest": "4.1.6"
+  },
+  "engines": { "node": "~24" }
+}

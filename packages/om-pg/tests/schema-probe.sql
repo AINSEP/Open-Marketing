@@ -1,0 +1,56 @@
+-- Execute only in a fresh disposable database after 0001_spine.sql, with ON_ERROR_STOP.
+BEGIN;
+INSERT INTO om.tenant VALUES ('00000000-0000-0000-0000-000000000001', 'probe', DEFAULT);
+INSERT INTO om.workspace (tenant_id, id, name) VALUES
+  ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002', 'first'),
+  ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000003', 'second');
+INSERT INTO om.subject (tenant_id, workspace_id, id) VALUES
+  ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000004');
+INSERT INTO om.subject_identifier (tenant_id, workspace_id, id, subject_id, kind, normalized_value) VALUES
+  ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002',
+   '00000000-0000-0000-0000-000000000005', '00000000-0000-0000-0000-000000000004', 'order_id', 'order-1');
+INSERT INTO om.ad_account VALUES
+  ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002',
+   '00000000-0000-0000-0000-000000000006', 'meta', 'sandbox-account', 'sandbox', NULL);
+INSERT INTO om.consent VALUES
+  ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002',
+   '00000000-0000-0000-0000-000000000009', '00000000-0000-0000-0000-000000000004',
+   'marketing', 'channel', 'email', 'granted', '2026-01-01', NULL, 'form:1', 'human'),
+  ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002',
+   '00000000-0000-0000-0000-000000000010', '00000000-0000-0000-0000-000000000004',
+   'measurement', 'destination', 'meta', 'granted', '2026-01-01', '2027-01-01', 'form:2', 'human');
+INSERT INTO om.budget_authorization VALUES
+  ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002',
+   '00000000-0000-0000-0000-000000000007', '00000000-0000-0000-0000-000000000006',
+   'USD', 9007199254740993, '2026-01-01', '2026-02-01', '2025-12-31', NULL, repeat('a', 64), 'human');
+DO $$
+BEGIN
+  IF (SELECT amount_minor::text FROM om.budget_authorization) <> '9007199254740993' THEN
+    RAISE EXCEPTION 'money precision lost';
+  END IF;
+  BEGIN
+    INSERT INTO om.subject_identifier (tenant_id, workspace_id, id, subject_id, kind, normalized_value) VALUES
+      ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000003',
+       '00000000-0000-0000-0000-000000000008', '00000000-0000-0000-0000-000000000004', 'email', 'cross-scope');
+    RAISE EXCEPTION 'cross-workspace reference accepted';
+  EXCEPTION WHEN foreign_key_violation THEN NULL;
+  END;
+  BEGIN
+    UPDATE om.consent SET scope = 'both';
+    RAISE EXCEPTION 'ambiguous consent scope accepted';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  BEGIN
+    UPDATE om.budget_authorization SET amount_minor = -1;
+    RAISE EXCEPTION 'negative authorization accepted';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  BEGIN
+    INSERT INTO om.subject_merge VALUES
+      ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002',
+       '00000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000004', now(), 'human');
+    RAISE EXCEPTION 'self merge accepted';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+END $$;
+ROLLBACK;
