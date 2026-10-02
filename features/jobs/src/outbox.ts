@@ -62,8 +62,13 @@ export function createOutbox({ ports, inputPolicy }: {
         const live = await ports.store.beginDispatch({ id: job.id, tenantId: job.tenantId, token: job.leaseToken!, now: now() });
         if (!live)
             return { kind: "stale" };
+        // An awaited store may return after the fence expires or cancellation arrives.
+        if (now() >= job.leaseExpiresAt!)
+            return { kind: "stale" };
+        if (signal?.aborted)
+            return complete(job, failureCompletion({ kind: "transient", attempt: job.attempts, now: now(), policy, idempotent: false }));
         let result: TransportResult;
-        const request: EnqueueRequest = { tenantId: job.tenantId, idempotencyKey: job.idempotencyKey, requestDigest: job.requestDigest, operation: job.operation, payload: job.payload };
+        const request: EnqueueRequest = { tenantId: job.tenantId, idempotencyKey: job.idempotencyKey, requestDigest: job.requestDigest, operation: job.operation, payload: job.payload, context: job.context };
         try {
             result = await ports.transport.dispatch(request, signal);
         }

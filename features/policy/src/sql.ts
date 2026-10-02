@@ -1,0 +1,152 @@
+import type { CallContext, CallOptions, Outcome } from "@open-marketing/contracts";
+import type { CanonicalIdentityPort, PolicyObserverPort, PolicyRepoPort } from "./ports.js";
+import type { PolicyEvidence } from "./types.js";
+import { boundary, evidenceSchema, evidenceLimit, failure, referenceSchema, sameScope, validateEvidence, validateRequest } from "./validation.js";
+import { checkAppend, projectSnapshot, rootsFor } from "./projection.js";
+
+/** Structural @jini-ai/db-shaped query seam; the server supplies the client/driver.
+ * Query/connect timeouts and writer serialization belong to the injected pool.
+ */
+export interface PolicySqlClient {
+  query<Row extends Record<string, unknown> = Record<string, unknown>>(required: { text: string; values?: unknown[] }): Promise<{ rows: Row[]; rowCount: number | null }>;
+  release(required: { destroy?: boolean }): void;
+}
+export interface PolicySqlPool {
+  readonly dialect?: "sqlite" | "postgres";
+  connect(): Promise<PolicySqlClient>;
+}
+export type SqlPolicyOptions = { readonly pool: PolicySqlPool; readonly maxEvidence?: number; readonly observer?: PolicyObserverPort };
+
+type Session = { client: PolicySqlClient; context: CallContext; maxEvidence: number };
+
+/** Durable append-only evidence adapter; all reads refresh current data.
+ * Factories do not connect, create tables or apply migrations. SQLite is server-owned.
+ * @example createSqlPolicyRepo({ pool, observer }).appendEvidence({ context, evidence })
+ * @complexity O(n) for n scoped evidence records, bounded at maxEvidence; 1 bulk read per operation.
+ */
+export function createSqlPolicyRepo(required: SqlPolicyOptions): PolicyRepoPort & CanonicalIdentityPort {
+  const maxEvidence = evidenceLimit({ value: required.maxEvidence });
+  return {
+    async snapshot(input, options) {
+      const invalid = validateRequest({ ...input, options });
+      if (invalid) return invalid;
+      return transaction({ ...required, context: input.context, options, operation: "policy.sql.snapshot", write: false, work: async client => {
+        const evidence = await readEvidence({ client, context: input.context, maxEvidence });
+        if (!evidence.ok) return evidence;
+        return projectSnapshot({ subjectId: input.subjectId, evidence: evidence.value });
+      } });
+    },
+    async appendEvidence(input, options) {
+      const invalid = validateEvidence({ ...input, options });
+      if (invalid) return invalid;
+      const evidence = evidenceSchema.parse(input.evidence);
+      return transaction({ ...required, context: input.context, options, operation: "policy.sql.appendEvidence", write: true, work: async client => {
+        const existing = await readEvidence({ client, context: input.context, maxEvidence });
+        if (!existing.ok) return existing;
+        const checked = checkAppend({ evidence, existing: existing.value, maxEvidence });
+        if (!checked.ok) return checked;
+      if (checked.value) return { ok: true, value: checked.value };
+        await insertEvidence({ client, evidence });
+        return { ok: true, value: evidence };
+      } });
+    },
+    async resolve(input, options) {
+      const invalid = validateRequest({ context: input.context, subjectId: input.identifier, options });
+      if (invalid) return invalid;
+      return transaction({ ...required, context: input.context, options, operation: "policy.sql.resolve", write: false, work: async client => {
+        const subject = await readIdentifier({ client, context: input.context, identifier: input.identifier });
+        if (!subject.ok) return subject;
+        const evidence = await readEvidence({ client, context: input.context, maxEvidence });
+        if (!evidence.ok) return evidence;
+        const roots = rootsFor({ evidence: evidence.value });
+        if (!roots.ok) return roots;
+        return { ok: true, value: { scope: structuredClone(input.context.scope), subjectId: roots.value.get(subject.value) ?? subject.value } };
+      } });
+    },
+  };
+}
+
+/** Read-only identity port over the same durable canonical evidence.
+ * @example createSqlCanonicalIdentity({ pool }).resolve({ context, identifier })
+ * @complexity O(n) bounded scoped evidence; identifier lookup uses its unique index.
+ */
+export function createSqlCanonicalIdentity(required: SqlPolicyOptions): CanonicalIdentityPort {
+  return createSqlPolicyRepo(required);
+}
+
+/** One bounded scoped read, never truncate authority/evidence on overflow. @complexity O(n) time/space. */
+async function readEvidence(required: Session): Promise<Outcome<PolicyEvidence[]>> {
+  const result = await required.client.query({ text: "SELECT payload, id, subject_id, kind, recorded_at, source_id FROM policy_evidence WHERE owner_id = $1 AND workspace_id = $2 ORDER BY id LIMIT $3", values: [required.context.scope.ownerId, required.context.scope.workspaceId, required.maxEvidence + 1] });
+  if (result.rows.length > required.maxEvidence) return failure({ code: "limit_exceeded", message: "Policy evidence capacity exceeded" });
+  const records: PolicyEvidence[] = [];
+  for (const row of result.rows) {
+    const record = decodeEvidence({ row, context: required.context });
+    if (!record.ok) return record;
+    records.push(record.value);
+  }
+  return { ok: true, value: records };
+}
+/** Persisted JSON is tainted; strict schemas and scope checks fail closed. @complexity O(1) bounded payload. */
+function decodeEvidence(required: { row: Record<string, unknown>; context: CallContext }): Outcome<PolicyEvidence> {
+  if (typeof required.row.payload !== "string" || required.row.payload.length > 8192) return failure({ code: "unavailable", message: "Invalid stored policy evidence" });
+  const parsed = evidenceSchema.safeParse(JSON.parse(required.row.payload));
+  if (!parsed.success || !sameScope({ left: parsed.data.scope, right: required.context.scope })) return failure({ code: "unavailable", message: "Invalid stored policy evidence" });
+  if (!metadataMatches({ row: required.row, evidence: parsed.data })) return failure({ code: "unavailable", message: "Inconsistent stored policy evidence" });
+  if (parsed.data.kind === "merge" && !sameScope({ left: parsed.data.scope, right: parsed.data.target.scope })) return failure({ code: "unavailable", message: "Invalid stored merge scope" });
+  return { ok: true, value: parsed.data };
+}
+/** Parameterized append under writer serialization; scoped PK is a second duplicate barrier. @complexity O(log n). */
+async function insertEvidence(required: { client: PolicySqlClient; evidence: PolicyEvidence }): Promise<void> {
+  await required.client.query({ text: "INSERT INTO policy_evidence (owner_id, workspace_id, id, subject_id, kind, recorded_at, source_id, payload) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)", values: [required.evidence.scope.ownerId, required.evidence.scope.workspaceId, required.evidence.id, required.evidence.subjectId, required.evidence.kind, required.evidence.recordedAt, required.evidence.sourceId, JSON.stringify(required.evidence)] });
+}
+/** Missing/ambiguous bindings return explicit unavailable, never manufacture an identity. @complexity O(log n). */
+async function readIdentifier(required: { client: PolicySqlClient; context: CallContext; identifier: string }): Promise<Outcome<string>> {
+  const result = await required.client.query({ text: "SELECT subject_id FROM policy_subject_identifier WHERE owner_id = $1 AND workspace_id = $2 AND identifier = $3 LIMIT 2", values: [required.context.scope.ownerId, required.context.scope.workspaceId, required.identifier] });
+  if (result.rows.length !== 1) return failure({ code: "unavailable", message: "Canonical identifier missing or ambiguous" });
+  const parsed = referenceSchema.safeParse({ scope: required.context.scope, subjectId: result.rows[0].subject_id });
+  return parsed.success ? { ok: true, value: parsed.data.subjectId } : failure({ code: "unavailable", message: "Invalid stored identity" });
+}
+
+type TransactionInput<T> = SqlPolicyOptions & { context: CallContext; options?: CallOptions; operation: string; write: boolean; work: (client: PolicySqlClient) => Promise<Outcome<T>> };
+/** Borrow one connection, rollback typed denials, evict failed connections.
+ * Foreign callback ABI receives the borrowed query client; it never owns release.
+ * @complexity Work-dependent; one transaction and a bounded bulk read.
+ */
+async function transaction<T>(required: TransactionInput<T>): Promise<Outcome<T>> {
+  return boundary({ ...required, work: async () => {
+    const client = await required.pool.connect();
+    return useClient({ ...required, client });
+  } });
+}
+/** Release on every path, including BEGIN/COMMIT failure; cancellation before commit rolls back. @complexity Work-dependent. */
+async function useClient<T>(required: TransactionInput<T> & { client: PolicySqlClient }): Promise<Outcome<T>> {
+  let destroy = false;
+  try {
+    await required.client.query({ text: beginStatement(required) });
+    const result = await required.work(required.client);
+    const outcome = required.options?.signal?.aborted ? failure({ code: "cancelled", message: "Policy operation cancelled" }) : result;
+    await required.client.query({ text: outcome.ok ? "COMMIT" : "ROLLBACK" });
+    return outcome;
+  } catch {
+    destroy = true;
+    await rollback({ client: required.client });
+    return failure({ code: "unavailable", message: "Policy database unavailable" });
+  } finally { required.client.release({ destroy }); }
+}
+/** SQLite serializes writers; PostgreSQL serializable transactions fail closed on races. @complexity O(1). */
+function beginStatement(required: { pool: PolicySqlPool; write: boolean }): string {
+  if (!required.write) return "BEGIN";
+  return required.pool.dialect === "postgres" ? "BEGIN ISOLATION LEVEL SERIALIZABLE" : "BEGIN IMMEDIATE";
+}
+/** Best-effort rollback after a failed transaction; connection will be evicted. @complexity O(1). */
+async function rollback(required: { client: PolicySqlClient }): Promise<void> {
+  try { await required.client.query({ text: "ROLLBACK" }); }
+  catch { /* The failed connection is evicted by release. */ }
+}
+
+/** Reject JSON/column drift rather than trusting corrupted grant metadata. @complexity O(1). */
+function metadataMatches(required: { row: Record<string, unknown>; evidence: PolicyEvidence }): boolean {
+  return required.row.id === required.evidence.id && required.row.subject_id === required.evidence.subjectId
+    && required.row.kind === required.evidence.kind && required.row.recorded_at === required.evidence.recordedAt
+    && required.row.source_id === required.evidence.sourceId;
+}

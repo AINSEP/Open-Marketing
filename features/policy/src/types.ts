@@ -65,14 +65,21 @@ export type SubjectReference = {
     readonly subjectId: string;
 };
 /** PolicyEvidence domain value; validation belongs at the boundary. */
-export type PolicyEvidence = {
+type EvidenceMetadata = {
     readonly id: string;
     readonly scope: Scope;
     readonly subjectId: string;
-    readonly kind: "consent" | "withdrawal" | "suppression" | "merge";
     readonly recordedAt: number;
     readonly sourceId: string;
 };
+/** Exact authenticated evidence; metadata alone cannot confer consent. */
+export type PolicyEvidence = EvidenceMetadata & (
+    | { readonly kind: "consent" | "withdrawal"; readonly consent: Consent }
+    | { readonly kind: "suppression"; readonly suppression: Suppression }
+    | { readonly kind: "merge"; readonly target: SubjectReference }
+);
+/** Ingress owns identifier normalization and authentication. */
+export type IdentifierBinding = { readonly identifier: string; readonly subject: SubjectReference };
 export interface PolicyService {
     snapshot(required: {
         context: CallContext;

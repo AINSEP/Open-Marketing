@@ -1,20 +1,25 @@
-import type { Outcome, CallContext, CallOptions, ClockPort, IdPort, ObserverPort, Scope, Money, TimeWindow, Page, PageQuery, ConfirmationCard, EffectEnvelope, GenerationAllowanceSettings, GenerationCostQuote, GenerationApprovalRequirement, HaltStopRequest, HaltStopPermit, ServiceContext, MeasurementGrant, CapabilityEnvelope } from "@open-marketing/contracts";
-/** AuditEntry domain value; validation belongs at the boundary. */
-export type AuditEntry = { readonly operationId: string; readonly kind: "intent" | "approval" | "dispatch" | "outcome" | "correction"; readonly argumentsDigest: string; readonly references: readonly string[]; readonly correctionOf?: string };
-/** AuditReceipt domain value; validation belongs at the boundary. */
-export type AuditReceipt = { readonly entryId: string; readonly recordedAt: number };
-/** AuditQuery domain value; validation belongs at the boundary. */
-export type AuditQuery = PageQuery & { readonly operationId?: string };
-/** AuditPage domain value; validation belongs at the boundary. */
-export type AuditPage = Page<AuditEntry>;
-export interface AuditService {
-  record(
-    required: { context: CallContext; entry: AuditEntry },
-    optional?: CallOptions,
-  ): Promise<Outcome<AuditReceipt>>;
+import type { CallContext, CallOptions, Outcome, Page, PageQuery } from "@open-marketing/contracts";
 
-  list(
-    required: { context: CallContext; query: AuditQuery },
-    optional?: CallOptions,
-  ): Promise<Outcome<AuditPage>>;
+/** Digest-only evidence. References identify caller-secured evidence, never raw arguments.
+ * Corrections name a receipt's entryId and append evidence for the same operation. */
+export type AuditEntry = {
+  readonly operationId: string;
+  readonly kind: "intent" | "approval" | "dispatch" | "outcome" | "correction";
+  readonly argumentsDigest: string;
+  readonly references: readonly string[];
+  readonly correctionOf?: string;
+};
+/** Returned only after append commits. Keep this receipt to identify correction lineage. */
+export type AuditReceipt = { readonly entryId: string; readonly recordedAt: number };
+/** Forward-only pagination: 1..100 entries, optionally filtered to an operation. */
+export type AuditQuery = PageQuery & { readonly operationId?: string };
+/** Cursor identifies the last returned entry; null means no further entries at read time. */
+export type AuditPage = Page<AuditEntry>;
+/** Required evidence must succeed before the caller starts a new effect.
+ * @example const receipt = await audit.record({ context, entry }); if (!receipt.ok) return receipt;
+ */
+export interface AuditService {
+  record(required: { context: CallContext; entry: AuditEntry }, optional?: CallOptions): Promise<Outcome<AuditReceipt>>;
+  /** Operational view: each bounded page is redacted; the repository is a trusted server boundary. */
+  list(required: { context: CallContext; query: AuditQuery }, optional?: CallOptions): Promise<Outcome<AuditPage>>;
 }

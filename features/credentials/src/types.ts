@@ -1,4 +1,4 @@
-import type { Outcome, CallContext, CallOptions, ClockPort, IdPort, ObserverPort, Scope, Money, TimeWindow, Page, PageQuery, ConfirmationCard, EffectEnvelope, GenerationAllowanceSettings, GenerationCostQuote, GenerationApprovalRequirement, HaltStopRequest, HaltStopPermit, ServiceContext, MeasurementGrant, CapabilityEnvelope } from "@open-marketing/contracts";
+import type { Outcome, CallContext, CallOptions, Scope } from "@open-marketing/contracts";
 /** ConnectRequest domain value; validation belongs at the boundary. */
 export type ConnectRequest = { readonly pluginId: string; readonly returnUri: string };
 /** ConnectChallenge domain value; validation belongs at the boundary. */
@@ -31,3 +31,6 @@ export interface CredentialService {
     optional?: CallOptions,
   ): Promise<Outcome<RevocationReceipt>>;
 }
+
+/** Host-only encrypted record; never a public connection DTO. */
+export type CredentialRecord = { readonly summary: ConnectionSummary; readonly reference: CredentialReference; readonly secret: SealedSecret };

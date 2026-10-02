@@ -3,3 +3,13 @@ export type { ConnectRequest, ConnectChallenge, VerifiedOAuthCallback, Connectio
 export type { CredentialRepoPort, SecretSealerPort, KeyringPort, OAuthClientPort, CredentialLockPort, CredentialAuditPort, CredentialBrokerPort, CredentialObserverPort } from "./src/ports.js";
 export { createMemoryCredentialRepo, createMemorySecretSealer, createMemoryKeyring, createMemoryOAuthClient, createMemoryCredentialLock, createMemoryCredentialAudit, createMemoryCredentialBroker } from "./src/memory.js";
 export type { Outcome, CallContext, CallOptions, ClockPort, IdPort, Scope, ConfirmationCard, HaltStopRequest, HaltStopPermit, GenerationAllowanceSettings, GenerationCostQuote, GenerationApprovalRequirement, MeasurementGrant } from "@open-marketing/contracts";
+export { createAesGcmSecretSealer, createCredentialKeyring } from "./src/sealer.js";
+export { createCredentialBroker } from "./src/broker.js";
+export { createBoundOAuthClient } from "./src/oauth.js";
+export type { OAuthHostBindings } from "./src/oauth.js";
+export { createSqlCredentialRepo, createSqlCredentialAudit } from "./src/sql.js";
+export type { CredentialSqlPort } from "./src/sql.js";
+export { createMemoryCredentialRefresh } from "./src/memory.js";
+export type { CredentialRefreshPort } from "./src/ports.js";
+export type { CredentialRecord } from "./src/types.js";
+export { createMemoryCredentialObserver } from "./src/memory.js";

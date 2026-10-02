@@ -1,0 +1,188 @@
+import { z } from "zod";
+import { generationCostQuoteSchema, moneySchema, parseBoundary } from "@open-marketing/contracts";
+import type { CallContext, ClockPort, Outcome } from "@open-marketing/contracts";
+import type { AsyncOperationRecord, AsyncOperationStore, OperationRuntimeDeps, PollDueParams, StartOperationParams, startOperation, pollDueOperations, recoverAfterRestart } from "@jini-ai/integrations/media-providers";
+import type { CreativeRepoPort, GenerationCapabilityPort } from "./ports.js";
+import type { GenerationRequest, GenerationStatus, GenerationCostObservation } from "./types.js";
+import { costSchema, evidenceId, failure, operationSchema, pollRequestSchema, receipt, sameEvidence, scopedKey, success, validContext, validateQuote } from "./rules.js";
+
+/** The plugin supplies public Jini functions; creative performs no runtime import of the vendor catalogue. */
+export type JiniGenerationRuntime = { readonly startOperation: typeof startOperation; readonly pollDueOperations: typeof pollDueOperations; readonly recoverAfterRestart: typeof recoverAfterRestart };
+/** Generic admitted plugin binding; provider-specific builders, signers and configuration remain in the plugin.
+ * store MUST be scoped to the supplied context, including reconcileOnBoot. fetchImpl MUST be bounded.
+ * Poll signing must recheck server policy/credential admission on every call; polling is read-only.
+ */
+export type JiniGenerationBinding = {
+  readonly pluginDigest: string;
+  readonly configurationDigest: string;
+  readonly deps: Omit<OperationRuntimeDeps, "now" | "newId"> & { readonly fetchImpl: typeof fetch };
+  readonly start: Omit<StartOperationParams<unknown>, "ownerRef" | "maxAttempts" | "deadlineMs">;
+  readonly poll: Pick<PollDueParams, "adapters" | "resolveContext">;
+  /** Bounded plugin acknowledgment that submit reached transport (or definitively stopped).
+   * Jini can return pending before its signer finishes; keep safety's barrier until this acknowledgment.
+   */
+  readonly awaitHandoff: () => Promise<Outcome<void>>;
+};
+/** Host callbacks use object signatures; the legacy Jini ABIs are contained and covered by adapter tests. */
+export type JiniGenerationHost = {
+  readonly quote: (required: { context: CallContext; request: GenerationRequest }) => Promise<Outcome<GenerationStatus["quote"]>>;
+  readonly resolve: (required: { context: CallContext; request?: GenerationRequest }) => Promise<Outcome<JiniGenerationBinding>>;
+  readonly costs: (required: { context: CallContext; request: GenerationRequest; operation: AsyncOperationRecord }) => Promise<Outcome<{ readonly actualCost: GenerationStatus["actualCost"]; readonly costs: readonly GenerationCostObservation[] }>>;
+};
+const observedCostsSchema = z.strictObject({ actualCost: moneySchema.nullable(), costs: z.array(costSchema).max(100) });
+
+/** Adapter over the RELEASED durable Jini start/poll/recover algorithms. No second polling engine/outbox.
+ * @param required Runtime/host bindings, scoped repo and injected clock; no defaults read globals.
+ * @returns Capability usable by a server worker independent of an agent or UI session.
+ * @complexity O(k) polling for k <=100; Jini recovery is O(n) in the scoped durable store.
+ */
+export function createJiniGenerationCapability(required: { runtime: JiniGenerationRuntime; host: JiniGenerationHost; repo: CreativeRepoPort; clock: ClockPort }): GenerationCapabilityPort {
+  return {
+    async quote(input) {
+      if (!validContext(input)) return failure({ code: "forbidden", message: "Invalid creative scope" });
+      const quote = await required.host.quote(input);
+      if (!quote.ok) return quote;
+      return parseBoundary({ schema: generationCostQuoteSchema, input: quote.value });
+    },
+    async generate(input) { return adapterBoundary({ run: () => startGeneration({ ...required, ...input }) }); },
+    async status(input) { return adapterBoundary({ run: () => generationStatus({ ...required, ...input }) }); },
+    async pollDue(input) {
+      const parsed = parseBoundary({ schema: pollRequestSchema, input: input.request });
+      if (!parsed.ok) return parsed;
+      return adapterBoundary({ run: async () => {
+        const binding = await resolveBinding({ ...required, context: input.context });
+        if (!binding.ok) return binding;
+        const deps = runtimeDeps({ ...required, binding: binding.value, context: input.context });
+        const stats = await required.runtime.pollDueOperations(deps, { ...binding.value.poll, leaseOwner: parsed.value.leaseOwner, leaseMs: parsed.value.leaseMs, limit: parsed.value.limit });
+        return success({ value: stats });
+      } });
+    },
+    async recover(input) {
+      return adapterBoundary({ run: async () => {
+        const binding = await resolveBinding({ ...required, context: input.context });
+        if (!binding.ok) return binding;
+        const deps = runtimeDeps({ ...required, binding: binding.value, context: input.context });
+        const recovered = await required.runtime.recoverAfterRestart(deps, { adapters: binding.value.poll.adapters, now: required.clock.now({}) });
+        // Idempotency alone is not renewed authority. Never resubmit these IDs automatically.
+        return success({ value: recovered });
+      } });
+    },
+    async cancel(input) {
+      const original = await required.repo.get(input);
+      if (!original.ok) return original;
+      // The durable local marker is read by claimDue's filter; no vendor stop/refund is asserted.
+      return required.repo.save({ context: input.context, status: { ...original.value, state: "cancelled" } });
+    },
+  };
+}
+/** Opaque runtime/host failures are mapped at this adapter edge, retaining unknown dispatch outcomes. */
+async function adapterBoundary<T>(required: { run: () => Promise<Outcome<T>> }): Promise<Outcome<T>> {
+  try { return await required.run(); }
+  catch { return failure({ code: "unavailable", message: "Generation runtime unavailable; reconcile possible charge", retryable: false }); }
+}
+async function resolveBinding(required: { host: JiniGenerationHost; context: CallContext; request?: GenerationRequest }): Promise<Outcome<JiniGenerationBinding>> {
+  if (!validContext(required)) return failure({ code: "forbidden", message: "Invalid creative scope" });
+  const binding = await required.host.resolve({ context: required.context, request: required.request });
+  if (!binding.ok) return failure({ code: binding.error.code, message: "Connect or install the admitted generation capability" });
+  return binding;
+}
+async function startGeneration(required: { runtime: JiniGenerationRuntime; host: JiniGenerationHost; repo: CreativeRepoPort; clock: ClockPort; context: CallContext; request: GenerationRequest; quote: GenerationStatus["quote"]; generationId: string }): Promise<Outcome<ReturnType<typeof receipt>>> {
+  const original = await required.repo.get(required);
+  if (!original.ok) return original;
+  if (original.value.reservationId === null) return failure({ code: "forbidden", message: "Generation has no durable safety reservation" });
+  if (!sameEvidence({ left: original.value.request, right: required.request }) || !sameEvidence({ left: original.value.quote, right: required.quote })) return failure({ code: "conflict", message: "Generation handoff changed original intent" });
+  const quote = validateQuote({ ...required, now: required.clock.now({}) });
+  if (!quote.ok) return quote;
+  const binding = await resolveBinding(required);
+  if (!binding.ok) return binding;
+  if (binding.value.pluginDigest !== required.quote.pluginDigest || binding.value.configurationDigest !== required.request.configurationDigest) return failure({ code: "conflict", message: "Admitted plugin/configuration changed since quote" });
+  return submitOperation({ ...required, original: original.value, binding: binding.value });
+}
+async function submitOperation(required: { runtime: JiniGenerationRuntime; repo: CreativeRepoPort; clock: ClockPort; context: CallContext; request: GenerationRequest; original: GenerationStatus; binding: JiniGenerationBinding }): Promise<Outcome<ReturnType<typeof receipt>>> {
+  const ownerRef = scopedKey({ context: required.context, id: required.original.generationId });
+  const operationId = evidenceId({ generationId: ownerRef, kind: "async" });
+  const deps = runtimeDeps({ ...required, generationId: required.original.generationId });
+  const existing = await deps.store.get(operationId);
+  if (existing !== null) return failure({ code: "conflict", message: "Async operation already exists; reconcile instead of resubmitting" });
+  const saved = await required.repo.save({ context: required.context, status: { ...required.original, asyncOperationId: operationId } });
+  if (!saved.ok) return saved;
+  const remaining = required.request.deadlineAt - required.clock.now({});
+  if (remaining <= 0) return failure({ code: "expired", message: "Generation deadline expired before submit" });
+  const started = await required.runtime.startOperation(deps, { ...required.binding.start, ownerRef, maxAttempts: required.request.maxAttempts, deadlineMs: remaining });
+  const handoff = await required.binding.awaitHandoff();
+  if (!handoff.ok) return handoff;
+  if (started.operationId !== operationId) return failure({ code: "protocol_mismatch", message: "Runtime did not preserve stable operation identity" });
+  const stored = await deps.store.get(operationId);
+  return success({ value: { generationId: saved.value.generationId, operationId: saved.value.request.operationId, asyncOperationId: operationId, status: stored?.status === "succeeded" && stored.result !== null ? "succeeded" : "pending" } });
+}
+async function generationStatus(required: { host: JiniGenerationHost; repo: CreativeRepoPort; context: CallContext; generationId: string }): Promise<Outcome<GenerationStatus>> {
+  const original = await required.repo.get(required);
+  if (!original.ok) return original;
+  if (original.value.dispatchState === "queued") return original;
+  const binding = await resolveBinding({ ...required, request: original.value.request });
+  if (!binding.ok) return binding;
+  const expectedOwner = scopedKey({ context: required.context, id: required.generationId });
+  const operationId = original.value.asyncOperationId ?? evidenceId({ generationId: expectedOwner, kind: "async" });
+  const stored = await binding.value.deps.store.get(operationId);
+  if (stored === null) return success({ value: { ...original.value, state: original.value.state === "cancelled" ? "cancelled" : "unknown" } });
+  const parsed = parseBoundary({ schema: operationSchema, input: stored });
+  if (!parsed.ok) return parsed;
+  if (parsed.value.ownerRef !== expectedOwner) return failure({ code: "forbidden", message: "Async operation scope mismatch" });
+  const costs = await required.host.costs({ context: required.context, request: original.value.request, operation: parsed.value });
+  if (!costs.ok) return costs;
+  const observed = parseBoundary({ schema: observedCostsSchema, input: costs.value });
+  if (!observed.ok) return observed;
+  return success({ value: { ...original.value, operation: parsed.value, asyncOperationId: parsed.value.id, providerJobId: parsed.value.state?.jobId ?? null,
+    state: original.value.state === "cancelled" ? "cancelled" : operationState({ operation: parsed.value }), actualCost: observed.value.actualCost, costs: observed.value.costs } });
+}
+/** Jini transport failure/attempt exhaustion is not proof of no vendor effect. @complexity O(1). */
+function operationState(required: { operation: AsyncOperationRecord }): GenerationStatus["state"] {
+  switch (required.operation.status) {
+    case "submitted": return "pending";
+    case "polling": return "running";
+    case "succeeded": return "succeeded";
+    case "unknown": return "unknown";
+    case "failed":
+      if (required.operation.error?.code === undefined) return "unknown";
+      if (["ATTEMPTS_EXHAUSTED", "NO_ADAPTER"].includes(required.operation.error.code)) return "unknown";
+      return "failed";
+    default: { const impossible: never = required.operation.status; throw new Error("Unsupported operation status: " + impossible); }
+  }
+}
+function runtimeDeps(required: { binding: JiniGenerationBinding; clock: ClockPort; repo: CreativeRepoPort; context: CallContext; generationId?: string }): OperationRuntimeDeps {
+  const identity = scopedKey({ context: required.context, id: required.generationId ?? "worker" });
+  return { ...required.binding.deps, store: localSchedulingStore({ store: required.binding.deps.store, repo: required.repo, context: required.context }),
+    now: () => required.clock.now({}), newId: () => evidenceId({ generationId: identity, kind: "async" }) };
+}
+/** Foreign AsyncOperationStore ABI is intentionally preserved only in this narrow wrapper.
+ * Local cancellation filters leased rows before Jini can build/sign/fetch a poll request.
+ * @complexity O(k) repository reads for k claimed operations; store scoping belongs to host.
+ */
+function localSchedulingStore(required: { store: AsyncOperationStore; repo: CreativeRepoPort; context: CallContext }): AsyncOperationStore {
+  return {
+    create: required.store.create.bind(required.store), get: required.store.get.bind(required.store),
+    update: required.store.update.bind(required.store), listByOwner: required.store.listByOwner.bind(required.store),
+    releaseLease: required.store.releaseLease.bind(required.store), reconcileOnBoot: required.store.reconcileOnBoot.bind(required.store),
+    async claimDue(input) {
+      const claimed = await required.store.claimDue(input);
+      const rows: AsyncOperationRecord[] = [];
+      for (const row of claimed) {
+        const eligible = await localPollEligible({ ...required, row });
+        if (eligible) rows.push(row);
+        else await required.store.releaseLease(row.id, input.leaseOwner);
+      }
+      return rows;
+    },
+  };
+}
+async function localPollEligible(required: { repo: CreativeRepoPort; context: CallContext; row: AsyncOperationRecord }): Promise<boolean> {
+  const parsed = operationSchema.safeParse(required.row);
+  if (!parsed.success) return false;
+  const owner: unknown = JSON.parse(parsed.data.ownerRef);
+  const scopedOwner = z.tuple([z.string(), z.string(), z.string()]).safeParse(owner);
+  if (!scopedOwner.success) return false;
+  const expected = scopedKey({ context: required.context, id: scopedOwner.data[2] });
+  if (expected !== parsed.data.ownerRef) return false;
+  const status = await required.repo.get({ context: required.context, generationId: scopedOwner.data[2] });
+  return status.ok && status.value.state !== "cancelled";
+}

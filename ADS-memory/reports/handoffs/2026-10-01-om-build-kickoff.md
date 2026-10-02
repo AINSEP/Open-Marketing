@@ -40,3 +40,9 @@
 - tovu-e2: owns the Tovu→Jini extraction (oauth, mcp/federation, platform/secrets, agent-plugins/lifecycle, identity). Nothing is published yet.
 - tovu-0d: the @jini-ai/db lane.
 - ai-dev-shop-4a: engineering-principles integration (done, pushed).
+
+## UPDATE 2026-10-02 morning
+- j00 finished (j00-finish job) and was committed with safety as 59db645. om:check reported green, with 310 tests across 18 packages.
+- 11 remaining feature jobs launched in parallel in NO-TEST mode (owner's call: a final Codex gpt-6.1-sol agent runs all tests and fixes issues at the end). Run folder: ADS-memory/.local-artifacts/codex-runs/2026-10-02-features/<name>/ (status: ok|failed).
+- Codex credits may run out mid-batch; they reset at 10:00 local. Failed jobs keep their files on disk. Relaunch them with a "continue from what's on disk" prompt, not from scratch.
+- Owner decision: lifecycle messaging delivery goes through vendor PLUGINS (Twilio, AWS SES/SNS, SMTP and other outside senders). The generic messaging features (journeys, messaging ledger, deliverability, preferences, templates) come later.

@@ -1,6 +1,6 @@
 import type { Outcome, CallContext, CallOptions, ClockPort, IdPort, ObserverPort, Scope, Page, PageQuery, ConfirmationCard, EffectEnvelope, GenerationAllowanceSettings, GenerationCostQuote, GenerationApprovalRequirement, HaltStopRequest, HaltStopPermit, ServiceContext, MeasurementGrant, CapabilityEnvelope } from "@open-marketing/contracts";
 import type { Clock } from "@open-marketing/om-clock";
-export type JobState = "pending" | "leased" | "dispatching" | "retry" | "succeeded" | "denied" | "failed" | "reconcile";
+export type JobState = "pending" | "leased" | "dispatching" | "retry" | "succeeded" | "denied" | "failed" | "reconcile" | "cancelled";
 export type FailureKind = "permanent" | "transient" | "unknown";
 /** Payload is opaque serialized data. Digest must cover operation and payload exactly. */
 export interface EnqueueRequest {
@@ -9,6 +9,8 @@ export interface EnqueueRequest {
     readonly requestDigest: string;
     readonly operation: string;
     readonly payload: string;
+    /** Persisted trace and scope, excluded from idempotency comparison; the first enqueue wins. */
+    readonly context?: CallContext;
 }
 export interface OutboxJob extends EnqueueRequest {
     readonly id: string;
@@ -26,7 +28,7 @@ export interface LeaseFence {
     readonly now: number;
 }
 export type Completion = {
-    readonly state: "succeeded" | "denied" | "failed" | "reconcile";
+    readonly state: "succeeded" | "denied" | "failed" | "reconcile" | "cancelled";
 } | {
     readonly state: "retry";
     readonly availableAt: number;

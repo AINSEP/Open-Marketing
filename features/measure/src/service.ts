@@ -1,25 +1,35 @@
-import type { Outcome, CallContext, CallOptions, ClockPort, IdPort, ObserverPort, Scope, Money, TimeWindow, Page, PageQuery, ConfirmationCard, EffectEnvelope, GenerationAllowanceSettings, GenerationCostQuote, GenerationApprovalRequirement, HaltStopRequest, HaltStopPermit, ServiceContext, MeasurementGrant, CapabilityEnvelope } from "@open-marketing/contracts";
-import { notImplemented } from "@open-marketing/contracts";
-import type { MeasureRepoPort, MeasurementShareabilityPort, ConversionDeliveryPort, PlatformReportingPort, MeasureJobPort, TrackedLinkPort, MeasureAuditPort, MeasureObserverPort } from "./ports.js";
-import type { TrackedLinkRequest, TrackedLink, VerifiedConversionSource, ConversionInput, ConversionReceipt, CacQuery, CacReport, PlatformMetricSnapshot, AttributionResult, MeasureService } from "./types.js";
-/** Inert measure factory. @returns Service whose operations fail with typed not_implemented; no I/O or startup. @example createMeasureService({ injectedPorts: undefined } as Parameters<typeof createMeasureService>[0]) @complexity O(1). */
-export function createMeasureService(
-  required: {
-    repo: MeasureRepoPort;
-    policy: MeasurementShareabilityPort;
-    conversions: ConversionDeliveryPort;
-    reports: PlatformReportingPort;
-    jobs: MeasureJobPort;
-    links: TrackedLinkPort;
-    clock: ClockPort;
-    ids: IdPort;
-    audit: MeasureAuditPort;
-  },
-  optional?: { observer?: MeasureObserverPort },
-): MeasureService {
-return {
- async createTrackedLink() { return notImplemented({ operation: "measure.createTrackedLink" }); },
- async ingestConversion() { return notImplemented({ operation: "measure.ingestConversion" }); },
- async reportCac() { return notImplemented({ operation: "measure.reportCac" }); },
-};
+import { callContextSchema, parseBoundary } from "@open-marketing/contracts";
+import type { ClockPort, IdPort } from "@open-marketing/contracts";
+import type { ConversionSourceAuthenticationPort, MeasureRepoPort, MeasurementShareabilityPort, ConversionDeliveryPort, PlatformReportingPort, MeasureJobPort, TrackedLinkPort, MeasureAuditPort, MeasureObserverPort } from "./ports.js";
+import type { MeasureService } from "./types.js";
+import { runBoundary } from "./boundary.js";
+import { ingest } from "./ingestion/ingest.js";
+import { reportCac } from "./reporting/report.js";
+import { ingestionContext, linkRequestSchema } from "./rules.js";
+
+/** Inert feature factory; work starts only on method calls. repo.appendConversion
+ * owns atomic job composition; jobs/conversions remain compatibility dependencies.
+ * Server workers use createConversionDispatcher separately from interactive sessions.
+ * @example createMeasureService({ repo, policy, conversions, reports, jobs, links, clock, ids, audit }, { authentication })
+ * @complexity O(1) construction; operations inherit bounded port behavior. */
+export function createMeasureService(required: { repo: MeasureRepoPort; policy: MeasurementShareabilityPort; conversions: ConversionDeliveryPort; reports: PlatformReportingPort; jobs: MeasureJobPort; links: TrackedLinkPort; clock: ClockPort; ids: IdPort; audit: MeasureAuditPort }, optional?: { observer?: MeasureObserverPort; authentication?: ConversionSourceAuthenticationPort }): MeasureService {
+  return {
+    async createTrackedLink(input, options) {
+      const context = parseBoundary({ schema: callContextSchema, input: input.context });
+      if (!context.ok) return context;
+      return runBoundary({ operation: "measure.createTrackedLink", context: context.value, observer: optional?.observer, work: async () => {
+        const request = parseBoundary({ schema: linkRequestSchema, input: input.request });
+        if (!request.ok) return request;
+        return required.links.create({ context: context.value, request: request.value }, options);
+      } }, options);
+    },
+    async ingestConversion(input, options) {
+      return runBoundary({ operation: "measure.ingestConversion", context: ingestionContext(input), observer: optional?.observer, work: () => ingest({ input, repo: required.repo, policy: required.policy, authentication: optional?.authentication, clock: required.clock }, options) }, options);
+    },
+    async reportCac(input, options) {
+      const context = parseBoundary({ schema: callContextSchema, input: input.context });
+      if (!context.ok) return context;
+      return runBoundary({ operation: "measure.reportCac", context: context.value, observer: optional?.observer, work: () => reportCac({ ...input, context: context.value, repo: required.repo, reports: required.reports, clock: required.clock }, options) }, options);
+    },
+  };
 }

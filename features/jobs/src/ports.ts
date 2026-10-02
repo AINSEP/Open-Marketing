@@ -1,29 +1,27 @@
-import type { Outcome, CallContext, CallOptions, ClockPort, IdPort, ObserverPort, Scope, Money, TimeWindow, Page, PageQuery, ConfirmationCard, EffectEnvelope, GenerationAllowanceSettings, GenerationCostQuote, GenerationApprovalRequirement, HaltStopRequest, HaltStopPermit, ServiceContext, MeasurementGrant, CapabilityEnvelope } from "@open-marketing/contracts";
-import type { JobState, FailureKind, EnqueueRequest, OutboxJob, LeaseFence, Completion, EnqueueResult, OutboxStore, AbortSignalPort, TransportResult, Transport, RetryPolicy, OutboxEvent, OutboxPorts, ProcessResult, JobRequest, JobReceipt, WorkerIdentity, TransactionalEnqueue, DomainIntentTransactionPort, JobService } from "./types.js";
-/** JobRepoPort: caller-owned, injected boundary. j00 doubles fail explicitly until its owning job implements the suite. */
+import type { CallContext, CallOptions, ObserverPort, Outcome } from "@open-marketing/contracts";
+import type { JobRequest, JobReceipt, WorkerIdentity, OutboxJob, ProcessResult } from "./types.js";
+import type { ManagedOutboxStore } from "./store.js";
+/** A claim retains the immutable context and complete fence; callers never dispatch a bare request. */
+export interface ClaimedJob {
+    readonly context: CallContext;
+    readonly job: JobRequest;
+    readonly lease: OutboxJob;
+}
+/** One repository owns the single outbox. Durable implementations expose the same fenced store to the worker. */
 export interface JobRepoPort {
-    enqueue(required: {
-        context: CallContext;
-        job: JobRequest;
-    }, optional?: CallOptions): Promise<Outcome<JobReceipt>>;
-    claim(required: {
-        worker: WorkerIdentity;
-    }, optional?: CallOptions): Promise<Outcome<JobRequest | null>>;
+    readonly outbox: ManagedOutboxStore;
+    enqueue(required: { context: CallContext; job: JobRequest }, optional?: CallOptions): Promise<Outcome<JobReceipt>>;
+    claim(required: { worker: WorkerIdentity }, optional?: CallOptions): Promise<Outcome<ClaimedJob | null>>;
 }
-/** JobDispatchPort: caller-owned, injected boundary. j00 doubles fail explicitly until its owning job implements the suite. */
+/** Dispatch performs one attempt only. A returned retry means known transient failure; reconcile means uncertain effect.
+ * Implementations must preserve the stable operation/key/digest and recheck authority through their dispatch barrier.
+ * The jobs worker owns persistence/retries; adapters cannot implement another queue.
+ */
 export interface JobDispatchPort {
-    dispatch(required: {
-        context: CallContext;
-        job: JobRequest;
-    }, optional?: CallOptions): Promise<Outcome<ProcessResult>>;
+    dispatch(required: { context: CallContext; job: JobRequest }, optional?: CallOptions): Promise<Outcome<ProcessResult>>;
 }
-/** JobAuthorizationPort: caller-owned, injected boundary. j00 doubles fail explicitly until its owning job implements the suite. */
+/** Fresh caller-owned authority/halt decision immediately before each attempt. Failure grants no authority. */
 export interface JobAuthorizationPort {
-    authorize(required: {
-        context: CallContext;
-        job: JobRequest;
-    }, optional?: CallOptions): Promise<Outcome<{
-        readonly allowed: boolean;
-    }>>;
+    authorize(required: { context: CallContext; job: JobRequest }, optional?: CallOptions): Promise<Outcome<{ readonly allowed: boolean }>>;
 }
 export type JobObserverPort = ObserverPort;

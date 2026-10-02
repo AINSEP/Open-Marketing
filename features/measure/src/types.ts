@@ -4,7 +4,7 @@ export type TrackedLinkRequest = { readonly destinationUrl: string; readonly cam
 /** TrackedLink domain value; validation belongs at the boundary. */
 export type TrackedLink = { readonly linkId: string; readonly url: string; readonly destinationUrl: string };
 /** VerifiedConversionSource domain value; validation belongs at the boundary. */
-export type VerifiedConversionSource = { readonly sourceId: string; readonly scope: Scope; readonly authenticationRevision: number };
+export type VerifiedConversionSource = { readonly sourceId: string; readonly scope: Scope; readonly authenticationRevision: number; readonly context?: CallContext };
 /** ConversionInput domain value; validation belongs at the boundary. */
 export type ConversionInput = { readonly eventId: string; readonly eventType: "signup" | "trial"; readonly subjectId: string; readonly occurredAt: number; readonly destination: string; readonly purpose: string; readonly identifiers: Readonly<Record<string, string>> };
 /** ConversionReceipt domain value; validation belongs at the boundary. */
@@ -17,6 +17,14 @@ export type CacReport = { readonly spendSource: "platform_report"; readonly conv
 export type PlatformMetricSnapshot = { readonly snapshotId: string; readonly accountId: string; readonly window: TimeWindow; readonly spend: Money; readonly timezone: string; readonly attributionWindow: string; readonly retrievedAt: number; readonly restatementOf?: string };
 /** AttributionResult domain value; validation belongs at the boundary. */
 export type AttributionResult = { readonly resultId: string; readonly eventId: string; readonly modelVersion: string; readonly campaignId: string | null };
+/** Declared OM-attributed verified events only; watermark uses event time. */
+export type AttributionSummary = { readonly conversions: number; readonly modelVersion: string; readonly watermark: number };
+/** Immutable evidence; uncertain/interrupted attempts require reconciliation. */
+export type ConversionDispatchRecord = { readonly deliveryId: string; readonly identity: string; readonly status: "dispatching" | "delivered" | "unknown"; readonly recordedAt: number };
+/** Server-only workflow, never registered as an arbitrary agent tool. */
+export interface ConversionDispatcher {
+  dispatch(required: { context: ServiceContext; event: ConversionInput; grant: MeasurementGrant; deliveryId: string }, optional?: CallOptions): Promise<Outcome<{ readonly status: "delivered" | "unknown" }>>;
+}
 export interface MeasureService {
   createTrackedLink(
     required: { context: CallContext; request: TrackedLinkRequest },

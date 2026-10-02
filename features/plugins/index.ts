@@ -3,3 +3,14 @@ export type { PluginSource, InstalledPlugin, UninstallReceipt, PluginExtensionDe
 export type { PluginRepoPort, PluginLifecyclePort, AgentPluginLayoutPort, AgentPluginMcpProvisioningPort, PluginTrustPort, PluginAuditPort, PluginObserverPort } from "./src/ports.js";
 export { createMemoryPluginRepo, createMemoryPluginLifecycle, createMemoryAgentPluginLayout, createMemoryAgentPluginMcpProvisioning, createMemoryPluginTrust, createMemoryPluginAudit } from "./src/memory.js";
 export type { Outcome, CallContext, CallOptions, ClockPort, IdPort, Scope, ConfirmationCard, HaltStopRequest, HaltStopPermit, GenerationAllowanceSettings, GenerationCostQuote, GenerationApprovalRequirement, MeasurementGrant } from "@open-marketing/contracts";
+export { createMemoryPluginObserver } from "./src/memory.js";
+export { inspectPluginPackage, exportAgentPluginInstructions } from "./src/validation.js";
+export { createFilesystemAgentPluginLayout } from "./src/filesystem-layout.js";
+export type { PluginFilesystem } from "./src/filesystem-layout.js";
+export { createFilesystemPluginRepo } from "./src/filesystem-repo.js";
+export { createJiniPluginLifecycleAdapter } from "./src/jini-adapter.js";
+export type { JiniPluginLifecycleApi } from "./src/jini-adapter.js";
+export { createPluginMcpProvisioningAdapter, pluginSchemaFingerprint } from "./src/admission.js";
+export { createPluginTrustAdapter } from "./src/trust-adapter.js";
+export { createPluginAuditAdapter } from "./src/audit-adapter.js";
+export type { PluginPackage, PluginPackageEntry, PluginPackageInspection, PluginDiagnostic, PluginServer, AgentPluginInstructions, MemoryPluginPackage } from "./src/package-types.js";

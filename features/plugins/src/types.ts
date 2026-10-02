@@ -2,7 +2,7 @@ import type { Outcome, CallContext, CallOptions, ClockPort, IdPort, ObserverPort
 /** PluginSource domain value; validation belongs at the boundary. */
 export type PluginSource = { readonly kind: "archive" | "directory"; readonly location: string; readonly expectedDigest: string };
 /** InstalledPlugin domain value; validation belongs at the boundary. */
-export type InstalledPlugin = { readonly pluginId: string; readonly version: string; readonly digest: string; readonly enabled: boolean; readonly admitted: boolean };
+export type InstalledPlugin = { readonly pluginId: string; readonly version: string; readonly digest: string; readonly enabled: boolean; readonly admitted: boolean; readonly schemaFingerprint?: string };
 /** UninstallReceipt domain value; validation belongs at the boundary. */
 export type UninstallReceipt = { readonly pluginId: string; readonly status: "pending" | "removed" };
 /** PluginExtensionDescriptor domain value; validation belongs at the boundary. */

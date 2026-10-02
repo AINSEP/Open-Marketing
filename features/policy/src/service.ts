@@ -1,18 +1,33 @@
-import type { Outcome, CallContext, CallOptions, ClockPort, IdPort, ObserverPort, Scope, Page, PageQuery, ConfirmationCard, EffectEnvelope, GenerationAllowanceSettings, GenerationCostQuote, GenerationApprovalRequirement, HaltStopRequest, HaltStopPermit, ServiceContext, MeasurementGrant, CapabilityEnvelope } from "@open-marketing/contracts";
-import { notImplemented } from "@open-marketing/contracts";
-import type { PolicyRepoPort, CanonicalIdentityPort, PolicyObserverPort } from "./ports.js";
-import type { TimeWindow, Consent, Suppression, FrequencyCap, SubjectPolicy, ShareDestination, MessageChannel, Money, BudgetAuthorization, AdAccountPolicy, DenialReason, GateDecision, SubjectReference, PolicyEvidence, PolicyService } from "./types.js";
-/** Inert policy factory. @returns Service whose operations fail with typed not_implemented; no I/O or startup. @example createPolicyService({ injectedPorts: undefined } as Parameters<typeof createPolicyService>[0]) @complexity O(1). */
+import type { ClockPort, IdPort } from "@open-marketing/contracts";
+import type { PolicyObserverPort, PolicyRepoPort } from "./ports.js";
+import type { PolicyService } from "./types.js";
+import { boundary, failure, validateEvidence, validateRequest } from "./validation.js";
+
+/** Validate authenticated evidence before delegating; no factory I/O or ID replacement.
+ * IDs remain ingress-owned for stable retries. Injected time rejects future evidence.
+ * @example createPolicyService({ repo, clock, ids }).snapshot({ context, subjectId })
+ * @complexity O(n) for repository snapshot, bounded by the adapter; O(1) validation.
+ */
 export function createPolicyService(
-  required: {
-    repo: PolicyRepoPort;
-    clock: ClockPort;
-    ids: IdPort;
-  },
+  required: { repo: PolicyRepoPort; clock: ClockPort; ids: IdPort },
   optional?: { observer?: PolicyObserverPort },
 ): PolicyService {
-return {
- async snapshot() { return notImplemented({ operation: "policy.snapshot" }); },
- async appendEvidence() { return notImplemented({ operation: "policy.appendEvidence" }); },
-};
+  return {
+    async snapshot(input, options) {
+      return boundary({ context: input.context, operation: "policy.snapshot", observer: optional?.observer, work: async () => {
+        const invalid = validateRequest({ context: input.context, subjectId: input.subjectId, options });
+        if (invalid) return invalid;
+        return required.repo.snapshot(input, options);
+      } });
+    },
+    async appendEvidence(input, options) {
+      return boundary({ context: input.context, operation: "policy.appendEvidence", observer: optional?.observer, work: async () => {
+        const invalid = validateEvidence({ ...input, options });
+        if (invalid) return invalid;
+        const now = required.clock.now({});
+        if (!Number.isSafeInteger(now) || now < input.evidence.recordedAt) return failure({ code: "invalid_input", message: "Evidence time is invalid or in the future" });
+        return required.repo.appendEvidence(input, options);
+      } });
+    },
+  };
 }

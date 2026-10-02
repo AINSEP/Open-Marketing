@@ -1,29 +1,50 @@
-import type { Outcome, CallContext, CallOptions, ClockPort, IdPort, ObserverPort, Scope, Money, TimeWindow, Page, PageQuery, ConfirmationCard, EffectEnvelope, GenerationAllowanceSettings, GenerationCostQuote, GenerationApprovalRequirement, HaltStopRequest, HaltStopPermit, ServiceContext, MeasurementGrant, CapabilityEnvelope } from "@open-marketing/contracts";
-import type { CampaignDraft, CampaignReceipt, FlightProposal, LaunchProposal, ApprovedLaunchRequest, LaunchReceipt, ObservedCampaignState, CampaignService } from "./types.js";
-/** CampaignRepoPort: caller-owned, injected boundary. j00 doubles fail explicitly until its owning job implements the suite. */
+import type { Outcome, CallContext, CallOptions, ObserverPort } from "@open-marketing/contracts";
+import type { CampaignDraft, CampaignReceipt, LaunchProposal, ApprovedLaunchRequest, LaunchReceipt, ObservedCampaignState, CampaignReadback, CampaignRecord, CampaignIntent, CampaignJob } from "./types.js";
+
+/** Scoped persistence. save is idempotent by operationId; differing reuse conflicts. */
 export interface CampaignRepoPort {
- save(required: { context: CallContext; draft: CampaignDraft }, optional?: CallOptions): Promise<Outcome<CampaignReceipt>>;
- observe(required: { context: CallContext; state: ObservedCampaignState }, optional?: CallOptions): Promise<Outcome<ObservedCampaignState>>;
+  save(required: { context: CallContext; draft: CampaignDraft }, optional?: CallOptions): Promise<Outcome<CampaignReceipt>>;
+  get(required: { context: CallContext; campaignId: string }, optional?: CallOptions): Promise<Outcome<CampaignRecord | null>>;
+  observe(required: { context: CallContext; state: ObservedCampaignState }, optional?: CallOptions): Promise<Outcome<ObservedCampaignState>>;
+  saveProposal(required: { context: CallContext; proposal: LaunchProposal }, optional?: CallOptions): Promise<Outcome<LaunchProposal>>;
+  getProposal(required: { context: CallContext; operationId: string }, optional?: CallOptions): Promise<Outcome<LaunchProposal | null>>;
 }
-/** CampaignCapabilityPort: caller-owned, injected boundary. j00 doubles fail explicitly until its owning job implements the suite. */
+/** Generic plugin seam. Writes use stable operation IDs; hierarchy readback is mandatory. */
 export interface CampaignCapabilityPort {
- createPaused(required: { context: CallContext; draft: CampaignDraft }, optional?: CallOptions): Promise<Outcome<CampaignReceipt>>;
- launch(required: { context: CallContext; request: ApprovedLaunchRequest }, optional?: CallOptions): Promise<Outcome<LaunchReceipt>>;
+  createPaused(required: { context: CallContext; draft: CampaignDraft; campaignId: string; permitId: string }, optional?: CallOptions): Promise<Outcome<CampaignReceipt>>;
+  launch(required: { context: CallContext; request: ApprovedLaunchRequest; proposal: LaunchProposal; permitId: string }, optional?: CallOptions): Promise<Outcome<LaunchReceipt>>;
+  readState(required: { context: CallContext; campaignId: string; connectionId: string; accountId: string; operationId: string }, optional?: CallOptions): Promise<Outcome<CampaignReadback>>;
 }
-/** CampaignAssetPort: caller-owned, injected boundary. j00 doubles fail explicitly until its owning job implements the suite. */
+/** Resolves current revisions in one bounded batch; missing/foreign IDs fail closed. */
 export interface CampaignAssetPort {
- resolve(required: { context: CallContext; creativeIds: readonly string[] }, optional?: CallOptions): Promise<Outcome<{ readonly creativeDigest: string }>>;
+  resolve(required: { context: CallContext; creativeIds: readonly string[] }, optional?: CallOptions): Promise<Outcome<{ readonly creativeDigest: string }>>;
 }
-/** CampaignSafetyPort: caller-owned, injected boundary. j00 doubles fail explicitly until its owning job implements the suite. */
+/** Safety owns account binding/mode, halt, admission and exact-card authority.
+ * Dispatch methods serialize final authority consumption and effect against halt.
+ * No await gap may exist between the final halt check and invoking execute.
+ */
 export interface CampaignSafetyPort {
- authorize(required: { context: CallContext; request: ApprovedLaunchRequest }, optional?: CallOptions): Promise<Outcome<{ readonly permitId: string }>>;
+  authorizeCreation(required: { context: CallContext; draft: CampaignDraft }, optional?: CallOptions): Promise<Outcome<{ readonly permitId: string }>>;
+  authorize(required: { context: CallContext; request: ApprovedLaunchRequest; proposal: LaunchProposal }, optional?: CallOptions): Promise<Outcome<{ readonly permitId: string }>>;
+  dispatchCreation(required: { context: CallContext; draft: CampaignDraft; execute: (required: { permitId: string }) => Promise<Outcome<CampaignReceipt>> }, optional?: CallOptions): Promise<Outcome<CampaignReceipt>>;
+  dispatchLaunch(required: { context: CallContext; request: ApprovedLaunchRequest; proposal: LaunchProposal; execute: (required: { permitId: string }) => Promise<Outcome<LaunchReceipt>> }, optional?: CallOptions): Promise<Outcome<LaunchReceipt>>;
 }
-/** CampaignJobPort: caller-owned, injected boundary. j00 doubles fail explicitly until its owning job implements the suite. */
+/** Composition adapts the ONE jobs outbox. enqueue atomically stores immutable
+ * intent and job; claim is CAS queued->dispatching. Never reclaim dispatching
+ * on lease expiry: reconcile uncertain outcomes. finish appends evidence.
+ */
 export interface CampaignJobPort {
- enqueue(required: { context: CallContext; operationId: string; argumentsDigest: string }, optional?: CallOptions): Promise<Outcome<{ readonly jobId: string }>>;
+  enqueue(required: { context: CallContext; operationId: string; argumentsDigest: string; intent: CampaignIntent }, optional?: CallOptions): Promise<Outcome<{ readonly jobId: string }>>;
+  get(required: { context: CallContext; operationId: string }, optional?: CallOptions): Promise<Outcome<CampaignJob | null>>;
+  claim(required: { context: CallContext; operationId: string }, optional?: CallOptions): Promise<Outcome<CampaignJob | null>>;
+  finish(required: { context: CallContext; operationId: string; status: "submitted" | "unknown" }, optional?: CallOptions): Promise<Outcome<void>>;
 }
-/** CampaignAuditPort: caller-owned, injected boundary. j00 doubles fail explicitly until its owning job implements the suite. */
+/** Append-only audit; context carries run/correlation/trace IDs. */
 export interface CampaignAuditPort {
- record(required: { context: CallContext; operationId: string; outcome: string }, optional?: CallOptions): Promise<Outcome<void>>;
+  record(required: { context: CallContext; operationId: string; outcome: string }, optional?: CallOptions): Promise<Outcome<void>>;
 }
 export type CampaignObserverPort = ObserverPort;
+/** Structural subset of the documented @jini-ai/db-shaped local shim. No driver import. */
+export interface CampaignSqlPort {
+  query<Row extends Record<string, unknown> = Record<string, unknown>>(required: { text: string; values?: unknown[] }): Promise<{ rows: Row[]; rowCount: number | null }>;
+}

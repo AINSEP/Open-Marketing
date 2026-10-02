@@ -5,3 +5,9 @@ export { createMemoryMediaRepo, createMemoryJiniMedia, createMemoryBlobStore, cr
 export type { Outcome, CallContext, CallOptions, ClockPort, IdPort, Scope, ConfirmationCard, HaltStopRequest, HaltStopPermit, GenerationAllowanceSettings, GenerationCostQuote, GenerationApprovalRequirement, MeasurementGrant } from "@open-marketing/contracts";
 export { PLACEMENT_CROP_PRESETS } from './src/presets.js';
 export type { MediaRecord, AssetBlobRecord, AssetRenditionRecord, TransformParams } from '@jini-ai/cms/media';
+export { createJiniMediaAdapter } from './src/jini-media.js';
+export { createJiniBlobStore } from './src/blob-adapter.js';
+export { createJiniImageTransform } from './src/transform-adapter.js';
+export { createSqlMediaRepo } from './src/sql.js';
+export type { MediaSqlPort } from './src/sql.js';
+export { createMemoryJiniDependencies, createMemoryMediaObserver } from './src/memory.js';

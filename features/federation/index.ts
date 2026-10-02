@@ -3,3 +3,10 @@ export type { ExternalToolCall, ExternalToolResult, ReloadReceipt, FederationCon
 export type { FederationConnectionRepoPort, McpTransportPort, FederationCredentialPort, FederatedToolPermissionGate, FederatedCallConfirmation, ExternalMcpToolApprovalRepoPort, FederatedDispatchGatePort, FederationAuditPort, ToolRegistryPort, FederationObserverPort } from "./src/ports.js";
 export { createMemoryFederationConnectionRepo, createMemoryMcpTransport, createMemoryFederationCredential, createMemoryFederatedToolPermissionGate, createMemoryFederatedCallConfirmation, createMemoryExternalMcpToolApprovalRepo, createMemoryFederatedDispatchGate, createMemoryFederationAudit, createMemoryToolRegistry } from "./src/memory.js";
 export type { Outcome, CallContext, CallOptions, ClockPort, IdPort, Scope, ConfirmationCard, HaltStopRequest, HaltStopPermit, GenerationAllowanceSettings, GenerationCostQuote, GenerationApprovalRequirement, MeasurementGrant } from "@open-marketing/contracts";
+export { digestArguments } from "./src/json.js";
+export { fingerprintSchemas } from "./src/registry.js";
+export { createSdkMcpTransport } from "./src/adapters/sdk-transport.js";
+export type { FederationSdkClient, FederationSdkSessionOpener } from "./src/adapters/sdk-transport.js";
+export type { FederatedApproval, FederationLimits } from "./src/types.js";
+export type { FederationHostDependencies } from "./src/service.js";
+export type { MemoryConnectionRepo, MemoryCredential, MemoryPermissionGate, MemoryConfirmation, MemoryApprovalRepo, MemoryDispatchGrant, MemoryDispatchGate, MemoryAudit, MemoryMcpTransport } from "./src/memory.js";
