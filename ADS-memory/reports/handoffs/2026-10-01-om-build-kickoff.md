@@ -55,3 +55,28 @@
 - agy hit its individual quota; both agy jobs produced nothing. Parked until the quota resets.
 - Jini: tovu-85 is adding Agent Plugins v1.1 support to @jini-ai/agent-plugins; publishing awaits owner OK.
 - Next: step 0 on Codex (Debate A scaffold + transaction spike + golden tests + Debate B Tier A reservations A1–A9).
+
+## UPDATE 2026-10-12 night (open-marketing-17 took over from open-marketing-d5)
+- Owner: work autonomously overnight; don't wait on answers. caffeinate -dimsu running 15h. d5 stays open as advisory only (no work).
+- New owner rule: every Codex job goes plan-only → Claude over-engineering review → implement the approved plan.
+- @jini-ai/agent-plugins 0.4.4 published (spec 1.0 + 1.1). OM pins exactly 0.4.3 in features/plugins; the bump goes in the next install.
+- Data-model review: codex-runs/2026-10-12-datamodel-review/{result.md,coordinator-review.md}. Step 0 split: 0a DB bridge + global UUID workspace IDs ∥ 0b measure amendment → 0c scaffolds + spike + golden + Tier A.
+- Running: wave3 plans (studio-pages, desktop, google-ads-dm, meta-ads-capi, om-cli) in codex-runs/2026-10-12-wave3/; step0a/step0b plans.
+- 23:10 the Mac crashed mid-run (load was ~220 earlier). Three jobs had already failed with Codex "model at capacity". Partial work stayed on disk.
+- 23:35 relaunched as continuation attempts via codex-runs/overnight.sh: batch A (step0a, step0b, google-ads-dm, om-cli) → batch B (desktop, meta-ads-capi, studio-pages). run-codex-retry.sh retries capacity failures 4× with 5-min waits. Attempt-1 logs are in each job's attempt1/. Next: review + commit each lane; step0c plan after 0a.
+- Overnight commits on om/clean-slate: cbd11e0 step0a · 80f218f google-ads Data Manager · 0128c8c om CLI · f32c3e1 step0b measure · e852b24 desktop · 212c6a4 meta-ads CAPI · 2b6f905 studio pages · 376c406 step0c run 1 (scaffolds + Jini kernel + install). Each lane typechecks; tests written, not run.
+- Codex's sandbox has no network: installs must be run by the Coordinator (CI=true corepack pnpm install --no-frozen-lockfile).
+- Pre-existing test-typecheck failures for the final test-fix pass: features/creative tests/support/jini.ts (MediaGenerationRequestInit.dispatcher), features/credentials tests (4 errors).
+- Running: step0c run 2 (spike, golden, A9, SEAMS, needs, COMMON). Next: plan the 4 MVP feature jobs (briefs drafted in codex-runs/2026-10-13-mvp-features/).
+- 01:00–02:25: step0c run 2 (aaf90f3; spike 15/15 → A1 + ASYNC acceptance), MVP features contacts 4d24256, web-events 9e27e84, forms 0305ec4, privacy 8aeb7df; test tsconfigs declaration:false (decf0e3); server feature deps + om bin (e81551a); integration I1 local boot (f34a9e9) — verified live: om:serve boots, all 16 migrations apply on real SQLite, owner auth, studio served, `om status` works, clean SIGTERM; boot/spike/migration tests 30/30.
+- For the final test-fix pass: boundaries gate findings (core-to-adapter in jobs/measure/workspaces memory/sql, workspaces sql cycle, studio Shell fsd-edge, studio react-rule nonliteral import); creative + credentials test typecheck errors.
+- Running: integration I2 (owner API + studio HTTP adapter). Then I3 (forms/web-events ingress + acceptance worker + adapters), I4 (agent subprocess + om ask).
+- 02:45–03:50: integration I2 owner API + studio HTTP (049a605; allowance now uses host local timezone), I3 forms/landing/async acceptance (fe247b4; fixed forms root-cause error mapping, 503→400), I4 agent subprocess + om ask (33fa07f). All verified live on fresh state roots: /f/lead → worker → contact + 2 consent records + bound visit; om ask streams a labeled sandbox reply from the supervised agent child; SIGTERM reaps it.
+- 03:52 full baseline (all built): ~1,750 package tests pass; failures campaigns 16 (pre-existing), media-library 4, studio 1, plugins 1, workspaces 1; om:lint/om:metrics crash on a parser option; 4 stale skeleton gate tests; boundary findings; creative/credentials test typecheck. Running: final test-fix pass (codex-runs/2026-10-13-testfix/).
+
+## UPDATE 2026-10-13 05:10: the MVP-2 roadmap is complete and green
+- Test-fix pass: TF1 2a15e99 (all package tests green; campaigns card-normalization bug, media blob aliasing bug, lint/metrics parser crash, boundary relocations, stale tests), TF2 99fc8cf (91 lint diagnostics fixed in code; signature rule now type-based for upstream callbacks with conformance tests; gate-test timeouts).
+- Verified by the Coordinator: `corepack pnpm om:check` exit 0; every workspace package's tests pass (incl. socket suites); plugins google-ads 96, meta-ads 190, higgsfield 58; live smoke: `om:serve` boots, /f/lead → contact + consent, `om ask` via the supervised agent child, clean shutdown.
+- How to run: `corepack pnpm om:serve`, open the printed OM_READY URL; CLI: `OM_STATE_ROOT=~/... node apps/server/dist/composition/cli.js status` (bin `om` declared in apps/server).
+- Notes for the owner: plugin packages under content/agent-plugins are not pnpm workspace members (higgsfield's hand-made node_modules link broke once; consider adding them to the workspace). Codex's sandbox has no network and blocks loopback listeners: installs and socket tests are Coordinator-run. Studio chat → agent runs, real model execution, vendor OAuth/admission, durable approvals, dispatch barrier, ServiceGrant runtime and packaging remain deferred. Desktop Electron app not launched live (tests only).
+- Next candidates (owner decides): post-MVP Wave 0 (Debate B), real agent runtime, studio chat wiring, vendor account setup (Google Cloud/Data Manager, Meta app + test ad account, Higgsfield).
