@@ -47,3 +47,11 @@
 - Codex credits may run out mid-batch; they reset at 10:00 local. Failed jobs keep their files on disk. Relaunch them with a "continue from what's on disk" prompt, not from scratch.
 - Owner decision: lifecycle messaging delivery goes through vendor PLUGINS (Twilio, AWS SES/SNS, SMTP and other outside senders). The generic messaging features (journeys, messaging ledger, deliverability, preferences, templates) come later.
 - 10:05 relaunch of the 9 interrupted jobs failed immediately. Codex reports "usage limit … try again at Oct 8th, 2026 6:11 PM" (a weekly limit, NOT a 10:00 daily reset). A few runs also logged "invalid peer certificate: UnknownIssuer" reconnect errors. Continuation prompts are ready in each job folder (prompt.md has the CONTINUATION section; first-attempt logs are in attempt1/). Partial work is committed in 3e2648f.
+
+## UPDATE 2026-10-12
+- All 12 core features, 3 plugin cores (higgsfield, google-ads, meta-ads) and the studio shell are committed (8d0b12a, 13bbfa9). Tests are written but not run.
+- Debate A (MVP: contacts, web-events, forms, privacy + step 0) and Debate B (post-MVP: 7 packages) are synthesized: ADS-memory/.local-artifacts/swarm-consensus/runs/2026-10-12-om-{next,later}-features/consensus-report.md
+- Owner approved: the ServiceGrant model for unattended workflows (approve once, with caps) and a $5/day paid-sending allowance.
+- agy hit its individual quota; both agy jobs produced nothing. Parked until the quota resets.
+- Jini: tovu-85 is adding Agent Plugins v1.1 support to @jini-ai/agent-plugins; publishing awaits owner OK.
+- Next: step 0 on Codex (Debate A scaffold + transaction spike + golden tests + Debate B Tier A reservations A1–A9).
