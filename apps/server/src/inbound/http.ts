@@ -38,13 +38,15 @@ function requestMetadata(required: { incoming: IncomingMessage }): Outcome<HttpR
     } catch { return localFailure({ code: 'invalid_input', message: 'Invalid request URL' }); }
 }
 
-/** Lazy JSON edge; handlers call only after authentication. Never buffers beyond 128 KiB.
+/** Lazy JSON/form edge; handlers call only after authentication. Never buffers beyond 128 KiB.
  * @returns Unknown JSON for the route schema, or an input/size failure; no automatic retries.
  * @complexity O(b) time/space, b <=128 KiB. Node requestTimeout bounds body delivery.
  */
 async function readJsonBody(required: { incoming: IncomingMessage }): Promise<Outcome<unknown>> {
-    if (required.incoming.headers['content-type']?.split(';')[0].trim() !== 'application/json') {
-        return localFailure({ code: 'invalid_input', message: 'Expected application/json' });
+    const contentType = required.incoming.headers['content-type']?.split(';')[0].trim();
+    const isForm = contentType === 'application/x-www-form-urlencoded';
+    if (contentType !== 'application/json' && !isForm) {
+        return localFailure({ code: 'invalid_input', message: 'Expected JSON or URL-encoded form' });
     }
     const chunks: Buffer[] = [];
     let bytes = 0;
@@ -56,8 +58,18 @@ async function readJsonBody(required: { incoming: IncomingMessage }): Promise<Ou
             chunks.push(buffer);
         }
         const text = new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks));
-        return { ok: true, value: JSON.parse(text) as unknown };
+        return isForm ? parseFormBody({ text }) : { ok: true, value: JSON.parse(text) as unknown };
     } catch { return localFailure({ code: 'invalid_input', message: 'Malformed or interrupted JSON body' }); }
+}
+
+/** URL-encoded form transport keeps scalar strings and rejects duplicate/oversized fields.
+ * Descriptor-based interpretation belongs to public.ts, not this Node boundary. */
+function parseFormBody(required: { text: string }): Outcome<unknown> {
+    if (/%(?![a-fA-F0-9]{2})/.test(required.text)) return localFailure({ code: 'invalid_input', message: 'Malformed form encoding' });
+    const entries = [...new URLSearchParams(required.text)];
+    if (entries.length > 25 || entries.some(([key, value]) => key.length > 256 || value.length > 4096 || /\uFFFD/.test(key + value))) return localFailure({ code: 'limit_exceeded', message: 'Form fields exceed bounds' });
+    if (new Set(entries.map(([key]) => key)).size !== entries.length) return localFailure({ code: 'invalid_input', message: 'Duplicate form fields' });
+    return { ok: true, value: Object.fromEntries(entries) };
 }
 
 /** Serialize trusted route outcomes. Error replies close unconsumed request bodies; no CORS grants. */

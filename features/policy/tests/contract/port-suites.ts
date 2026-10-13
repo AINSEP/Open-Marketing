@@ -9,6 +9,16 @@ type IdentityHarness = { port: CanonicalIdentityPort; repo?: PolicyRepoPort; clo
 /** One behavioral suite against memory and actual SQL; each test owns its state. */
 export function PolicyRepoPortSuite(required: { name: string; create: () => RepoHarness }) {
   describe(required.name + " PolicyRepoPort", () => {
+    it("retains exact optional topic/version/digest, rejects drift and malformed digests", async () => {
+      const fixture = required.create();
+      try {
+        const evidence = { ...grant, consent: { ...grant.consent, topic: "conversion", wordingVersion: "v1", wordingDigest: "a".repeat(64) } };
+        expect(await fixture.port.appendEvidence({ context, evidence })).toEqual({ ok: true, value: evidence });
+        expect(await fixture.port.snapshot({ context, subjectId: subject.subjectId })).toMatchObject({ ok: true, value: { consents: [evidence.consent] } });
+        expect(await fixture.port.appendEvidence({ context, evidence: { ...evidence, consent: { ...evidence.consent, wordingVersion: "v2" } } })).toMatchObject({ ok: false, error: { code: "conflict" } });
+        expect(await fixture.port.appendEvidence({ context, evidence: { ...evidence, id: "bad-digest", consent: { ...evidence.consent, wordingDigest: "bad" } } })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+      } finally { fixture.close?.(); }
+    });
     it("starts with a deny-by-default snapshot", async () => {
       const fixture = required.create();
       try {

@@ -27,13 +27,20 @@ export async function formsBoundary<T>(required: { work: () => Promise<Outcome<T
 
 /** Classify foreign failures without depending on unstable error-message text. O(1), no effects. */
 function failureOutcome<T>(required: { error: unknown }): Outcome<T> {
-  const error = required.error;
+  const error = rootCause({ error: required.error });
   if (error instanceof FormsFailure) return { ok: false, error: error.detail };
   if (error instanceof FormSubmissionValidationError) return deny({ code: "invalid_input", message: "Form answers failed validation" });
   if (error instanceof FormSlugConflictError) return deny({ code: "conflict", message: "Form identity conflict" });
   if (error instanceof FormDefinitionNotFoundError) return deny({ code: "unavailable", message: "Form unavailable" });
   if (error instanceof FormRateLimitExceededError) return deny({ code: "limit_exceeded", message: "Form rate limit exceeded" });
   return deny({ code: "unavailable", message: "Forms boundary failed" });
+}
+
+/** Transaction owners wrap thrown errors; classify the original (bounded to 8 links). */
+function rootCause(required: { error: unknown }): unknown {
+  let error = required.error;
+  for (let depth = 0; depth < 8 && error instanceof Error && !(error instanceof FormsFailure) && error.cause !== undefined; depth += 1) error = error.cause;
+  return error;
 }
 
 /** Submit through Jini, joining the caller's session. Callback denials throw to the root.

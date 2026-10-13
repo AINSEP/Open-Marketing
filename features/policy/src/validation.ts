@@ -7,7 +7,9 @@ import type { PolicyEvidence } from "./types.js";
 const label = idSchema.refine(value => value.trim().length > 0);
 const window = { start: epochSchema, end: epochSchema };
 const orderedWindow = ({ start, end }: { start: number; end: number }) => start < end;
-export const consentSchema = z.strictObject({ ...window, scope: z.enum(["channel", "destination"]), target: label, purpose: label, status: z.enum(["granted", "withdrawn"]) }).refine(orderedWindow);
+export const consentSchema = z.strictObject({ ...window, scope: z.enum(["channel", "destination"]), target: label, purpose: label,
+  topic: label.optional(), wordingVersion: label.optional(), wordingDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  status: z.enum(["granted", "withdrawn"]) }).refine(orderedWindow);
 export const suppressionSchema = z.strictObject({ ...window, channel: label }).refine(orderedWindow);
 export const referenceSchema = z.strictObject({ scope: scopeSchema, subjectId: label });
 export const bindingSchema = z.strictObject({ identifier: label, subject: referenceSchema });

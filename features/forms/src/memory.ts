@@ -1,12 +1,14 @@
-/** Transaction-local OM storage double. Its unit covers publications/receipts only. */
+import { z } from "zod";
+import type { InMemoryFormSubmissionRepo } from "@jini-ai/cms/forms";
+/** Transaction-local OM storage double. Its unit covers publications/replay/subject receipts; Jini answers are an injected double. */
 import { idSchema, parseBoundary } from "@open-marketing/contracts";
 import type { CallContext, SqlSession, UnitOfWork } from "@open-marketing/contracts";
-import type { FormPublicationPort, FormReceiptPort } from "./ports.js";
-import type { FormPublication, SubmissionReceipt } from "./types.js";
-import { checkContext, deny, parsePublication, parseReceipt, samePublication } from "./rules.js";
+import type { FormPublicationPort, FormReceiptPort, FormSubjectPort } from "./ports.js";
+import type { FormPublication, SubmissionReceipt, FormSubjectReceipt } from "./types.js";
+import { formSubjectSchema, checkContext, deny, parsePublication, parseReceipt, samePublication } from "./rules.js";
 import { formsBoundary, unwrap } from "./jini.js";
 
-interface State { publications: FormPublication[]; receipts: Map<string, SubmissionReceipt> }
+interface State { publications: FormPublication[]; receipts: Map<string, SubmissionReceipt>; subjects: Map<string, FormSubjectReceipt> }
 
 function receiptKey(required: { context: CallContext; publicationId: string; attemptId: string }): string {
   return JSON.stringify([required.context.scope.workspaceId, required.publicationId, required.attemptId]);
@@ -16,8 +18,8 @@ function receiptKey(required: { context: CallContext; publicationId: string; att
  * Clones prevent callers mutating immutable evidence. O(n) transaction snapshot for n stored rows.
  * Composition must coordinate other memory participants; this unit cannot roll back Jini rows.
  * @example const storage = createMemoryFormsStorage({}); */
-export function createMemoryFormsStorage(_required: Record<string, never>): { publications: FormPublicationPort; receipts: FormReceiptPort; unitOfWork: UnitOfWork } {
-  let state: State = { publications: [], receipts: new Map() };
+export function createMemoryFormsStorage(required: { submissions?: Pick<InMemoryFormSubmissionRepo, "findAnyById" | "save"> }): { publications: FormPublicationPort; receipts: FormReceiptPort; subjects: FormSubjectPort; unitOfWork: UnitOfWork } {
+  let state: State = { publications: [], receipts: new Map(), subjects: new Map() };
   let busy = false;
   const sessions = new WeakMap<SqlSession, State>();
 
@@ -90,7 +92,44 @@ export function createMemoryFormsStorage(_required: Record<string, never>): { pu
       return { ok: true, value: receipt };
     } }); },
   };
-  return { publications, receipts, unitOfWork };
+  const subjects: FormSubjectPort = {
+    find(input, optional) { return formsBoundary<FormSubjectReceipt | null>({ work: async () => {
+      unwrap({ outcome: checkContext(input, optional) });
+      idSchema.parse(input.submissionId);
+      return { ok: true, value: structuredClone(sessionState(input).subjects.get(JSON.stringify([input.context.scope.workspaceId, input.submissionId])) ?? null) };
+    } }); },
+    append(input, optional) { return formsBoundary<FormSubjectReceipt>({ work: async () => {
+      unwrap({ outcome: checkContext(input, optional) });
+      const receipt = formSubjectSchema.parse(input.receipt);
+      const local = sessionState(input);
+      const associated = [...local.receipts.values()].some(item => item.submissionId === receipt.submissionId && item.publicationId === receipt.publicationId && local.receipts.get(receiptKey({ context: input.context, ...item })) === item);
+      if (!associated) return deny({ code: "unavailable", message: "Acceptance submission unavailable" });
+      const key = JSON.stringify([input.context.scope.workspaceId, receipt.submissionId]);
+      const prior = local.subjects.get(key);
+      if (prior && JSON.stringify(prior) !== JSON.stringify(receipt)) return deny({ code: "conflict", message: "Acceptance receipt conflict" });
+      local.subjects.set(key, structuredClone(receipt));
+      return { ok: true, value: structuredClone(receipt) };
+    } }); },
+    list(input, optional) { return formsBoundary<readonly FormSubjectReceipt[]>({ work: async () => {
+      unwrap({ outcome: checkContext(input, optional) });
+      const limit = z.number().int().min(1).max(100).parse(input.limit);
+      const items = [...state.subjects.entries()].filter(([key]) => JSON.parse(key)[0] === input.context.scope.workspaceId).map(([, item]) => item);
+      items.sort((a, b) => b.acceptedAt - a.acceptedAt || (a.submissionId < b.submissionId ? 1 : -1));
+      return { ok: true, value: structuredClone(items.slice(0, limit)) };
+    } }); },
+    purgeSubject(input, optional) { return formsBoundary<void>({ work: async () => {
+      unwrap({ outcome: checkContext(input, optional) });
+      idSchema.parse(input.subjectId);
+      if (!required.submissions) return deny({ code: "unavailable", message: "Memory submission erasure adapter unavailable" });
+      const items = [...state.subjects.entries()].filter(([key, item]) => JSON.parse(key)[0] === input.context.scope.workspaceId && item.subjectId === input.subjectId);
+      for (const [, item] of items) {
+        const submission = await required.submissions.findAnyById({ workspaceId: input.context.scope.workspaceId, id: item.submissionId });
+        if (submission) await required.submissions.save({ ...submission, data: {}, sourceIp: null, deletedAt: submission.deletedAt ?? submission.submittedAt });
+      }
+      return { ok: true, value: undefined };
+    } }); },
+  };
+  return { publications, receipts, subjects, unitOfWork };
 }
 
 /** The UnitOfWork convention rolls back returned denials as well as thrown failures. */

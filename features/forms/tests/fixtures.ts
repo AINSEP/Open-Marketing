@@ -10,7 +10,7 @@ import { formDefinitionRepoFor, formSubmissionRepoFor } from "@jini-ai/cms/forms
 import { createFakeClock } from "@open-marketing/om-clock";
 import type { CallContext, Outcome, SqlSession, UnitOfWork } from "@open-marketing/contracts";
 import { acceptFormSubmission, createFormsService, createMemoryFormsStorage, createSqlFormsStorage } from "../index.js";
-import type { FormAcceptancePort, FormDefinitionRepoPort, FormJobsPort, FormPublication, FormPublicationPort, FormReceiptPort, FormSubmissionRepoPort, FormsService, SubmissionReceipt } from "../index.js";
+import type { FormAcceptancePort, FormDefinitionRepoPort, FormJobsPort, FormPublication, FormPublicationPort, FormReceiptPort, FormSubjectPort, FormSubmissionRepoPort, FormsService, SubmissionReceipt } from "../index.js";
 import { definitionView } from "../src/rules.js";
 
 export const context: CallContext = { scope: { ownerId: "owner-one", workspaceId: "d590965a-e81d-4560-a341-7396d8aa5ba3" },
@@ -31,7 +31,7 @@ export type Failure = "none" | "throw" | "outcome";
 type Accepted = Parameters<FormAcceptancePort["accept"]>[0];
 interface Job { jobId: string; submissionId: string; publicationId: string; context: CallContext }
 export interface Fixture {
-  unitOfWork: UnitOfWork; publications: FormPublicationPort; receipts: FormReceiptPort;
+  unitOfWork: UnitOfWork; publications: FormPublicationPort; receipts: FormReceiptPort; subjects: FormSubjectPort;
   definitions: FormDefinitionRepoPort; submissions: FormSubmissionRepoPort; jobs: FormJobsPort; acceptance: FormAcceptancePort;
   service(required?: Partial<Parameters<typeof createFormsService>[0]>): FormsService;
   worker(required: { receipt: SubmissionReceipt }): Promise<Outcome<{ subjectId: string }>>;
@@ -94,9 +94,9 @@ function sqlBinding(required: { handle: Database.Database }) {
 /** Test-only memory coordination snapshots Jini rows, new definitions, jobs and acceptance state.
  * This is composition responsibility; OM's memory storage never claims atomicity over other stores. */
 function memoryBinding(required: { jobRows: Job[]; accepted: Omit<Accepted, "session">[] }) {
-  const storage = createMemoryFormsStorage({});
   const definitions = new InMemoryFormDefinitionRepo();
   const submissions = new InMemoryFormSubmissionRepo();
+  const storage = createMemoryFormsStorage({ submissions });
   const submissionIds = new Set<string>();
   const receiptIds = new Set<string>();
   const created: { workspaceId: string; id: string }[] = [];
@@ -179,7 +179,7 @@ export function createFixture(required: { kind: "memory" | "sql" }): Fixture {
     return { ok: true, value: { subjectId: "subject-" + input.submissionId } };
   } };
   const fixture: Fixture = {
-    get unitOfWork() { return binding.unitOfWork; }, get publications() { return binding.publications; }, get receipts() { return binding.receipts; },
+    get unitOfWork() { return binding.unitOfWork; }, get publications() { return binding.publications; }, get receipts() { return binding.receipts; }, get subjects() { return binding.subjects; },
     get definitions() { return binding.definitions; }, get submissions() { return binding.submissions; }, jobs, acceptance,
     service(overrides = {}) { return createFormsService({ ...binding, jobs, acceptance, clock, ids, ...overrides }); },
     worker(input) { return acceptFormSubmission({ ...binding, acceptance, context, submissionId: input.receipt.submissionId, publicationId: input.receipt.publicationId }); },

@@ -161,3 +161,6 @@ export function parseReceipt(required: { value: unknown }): Outcome<SubmissionRe
   if (!parsed.success) return deny({ code: "unavailable", message: "Invalid stored receipt" });
   return { ok: true, value: parsed.data };
 }
+
+/** Exact ID-only receipt parser shared by the memory and SQL stores. */
+export const formSubjectSchema = z.strictObject({ submissionId: idSchema, publicationId: idSchema, subjectId: idSchema, acceptedAt: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER) });

@@ -1,6 +1,6 @@
 import type { CallContext, CallOptions, Outcome, SqlSession } from "@open-marketing/contracts";
 import type { FormDefinitionRepoPort, FormSubmissionRepoPort } from "@jini-ai/cms/forms";
-import type { ConsentCapture, FormPublication, SubmissionReceipt } from "./types.js";
+import type { ConsentCapture, FormPublication, SubmissionReceipt, FormSubjectReceipt } from "./types.js";
 
 /** Published Jini repository shapes; request-local adapters preserve their foreign callback ABI. */
 export type { FormDefinitionRepoPort, FormSubmissionRepoPort };
@@ -27,4 +27,14 @@ export interface FormJobsPort {
  * @example acceptance.accept({ context, submissionId, publicationId, consent, visitToken }) */
 export interface FormAcceptancePort {
   accept(required: { context: CallContext; submissionId: string; publicationId: string; consent: readonly ConsentCapture[]; visitToken?: string; session?: SqlSession }, optional?: CallOptions): Promise<Outcome<{ readonly subjectId: string }>>;
+}
+/** Forms owns submission→subject linkage and answer erasure. Writes join acceptance's session.
+ * Reads/purge use the injected transaction owner; list is bounded to 100 ID-only receipts.
+ * @example subjects.append({ context, receipt, session }); */
+export interface FormSubjectPort {
+  find(required: { context: CallContext; submissionId: string; session: SqlSession }, optional?: CallOptions): Promise<Outcome<FormSubjectReceipt | null>>;
+  append(required: { context: CallContext; receipt: FormSubjectReceipt; session: SqlSession }, optional?: CallOptions): Promise<Outcome<FormSubjectReceipt>>;
+  list(required: { context: CallContext; limit: number }, optional?: CallOptions): Promise<Outcome<readonly FormSubjectReceipt[]>>;
+  /** Clears answers, source IP and visit metadata; retains ID/digest receipts. Idempotent. */
+  purgeSubject(required: { context: CallContext; subjectId: string }, optional?: CallOptions): Promise<Outcome<void>>;
 }

@@ -2,6 +2,7 @@
 import { z } from 'zod';
 import { approvalResponseSchema, idSchema, pageQuerySchema, parseBoundary } from '@open-marketing/contracts';
 import type { CallContext, Money, Outcome, PageQuery } from '@open-marketing/contracts';
+import type { FormSubjectPort } from '@open-marketing/forms';
 import type { CampaignRecord, CampaignRepoPort } from '@open-marketing/campaigns';
 import type { ConfirmationExchangePort, SafetyRepoPort } from '@open-marketing/safety';
 import { routes } from '../cli/http.js';
@@ -14,6 +15,7 @@ export interface OwnerServices {
     readonly campaigns: CampaignRepoPort;
     readonly safety: SafetyRepoPort;
     readonly confirmations: ConfirmationExchangePort;
+    formSubjects?: FormSubjectPort;
 }
 type OwnerInput = { request: HttpRequest; context: CallContext; services: OwnerServices };
 type CampaignRow = z.infer<typeof routes.campaign.schema>;
@@ -86,6 +88,9 @@ async function snapshot(required: OwnerInput): Promise<HttpResponse> {
     if (!cards.ok) return respond({ outcome: cards, schema: routes.snapshot.schema });
     const allowance = await required.services.safety.getGenerationAllowanceView({ context: required.context });
     if (!allowance.ok) return respond({ outcome: allowance, schema: routes.snapshot.schema });
+    const activity = required.services.formSubjects ? await required.services.formSubjects.list({ context: required.context, limit: 50 }) : { ok: true as const, value: [] };
+    if (!activity.ok) return respond({ outcome: activity, schema: routes.snapshot.schema });
+    const activityRows = activity.value.map(item => ({ id: item.submissionId, title: 'Sandbox lead accepted', detail: 'Subject ' + item.subjectId, status: 'accepted' }));
     const rows = campaigns.value.items.map(record => campaignRow({ record }));
     const value: z.infer<typeof routes.snapshot.schema> = {
         workspace: required.context.scope.workspaceId, mode: 'connected',
@@ -93,7 +98,7 @@ async function snapshot(required: OwnerInput): Promise<HttpResponse> {
             { label: 'Campaigns', value: String(campaigns.value.items.length), detail: campaigns.value.cursor ? 'First 100 records; use om campaigns list for more.' : 'Recorded campaigns in this workspace.' },
             { label: 'Generation remaining', value: displayMoney({ money: allowance.value.remaining }), detail: allowance.value.timezone + '. Includes unresolved reservations.' }],
         rows: { workspaces: rows, creative: [], 'media-library': [], campaigns: rows,
-            measure: [], connections: [], plugins: [], activity: [], settings: [] },
+            measure: [], connections: [], plugins: [], activity: activityRows, settings: [] },
         messages: [], cards: cards.value, allowance: allowance.value,
     };
     if (JSON.stringify(value).length > 262144) return respond({ outcome: localFailure({ code: 'limit_exceeded', message: 'Studio snapshot exceeds display bound' }), schema: routes.snapshot.schema });

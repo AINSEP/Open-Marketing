@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createFakeClock } from "@open-marketing/om-clock";
-import { ConversionVerificationPortSuite, MeasureRepoPortSuite, ConversionDeliveryStatePortSuite, MeasureAuditPortSuite, TrackedLinkPortSuite, MeasureJobPortSuite } from "./port-suites.js";
+import { ConversionVerificationPortSuite, MeasureRepoPortSuite, MeasurePrivacyPortSuite, ConversionDeliveryStatePortSuite, MeasureAuditPortSuite, TrackedLinkPortSuite, MeasureJobPortSuite } from "./port-suites.js";
 import { createSqlConversionVerification, createSqlMeasureRepo, createSqlConversionDeliveryState, createSqlMeasureAudit, createSqlTrackedLink, createSqlMeasureJob } from "../../index.js";
 import { createSqlFixture } from "../sql-fixture.js";
 import { createIds, event, resolvedEvent, serviceContext, source } from "../fixtures.js";
@@ -63,4 +63,19 @@ describe("measure subject lookup schema and immutable evidence", () => {
     }
     expect(JSON.stringify(rows.rows)).not.toContain(resolvedEvent.identifiers.click_id);
   });
+});
+
+MeasurePrivacyPortSuite({ create: () => { const fixture = createSqlFixture({}); return createSqlMeasureRepo({ database: fixture.database, jobs: fixture.jobs }); } });
+
+it("privacy clears the reloadable order reference only in the requested scope and keeps the semantic digest", async () => {
+  const fixture = createSqlFixture({});
+  const repo = createSqlMeasureRepo(fixture);
+  const original = { ...event, orderRef: "private-order" };
+  expect((await repo.appendConversion({ source, event: original })).ok).toBe(true);
+  const before = await fixture.database.query({ text: "SELECT identity FROM measure_conversion_event" });
+  expect((await repo.purgeSubject({ context: { ...source.context!, scope: { ...source.scope, workspaceId: "foreign" } }, subjectId: event.subjectId })).ok).toBe(true);
+  expect((await fixture.database.query({ text: "SELECT event_json FROM measure_conversion_event" })).rows[0]?.event_json).toContain("private-order");
+  expect((await repo.purgeSubject({ context: source.context!, subjectId: event.subjectId })).ok).toBe(true);
+  expect((await fixture.database.query({ text: "SELECT event_json FROM measure_conversion_event" })).rows[0]?.event_json).not.toContain("private-order");
+  expect((await fixture.database.query({ text: "SELECT identity FROM measure_conversion_event" })).rows).toEqual(before.rows);
 });

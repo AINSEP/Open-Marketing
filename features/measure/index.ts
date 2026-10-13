@@ -20,3 +20,4 @@ export { createConversionDeliveryAdapter, createPlatformReportingAdapter, create
 export type { ConversionSourceAuthenticationPort, MeasurementGrantPort, ConversionDeliveryStatePort, MeasureSqlQueryable, MeasureSqlDatabase, MeasureTransactionalJobPort } from "./src/ports.js";
 export type { AttributionSummary, ConversionDispatcher, ConversionDispatchRecord } from "./src/types.js";
 export type { Outcome, CallContext, CallOptions, ClockPort, IdPort, Scope, ConfirmationCard, HaltStopRequest, HaltStopPermit, GenerationAllowanceSettings, GenerationCostQuote, GenerationApprovalRequirement, MeasurementGrant } from "@open-marketing/contracts";
+export type { MeasurePrivacyPort } from "./src/ports.js";

@@ -1,6 +1,6 @@
 import { callContextSchema, idSchema, parseBoundary } from "@open-marketing/contracts";
 import type { CallContext, CallOptions, Outcome } from "@open-marketing/contracts";
-import type { MeasureObserverPort, MeasureRepoPort, MeasureSqlDatabase, MeasureSqlQueryable, MeasureTransactionalJobPort } from "../ports.js";
+import type { MeasurePrivacyPort, MeasureObserverPort, MeasureRepoPort, MeasureSqlDatabase, MeasureSqlQueryable, MeasureTransactionalJobPort } from "../ports.js";
 import type { AttributionResult, ConversionInput, ConversionReceipt, PlatformMetricSnapshot, VerifiedConversionSource } from "../types.js";
 import { attributionInputSchema, attributionSchema, eventIdentity, failure, ingestionContext, parseSourceEvent, querySchema, scopeKey, snapshotSchema, summarySchema } from "../rules.js";
 import { snapshotIdentity, validateLineage } from "../reporting/snapshot-rules.js";
@@ -12,8 +12,18 @@ type RepoDependencies = { database: MeasureSqlDatabase; jobs: MeasureTransaction
  * use the supplied transaction; row + job failures roll back together.
  * @example createSqlMeasureRepo({ database, jobs }, { observer })
  * @complexity Indexed event lookup/insert; reporting selects earliest subject/definition outcomes before period filters. */
-export function createSqlMeasureRepo(required: RepoDependencies, optional?: { observer?: MeasureObserverPort }): MeasureRepoPort {
+export function createSqlMeasureRepo(required: RepoDependencies, optional?: { observer?: MeasureObserverPort }): MeasureRepoPort & MeasurePrivacyPort {
   return {
+    async purgeSubject(input, options) {
+      const parsed = parseBoundary({ schema: callContextSchema, input: input.context });
+      if (!parsed.ok) return parsed;
+      const subjectId = parseBoundary({ schema: idSchema, input: input.subjectId });
+      if (!subjectId.ok) return subjectId;
+      return sqlBoundary({ context: parsed.value, operation: "measure.sql.purgeSubject", observer: optional?.observer, work: () => required.database.transaction({ work: async transaction => {
+        // Only the reloadable order reference is cleared; the original semantic digest stays immutable.
+        await transaction.query({ text: "UPDATE measure_conversion_event SET event_json=json_remove(event_json,'$.orderRef') WHERE scope_key=$1 AND subject_id=$2", values: [scopeKey({ scope: parsed.value.scope }), subjectId.value] });
+      } }) }, options);
+    },
     async appendConversion(input, options) {
       const parsed = parseSourceEvent({ input });
       if (!parsed.ok) return parsed;

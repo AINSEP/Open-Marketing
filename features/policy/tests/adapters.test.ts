@@ -69,7 +69,7 @@ describe("adapter defenses", () => {
     const pool: PolicySqlPool = { async transaction({ work }) { events.push("transaction"); return work({ session: client }); } };
     const repo = createSqlPolicyRepo({ pool });
     expect(events).toEqual([]);
-    expect(await repo.snapshot({ context, subjectId: "subject" })).toEqual({ ok: false, error: { code: "unavailable", message: "Policy database unavailable", retryable: true } });
+    expect(await repo.snapshot({ context, subjectId: "subject" })).toEqual({ ok: false, error: { code: "unavailable", message: "Policy dependency unavailable", retryable: true } });
     expect(events[0]).toBe("transaction");
     expect(events.slice(1)).toHaveLength(1);
     expect(events[1]).toMatch(/^SELECT payload/);

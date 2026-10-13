@@ -15,6 +15,30 @@ export function formsStorageSuite(required: { name: string; create: () => Fixtur
     const appendReceipt = (input: { receipt?: typeof receipt } = {}) => fixture.unitOfWork.transaction({ work: ({ session }) => fixture.receipts.append({ context, receipt: input.receipt ?? receipt, session }) });
     const readReceipt = () => fixture.unitOfWork.transaction({ work: ({ session }) => fixture.receipts.find({ context, ...receipt, session }) });
 
+    it("acceptance receipt is scoped, immutable, rollback-safe and retained after idempotent purge", async () => {
+      await append(); await appendReceipt();
+      const accepted = { submissionId: receipt.submissionId, publicationId: receipt.publicationId, subjectId: "subject-one", acceptedAt: 123 };
+      const save = (input = accepted) => fixture.unitOfWork.transaction({ work: ({ session }) => fixture.subjects.append({ context, receipt: input, session }) });
+      const find = () => fixture.unitOfWork.transaction({ work: ({ session }) => fixture.subjects.find({ context, submissionId: receipt.submissionId, session }) });
+      expect(await save()).toEqual({ ok: true, value: accepted });
+      expect(await save()).toEqual({ ok: true, value: accepted });
+      expect(await save({ ...accepted, subjectId: "subject-two" })).toMatchObject({ ok: false, error: { code: "conflict" } });
+      expect(await fixture.subjects.list({ context, limit: 1 })).toEqual({ ok: true, value: [accepted] });
+      expect(await fixture.subjects.list({ context: otherContext, limit: 1 })).toEqual({ ok: true, value: [] });
+      expect(await fixture.subjects.list({ context, limit: 101 })).toMatchObject({ ok: false });
+      expect(await fixture.subjects.purgeSubject({ context, subjectId: accepted.subjectId })).toEqual({ ok: true, value: undefined });
+      expect(await fixture.subjects.purgeSubject({ context, subjectId: accepted.subjectId })).toEqual({ ok: true, value: undefined });
+      expect(await find()).toEqual({ ok: true, value: accepted });
+      expect(await fixture.submissions.findById({ workspaceId: context.scope.workspaceId, id: receipt.submissionId })).toBeNull();
+    });
+    it("returned acceptance failure rolls back its receipt", async () => {
+      await append(); await appendReceipt();
+      await fixture.unitOfWork.transaction({ work: async ({ session }) => {
+        expect((await fixture.subjects.append({ context, session, receipt: { submissionId: receipt.submissionId, publicationId: receipt.publicationId, subjectId: "rollback-subject", acceptedAt: 123 } })).ok).toBe(true);
+        return { ok: false as const, error: { code: "conflict" as const, message: "Fixture rollback", retryable: false } };
+      } });
+      expect(await fixture.subjects.list({ context, limit: 10 })).toEqual({ ok: true, value: [] });
+    });
     it("exact publication replay returns its original immutable snapshot", async () => {
       expect(await append()).toEqual({ ok: true, value: publication() });
       expect(await append()).toEqual({ ok: true, value: publication() });

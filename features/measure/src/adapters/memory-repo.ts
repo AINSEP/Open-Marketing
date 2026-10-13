@@ -1,7 +1,7 @@
 import { Buffer } from "node:buffer";
-import { callContextSchema, parseBoundary } from "@open-marketing/contracts";
+import { callContextSchema, idSchema, parseBoundary } from "@open-marketing/contracts";
 import type { IdPort, Outcome, Scope } from "@open-marketing/contracts";
-import type { MeasureRepoPort } from "../ports.js";
+import type { MeasureRepoPort, MeasurePrivacyPort } from "../ports.js";
 import type { CacQuery, AttributionResult, ConversionInput, ConversionReceipt, PlatformMetricSnapshot, VerifiedConversionSource } from "../types.js";
 import { snapshotIdentity, validateLineage } from "../reporting/snapshot-rules.js";
 import { attributionInputSchema, clone, conversionKey, eventIdentity, failure, nextId, parseSourceEvent, querySchema, scopeKey, snapshotSchema, storageLimit } from "../rules.js";
@@ -9,7 +9,7 @@ import { attributionInputSchema, clone, conversionKey, eventIdentity, failure, n
 type StoredEvent = { source: VerifiedConversionSource; event: ConversionInput; receipt: ConversionReceipt; identity: string };
 type AttributionEntry = { scope: Scope; sourceId: string; result: AttributionResult };
 /** Inspection is test-only; production uses the jobs-owned outbox, not a memory store. */
-export interface MemoryMeasureRepo extends MeasureRepoPort {
+export interface MemoryMeasureRepo extends MeasureRepoPort, MeasurePrivacyPort {
   inspect(required: { scope: Scope }): { events: readonly ConversionInput[]; jobs: readonly ConversionReceipt[]; snapshots: readonly PlatformMetricSnapshot[] };
 }
 /** Isolated bounded inbox/outbox double. One stored record holds both intent and
@@ -24,6 +24,21 @@ export function createMemoryMeasureRepo(required: { ids?: IdPort; maxRecords?: n
   const resultIds = new Map<string, string>();
   let sequence = 0;
   return {
+    async purgeSubject(input, options) {
+      const context = parseBoundary({ schema: callContextSchema, input: input.context });
+      if (!context.ok) return context;
+      const subjectId = parseBoundary({ schema: idSchema, input: input.subjectId });
+      if (!subjectId.ok) return subjectId;
+      if (options?.signal?.aborted) return failure({ code: "cancelled", message: "Purge cancelled" });
+      const tenant = scopeKey({ scope: context.value.scope });
+      for (const entry of events.values()) {
+        if (scopeKey({ scope: entry.source.scope }) !== tenant || entry.event.subjectId !== subjectId.value) continue;
+        const { orderRef, ...retained } = entry.event;
+        void orderRef;
+        entry.event = retained;
+      }
+      return { ok: true, value: undefined };
+    },
     async appendConversion(input) {
       const parsed = parseSourceEvent({ input });
       if (!parsed.ok) return parsed;

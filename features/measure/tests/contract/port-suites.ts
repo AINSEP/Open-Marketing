@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { ConversionIdentifiersPort, ConversionDeliveryPort, ConversionDeliveryStatePort, ConversionSourceAuthenticationPort, ConversionVerificationPort, MeasureAuditPort, MeasureJobPort, MeasureRepoPort, MeasurementGrantPort, MeasurementShareabilityPort, PlatformReportingPort, TrackedLinkPort } from "../../index.js";
+import type { ConversionIdentifiersPort, ConversionDeliveryPort, ConversionDeliveryStatePort, ConversionSourceAuthenticationPort, ConversionVerificationPort, MeasureAuditPort, MeasureJobPort, MeasureRepoPort, MeasurePrivacyPort, MeasurementGrantPort, MeasurementShareabilityPort, PlatformReportingPort, TrackedLinkPort } from "../../index.js";
 import { context, event, grant, query, resolvedEvent, serviceContext, snapshot, source } from "../fixtures.js";
 
 /** B1 behavioral suite: runs unchanged against memory and real SQL repositories. */
@@ -366,6 +366,24 @@ export function ConversionVerificationPortSuite(required: { create: () => Promis
     it("rejects malformed input before inbox access", async () => {
       const port = await required.create();
       expect(await port.verify({ context: serviceContext, event: { ...event, occurredAt: -1 } })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+    });
+  });
+}
+
+/** Shared memory/SQL privacy behavior: purge keeps deduplication evidence and cannot restore PII. */
+export function MeasurePrivacyPortSuite(required: { create: () => MeasureRepoPort & MeasurePrivacyPort }) {
+  describe("MeasurePrivacyPort", () => {
+    it("purges idempotently without creating another event/job or changing original replay identity", async () => {
+      const repo = required.create();
+      const original = { ...event, orderRef: "private-order" };
+      const accepted = await repo.appendConversion({ source, event: original });
+      expect(accepted.ok).toBe(true);
+      expect(await repo.purgeSubject({ context, subjectId: event.subjectId })).toEqual({ ok: true, value: undefined });
+      expect(await repo.purgeSubject({ context, subjectId: event.subjectId })).toEqual({ ok: true, value: undefined });
+      const replay = await repo.appendConversion({ source, event: original });
+      expect(replay).toMatchObject({ ok: true, value: { status: "duplicate" } });
+      if (accepted.ok && replay.ok) expect(replay.value.jobId).toBe(accepted.value.jobId);
+      expect(await repo.purgeSubject({ context, subjectId: "" })).toMatchObject({ ok: false });
     });
   });
 }

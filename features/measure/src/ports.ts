@@ -81,3 +81,10 @@ export interface MeasureTransactionalJobPort {
   enqueue(required: { transaction: MeasureSqlQueryable; source: VerifiedConversionSource; event: ConversionInput; context: CallContext }, optional?: CallOptions): Promise<Outcome<{ readonly jobId: string }>>;
 }
 export type MeasureObserverPort = ObserverPort;
+
+/** Owning privacy API clears reloadable order references; immutable IDs/digests remain.
+ * Idempotent and scoped; does not authorize delivery or erase append-only evidence.
+ * @example repo.purgeSubject({ context, subjectId }); */
+export interface MeasurePrivacyPort {
+  purgeSubject(required: { context: CallContext; subjectId: string }, optional?: CallOptions): Promise<Outcome<void>>;
+}

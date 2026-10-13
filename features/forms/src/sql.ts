@@ -2,9 +2,9 @@
 import { z } from "zod";
 import { idSchema, parseBoundary } from "@open-marketing/contracts";
 import type { CallContext, Outcome, SqlSession, UnitOfWork } from "@open-marketing/contracts";
-import type { FormPublicationPort, FormReceiptPort } from "./ports.js";
-import type { FormPublication, SubmissionReceipt } from "./types.js";
-import { checkContext, deny, parsePublication, parseReceipt, samePublication } from "./rules.js";
+import type { FormPublicationPort, FormReceiptPort, FormSubjectPort } from "./ports.js";
+import type { FormPublication, SubmissionReceipt, FormSubjectReceipt } from "./types.js";
+import { formSubjectSchema, checkContext, deny, parsePublication, parseReceipt, samePublication } from "./rules.js";
 import { formsBoundary, unwrap } from "./jini.js";
 
 /** Read and validate snapshot JSON from SQL before trusting it. */
@@ -30,7 +30,7 @@ async function existingPublication(required: { context: CallContext; publication
 /** Inert SQL adapters; append joins the supplied session, independent reads use the injected unit.
  * O(b) bounded JSON work plus indexed reads/inserts; no retries or migrations.
  * @example const storage = createSqlFormsStorage({ unitOfWork }); */
-export function createSqlFormsStorage(required: { unitOfWork: UnitOfWork }): { publications: FormPublicationPort; receipts: FormReceiptPort } {
+export function createSqlFormsStorage(required: { unitOfWork: UnitOfWork }): { publications: FormPublicationPort; receipts: FormReceiptPort; subjects: FormSubjectPort } {
   const publications: FormPublicationPort = {
     append(input, optional) { return formsBoundary<FormPublication>({ work: async () => {
       unwrap({ outcome: checkContext(input, optional) });
@@ -79,5 +79,38 @@ export function createSqlFormsStorage(required: { unitOfWork: UnitOfWork }): { p
       return { ok: true, value: receipt };
     } }); },
   };
-  return { publications, receipts };
+  const subjects: FormSubjectPort = {
+    find(input, optional) { return formsBoundary<FormSubjectReceipt | null>({ work: async () => {
+      unwrap({ outcome: checkContext(input, optional) });
+      idSchema.parse(input.submissionId);
+      const result = await input.session.query({ text: "SELECT submission_id AS submissionId, publication_id AS publicationId, subject_id AS subjectId, accepted_at AS acceptedAt FROM om_form_subject_receipts WHERE workspace_id=$1 AND submission_id=$2", values: [input.context.scope.workspaceId, input.submissionId] });
+      return { ok: true, value: result.rows[0] ? formSubjectSchema.parse(result.rows[0]) : null };
+    } }); },
+    append(input, optional) { return formsBoundary<FormSubjectReceipt>({ work: async () => {
+      unwrap({ outcome: checkContext(input, optional) });
+      const receipt = formSubjectSchema.parse(input.receipt);
+      const prior = unwrap({ outcome: await subjects.find({ context: input.context, submissionId: receipt.submissionId, session: input.session }, optional) });
+      if (prior && JSON.stringify(prior) !== JSON.stringify(receipt)) return deny({ code: "conflict", message: "Acceptance receipt conflict" });
+      if (prior) return { ok: true, value: prior };
+      await input.session.query({ text: "INSERT INTO om_form_subject_receipts (workspace_id,submission_id,publication_id,subject_id,accepted_at) VALUES ($1,$2,$3,$4,$5)", values: [input.context.scope.workspaceId, receipt.submissionId, receipt.publicationId, receipt.subjectId, receipt.acceptedAt] });
+      return { ok: true, value: receipt };
+    } }); },
+    list(input, optional) { return formsBoundary<readonly FormSubjectReceipt[]>({ work: async () => {
+      unwrap({ outcome: checkContext(input, optional) });
+      const limit = z.number().int().min(1).max(100).parse(input.limit);
+      return required.unitOfWork.transaction({ work: async ({ session }) => {
+        const result = await session.query({ text: "SELECT submission_id AS submissionId, publication_id AS publicationId, subject_id AS subjectId, accepted_at AS acceptedAt FROM om_form_subject_receipts WHERE workspace_id=$1 ORDER BY accepted_at DESC, submission_id DESC LIMIT $2", values: [input.context.scope.workspaceId, limit] });
+        return { ok: true as const, value: result.rows.map(row => formSubjectSchema.parse(row)) };
+      } });
+    } }); },
+    purgeSubject(input, optional) { return formsBoundary<void>({ work: async () => {
+      unwrap({ outcome: checkContext(input, optional) });
+      idSchema.parse(input.subjectId);
+      return required.unitOfWork.transaction({ work: async ({ session }) => {
+        await session.query({ text: "UPDATE om_form_submissions SET data_json='{}', source_ip=NULL, deleted_at=COALESCE(deleted_at,submitted_at) WHERE workspace_id=$1 AND id IN (SELECT submission_id FROM om_form_subject_receipts WHERE workspace_id=$1 AND subject_id=$2)", values: [input.context.scope.workspaceId, input.subjectId] });
+        return { ok: true as const, value: undefined };
+      } });
+    } }); },
+  };
+  return { publications, receipts, subjects };
 }

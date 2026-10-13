@@ -5,6 +5,10 @@ export interface TimeWindow {
     readonly end: number;
 }
 export interface Consent extends TimeWindow {
+    /** Optional exact publication capture; legacy evidence remains valid. */
+    readonly topic?: string;
+    readonly wordingVersion?: string;
+    readonly wordingDigest?: string;
     readonly purpose: string;
     readonly scope: "channel" | "destination";
     readonly target: string;

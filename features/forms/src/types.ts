@@ -33,6 +33,13 @@ export interface SubmissionReceipt {
   readonly submissionId: string;
   readonly jobId: string;
 }
+/** ID-only acceptance receipt; the original subject/time survive retries and answer erasure. */
+export interface FormSubjectReceipt {
+  readonly submissionId: string;
+  readonly publicationId: string;
+  readonly subjectId: string;
+  readonly acceptedAt: number;
+}
 /** Discard creates no durable receipt, subject or job. Accepted/duplicate share the original identity. */
 export type PublicSubmissionResult = { readonly status: "accepted" | "duplicate"; readonly receipt: SubmissionReceipt } | { readonly status: "discarded" };
 /** Frozen service; adapters validate unknown bodies before invoking published submitForm. */

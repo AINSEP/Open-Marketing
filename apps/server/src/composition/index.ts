@@ -1,4 +1,10 @@
 /** Sole server resource composition. Imports and factories are inert; boot is explicitly effectful. */
+import { createSqlMeasureRepo, createSqlTrackedLink, type MeasureSqlDatabase } from '@open-marketing/measure';
+import { handlePublicRequest } from '../inbound/public.js';
+import { bindForms, seedSandboxForm } from './forms.js';
+import { bindIdentity, createVisitTokens, localKey } from './identity.js';
+import { bindPrivacy } from './privacy.js';
+import { createFormWorkers } from './workers.js';
 import { join } from 'node:path';
 import type Database from 'better-sqlite3';
 import type { CallContext, ClockPort, IdPort, ObserverPort, Outcome } from '@open-marketing/contracts';
@@ -38,7 +44,7 @@ export interface ServerBootIo extends HttpEffects {
 }
 /** Explicit owned lifecycle returned after successful boot. stop is idempotent and closes SQLite last. */
 export interface BootedServer { readonly studioUrl: string; stop(required: Record<string, never>): Promise<Outcome<void>> }
-interface BootResources { native?: Database.Database; app?: LifecyclePort; confirmations?: MemoryConfirmationExchange; stopped?: Promise<Outcome<void>> }
+interface BootResources { native?: Database.Database; app?: LifecyclePort; confirmations?: MemoryConfirmationExchange; workers?: ReturnType<typeof createFormWorkers>; privacy?: ReturnType<typeof bindPrivacy>; stopped?: Promise<Outcome<void>> }
 
 /** Best-effort low-cardinality lifecycle diagnostics; no credential/token or raw exception details. */
 function observeBoot(required: { observer: ObserverPort; context: CallContext; operation: string; outcome: string }): void {
@@ -52,6 +58,11 @@ async function closeResources(required: { resources: BootResources }): Promise<O
     let result: Outcome<void> = { ok: true, value: undefined };
     try { if (required.resources.app) result = await required.resources.app.stop({}); }
     catch { result = localFailure({ message: 'Server transport cleanup failed' }); }
+    try { if (required.resources.workers) {
+        const stopped = await required.resources.workers.stop({});
+        if (!stopped.ok) result = stopped;
+    } } catch { result = localFailure({ message: 'Worker cleanup failed' }); }
+    required.resources.privacy?.participants.dispose({});
     required.resources.confirmations?.reset({});
     try { if (required.resources.native?.open) required.resources.native.close(); }
     catch { return localFailure({ message: 'SQLite cleanup failed' }); }
@@ -63,16 +74,21 @@ function stopResources(required: { resources: BootResources }): Promise<Outcome<
 }
 
 /** Authenticate before bodies and derive owner scope locally. Studio configuration is supplied
- * in same-origin HTML; the cookie stays HttpOnly. Ingress and agent remain later runs.
+ * in same-origin HTML; the owner cookie stays HttpOnly. Public ingress never uses owner auth.
  */
 async function handleBootRequest(required: {
     request: HttpRequest; auth: ReturnType<typeof createLocalAuth>; listener: NodeHttpListener;
-    fs: LocalFilesystem; studioRoot: string; context: CallContext; services: OwnerServices; ids: IdPort;
+    fs: LocalFilesystem; studioRoot: string; context: CallContext; services: OwnerServices; ids: IdPort; publicServices: Omit<Parameters<typeof handlePublicRequest>[0], 'request' | 'context'>;
 }): Promise<HttpResponse> {
     const origin = required.listener.origin({});
     if (!origin) return { status: 503, body: localFailure({ message: 'Server is stopping' }) };
     if (required.request.path === '/health' && required.request.method === 'GET') {
         return { status: 200, body: { ok: true, value: { ready: true, mode: 'local' } } };
+    }
+    if (required.request.path.startsWith('/f/') || required.request.path === '/c' || required.request.path === '/web-events.js') {
+        const trace = ownerContext({ request: required.request, context: required.context, ids: required.ids });
+        return handlePublicRequest({ ...required.publicServices, request: required.request,
+            context: { ...trace, principal: { kind: 'service', serviceId: 'public-ingress' } } });
     }
     if (required.request.path === '/bootstrap') return required.auth.bootstrap({ request: required.request, origin });
     const authenticated = required.auth.verify({ request: required.request, origin });
@@ -100,7 +116,7 @@ function ownerContext(required: { request: HttpRequest; context: CallContext; id
 
 /** Boot one explicitly owned local database: validate config, provision owner, prepare assets,
  * migrate on one checked kernel, persist workspace, bind HTTP, then publish discovery/readiness.
- * Every failed step closes any resources acquired so far; no provider/plugin/worker starts here.
+ * Every failed step closes acquired resources. Only the local forms worker starts here.
  * @example await bootServer({ env, io, clock, ids, observer });
  * @returns A loopback bootstrap URL and stop handle, or a stable typed startup failure.
  * @complexity Fixed 16-entry bounded migration batch; no unbounded work or scheduling queue.
@@ -147,13 +163,30 @@ export async function bootServer(required: {
             safety: createSqlSafetyRepo({ db: safetyDb, clock: required.clock, ids: required.ids, ownerTimezone: config.value.timezone, observer: required.observer }),
             confirmations: resources.confirmations,
         };
+        const visits = createVisitTokens({ key: localKey({ ownerToken: credentials.value.token, domain: 'visits' }), clock: required.clock, ids: required.ids });
+        const digestKey = localKey({ ownerToken: credentials.value.token, domain: 'contacts' });
+        const identity = bindIdentity({ unit: database.unit, clock: required.clock, ids: required.ids, observer: required.observer, digestKey, tokens: visits.tokens });
+        const forms = bindForms({ database, clock: required.clock, ids: required.ids, observer: required.observer, digestKey, tokens: visits.tokens });
+        await seedSandboxForm({ binding: forms, context, clock: required.clock, ids: required.ids });
+        const measureDb: MeasureSqlDatabase = {
+            query: input => database.unit.transaction({ work: ({ session }) => session.query(input) }),
+            transaction: ({ work }) => database.unit.transaction({ work: ({ session }) => work(session) }),
+        };
+        const measure = createSqlMeasureRepo({ database: measureDb, jobs: { async enqueue() { return localFailure({ code: 'forbidden', message: 'Conversions denied in local sandbox' }); } } }, { observer: required.observer });
+        resources.privacy = bindPrivacy({ unit: database.unit, identity, subjects: forms.subjects, measure, clock: required.clock, ids: required.ids, observer: required.observer });
+        resources.workers = createFormWorkers({ unit: database.unit, forms, clock: required.clock, ids: required.ids, observer: required.observer, context, schedule: required.io.schedule });
+        const publicServices = { forms, identity, visits, clock: required.clock, campaigns: services.campaigns,
+            links: createSqlTrackedLink({ database: measureDb, ids: required.ids, baseUrl: 'https://sandbox.example.test/l/', allowedOrigins: ['https://sandbox.example.test'] }, { observer: required.observer }) };
+        services.formSubjects = forms.subjects;
         const bootContext = context;
         resources.app = createServerApp({ listener, handle: request => handleBootRequest({ request, auth, listener, fs: required.io.fs,
-            studioRoot: assets.value, context: bootContext, services, ids: required.ids }) });
+            studioRoot: assets.value, context: bootContext, services, ids: required.ids, publicServices }) });
         const started = await resources.app.start({});
         if (!started.ok) { await stopResources({ resources }); return started; }
         const origin = listener.origin({});
         if (!origin) { await stopResources({ resources }); return localFailure({ message: 'Local server address unavailable' }); }
+        const workersStarted = resources.workers.start({});
+        if (!workersStarted.ok) { await stopResources({ resources }); return workersStarted; }
         phase = 'readiness';
         await writeLocalEndpoint({ fs: required.io.fs, stateRoot: config.value.stateRoot, serverUrl: origin });
         const studioUrl = auth.studioUrl({ origin });

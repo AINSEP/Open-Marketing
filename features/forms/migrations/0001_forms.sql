@@ -55,3 +55,16 @@ CREATE TABLE om_form_submission_receipts (
     FOREIGN KEY (workspace_id, submission_id) REFERENCES om_form_submissions(workspace_id, id)
 );
 CREATE INDEX om_form_receipts_submission ON om_form_submission_receipts(workspace_id, submission_id);
+
+-- Acceptance commits with contacts/evidence/visit; no PII or tokens in this receipt.
+CREATE TABLE om_form_subject_receipts (
+    workspace_id TEXT NOT NULL,
+    submission_id TEXT NOT NULL,
+    publication_id TEXT NOT NULL,
+    subject_id TEXT NOT NULL,
+    accepted_at BIGINT NOT NULL,
+    PRIMARY KEY (workspace_id, submission_id),
+    FOREIGN KEY (workspace_id, submission_id) REFERENCES om_form_submissions(workspace_id, id),
+    FOREIGN KEY (workspace_id, publication_id) REFERENCES om_form_publications(workspace_id, publication_id)
+);
+CREATE INDEX om_form_subject_receipts_subject ON om_form_subject_receipts(workspace_id, subject_id);
