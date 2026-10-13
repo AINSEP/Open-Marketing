@@ -1,8 +1,10 @@
+import type { UnitOfWork } from '@open-marketing/contracts';
+import { withTransaction } from './transaction.js';
 import type Database from 'better-sqlite3';
 import { PgFoundationError, type PgClient, type PgPool, type QueryResult } from './ports.js';
 
 /** An injected native handle; the server composition root opens and closes it explicitly. */
-export interface SqlitePool extends PgPool {
+export interface SqlitePool extends PgPool, UnitOfWork {
     readonly dialect: 'sqlite';
 }
 
@@ -19,12 +21,13 @@ function bindings(required: { values: unknown[] }): Record<string, string | numb
 
 /** Executes trusted SQL on the injected connection. DDL scripts contain no bound values.
  * @throws PgFoundationError; native causes are retained only at the trusted server boundary.
- * @complexity O(p + r) wrapper time/space for p parameters and r returned rows; engine cost depends on SQL.
+ * @complexity O(p + c) wrapper time/space for p parameters and c returned cells; engine cost depends on SQL.
  */
-async function query<Row extends Record<string, unknown>>(required: { database: Database.Database; text: string; values?: unknown[] }): Promise<QueryResult<Row>> {
+async function query<Row extends Record<string, unknown>>(required: { database: Database.Database; text: string; values?: unknown[]; script?: true }): Promise<QueryResult<Row>> {
     const { database, text, values = [] } = required;
     try {
-        if (values.length === 0 && /^\s*(?:CREATE|ALTER|DROP|BEGIN|COMMIT|ROLLBACK)\b/i.test(text)) {
+        if (required.script) {
+            if (values.length) throw new PgFoundationError({ code: 'invalid_parameter', message: 'Trusted SQL scripts cannot bind values' });
             database.exec(text);
             return { rows: [], rowCount: null };
         }
@@ -32,13 +35,28 @@ async function query<Row extends Record<string, unknown>>(required: { database: 
         const parameters = bindings({ values });
         if (statement.reader) {
             statement.safeIntegers(true);
-            const rows = statement.all(parameters) as Row[];
+            const rows = (statement.all(parameters) as Record<string, unknown>[]).map(row => decodeRow({ row })) as Row[];
             return { rows, rowCount: rows.length };
         }
         return { rows: [], rowCount: statement.run(parameters).changes };
     } catch (cause) {
+        if (cause instanceof PgFoundationError) throw cause;
         throw new PgFoundationError({ code: 'query_failed', message: 'SQLite query failed', options: { cause } });
     }
+}
+
+/** Decode native integers once, preserving other SQLite values.
+ * @throws PgFoundationError for integers outside JavaScript's exact range.
+ * @complexity O(c) time/space for c columns.
+ */
+function decodeRow(required: { row: Record<string, unknown> }): Record<string, unknown> {
+    return Object.fromEntries(Object.entries(required.row).map(([name, value]) => {
+        if (typeof value !== 'bigint') return [name, value];
+        if (value < BigInt(Number.MIN_SAFE_INTEGER) || value > BigInt(Number.MAX_SAFE_INTEGER)) {
+            throw new PgFoundationError({ code: 'unsafe_integer', message: 'SQLite integer exceeds the JavaScript safe range' });
+        }
+        return [name, Number(value)];
+    }));
 }
 
 /** Adapt one server-owned better-sqlite3 handle to the preserved query/pool port, without opening it.
@@ -53,15 +71,18 @@ async function query<Row extends Record<string, unknown>>(required: { database: 
 export function createSqlitePool(required: { database: Database.Database }): SqlitePool {
     let leased = false;
     let quarantined = false;
-    return {
+    const pool: SqlitePool = {
         dialect: 'sqlite',
+        async transaction({ work }) {
+            return withTransaction({ pool, work: session => work({ session }) });
+        },
         async connect(): Promise<PgClient> {
             if (!required.database.open || quarantined) throw new PgFoundationError({ code: 'connection_unavailable', message: 'SQLite handle is closed or quarantined' });
             if (leased) throw new PgFoundationError({ code: 'connection_busy', message: 'SQLite handle already has a transaction; schedule work sequentially' });
             leased = true;
             let released = false;
             return {
-                async query<Row extends Record<string, unknown>>(input: { text: string; values?: unknown[] }): Promise<QueryResult<Row>> {
+                async query<Row extends Record<string, unknown>>(input: { text: string; values?: unknown[]; script?: true }): Promise<QueryResult<Row>> {
                     if (released) throw new PgFoundationError({ code: 'connection_released', message: 'SQLite lease has ended' });
                     return query<Row>({ database: required.database, ...input });
                 },
@@ -74,4 +95,5 @@ export function createSqlitePool(required: { database: Database.Database }): Sql
             };
         },
     };
+    return pool;
 }

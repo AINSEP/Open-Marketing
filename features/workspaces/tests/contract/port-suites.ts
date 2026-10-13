@@ -2,7 +2,7 @@ import type { ObserverEvent } from "@open-marketing/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AccountBindingLookupPort, ClockPort, MemoryIdentity, WorkspaceObserverPort } from "../../index.js";
 import type { RepositoryHarness } from "../fixtures.js";
-import { binding, otherScope, ownerScope, secondScope, resolveOwner, unwrap } from "../fixtures.js";
+import { binding, missingWorkspaceId, otherScope, ownerScope, secondScope, resolveOwner, unwrap } from "../fixtures.js";
 
 /** Shared behavioral suite: both adapters must enforce the same ownership, uniqueness and isolation. */
 export function WorkspaceRepoPortSuite(required: { create: () => RepositoryHarness }) {
@@ -18,9 +18,9 @@ export function WorkspaceRepoPortSuite(required: { create: () => RepositoryHarne
       expect(await harness.repo.find({ context, externalAccountId: binding.externalAccountId })).toEqual({ ok: true, value: binding });
     });
     it("unknown sessions and other-owner/missing workspaces fail", async () => {
-      expect(await harness.repo.resolve({ session: { sessionId: "unknown" }, workspaceId: "workspace-a" })).toMatchObject({ ok: false, error: { code: "unauthenticated" } });
-      expect(await harness.repo.resolve({ session: { sessionId: "session-a" }, workspaceId: "workspace-b" })).toMatchObject({ ok: false, error: { code: "forbidden" } });
-      expect(await harness.repo.resolve({ session: { sessionId: "session-a" }, workspaceId: "missing" })).toMatchObject({ ok: false, error: { code: "forbidden" } });
+      expect(await harness.repo.resolve({ session: { sessionId: "unknown" }, workspaceId: ownerScope.workspaceId })).toMatchObject({ ok: false, error: { code: "unauthenticated" } });
+      expect(await harness.repo.resolve({ session: { sessionId: "session-a" }, workspaceId: otherScope.workspaceId })).toMatchObject({ ok: false, error: { code: "forbidden" } });
+      expect(await harness.repo.resolve({ session: { sessionId: "session-a" }, workspaceId: missingWorkspaceId })).toMatchObject({ ok: false, error: { code: "forbidden" } });
     });
     it("forged principal/scope and other-owner connection cannot create bindings", async () => {
       const context = await resolveOwner({ repo: harness.repo });
@@ -41,8 +41,8 @@ export function WorkspaceRepoPortSuite(required: { create: () => RepositoryHarne
     });
     it("same vendor account ID and binding ID remain independent across owner/workspace scopes", async () => {
       const context = await resolveOwner({ repo: harness.repo });
-      const other = unwrap({ result: await harness.repo.resolve({ session: { sessionId: "session-b" }, workspaceId: "workspace-b" }) });
-      const second = unwrap({ result: await harness.repo.resolve({ session: { sessionId: "session-a" }, workspaceId: "workspace-second" }) });
+      const other = unwrap({ result: await harness.repo.resolve({ session: { sessionId: "session-b" }, workspaceId: otherScope.workspaceId }) });
+      const second = unwrap({ result: await harness.repo.resolve({ session: { sessionId: "session-a" }, workspaceId: secondScope.workspaceId }) });
       const otherBinding = { ...binding, scope: otherScope, connectionId: "connection-b" };
       const secondBinding = { ...binding, scope: secondScope, connectionId: "connection-second" };
       expect(await harness.repo.bind({ context, binding })).toEqual({ ok: true, value: binding });
@@ -65,7 +65,7 @@ export function WorkspaceRepoPortSuite(required: { create: () => RepositoryHarne
       const controller = new AbortController(); controller.abort();
       expect(await harness.repo.bind({ context, binding }, { signal: controller.signal })).toMatchObject({ ok: false, error: { code: "cancelled" } });
       expect(await harness.repo.find({ context, externalAccountId: "vendor-42" })).toEqual({ ok: true, value: null });
-      expect(await harness.repo.resolve({ session: { sessionId: "session-a", ownerId: "owner-b" }, workspaceId: "workspace-a" } as Parameters<typeof harness.repo.resolve>[0])).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+      expect(await harness.repo.resolve({ session: { sessionId: "session-a", ownerId: "owner-b" }, workspaceId: ownerScope.workspaceId } as Parameters<typeof harness.repo.resolve>[0])).toMatchObject({ ok: false, error: { code: "invalid_input" } });
     });
     it("input/output mutations cannot change persisted ownership or account keys", async () => {
       const context = await resolveOwner({ repo: harness.repo });
@@ -111,7 +111,7 @@ export function AccountBindingLookupPortSuite(required: { create: () => Reposito
       expect(await harness.lookup.find({ context, externalAccountId: "vendor-42" })).toEqual({ ok: true, value: null });
       expect(await harness.repo.bind({ context, binding })).toEqual({ ok: true, value: binding });
       expect(await harness.lookup.find({ context, externalAccountId: "vendor-42" })).toEqual({ ok: true, value: binding });
-      const other = unwrap({ result: await harness.repo.resolve({ session: { sessionId: "session-b" }, workspaceId: "workspace-b" }) });
+      const other = unwrap({ result: await harness.repo.resolve({ session: { sessionId: "session-b" }, workspaceId: otherScope.workspaceId }) });
       expect(await harness.lookup.find({ context: other, externalAccountId: "vendor-42" })).toEqual({ ok: true, value: null });
       expect(await harness.lookup.find({ context: { ...context, principal: { kind: "agent", agentInstanceId: "agent", runId: "run" } }, externalAccountId: "vendor-42" })).toMatchObject({ ok: false, error: { code: "forbidden" } });
     });

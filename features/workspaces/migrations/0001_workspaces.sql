@@ -2,7 +2,7 @@
 -- SQLite foreign_keys MUST be enabled by the server; all SQL is portable to PostgreSQL.
 CREATE TABLE IF NOT EXISTS workspace (
   owner_id TEXT NOT NULL,
-  workspace_id TEXT NOT NULL,
+  workspace_id TEXT NOT NULL UNIQUE,
   PRIMARY KEY (owner_id, workspace_id)
 );
 

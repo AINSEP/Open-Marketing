@@ -2,7 +2,7 @@ import type { ObserverEvent } from "@open-marketing/contracts";
 import { describe, expect, it } from "vitest";
 import { createWorkspaceService, createMemoryWorkspaceRepo, createMemoryIdentity, createMemoryWorkspaceObserver } from "../index.js";
 import type { CallContext, IdentityPort, WorkspaceRepoPort } from "../index.js";
-import { binding, connections, createIds, otherScope, sessions, unwrap, workspaces } from "./fixtures.js";
+import { binding, ownerScope, connections, createIds, otherScope, sessions, unwrap, workspaces } from "./fixtures.js";
 
 function createHarness(required: { identity?: IdentityPort; repo?: WorkspaceRepoPort } = {}) {
   let now = 100;
@@ -14,7 +14,7 @@ function createHarness(required: { identity?: IdentityPort; repo?: WorkspaceRepo
   return { service, identity, repo, storage, events, setNow(input: { value: number }) { now = input.value; } };
 }
 async function resolve(required: { service: ReturnType<typeof createWorkspaceService> }): Promise<CallContext> {
-  return unwrap({ result: await required.service.resolveContext({ session: { sessionId: "session-a" }, workspaceId: "workspace-a" }) });
+  return unwrap({ result: await required.service.resolveContext({ session: { sessionId: "session-a" }, workspaceId: ownerScope.workspaceId }) });
 }
 
 describe("WorkspaceService authenticated account scope", () => {
@@ -37,7 +37,7 @@ describe("WorkspaceService authenticated account scope", () => {
   it("mutating issued owner/workspace/principal/trace values fails closed", async () => {
     const harness = createHarness({});
     const context = await resolve(harness);
-    context.scope.workspaceId = "workspace-b";
+    context.scope.workspaceId = otherScope.workspaceId;
     expect(await harness.service.bindAccount({ context, binding })).toMatchObject({ ok: false, error: { code: "forbidden" } });
     const next = await resolve(harness);
     next.principal = { kind: "agent", agentInstanceId: "agent", runId: "run" };
@@ -47,18 +47,18 @@ describe("WorkspaceService authenticated account scope", () => {
   });
   it("identity failure preserves trace context without disclosing a session", async () => {
     const harness = createHarness({ identity: { async verify() { return { ok: false, error: { code: "unauthenticated", message: "Session revoked", retryable: false } }; } } });
-    expect(await harness.service.resolveContext({ session: { sessionId: "secret-session" }, workspaceId: "workspace-a" })).toEqual({ ok: false, error: { code: "unauthenticated", message: "Session revoked", retryable: false } });
-    expect(harness.events).toEqual([{ operation: "workspaces.resolveContext", outcome: "unauthenticated", correlationId: "id-1", traceId: "id-2" }]);
+    expect(await harness.service.resolveContext({ session: { sessionId: "secret-session" }, workspaceId: ownerScope.workspaceId })).toEqual({ ok: false, error: { code: "unauthenticated", message: "Session revoked", retryable: false } });
+    expect(harness.events).toEqual([{ operation: "workspaces.resolveContext", outcome: "unauthenticated", correlationId: "00000000-0000-4000-8000-000000000001", traceId: "00000000-0000-4000-8000-000000000002" }]);
     expect(JSON.stringify(harness.events)).not.toContain("secret-session");
   });
   it("thrown identity errors become typed unavailable and malformed output is rejected", async () => {
     const throwing = createHarness({ identity: { async verify() { throw new Error("secret-provider-error"); } } });
-    expect(await throwing.service.resolveContext({ session: { sessionId: "session-a" }, workspaceId: "workspace-a" })).toMatchObject({ ok: false, error: { code: "unavailable" } });
+    expect(await throwing.service.resolveContext({ session: { sessionId: "session-a" }, workspaceId: ownerScope.workspaceId })).toMatchObject({ ok: false, error: { code: "unavailable" } });
     expect(JSON.stringify(throwing.events)).not.toContain("secret-provider-error");
     const malformed = createHarness({ identity: { async verify() { return { ok: true, value: { ownerId: "", sessionId: "session-a" } }; } } });
-    expect(await malformed.service.resolveContext({ session: { sessionId: "session-a" }, workspaceId: "workspace-a" })).toMatchObject({ ok: false, error: { code: "unavailable" } });
+    expect(await malformed.service.resolveContext({ session: { sessionId: "session-a" }, workspaceId: ownerScope.workspaceId })).toMatchObject({ ok: false, error: { code: "unavailable" } });
     const mismatch = createHarness({ identity: { async verify() { return { ok: true, value: { ownerId: "owner-a", sessionId: "wrong-session" } }; } } });
-    expect(await mismatch.service.resolveContext({ session: { sessionId: "session-a" }, workspaceId: "workspace-a" })).toMatchObject({ ok: false, error: { code: "unauthenticated" } });
+    expect(await mismatch.service.resolveContext({ session: { sessionId: "session-a" }, workspaceId: ownerScope.workspaceId })).toMatchObject({ ok: false, error: { code: "unauthenticated" } });
   });
   it("revocation after resolution prevents binding and retains resolution trace", async () => {
     const identity = createMemoryIdentity({ sessions });
@@ -83,7 +83,7 @@ describe("WorkspaceService authenticated account scope", () => {
     const base = createMemoryWorkspaceRepo({ identity, ids: createIds({}), workspaces, connections });
     const repo: WorkspaceRepoPort = { ...base, async resolve(input) { const result = await base.resolve(input); return result.ok ? { ok: true, value: { ...result.value, scope: otherScope, principal: { kind: "owner", ownerId: "owner-b" } } } : result; } };
     const forged = createHarness({ identity, repo });
-    expect(await forged.service.resolveContext({ session: { sessionId: "session-a" }, workspaceId: "workspace-a" })).toMatchObject({ ok: false, error: { code: "forbidden" } });
+    expect(await forged.service.resolveContext({ session: { sessionId: "session-a" }, workspaceId: ownerScope.workspaceId })).toMatchObject({ ok: false, error: { code: "forbidden" } });
     const wrongBinding = createHarness({ identity, repo: { ...base, async bind() { return { ok: true, value: { ...binding, scope: otherScope } }; } } });
     const context = await resolve(wrongBinding);
     expect(await wrongBinding.service.bindAccount({ context, binding })).toMatchObject({ ok: false, error: { code: "unavailable" } });
@@ -116,8 +116,8 @@ describe("WorkspaceService authenticated account scope", () => {
   it("extra identity claims and oversized IDs are rejected before any authority call", async () => {
     let calls = 0;
     const harness = createHarness({ identity: { async verify() { calls += 1; return { ok: true, value: sessions[0] }; } } });
-    expect(await harness.service.resolveContext({ session: { sessionId: "x".repeat(257) }, workspaceId: "workspace-a" })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
-    expect(await harness.service.resolveContext({ session: { sessionId: "session-a", ownerId: "owner-b" }, workspaceId: "workspace-a" } as Parameters<typeof harness.service.resolveContext>[0])).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+    expect(await harness.service.resolveContext({ session: { sessionId: "x".repeat(257) }, workspaceId: ownerScope.workspaceId })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+    expect(await harness.service.resolveContext({ session: { sessionId: "session-a", ownerId: "owner-b" }, workspaceId: ownerScope.workspaceId } as Parameters<typeof harness.service.resolveContext>[0])).toMatchObject({ ok: false, error: { code: "invalid_input" } });
     expect(calls).toBe(0);
   });
 });

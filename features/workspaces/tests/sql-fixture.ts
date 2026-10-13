@@ -7,7 +7,13 @@ import { connections, createIds, sessions, workspaces } from "./fixtures.js";
 /** Test-only real SQLite driver wrapper: mirrors the server's serialized DB-shaped port.
  * Foreign better-sqlite3 ABIs stay in this fixture, never in production feature code.
  */
-export function createSqlHarness(required: Record<string, never>) {
+export function createSqlHarness(required: Record<string, never>): {
+  repo: ReturnType<typeof createSqlWorkspaceRepo>;
+  db: WorkspaceSqlDatabase;
+  lookup: ReturnType<typeof createSqlAccountBindingLookup>;
+  database: Database.Database;
+  dispose(): void;
+} {
   const database = new Database(":memory:");
   database.pragma("foreign_keys = ON");
   database.exec(readFileSync(new URL("../migrations/0001_workspaces.sql", import.meta.url), "utf8"));

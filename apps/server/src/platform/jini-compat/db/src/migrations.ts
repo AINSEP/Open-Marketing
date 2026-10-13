@@ -84,7 +84,7 @@ async function applyMigrations({ tx, migrations }: {
     verifyHistory({ applied: rows, migrations: migrations });
     const pending = migrations.slice(rows.length);
     for (const migration of pending) {
-        await tx.query({ text: migration.sql });
+        await tx.query({ text: migration.sql, script: true });
         await tx.query({ text: 'INSERT INTO om_schema_migrations (version, name, checksum) VALUES ($1, $2, $3)', values: [String(migration.version), migration.name, migration.checksum] });
     }
     return pending.map((migration) => migration.version);

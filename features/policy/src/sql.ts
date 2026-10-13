@@ -1,20 +1,12 @@
-import type { CallContext, CallOptions, Outcome } from "@open-marketing/contracts";
+import type { CallContext, CallOptions, Outcome, SqlSession, UnitOfWork } from "@open-marketing/contracts";
 import type { CanonicalIdentityPort, PolicyObserverPort, PolicyRepoPort } from "./ports.js";
 import type { PolicyEvidence } from "./types.js";
 import { boundary, evidenceSchema, evidenceLimit, failure, referenceSchema, sameScope, validateEvidence, validateRequest } from "./validation.js";
 import { checkAppend, projectSnapshot, rootsFor } from "./projection.js";
 
-/** Structural @jini-ai/db-shaped query seam; the server supplies the client/driver.
- * Query/connect timeouts and writer serialization belong to the injected pool.
- */
-export interface PolicySqlClient {
-  query<Row extends Record<string, unknown> = Record<string, unknown>>(required: { text: string; values?: unknown[] }): Promise<{ rows: Row[]; rowCount: number | null }>;
-  release(required: { destroy?: boolean }): void;
-}
-export interface PolicySqlPool {
-  readonly dialect?: "sqlite" | "postgres";
-  connect(): Promise<PolicySqlClient>;
-}
+/** The server owns transactions; a supplied session joins its current transaction. */
+export type PolicySqlClient = SqlSession;
+export type PolicySqlPool = UnitOfWork;
 export type SqlPolicyOptions = { readonly pool: PolicySqlPool; readonly maxEvidence?: number; readonly observer?: PolicyObserverPort };
 
 type Session = { client: PolicySqlClient; context: CallContext; maxEvidence: number };
@@ -30,7 +22,7 @@ export function createSqlPolicyRepo(required: SqlPolicyOptions): PolicyRepoPort 
     async snapshot(input, options) {
       const invalid = validateRequest({ ...input, options });
       if (invalid) return invalid;
-      return transaction({ ...required, context: input.context, options, operation: "policy.sql.snapshot", write: false, work: async client => {
+      return transaction({ ...required, context: input.context, options, operation: "policy.sql.snapshot", work: async client => {
         const evidence = await readEvidence({ client, context: input.context, maxEvidence });
         if (!evidence.ok) return evidence;
         return projectSnapshot({ subjectId: input.subjectId, evidence: evidence.value });
@@ -40,7 +32,7 @@ export function createSqlPolicyRepo(required: SqlPolicyOptions): PolicyRepoPort 
       const invalid = validateEvidence({ ...input, options });
       if (invalid) return invalid;
       const evidence = evidenceSchema.parse(input.evidence);
-      return transaction({ ...required, context: input.context, options, operation: "policy.sql.appendEvidence", write: true, work: async client => {
+      return transaction({ ...required, context: input.context, options, operation: "policy.sql.appendEvidence", work: async client => {
         const existing = await readEvidence({ client, context: input.context, maxEvidence });
         if (!existing.ok) return existing;
         const checked = checkAppend({ evidence, existing: existing.value, maxEvidence });
@@ -53,7 +45,7 @@ export function createSqlPolicyRepo(required: SqlPolicyOptions): PolicyRepoPort 
     async resolve(input, options) {
       const invalid = validateRequest({ context: input.context, subjectId: input.identifier, options });
       if (invalid) return invalid;
-      return transaction({ ...required, context: input.context, options, operation: "policy.sql.resolve", write: false, work: async client => {
+      return transaction({ ...required, context: input.context, options, operation: "policy.sql.resolve", work: async client => {
         const subject = await readIdentifier({ client, context: input.context, identifier: input.identifier });
         if (!subject.ok) return subject;
         const evidence = await readEvidence({ client, context: input.context, maxEvidence });
@@ -107,41 +99,17 @@ async function readIdentifier(required: { client: PolicySqlClient; context: Call
   return parsed.success ? { ok: true, value: parsed.data.subjectId } : failure({ code: "unavailable", message: "Invalid stored identity" });
 }
 
-type TransactionInput<T> = SqlPolicyOptions & { context: CallContext; options?: CallOptions; operation: string; write: boolean; work: (client: PolicySqlClient) => Promise<Outcome<T>> };
-/** Borrow one connection, rollback typed denials, evict failed connections.
- * Foreign callback ABI receives the borrowed query client; it never owns release.
+type TransactionInput<T> = SqlPolicyOptions & { context: CallContext; options?: CallOptions; operation: string; work: (client: PolicySqlClient) => Promise<Outcome<T>> };
+/** Delegate transaction ownership, checking cancellation before root work returns.
+ * A joined call leaves the final commit/rollback decision with the outer caller.
  * @complexity Work-dependent; one transaction and a bounded bulk read.
  */
 async function transaction<T>(required: TransactionInput<T>): Promise<Outcome<T>> {
-  return boundary({ ...required, work: async () => {
-    const client = await required.pool.connect();
-    return useClient({ ...required, client });
-  } });
-}
-/** Release on every path, including BEGIN/COMMIT failure; cancellation before commit rolls back. @complexity Work-dependent. */
-async function useClient<T>(required: TransactionInput<T> & { client: PolicySqlClient }): Promise<Outcome<T>> {
-  let destroy = false;
-  try {
-    await required.client.query({ text: beginStatement(required) });
-    const result = await required.work(required.client);
-    const outcome = required.options?.signal?.aborted ? failure({ code: "cancelled", message: "Policy operation cancelled" }) : result;
-    await required.client.query({ text: outcome.ok ? "COMMIT" : "ROLLBACK" });
-    return outcome;
-  } catch {
-    destroy = true;
-    await rollback({ client: required.client });
-    return failure({ code: "unavailable", message: "Policy database unavailable" });
-  } finally { required.client.release({ destroy }); }
-}
-/** SQLite serializes writers; PostgreSQL serializable transactions fail closed on races. @complexity O(1). */
-function beginStatement(required: { pool: PolicySqlPool; write: boolean }): string {
-  if (!required.write) return "BEGIN";
-  return required.pool.dialect === "postgres" ? "BEGIN ISOLATION LEVEL SERIALIZABLE" : "BEGIN IMMEDIATE";
-}
-/** Best-effort rollback after a failed transaction; connection will be evicted. @complexity O(1). */
-async function rollback(required: { client: PolicySqlClient }): Promise<void> {
-  try { await required.client.query({ text: "ROLLBACK" }); }
-  catch { /* The failed connection is evicted by release. */ }
+  return boundary({ ...required, work: () => required.pool.transaction({ work: async ({ session }) => {
+    const result = await required.work(session);
+    if (required.options?.signal?.aborted) return failure({ code: "cancelled", message: "Policy operation cancelled" });
+    return result;
+  } }) });
 }
 
 /** Reject JSON/column drift rather than trusting corrupted grant metadata. @complexity O(1). */

@@ -1,3 +1,4 @@
+import type { SqlSession } from '@open-marketing/contracts';
 import { PgFoundationError, type PgClient, type PgEvent, type PgObserver, type PgPool, type PgQueryable, type QueryResult } from './ports.js';
 /** PostgreSQL statement/lock limits are transaction-local. SQLite's sync driver cannot enforce a
  * statement deadline here: configure native busy_timeout at composition and bound trusted SQL/body work.
@@ -53,23 +54,39 @@ function timeout({ value }: {
 /** Explicit external query edge; original driver errors stay in cause, not telemetry.
  * @complexity One query, O(1) wrapper space excluding results.
  */
-function instrumentClient({ client, observer }: {
+function instrumentClient({ client, observer, lifetime }: {
     client: PgClient;
     observer?: PgObserver;
-}): PgQueryable {
+    lifetime: { active: boolean };
+}): PgQueryable & SqlSession {
     return {
-        async query<Row extends Record<string, unknown>>({ text, values }: {
+        async query<Row extends Record<string, unknown>>({ text, values, script }: {
             text: string;
             values?: unknown[];
+            script?: true;
         }): Promise<QueryResult<Row>> {
+            assertActive({ lifetime });
             try {
-                return await observed({ operation: 'query', observer: observer, work: () => client.query<Row>({ text: text, values: values }) });
+                return await observed({ operation: 'query', observer: observer, work: () => client.query<Row>({ text: text, values: values, script }) });
             }
             catch (cause) {
+                if (cause instanceof PgFoundationError) throw cause;
                 throw new PgFoundationError({ code: 'query_failed', message: 'Database query failed', options: { cause } });
             }
         },
+        async transaction({ work }) {
+            assertActive({ lifetime });
+            return work({ session: this });
+        },
     };
+}
+/** A retained session must never reach a later request. @complexity O(1). */
+function assertActive(required: { lifetime: { active: boolean } }): void {
+    if (!required.lifetime.active) throw new PgFoundationError({ code: 'connection_released', message: 'Transaction session has ended' });
+}
+/** Structural Outcome detection leaves non-Outcome return values unchanged. @complexity O(1). */
+function failedOutcome(required: { value: unknown }): boolean {
+    return typeof required.value === 'object' && required.value !== null && 'ok' in required.value && required.value.ok === false;
 }
 /** Roll back work failure, retaining both causes when cleanup also fails.
  * @complexity One query, O(1) space.
@@ -93,8 +110,8 @@ async function rollback({ queryable, cause }: {
  *
  */
 async function runBody<T>({ queryable, work, limits }: {
-    queryable: PgQueryable;
-    work: (tx: PgQueryable) => Promise<T>;
+    queryable: PgQueryable & SqlSession;
+    work: (tx: PgQueryable & SqlSession) => Promise<T>;
     limits: string[] | undefined;
 }): Promise<T> {
     try {
@@ -105,10 +122,10 @@ async function runBody<T>({ queryable, work, limits }: {
         return rollback({ queryable: queryable, cause: cause });
     }
 }
-/** Execute and commit work on one connection. Body errors roll back; uncertain commits evict the client
+/** Execute and commit work on one connection. Body throws and returned failed Outcomes roll back; uncertain commits evict the client
  * and are NEVER retried. A callback must not retain the client, issue BEGIN/COMMIT, or launch unawaited work.
  * @example await withTransaction({ pool, work: tx => tx.query({ text: 'SELECT $1 AS value', values: [1] }) });
- * @returns Callback value after successful COMMIT.
+ * @returns Original callback value after commit or successful denial rollback. Nested session calls join; the outer caller decides the final Outcome.
  * @throws PgFoundationError with a cause; commit_failed means the outcome may be committed.
  * @complexity O(q) driver calls for q body queries; constant wrapper space.
  *
@@ -116,7 +133,7 @@ async function runBody<T>({ queryable, work, limits }: {
  */
 export async function withTransaction<T>({ pool, work }: {
     pool: PgPool;
-    work: (tx: PgQueryable) => Promise<T>;
+    work: (tx: PgQueryable & SqlSession) => Promise<T>;
 }, { statementTimeoutMs = 30000, lockTimeoutMs = 5000, observer }: TransactionOptions = {}): Promise<T> {
     if (pool.dialect === 'sqlite' && (statementTimeoutMs !== 30000 || lockTimeoutMs !== 5000)) {
         throw new PgFoundationError({ code: 'unsupported_timeout', message: 'Configure SQLite native timeouts at composition; per-transaction overrides are unsupported' });
@@ -129,18 +146,15 @@ export async function withTransaction<T>({ pool, work }: {
     catch (cause) {
         throw new PgFoundationError({ code: 'connect_failed', message: 'Database connection failed', options: { cause } });
     }
-    const queryable = instrumentClient({ client: client, observer: observer });
+    const lifetime = { active: true };
+    const queryable = instrumentClient({ client, observer, lifetime });
     let destroy = true;
     let primaryFailure: unknown;
     try {
         await queryable.query({ text: pool.dialect === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN' });
         const result = await runBody({ queryable: queryable, work: work, limits: pool.dialect === 'sqlite' ? undefined : limits });
-        try {
-            await queryable.query({ text: 'COMMIT' });
-        }
-        catch (cause) {
-            throw new PgFoundationError({ code: 'commit_failed', message: 'Commit outcome is uncertain; reconcile before retry', options: { cause } });
-        }
+        await finishTransaction({ queryable, result });
+        if (failedOutcome({ value: result })) primaryFailure = result;
         destroy = false;
         return result;
     }
@@ -151,7 +165,24 @@ export async function withTransaction<T>({ pool, work }: {
         throw cause;
     }
     finally {
+        lifetime.active = false;
         await releaseClient({ client, destroy, primaryFailure, observer });
+    }
+}
+
+/** Returned denials roll back; commit failures stay uncertain and are never retried.
+ * @complexity One query, O(1) space.
+ */
+async function finishTransaction(required: { queryable: PgQueryable; result: unknown }): Promise<void> {
+    const denied = failedOutcome({ value: required.result });
+    try {
+        await required.queryable.query({ text: denied ? 'ROLLBACK' : 'COMMIT' });
+    } catch (cause) {
+        throw new PgFoundationError({
+            code: denied ? 'rollback_failed' : 'commit_failed',
+            message: denied ? 'Outcome rollback failed' : 'Commit outcome is uncertain; reconcile before retry',
+            options: { cause },
+        });
     }
 }
 

@@ -8,6 +8,8 @@ export interface PgQueryable {
     query<Row extends Record<string, unknown> = Record<string, unknown>>(required: {
         text: string;
         values?: unknown[];
+        /** Trusted migration scripts only; bound values are forbidden. */
+        script?: true;
     }): Promise<QueryResult<Row>>;
 }
 /** A checked-out connection. release(true) must evict an unusable connection. */

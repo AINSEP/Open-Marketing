@@ -60,16 +60,48 @@ describe("adapter defenses", () => {
       expect(await reader.snapshot({ context, subjectId: "subject" })).toMatchObject({ ok: false, error: { code: "limit_exceeded" } });
     } finally { fixture.close(); }
   });
-  it("does not connect until requested and evicts query failures", async () => {
+  it("is inert and delegates failures to the injected transaction owner", async () => {
     const events: string[] = [];
     const client: PolicySqlClient = {
       async query(input) { events.push(input.text); throw new Error("driver private detail"); },
-      release(input) { events.push("release:" + String(input.destroy)); },
+      async transaction({ work }) { return work({ session: this }); },
     };
-    const pool: PolicySqlPool = { dialect: "sqlite", async connect() { events.push("connect"); return client; } };
+    const pool: PolicySqlPool = { async transaction({ work }) { events.push("transaction"); return work({ session: client }); } };
     const repo = createSqlPolicyRepo({ pool });
     expect(events).toEqual([]);
     expect(await repo.snapshot({ context, subjectId: "subject" })).toEqual({ ok: false, error: { code: "unavailable", message: "Policy database unavailable", retryable: true } });
-    expect(events).toEqual(["connect", "BEGIN", "ROLLBACK", "release:true"]);
+    expect(events[0]).toBe("transaction");
+    expect(events.slice(1)).toHaveLength(1);
+    expect(events[1]).toMatch(/^SELECT payload/);
+  });
+  it("participates in an outer rollback through its supplied session", async () => {
+    const fixture = sqliteFixture();
+    const denied = { ok: false as const, error: { code: "denied" } };
+    try {
+      expect(await fixture.pool.transaction({ work: async ({ session }) => {
+        const repo = createSqlPolicyRepo({ pool: session });
+        expect(await repo.appendEvidence({ context, evidence: grant })).toEqual({ ok: true, value: grant });
+        return denied;
+      } })).toBe(denied);
+      expect(fixture.db.prepare("SELECT COUNT(*) AS count FROM policy_evidence").get()).toEqual({ count: 0 });
+    } finally { fixture.close(); }
+  });
+  it("cancellation after insert returns failure before the owner commits", async () => {
+    const fixture = sqliteFixture();
+    const controller = new AbortController();
+    const pool: PolicySqlPool = { transaction({ work }) {
+      return fixture.pool.transaction({ work: ({ session }) => work({ session: {
+        ...session,
+        async query<Row extends Record<string, unknown>>(input: { text: string; values?: unknown[] }) {
+          const result = await session.query<Row>(input);
+          if (input.text.startsWith("INSERT")) controller.abort();
+          return result;
+        },
+      } }) });
+    } };
+    try {
+      expect(await createSqlPolicyRepo({ pool }).appendEvidence({ context, evidence: grant }, { signal: controller.signal })).toMatchObject({ ok: false, error: { code: "cancelled" } });
+      expect(fixture.db.prepare("SELECT COUNT(*) AS count FROM policy_evidence").get()).toEqual({ count: 0 });
+    } finally { fixture.close(); }
   });
 });

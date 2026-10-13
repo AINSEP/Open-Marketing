@@ -8,3 +8,5 @@ export { createSqlWorkspaceRepo, createSqlAccountBindingLookup } from "./src/sql
 export type { WorkspaceSqlDatabase, WorkspaceSqlSession } from "./src/sql.js";
 export type { WorkspaceRecord, WorkspaceConnectionRecord, WorkspaceRepository } from "./src/store.js";
 export type { MemorySession, MemoryIdentity } from "./src/memory.js";
+
+export { createWorkspaceRecord } from "./src/store.js";

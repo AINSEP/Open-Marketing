@@ -7,3 +7,19 @@ export { effectCategorySchema, moneyExposureSchema, dailyLimitRequirementSchema,
 export type { EffectCategory, MoneyExposure, DailyLimitRequirement, EffectEnvelope, CapabilityEnvelope, GenerationCostQuote, CostQuote, GenerationAllowanceSettings, GenerationApprovalRequirement, HaltStopRequest, HaltStopPermit, MeasurementGrant, MeasurementServiceGrant } from "./capabilities/index.js";
 export { idSchema, epochSchema, digestSchema, moneySchema, timeWindowSchema, scopeSchema, principalSchema, appErrorSchema, callContextSchema, pageQuerySchema, notImplemented, parseBoundary } from "./values/index.js";
 export type { AppError, Outcome, Scope, Principal, PrincipalReference, Money, TimeWindow, OperationId, EventCursor, CallContext, ServiceContext, CallOptions, ClockPort, IdPort, ObserverEvent, ObserverPort, PageQuery, Page } from "./values/index.js";
+
+/** One explicit transaction owner. Root work rolls back on a throw or returned {ok:false}.
+ * Pass its session to every participating repository; session transactions join the root.
+ * Callers must await all work and stop using the session when root work returns.
+ * @example await pool.transaction({ work: ({ session }) => session.query({ text: 'SELECT 1' }) });
+ */
+export interface UnitOfWork {
+  transaction<T>(required: { work: (required: { session: SqlSession }) => Promise<T> }): Promise<T>;
+}
+/** Request-bound SQL access; implementations reject use after the root transaction ends. */
+export interface SqlSession extends UnitOfWork {
+  query<Row extends Record<string, unknown> = Record<string, unknown>>(required: {
+    text: string;
+    values?: unknown[];
+  }): Promise<{ rows: Row[]; rowCount: number | null }>;
+}

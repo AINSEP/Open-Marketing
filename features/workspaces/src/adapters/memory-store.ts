@@ -1,9 +1,9 @@
 import { z } from "zod";
-import { idSchema, scopeSchema } from "@open-marketing/contracts";
+import { idSchema } from "@open-marketing/contracts";
 import type { Outcome, Scope } from "@open-marketing/contracts";
 import type { AccountBinding } from "../types.js";
 import type { WorkspaceConnectionRecord, WorkspaceRecord, WorkspaceStore } from "../store.js";
-import { bindingSchema } from "../schemas.js";
+import { bindingSchema, workspaceScopeSchema } from "../schemas.js";
 import { failure, sameBinding } from "../rules.js";
 
 /** Tuple encoding avoids delimiter collisions in opaque identifiers. @complexity O(1) bounded IDs. */
@@ -17,12 +17,13 @@ function scopeKey(required: { scope: Scope; id?: string }): string {
  * cannot overwrite a winner. @complexity O(n) initialization; O(1) operations; O(n) storage.
  */
 export function createMemoryStore(required: { workspaces?: readonly WorkspaceRecord[]; connections?: readonly WorkspaceConnectionRecord[]; bindings?: readonly AccountBinding[] }): WorkspaceStore {
-  const seed = z.strictObject({ workspaces: z.array(scopeSchema).max(10_000), connections: z.array(z.strictObject({ scope: scopeSchema, connectionId: idSchema })).max(10_000), bindings: z.array(bindingSchema).max(10_000) }).parse({ workspaces: required.workspaces ?? [], connections: required.connections ?? [], bindings: required.bindings ?? [] });
+  const seed = z.strictObject({ workspaces: z.array(workspaceScopeSchema).max(10_000), connections: z.array(z.strictObject({ scope: workspaceScopeSchema, connectionId: idSchema })).max(10_000), bindings: z.array(bindingSchema).max(10_000) }).parse({ workspaces: required.workspaces ?? [], connections: required.connections ?? [], bindings: required.bindings ?? [] });
   const workspaces = new Set(seed.workspaces.map(scope => scopeKey({ scope })));
   const connections = new Set(seed.connections.map(record => scopeKey({ scope: record.scope, id: record.connectionId })));
   const byAccount = new Map<string, AccountBinding>();
   const byId = new Map<string, AccountBinding>();
-  if (workspaces.size !== seed.workspaces.length || connections.size !== seed.connections.length) throw new Error("Duplicate workspace seed");
+  const workspaceIds = new Set(seed.workspaces.map(scope => scope.workspaceId));
+  if (workspaceIds.size !== seed.workspaces.length || connections.size !== seed.connections.length) throw new Error("Duplicate workspace seed");
   for (const connection of seed.connections) {
     if (!workspaces.has(scopeKey({ scope: connection.scope }))) throw new Error("Connection workspace missing");
   }

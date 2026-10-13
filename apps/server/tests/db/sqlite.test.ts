@@ -74,11 +74,10 @@ describe('server-owned SQLite shim', () => {
         client.release({ destroy: true });
         await expect(pool.connect()).rejects.toMatchObject({ code: 'connection_unavailable' });
     });
-    it('preserves exact integer results beyond the JavaScript safe-integer limit', async () => {
+    it('rejects integers beyond the JavaScript safe-integer limit', async () => {
         const { pool } = fixture();
         const amount = 9007199254740993n;
-        const result = await withTransaction({ pool, work: tx => tx.query({ text: 'SELECT $1 AS amount', values: [amount] }) });
-        expect(result.rows).toEqual([{ amount }]);
+        await expect(withTransaction({ pool, work: tx => tx.query({ text: 'SELECT $1 AS amount', values: [amount] }) })).rejects.toMatchObject({ code: 'transaction_failed', cause: { code: 'unsafe_integer' } });
     });
     it('rejects unsupported per-transaction timeout overrides before doing work', async () => {
         const { pool, database } = fixture();
