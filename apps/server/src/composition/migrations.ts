@@ -16,6 +16,9 @@ export const migrationManifest = [
     { version: 11, feature: 'measure', local: 1, path: 'features/measure/migrations/0001_measure.sql' },
     { version: 12, feature: 'measure', local: 2, path: 'features/measure/migrations/0002_attribution_account.sql' },
     { version: 13, feature: 'forms', local: 1, path: 'features/forms/migrations/0001_forms.sql' },
+    { version: 14, feature: 'contacts', local: 1, path: 'features/contacts/migrations/0001_contacts.sql' },
+    { version: 15, feature: 'web-events', local: 1, path: 'features/web-events/migrations/0001_web_events.sql' },
+    { version: 16, feature: 'privacy', local: 1, path: 'features/privacy/migrations/0001_privacy.sql' },
 ] as const;
 
 /** Load trusted scripts through injected filesystem access; validate the full batch before execution.

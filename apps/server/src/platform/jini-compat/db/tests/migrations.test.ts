@@ -43,7 +43,7 @@ describe('trusted migration scripts and catalogue', () => {
             [1, 'workspaces-1'], [2, 'policy-1'], [3, 'audit-1'], [4, 'audit-2'],
             [5, 'credentials-1'], [6, 'safety-1'], [7, 'jobs-1'], [8, 'media-library-1'],
             [9, 'creative-1'], [10, 'campaigns-1'], [11, 'measure-1'], [12, 'measure-2'],
-            [13, 'forms-1'],
+            [13, 'forms-1'], [14, 'contacts-1'], [15, 'web-events-1'], [16, 'privacy-1'],
         ]);
         expect(paths).toEqual(migrationManifest.map(item => item.path));
         expect(paths.join(' ')).not.toContain('spine');
@@ -68,7 +68,7 @@ describe('trusted migration scripts and catalogue', () => {
             const migrations = await loadMigrations({ readSql: ({ path }) => readFile(new URL(path, root), 'utf8') });
             expect(await runMigrations({ pool, migrations })).toEqual({ appliedVersions: migrationManifest.map(item => item.version) });
             expect(await runMigrations({ pool, migrations })).toEqual({ appliedVersions: [] });
-            expect(database.prepare('SELECT COUNT(*) AS count FROM om_schema_migrations').get()).toEqual({ count: 13 });
+            expect(database.prepare('SELECT COUNT(*) AS count FROM om_schema_migrations').get()).toEqual({ count: 16 });
         } finally { database.close(); }
     });
 });

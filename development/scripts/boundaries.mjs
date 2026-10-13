@@ -108,7 +108,7 @@ function packageManifestViolations({ pkg, packages, root }) {
  if (pkg.absolute !== root && !pkg.absolute.startsWith(root + '/')) failures.push(`${pkg.name}: outside-root-symlink`);
  for (const [name, version] of Object.entries({ ...pkg.dependencies, ...pkg.devDependencies })) failures.push(...dependencyDeclarationViolations({ pkg, name, version, packages }));
  if (pkg.om?.kind === 'app') {
-  const roots = sourceFiles({ root }).filter(file => file.startsWith(pkg.path + '/') && /\/composition\/[^/]+\.[cm]?[tj]sx?$/.test(file));
+  const roots = sourceFiles({ root }).filter(file => file.startsWith(pkg.path + '/') && /\/composition\/index\.[cm]?[tj]sx?$/.test(file));
   if (roots.length !== 1 || roots[0] !== `${pkg.path}/${pkg.om.composition}`) failures.push(`${pkg.name}: composition-root-count`);
  }
  return failures;
