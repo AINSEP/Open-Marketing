@@ -1,0 +1,392 @@
+[
+  {
+    "id": "email-01",
+    "kind": "email",
+    "raw": " Alice@Example.TEST ",
+    "normalized": "alice@example.test",
+    "sha256": "69b1145a03334875161ea18c1373b5703aeeff144990a9f847867ff83ed5aaad"
+  },
+  {
+    "id": "email-02",
+    "kind": "email",
+    "raw": "\tALICE@EXAMPLE.TEST\n",
+    "normalized": "alice@example.test",
+    "sha256": "69b1145a03334875161ea18c1373b5703aeeff144990a9f847867ff83ed5aaad"
+  },
+  {
+    "id": "email-03",
+    "kind": "email",
+    "raw": "first.last@example.test",
+    "normalized": "first.last@example.test",
+    "sha256": "1b0cd0812d4f9b057b53a9b4db3bbe90d9afe4b81180b9efe1a1ad0e6882c9c0"
+  },
+  {
+    "id": "email-04",
+    "kind": "email",
+    "raw": "First.Last+News@Example.TEST",
+    "normalized": "first.last+news@example.test",
+    "sha256": "58c272eeedad36c2f2b137067c90f25bed1253b6a2f1f1c5e226168e66a50ca5"
+  },
+  {
+    "id": "email-05",
+    "kind": "email",
+    "raw": "user+tag@example.test",
+    "normalized": "user+tag@example.test",
+    "sha256": "ba0e0289d4b9c741a44cb47bb98d8073a41f2d8feb916b7e726779b85254100c"
+  },
+  {
+    "id": "email-06",
+    "kind": "email",
+    "raw": "USER+TAG@EXAMPLE.TEST",
+    "normalized": "user+tag@example.test",
+    "sha256": "ba0e0289d4b9c741a44cb47bb98d8073a41f2d8feb916b7e726779b85254100c"
+  },
+  {
+    "id": "email-07",
+    "kind": "email",
+    "raw": "a.b@gmail.com",
+    "normalized": "a.b@gmail.com",
+    "sha256": "c31db464b739c6136e3909ed341774d025ee64abffb5f46110fff74961bc8f3c"
+  },
+  {
+    "id": "email-08",
+    "kind": "email",
+    "raw": "ab@gmail.com",
+    "normalized": "ab@gmail.com",
+    "sha256": "86ca2ad27318696b41cfc650acfad97bb32194c43e119e465a16359ea74c7105"
+  },
+  {
+    "id": "email-09",
+    "kind": "email",
+    "raw": "user+one@gmail.com",
+    "normalized": "user+one@gmail.com",
+    "sha256": "652739d298cd957d8f2acd1f70ff1d4d0a8b828eba5e9e95e06b80388a4fffaa"
+  },
+  {
+    "id": "email-10",
+    "kind": "email",
+    "raw": "user+two@gmail.com",
+    "normalized": "user+two@gmail.com",
+    "sha256": "ed8b6808e47cd5f1469bb4bdebe18c41149b5373430bdfe63622a359413fa613"
+  },
+  {
+    "id": "email-11",
+    "kind": "email",
+    "raw": "customer_42@example.test",
+    "normalized": "customer_42@example.test",
+    "sha256": "ca2e3520f5d2d96998edf68fa27d7ad191884487b5cce184b1b0074467a617e0"
+  },
+  {
+    "id": "email-12",
+    "kind": "email",
+    "raw": "customer-42@example.test",
+    "normalized": "customer-42@example.test",
+    "sha256": "916730702d0c45b6ffb56db1a11943bdc0964c0a37bb4e5956d5e410065296f3"
+  },
+  {
+    "id": "email-13",
+    "kind": "email",
+    "raw": "customer42@sub.example.test",
+    "normalized": "customer42@sub.example.test",
+    "sha256": "f27823b6187d38773c95e0758291a7fc3ea1e1520513bbd669e25bc71ec7b743"
+  },
+  {
+    "id": "email-14",
+    "kind": "email",
+    "raw": "123@example.test",
+    "normalized": "123@example.test",
+    "sha256": "c2063cb6ea012353c011e35eeb619d5e8db2a21ebebe41ddd01b791f5a56f83f"
+  },
+  {
+    "id": "email-15",
+    "kind": "email",
+    "raw": "a@example.test",
+    "normalized": "a@example.test",
+    "sha256": "16cf3de9fd08355b5c5d128e2ab1051836fe3c6ce88c76de8d2ad17649c3e3a7"
+  },
+  {
+    "id": "email-16",
+    "kind": "email",
+    "raw": " X.Y+Z@Sub.Example.TEST\r\n",
+    "normalized": "x.y+z@sub.example.test",
+    "sha256": "d58d64db40a7e02a32f2840cc50fa5713f6f1273ad4cd4cc382afec30a9cb30f"
+  },
+  {
+    "id": "email-17",
+    "kind": "email",
+    "raw": "",
+    "error": "invalid_input"
+  },
+  {
+    "id": "email-18",
+    "kind": "email",
+    "raw": "   ",
+    "error": "invalid_input"
+  },
+  {
+    "id": "email-19",
+    "kind": "email",
+    "raw": "not-an-email",
+    "error": "invalid_input"
+  },
+  {
+    "id": "email-20",
+    "kind": "email",
+    "raw": "@example.test",
+    "error": "invalid_input"
+  },
+  {
+    "id": "email-21",
+    "kind": "email",
+    "raw": "user@",
+    "error": "invalid_input"
+  },
+  {
+    "id": "email-22",
+    "kind": "email",
+    "raw": "user@@example.test",
+    "error": "invalid_input"
+  },
+  {
+    "id": "email-23",
+    "kind": "email",
+    "raw": "user name@example.test",
+    "error": "invalid_input"
+  },
+  {
+    "id": "email-24",
+    "kind": "email",
+    "raw": "user\nname@example.test",
+    "error": "invalid_input"
+  },
+  {
+    "id": "phone-01",
+    "kind": "phone",
+    "raw": "+1 (213) 373-4253",
+    "normalized": "+12133734253",
+    "sha256": "9f7ec22d72092cd3c0b58726ed9c2d91b92e51a3f29837508fb2948bb22dd2fd"
+  },
+  {
+    "id": "phone-02",
+    "kind": "phone",
+    "raw": "2133734253",
+    "country": "US",
+    "normalized": "+12133734253",
+    "sha256": "9f7ec22d72092cd3c0b58726ed9c2d91b92e51a3f29837508fb2948bb22dd2fd"
+  },
+  {
+    "id": "phone-03",
+    "kind": "phone",
+    "raw": "(202) 555-0123",
+    "country": "US",
+    "normalized": "+12025550123",
+    "sha256": "d5ab8b77e69a81dfc634c3556c620d5d6753df6fc28c73c88c79a9332b705382"
+  },
+  {
+    "id": "phone-04",
+    "kind": "phone",
+    "raw": "202-555-0198",
+    "country": "US",
+    "normalized": "+12025550198",
+    "sha256": "0b764ff05f25759b8ab040872abaf0084f465951b34f02ce98dc028f847c1cfd"
+  },
+  {
+    "id": "phone-05",
+    "kind": "phone",
+    "raw": " +1 202 555 0123 ",
+    "normalized": "+12025550123",
+    "sha256": "d5ab8b77e69a81dfc634c3556c620d5d6753df6fc28c73c88c79a9332b705382"
+  },
+  {
+    "id": "phone-06",
+    "kind": "phone",
+    "raw": "+44 20 7946 0958",
+    "normalized": "+442079460958",
+    "sha256": "f0bf0228144d9fe2bdf1da2d8ca698f17bf1410ee688b075c27062e47b6f0b6d"
+  },
+  {
+    "id": "phone-07",
+    "kind": "phone",
+    "raw": "020 7946 0958",
+    "country": "GB",
+    "normalized": "+442079460958",
+    "sha256": "f0bf0228144d9fe2bdf1da2d8ca698f17bf1410ee688b075c27062e47b6f0b6d"
+  },
+  {
+    "id": "phone-08",
+    "kind": "phone",
+    "raw": "+44 7911 123456",
+    "normalized": "+447911123456",
+    "sha256": "20b18ac9de7b3aad174961827d8e451c410af9aedfd1d699927f4b29b81aa1fa"
+  },
+  {
+    "id": "phone-09",
+    "kind": "phone",
+    "raw": "07911 123456",
+    "country": "GB",
+    "normalized": "+447911123456",
+    "sha256": "20b18ac9de7b3aad174961827d8e451c410af9aedfd1d699927f4b29b81aa1fa"
+  },
+  {
+    "id": "phone-10",
+    "kind": "phone",
+    "raw": "+33 1 42 68 53 00",
+    "normalized": "+33142685300",
+    "sha256": "d5ea703c4c3f131accc68351466f2bdfa55506ca1b6d3b58a0202b29b5d82b46"
+  },
+  {
+    "id": "phone-11",
+    "kind": "phone",
+    "raw": "01 42 68 53 00",
+    "country": "FR",
+    "normalized": "+33142685300",
+    "sha256": "d5ea703c4c3f131accc68351466f2bdfa55506ca1b6d3b58a0202b29b5d82b46"
+  },
+  {
+    "id": "phone-12",
+    "kind": "phone",
+    "raw": "+49 30 901820",
+    "normalized": "+4930901820",
+    "sha256": "4db5829924ee5c466cbd9ac69b2a6af527f758614fa3b3aec8c89b16a709a678"
+  },
+  {
+    "id": "phone-13",
+    "kind": "phone",
+    "raw": "030 901820",
+    "country": "DE",
+    "normalized": "+4930901820",
+    "sha256": "4db5829924ee5c466cbd9ac69b2a6af527f758614fa3b3aec8c89b16a709a678"
+  },
+  {
+    "id": "phone-14",
+    "kind": "phone",
+    "raw": "+61 2 9374 4000",
+    "normalized": "+61293744000",
+    "sha256": "02d004954a894e38098d70a1204432ae8e2b2e7cc12b93e2bb0eb6b6ed2f3fe0"
+  },
+  {
+    "id": "phone-15",
+    "kind": "phone",
+    "raw": "02 9374 4000",
+    "country": "AU",
+    "normalized": "+61293744000",
+    "sha256": "02d004954a894e38098d70a1204432ae8e2b2e7cc12b93e2bb0eb6b6ed2f3fe0"
+  },
+  {
+    "id": "phone-16",
+    "kind": "phone",
+    "raw": "+81 3 1234 5678",
+    "normalized": "+81312345678",
+    "sha256": "7d7350df0a907cf9cf79b40e32af0a5cc71886126b86babd1f2ccedd25d336c6"
+  },
+  {
+    "id": "phone-17",
+    "kind": "phone",
+    "raw": "03-1234-5678",
+    "country": "JP",
+    "normalized": "+81312345678",
+    "sha256": "7d7350df0a907cf9cf79b40e32af0a5cc71886126b86babd1f2ccedd25d336c6"
+  },
+  {
+    "id": "phone-18",
+    "kind": "phone",
+    "raw": "+91 98765 43210",
+    "normalized": "+919876543210",
+    "sha256": "f3a47ce5ce3d4ca8ad15225a245b2759022f79489f5c62719b8c9490f7aab90e"
+  },
+  {
+    "id": "phone-19",
+    "kind": "phone",
+    "raw": "98765 43210",
+    "country": "IN",
+    "normalized": "+919876543210",
+    "sha256": "f3a47ce5ce3d4ca8ad15225a245b2759022f79489f5c62719b8c9490f7aab90e"
+  },
+  {
+    "id": "phone-20",
+    "kind": "phone",
+    "raw": "+55 11 91234-5678",
+    "normalized": "+5511912345678",
+    "sha256": "195563c1d879cb1564e2cdd6d89363ecb1f091ac0eeac094760f06139eae6077"
+  },
+  {
+    "id": "phone-21",
+    "kind": "phone",
+    "raw": "",
+    "error": "invalid_input"
+  },
+  {
+    "id": "phone-22",
+    "kind": "phone",
+    "raw": "123",
+    "country": "US",
+    "error": "invalid_input"
+  },
+  {
+    "id": "phone-23",
+    "kind": "phone",
+    "raw": "2133734253",
+    "error": "invalid_input"
+  },
+  {
+    "id": "phone-24",
+    "kind": "phone",
+    "raw": "+999 123456789",
+    "error": "invalid_input"
+  },
+  {
+    "id": "phone-25",
+    "kind": "phone",
+    "raw": "+1 000 000 0000",
+    "error": "invalid_input"
+  },
+  {
+    "id": "phone-26",
+    "kind": "phone",
+    "raw": "no phone",
+    "country": "GB",
+    "error": "invalid_input"
+  },
+  {
+    "id": "fbc-01",
+    "kind": "fbc",
+    "fbclid": "fixture-click-1",
+    "clickTimeMs": 1710000000123,
+    "normalized": "fb.1.1710000000123.fixture-click-1"
+  },
+  {
+    "id": "fbc-02",
+    "kind": "fbc",
+    "fbclid": "AQAb_Cd-9",
+    "clickTimeMs": 1792000000123,
+    "normalized": "fb.1.1792000000123.AQAb_Cd-9"
+  },
+  {
+    "id": "fbc-03",
+    "kind": "fbc",
+    "fbclid": "fixture-click-2",
+    "clickTimeMs": 1710000000000,
+    "normalized": "fb.1.1710000000000.fixture-click-2"
+  },
+  {
+    "id": "fbc-04",
+    "kind": "fbc",
+    "fbclid": "",
+    "clickTimeMs": 1710000000123,
+    "error": "invalid_input"
+  },
+  {
+    "id": "fbc-05",
+    "kind": "fbc",
+    "fbclid": "fixture-click-1",
+    "clickTimeMs": -1,
+    "error": "invalid_input"
+  },
+  {
+    "id": "fbc-06",
+    "kind": "fbc",
+    "fbclid": "fixture-click-1",
+    "clickTimeMs": 1710000000123.5,
+    "error": "invalid_input"
+  }
+]

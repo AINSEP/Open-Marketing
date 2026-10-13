@@ -15,6 +15,7 @@ export const migrationManifest = [
     { version: 10, feature: 'campaigns', local: 1, path: 'features/campaigns/migrations/0001_campaigns.sql' },
     { version: 11, feature: 'measure', local: 1, path: 'features/measure/migrations/0001_measure.sql' },
     { version: 12, feature: 'measure', local: 2, path: 'features/measure/migrations/0002_attribution_account.sql' },
+    { version: 13, feature: 'forms', local: 1, path: 'features/forms/migrations/0001_forms.sql' },
 ] as const;
 
 /** Load trusted scripts through injected filesystem access; validate the full batch before execution.

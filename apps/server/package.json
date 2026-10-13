@@ -27,6 +27,9 @@
     "@types/better-sqlite3": "9.6.0",
     "@jini-ai/db": "0.3.2",
     "kysely": "0.29.6",
-    "@jini-ai/cms": "0.5.6"
+    "@jini-ai/cms": "0.5.6",
+    "@open-marketing/forms": "workspace:*",
+    "@open-marketing/jobs": "workspace:*",
+    "@open-marketing/safety": "workspace:*"
   }
 }

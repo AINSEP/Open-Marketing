@@ -110,9 +110,18 @@ importers:
       '@open-marketing/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@open-marketing/forms':
+        specifier: workspace:*
+        version: link:../../features/forms
+      '@open-marketing/jobs':
+        specifier: workspace:*
+        version: link:../../features/jobs
       '@open-marketing/om-clock':
         specifier: workspace:*
         version: link:../../packages/om-clock
+      '@open-marketing/safety':
+        specifier: workspace:*
+        version: link:../../features/safety
       '@types/better-sqlite3':
         specifier: 9.6.0
         version: 9.6.0

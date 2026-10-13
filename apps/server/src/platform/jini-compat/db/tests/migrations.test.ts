@@ -36,13 +36,14 @@ describe('trusted migration scripts and catalogue', () => {
             expect(database.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all()).toEqual([]);
         } finally { client.release({}); database.close(); }
     });
-    it('fixes all twelve identities and global versions, excluding historical spine', async () => {
+    it('fixes all thirteen identities and global versions, excluding historical spine', async () => {
         const paths: string[] = [];
         const migrations = await loadMigrations({ readSql: async ({ path }) => { paths.push(path); return '-- fixture\nSELECT 1;'; } });
         expect(migrations.map(item => [item.version, item.name])).toEqual([
             [1, 'workspaces-1'], [2, 'policy-1'], [3, 'audit-1'], [4, 'audit-2'],
             [5, 'credentials-1'], [6, 'safety-1'], [7, 'jobs-1'], [8, 'media-library-1'],
             [9, 'creative-1'], [10, 'campaigns-1'], [11, 'measure-1'], [12, 'measure-2'],
+            [13, 'forms-1'],
         ]);
         expect(paths).toEqual(migrationManifest.map(item => item.path));
         expect(paths.join(' ')).not.toContain('spine');
@@ -67,7 +68,7 @@ describe('trusted migration scripts and catalogue', () => {
             const migrations = await loadMigrations({ readSql: ({ path }) => readFile(new URL(path, root), 'utf8') });
             expect(await runMigrations({ pool, migrations })).toEqual({ appliedVersions: migrationManifest.map(item => item.version) });
             expect(await runMigrations({ pool, migrations })).toEqual({ appliedVersions: [] });
-            expect(database.prepare('SELECT COUNT(*) AS count FROM om_schema_migrations').get()).toEqual({ count: 12 });
+            expect(database.prepare('SELECT COUNT(*) AS count FROM om_schema_migrations').get()).toEqual({ count: 13 });
         } finally { database.close(); }
     });
 });

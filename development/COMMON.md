@@ -62,6 +62,12 @@ OM ENGINEERING CONTRACT
     Conversions are typed server jobs under a narrow measurement grant,
     with dispatch-time consent recheck and egress audit.
     Plugins cannot weaken policy. Every dispatch rechecks current authority.
+    Owner-approved amendment (2026-10-12): bounded unattended workflows
+    (journeys, broadcasts, audience syncs, offline imports) run under a
+    ServiceGrant approved ONCE on an exact versioned definition with caps.
+    Consent and caps are rechecked at EVERY dispatch. Ad spend remains
+    exact confirmation per call. Paid-sending (for example SMS) has a
+    default allowance of $5/day through safety's allowance mechanism.
 
 11. Server owns vendor credentials, plugin/MCP configuration, safety,
     database and durable workers.

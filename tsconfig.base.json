@@ -10,7 +10,7 @@
     "sourceMap": true,
     "jsx": "react-jsx",
     "lib": [
-      "ES2023",
+      "ES2024",
       "DOM"
     ],
     "types": [
