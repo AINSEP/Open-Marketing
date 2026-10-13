@@ -30,6 +30,17 @@
     "@jini-ai/cms": "0.5.6",
     "@open-marketing/forms": "workspace:*",
     "@open-marketing/jobs": "workspace:*",
-    "@open-marketing/safety": "workspace:*"
+    "@open-marketing/safety": "workspace:*",
+    "@open-marketing/workspaces": "workspace:*",
+    "@open-marketing/audit": "workspace:*",
+    "@open-marketing/policy": "workspace:*",
+    "@open-marketing/contacts": "workspace:*",
+    "@open-marketing/web-events": "workspace:*",
+    "@open-marketing/privacy": "workspace:*",
+    "@open-marketing/campaigns": "workspace:*",
+    "@open-marketing/measure": "workspace:*"
+  },
+  "bin": {
+    "om": "./dist/composition/cli.js"
   }
 }

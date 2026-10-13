@@ -107,6 +107,15 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: 1.24.0
         version: 1.24.0(zod@4.1.13)
+      '@open-marketing/audit':
+        specifier: workspace:*
+        version: link:../../features/audit
+      '@open-marketing/campaigns':
+        specifier: workspace:*
+        version: link:../../features/campaigns
+      '@open-marketing/contacts':
+        specifier: workspace:*
+        version: link:../../features/contacts
       '@open-marketing/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -116,12 +125,27 @@ importers:
       '@open-marketing/jobs':
         specifier: workspace:*
         version: link:../../features/jobs
+      '@open-marketing/measure':
+        specifier: workspace:*
+        version: link:../../features/measure
       '@open-marketing/om-clock':
         specifier: workspace:*
         version: link:../../packages/om-clock
+      '@open-marketing/policy':
+        specifier: workspace:*
+        version: link:../../features/policy
+      '@open-marketing/privacy':
+        specifier: workspace:*
+        version: link:../../features/privacy
       '@open-marketing/safety':
         specifier: workspace:*
         version: link:../../features/safety
+      '@open-marketing/web-events':
+        specifier: workspace:*
+        version: link:../../features/web-events
+      '@open-marketing/workspaces':
+        specifier: workspace:*
+        version: link:../../features/workspaces
       '@types/better-sqlite3':
         specifier: 9.6.0
         version: 9.6.0
