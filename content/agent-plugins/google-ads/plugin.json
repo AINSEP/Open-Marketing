@@ -1,15 +1,61 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.1.0/plugin.schema.json",
   "name": "google-ads",
-  "version": "0.0.0",
-  "description": "Disabled Open Marketing skeleton; no admitted vendor capability.",
+  "version": "0.1.0",
+  "description": "Bounded Google Search lifecycle, reports and typed server-only stop/conversion bindings. Disabled pending host admission.",
   "license": "Apache-2.0",
   "extensions": {
     "io.github.ainsep.openmarketing": {
       "version": 1,
       "enabled": false,
       "admitted": false,
-      "capabilities": {}
+      "servers": {
+        "google-ads": {
+          "authMode": "host",
+          "defaultTools": {
+            "discover": [
+              "list_accounts",
+              "read_campaign",
+              "read_budget",
+              "report"
+            ]
+          },
+          "riskHints": {
+            "create_paused": [
+              "write"
+            ],
+            "activate": [
+              "write",
+              "spend"
+            ],
+            "set_budget": [
+              "write",
+              "spend"
+            ],
+            "pause": [
+              "write"
+            ]
+          }
+        }
+      },
+      "capabilities": {
+        "google-ads.search.v1": {
+          "server": "google-ads",
+          "binding": "./io.github.ainsep.openmarketing/bindings/search.v1.json"
+        },
+        "google-ads.reporting.v1": {
+          "server": "google-ads",
+          "binding": "./io.github.ainsep.openmarketing/bindings/reporting.v1.json"
+        },
+        "google-ads.stop.v1": {
+          "server": "google-ads",
+          "binding": "./io.github.ainsep.openmarketing/bindings/stop.v1.json"
+        },
+        "google-ads.conversions.v1": {
+          "server": "google-ads",
+          "binding": "./io.github.ainsep.openmarketing/bindings/conversions.v1.json"
+        }
+      }
     }
   }
 }

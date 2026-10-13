@@ -1,15 +1,59 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.1.0/plugin.schema.json",
   "name": "higgsfield-media",
-  "version": "0.0.0",
-  "description": "Disabled Open Marketing skeleton; no admitted vendor capability.",
+  "version": "0.1.0",
+  "description": "Server-hosted Higgsfield image generation, async status and reviewed cost provenance. Disabled pending host admission and non-spending vendor acceptance.",
+  "author": "Open Marketing; guidance adapted from Tovu",
   "license": "Apache-2.0",
+  "keywords": [
+    "higgsfield",
+    "image-generation",
+    "oauth",
+    "async",
+    "media"
+  ],
   "extensions": {
     "io.github.ainsep.openmarketing": {
       "version": 1,
       "enabled": false,
       "admitted": false,
-      "capabilities": {}
+      "servers": {
+        "higgsfield": {
+          "authMode": "oauth",
+          "defaultTools": {
+            "discover": [
+              "models_explore",
+              "job_status"
+            ]
+          },
+          "riskHints": {
+            "generate_image": [
+              "write",
+              "spend"
+            ],
+            "job_status": [
+              "read"
+            ],
+            "models_explore": [
+              "read"
+            ]
+          }
+        }
+      },
+      "capabilities": {
+        "image-generation.v1": {
+          "server": "higgsfield",
+          "binding": "./io.github.ainsep.openmarketing/capabilities.json"
+        },
+        "image-generation-status.v1": {
+          "server": "higgsfield",
+          "binding": "./io.github.ainsep.openmarketing/status-capability.json"
+        },
+        "image-generation-quote.v1": {
+          "server": "higgsfield",
+          "binding": "./io.github.ainsep.openmarketing/quote-capability.json"
+        }
+      }
     }
   }
 }

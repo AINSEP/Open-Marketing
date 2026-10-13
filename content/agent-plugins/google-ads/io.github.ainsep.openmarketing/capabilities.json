@@ -1,5 +1,10 @@
 {
   "version": 1,
   "admitted": false,
-  "capabilities": []
+  "capabilities": [
+    "google-ads.search.v1",
+    "google-ads.reporting.v1",
+    "google-ads.stop.v1",
+    "google-ads.conversions.v1"
+  ]
 }

@@ -1,0 +1,15 @@
+{
+  "checkedOn": "2026-10-12",
+  "status": "unavailable",
+  "endpoint": { "value": "https://mcp.facebook.com/ads", "verification": "unverified" },
+  "transport": { "value": "streamable-http", "verification": "unverified" },
+  "toolsList": null,
+  "schemaFingerprint": null,
+  "reason": "Primary developer pages were inaccessible. No authenticated MCP call was made; no actual tools/list was captured. Candidate names and adapter schemas must not be substituted for actual tool evidence.",
+  "attemptedPrimarySources": [
+    "https://developers.facebook.com/documentation/ads-commerce/ads-ai-connectors/ads-mcp-server/ads-mcp-server-overview",
+    "https://developers.facebook.com/documentation/ads-commerce/ads-ai-connectors/ads-mcp-server/ads-mcp-server-get-started",
+    "https://developers.facebook.com/blog/post/2026/07/16/meta-ads-mcp-server/"
+  ],
+  "admission": "denied"
+}

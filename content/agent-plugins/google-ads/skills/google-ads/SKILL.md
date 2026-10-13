@@ -1,6 +1,16 @@
 ---
 name: google-ads
-description: Disabled OM skeleton reference; no operational capability.
+description: Plan and inspect bounded Google Search campaigns through the OM server host.
 ---
 
-This package is not enabled/admitted. It supplies no vendor tools or credential configuration. Later assigned plugin job supplies implementation, verified evidence and generic bindings. Exact spend, halt-stop and generation allowance policy remain server-owned.
+The plugin starts disabled and unadmitted. Connection credentials and Google MCP configuration belong to the OM server. The agent uses only admitted OM federation tools.
+
+Use scoped account/campaign/budget reads and reports first. A Search plan has a finite flight, explicit geography, exact/phrase keywords, a responsive Search ad, and a non-shared average daily budget. Search partners and Display are excluded. Google automatically determines Search languages; do not add manual language criteria.
+
+Create the hierarchy PAUSED and verify readback. Activation and every budget change require a new exact host confirmation. Describe the budget as an average: for this supported campaign model the maximum billed daily amount is twice the highest budget configured that account day. Same-day reductions do not erase the earlier higher limit. Served cost can differ from billed cost. Polling/pause is not an exact spend cutoff.
+
+Keep operation IDs stable. An unknown result requires reconciliation; never change an ID to bypass an uncertain write. Reconciliation never sends a second mutation. A partially created or changed hierarchy remains unknown until owner recovery.
+
+Backend halt-stop and conversions are not agent tools. A stop permit cannot activate or change budget. Conversion delivery requires the measurement service grant, current consent and verified API eligibility. New integrations need Data Manager API; that adapter is unavailable in this release.
+
+See [verified sources and host setup](references/README.md). Instructions and annotations never grant execution authority.

@@ -16,7 +16,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit && tsc -p tsconfig.tests.json",
     "build": "node ../../development/scripts/build.mjs",
-    "test": "vitest run tests"
+    "test": "vitest run tests",
+    "dev": "vite --host 127.0.0.1"
   },
   "dependencies": {
     "@open-marketing/contracts": "workspace:*",

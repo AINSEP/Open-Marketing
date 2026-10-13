@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "minimumNode": "24.2.0",
+  "defaultAdmission": "disabled",
+  "apiVersion": "v25",
+  "auth": "server-owned OAuth Cloud project, no developer-token header",
+  "backendOnly": [
+    "google-ads.stop.v1",
+    "google-ads.conversions.v1"
+  ],
+  "conversionEligibility": "unavailable until independently verified",
+  "dataManager": "unavailable",
+  "journal": "adapt ONE server jobs outbox metadata; memory only in --fixture",
+  "hostEntry": "./src/index.ts",
+  "stdioDefault": "unavailable; authenticated host composition required",
+  "fixtureFlag": "--fixture"
+}

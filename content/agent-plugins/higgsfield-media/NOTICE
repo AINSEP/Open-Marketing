@@ -1,1 +1,12 @@
-Open Marketing skeleton, AINSEP. Apache-2.0. No vendor source copied. Agent Plugins format 1.1.0.
+Open Marketing Higgsfield plugin, AINSEP. Apache-2.0. Agent Plugins format 1.1.0.
+
+Modified from the disabled Open Marketing skeleton by job j11, 2026-10-12.
+Skill guidance and failure/model references are adapted from Tovu's Apache-2.0
+content/agent-plugins/higgsfield-media, inspected at last lane commit
+96cdc66383ae3d8ea2791528f4e49f2e3102f11e. Original author: Tovu.
+OAuth hints derive from Tovu's 2026-09-10 Higgsfield MCP research.
+See PROVENANCE.md for source mapping and modifications.
+
+TypeScript binding and synthetic fixtures are new Open Marketing code.
+Jini is used through published package APIs, not copied executable source.
+No vendor credentials, current entitlement or current pricing are included.

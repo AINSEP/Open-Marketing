@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "server": "higgsfield",
+  "authMode": "oauth",
+  "resource": "https://mcp.higgsfield.ai/mcp",
+  "protectedResourceMetadata": "https://mcp.higgsfield.ai/.well-known/oauth-protected-resource",
+  "authorizationServerMetadata": "https://mcp.higgsfield.ai/.well-known/oauth-authorization-server",
+  "flow": "authorization_code",
+  "pkce": "S256",
+  "dynamicClientRegistration": "discover registration_endpoint; requires host authorization",
+  "scopeHints": [
+    "openid",
+    "email",
+    "offline_access"
+  ],
+  "credentialOwner": "server credentials broker",
+  "observedAt": "2026-09-10",
+  "verifiedCurrent": false,
+  "source": "Tovu ADS-memory/reports/2026-09-10-higgsfield-mcp-research.md",
+  "deviceFlow": "not admitted; endpoint unresolved"
+}

@@ -1,0 +1,21 @@
+{
+  "status": "proposed",
+  "admitted": false,
+  "schemaOwner": "OM adapter commands; NOT actual hosted tool schemas",
+  "inputSchemaImplementation": "../src/commands.ts",
+  "outputCodecImplementations": ["../src/readback.ts", "../src/reporting.ts"],
+  "candidates": [
+    { "operation": "create-campaign", "toolName": "ads_create_campaign", "requiredClaim": "paused-creation" },
+    { "operation": "create-adset", "toolName": "ads_create_ad_set", "requiredClaim": "paused-creation-budget-minor" },
+    { "operation": "create-ad", "toolName": "ads_create_ad", "requiredClaim": "paused-creation" },
+    { "operation": "activate", "toolName": "ads_activate_entity", "requiredClaim": "exact-activation" },
+    { "operation": "pause", "toolName": "ads_update_entity", "requiredClaim": "pause-only" },
+    { "operation": "set-campaign-cap", "toolName": "ads_update_entity", "requiredClaim": "campaign-cap-minor" },
+    { "operation": "set-daily-budget", "toolName": "ads_update_entity", "requiredClaim": "daily-average-budget-minor" },
+    { "operation": "read-entities", "toolName": "ads_get_ad_entities", "requiredClaim": "status-cap-readback" },
+    { "operation": "report", "toolName": null, "requiredClaim": "account-spend-report" }
+  ],
+  "secondaryNavigationOnly": "https://github.com/thiagocaliman/meta-ads-mcp-reference",
+  "notSupported": ["Account spend-cap writes", "Cap removal", "Hard daily cap inference", "Budget reallocation", "Generic updater", "Automatic hierarchy activation", "Conversion agent tools"],
+  "testFixtures": "All primary URLs, account evidence and tool schemas in tests are fabricated. They certify adapter invariants only, not Meta behavior."
+}

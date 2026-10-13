@@ -1,5 +1,11 @@
 {
+  "capabilityId": "image-generation.v1",
   "version": 1,
+  "pluginId": "higgsfield-media",
+  "schemaFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
   "admitted": false,
-  "capabilities": []
+  "effects": [
+    "write",
+    "generation"
+  ]
 }

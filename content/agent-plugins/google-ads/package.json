@@ -1,0 +1,13 @@
+{
+  "name": "@open-marketing/plugin-google-ads",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": "24.2.0" },
+  "exports": { ".": "./io.github.ainsep.openmarketing/src/index.ts" },
+  "devDependencies": { "@open-marketing/contracts": "workspace:*" },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test io.github.ainsep.openmarketing/tests/*.test.ts"
+  }
+}

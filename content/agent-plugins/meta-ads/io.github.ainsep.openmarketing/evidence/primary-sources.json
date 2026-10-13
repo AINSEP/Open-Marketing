@@ -1,0 +1,52 @@
+{
+  "checkedOn": "2026-10-12",
+  "sources": [
+    {
+      "id": "agent-plugins-1.1.0",
+      "url": "https://github.com/agentplugins/agent-plugins-spec/blob/main/spec/1.1.0.md",
+      "access": "readable",
+      "verified": ["Closed transport server entries", "Empty mcpServers allowed", "OM metadata belongs in the extension namespace", "Credentials are client-managed"],
+      "doesNotVerify": ["Meta endpoint", "Meta tools"]
+    },
+    {
+      "id": "meta-sdk-normalization",
+      "url": "https://github.com/facebook/facebook-python-business-sdk/blob/main/facebook_business/adobjects/serverside/normalize.py",
+      "access": "readable",
+      "verified": ["Lowercase/trim email preparation", "International phone formatting removal", "UTF-8 unsalted SHA-256", "Prehashed input detection"],
+      "doesNotVerify": ["Hosted MCP input/output schema", "Current CAPI requiredness/limits", "Eligibility/permissions for a specific account"]
+    },
+    {
+      "id": "meta-sdk-event",
+      "url": "https://github.com/facebook/facebook-python-business-sdk/blob/main/facebook_business/adobjects/serverside/event.py",
+      "access": "readable",
+      "verified": ["Event model fields event_name, event_time, event_id, user_data, event_source_url, action_source"],
+      "doesNotVerify": ["Current browser/server matching window", "Per-event reconciliation endpoint", "Dataset-specific acceptance"]
+    },
+    {
+      "id": "meta-sdk-event-request",
+      "url": "https://github.com/facebook/facebook-python-business-sdk/blob/main/facebook_business/adobjects/serverside/event_request.py",
+      "access": "readable",
+      "verified": ["Versioned Graph pixel events POST", "Top-level test_event_code", "Authorized access_token and optional appsecret proof"],
+      "doesNotVerify": ["test_event_code as a spend/egress sandbox", "Pinned API version/account admission"]
+    },
+    {
+      "id": "meta-sdk-campaign",
+      "url": "https://github.com/facebook/facebook-python-business-sdk/blob/main/facebook_business/adobjects/campaign.py",
+      "access": "readable",
+      "verified": ["Campaign status includes PAUSED/ACTIVE", "Configured/effective status, daily_budget and spend_cap fields exist"],
+      "doesNotVerify": ["Hosted PAUSED default", "Hosted cap field names/units", "Daily overdelivery percentages", "Hard daily cap guarantee"]
+    }
+  ],
+  "reproducibility": "URLs reference upstream main as observed on checkedOn; no immutable upstream revision or live account behavior is asserted. No upstream source code was copied.",
+  "bundledWriteServerDecision": {
+    "source": "j13 PEER_DISPATCH, Job-specific notes",
+    "ownerAcceptedPattern": true,
+    "condition": "Hosted Meta writes are insufficient",
+    "implementation": "deferred; no bundled write server implemented or activated in this delivery"
+  },
+  "jiniReuse": {
+    "inspectedInstalled": ["@jini-ai/mcp@0.4.3", "@jini-ai/integrations@0.4.2"],
+    "registryCheck": "npm view failed ENOTFOUND; web registry retrieval also unavailable",
+    "reuse": "Server-owned j10 public federation host seam reuses Jini MCP transport; shared OM schemas, Zod 4.1.13, and Node crypto are called directly. No Meta-specific implementation was found in inspected public entries. No sibling imports or installs."
+  }
+}

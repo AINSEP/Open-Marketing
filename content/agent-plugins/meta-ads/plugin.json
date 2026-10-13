@@ -1,15 +1,76 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.1.0/plugin.schema.json",
   "name": "meta-ads",
-  "version": "0.0.0",
-  "description": "Disabled Open Marketing skeleton; no admitted vendor capability.",
+  "version": "0.1.0",
+  "description": "Evidence-gated Meta codecs and server-only CAPI backend; disabled until host admission.",
   "license": "Apache-2.0",
   "extensions": {
     "io.github.ainsep.openmarketing": {
       "version": 1,
       "enabled": false,
       "admitted": false,
-      "capabilities": {}
+      "capabilities": [
+        {
+          "capabilityId": "campaign.create-paused.v1",
+          "version": 1,
+          "pluginId": "meta-ads",
+          "schemaFingerprint": "38b1a8bbd7c65f734793afd752727edbda288e3262fe2f05f9f72177fc0136f9",
+          "admitted": false,
+          "effects": [
+            "write"
+          ]
+        },
+        {
+          "capabilityId": "campaign.activate-exact.v1",
+          "version": 1,
+          "pluginId": "meta-ads",
+          "schemaFingerprint": "38b1a8bbd7c65f734793afd752727edbda288e3262fe2f05f9f72177fc0136f9",
+          "admitted": false,
+          "effects": [
+            "ad_spend"
+          ]
+        },
+        {
+          "capabilityId": "campaign.stop-only.v1",
+          "version": 1,
+          "pluginId": "meta-ads",
+          "schemaFingerprint": "dc0db6251abe0e0c0fab19601fa4b6bbe36c5c1fd7ce77b0da2ba1b07050ea7f",
+          "admitted": false,
+          "effects": [
+            "halt_stop"
+          ]
+        },
+        {
+          "capabilityId": "campaign.limit-readback.v1",
+          "version": 1,
+          "pluginId": "meta-ads",
+          "schemaFingerprint": "b989c774a672f5c890be9afc55640d23861167f726e1165e721792f1996f35c0",
+          "admitted": false,
+          "effects": [
+            "read"
+          ]
+        },
+        {
+          "capabilityId": "conversion.signup-trial.v1",
+          "version": 1,
+          "pluginId": "meta-ads",
+          "schemaFingerprint": "36ebdda3418c9dcc1ff6c4abe769f3162cc68462911259f6f05b3a9334344e9a",
+          "admitted": false,
+          "effects": [
+            "conversion"
+          ]
+        },
+        {
+          "capabilityId": "report.account-spend.v1",
+          "version": 1,
+          "pluginId": "meta-ads",
+          "schemaFingerprint": "0a2488beac4ca5ea1b4371274f64f605481a03f92b2895f04509dc894437b1eb",
+          "admitted": false,
+          "effects": [
+            "read"
+          ]
+        }
+      ]
     }
   }
 }
