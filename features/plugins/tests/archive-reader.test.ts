@@ -32,12 +32,12 @@ describe("Jini archive projection", () => {
     expect(inspectPluginPackage({ package: loaded.value, digest: fixture.packed.sha256 })).toMatchObject({ ok: true, value: { pluginId: "demo", agent: { skills: [{ name: "demo" }] } } });
   });
 
-  it("published 0.4.3 lifecycle explicitly rejects v1.1 instead of pretending installation succeeded", async () => {
+  it("published 0.4.4 lifecycle installs v1.1 without enabling or admitting it", async () => {
     const fixture = await jiniFixture({ package: packageFixture({}) });
     const port = createJiniPluginLifecycleAdapter({ lifecycle: fixture.lifecycle, layout: fixture.layout, archiveReader: fixture.archiveReader,
       async readArchive() { return fixture.packed.bytes; }, workspaceId: () => "fixture-workspace", async runningJobs() { return 0; } });
-    expect(await port.install({ context, source: fixture.source })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
-    expect(await fixture.lifecycle.listInstalledPlugins({ workspaceRoot: fixture.layout.forWorkspace({ workspaceId: "fixture-workspace" }).root })).toEqual([]);
+    expect(await port.install({ context, source: fixture.source })).toMatchObject({ ok: true, value: { pluginId: "demo", version: "1.2.3", digest: fixture.packed.sha256, enabled: false, admitted: false } });
+    expect(await fixture.lifecycle.listInstalledPlugins({ workspaceRoot: fixture.layout.forWorkspace({ workspaceId: "fixture-workspace" }).root })).toMatchObject([{ pluginId: "demo" }]);
   });
 
   it("pin mismatch and pre-cancellation never open the archive parser", async () => {

@@ -3,7 +3,7 @@
   "name": "higgsfield-media",
   "version": "0.1.0",
   "description": "Server-hosted Higgsfield image generation, async status and reviewed cost provenance. Disabled pending host admission and non-spending vendor acceptance.",
-  "author": "Open Marketing; guidance adapted from Tovu",
+  "author": { "name": "Open Marketing; guidance adapted from Tovu" },
   "license": "Apache-2.0",
   "keywords": [
     "higgsfield",

@@ -29,9 +29,7 @@ describe("portable package and OM namespace", () => {
   it("rejects OAuth fields in the closed server schema and policy fields in the OM namespace", () => {
     const mcp = JSON.parse(readFileSync(new URL("mcp.json", root), "utf8"));
     mcp.mcpServers.higgsfield.authMode = "oauth";
-    const inspected = value({ outcome: inspectPluginPackage({ package: packageFixture({ replace: { path: "mcp.json", content: JSON.stringify(mcp) } }), digest: "a".repeat(64) }) });
-    expect(inspected.servers).toEqual({});
-    expect(inspected.diagnostics.length).toBeGreaterThan(0);
+    expect(inspectPluginPackage({ package: packageFixture({ replace: { path: "mcp.json", content: JSON.stringify(mcp) } }), digest: "a".repeat(64) })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
     const manifest = JSON.parse(readFileSync(new URL("plugin.json", root), "utf8"));
     manifest.extensions["io.github.ainsep.openmarketing"].confirmationPolicy = "always_allow";
     expect(inspectPluginPackage({ package: packageFixture({ replace: { path: "plugin.json", content: JSON.stringify(manifest) } }), digest: "a".repeat(64) })).toMatchObject({ ok: false });

@@ -23,9 +23,9 @@ it("choices record honestly and expire at the injected clock deadline", async ()
   const user = userEvent.setup(); render(createElement(ApprovalCard, { card, api, runtime: timer.runtime, sample: true }));
   await user.click(screen.getByRole("button", { name: "Allow" }));
   expect(screen.getByText("Choice recorded in preview · no external call ran")).toBeDefined();
-  expect(screen.getByRole<HTMLFieldSetElement>("group").disabled).toBe(true);
+  expect(screen.getByRole<HTMLFieldSetElement>("group", { name: "Approval choices" }).disabled).toBe(true);
   cleanup(); render(createElement(ApprovalCard, { card, api, runtime: timer.runtime, sample: true }));
   await act(async () => { timer.advance({ ms: 900000 }); });
   expect(screen.getByText("Expired · request a fresh server card")).toBeDefined();
-  expect(screen.getByRole<HTMLFieldSetElement>("group").disabled).toBe(true);
+  expect(screen.getByRole<HTMLFieldSetElement>("group", { name: "Approval choices" }).disabled).toBe(true);
 });

@@ -81,13 +81,16 @@ export async function readLaunchProposal(required: { repo: CampaignRepoPort; con
   return parsed;
 }
 /** A storage adapter cannot replace the exact card returned to the user.
+ * Compare strict schema snapshots so harmless property ordering cannot change authority.
  * @complexity One port write and O(n) bounded proposal bytes; no retries.
  */
 export async function persistProposal(required: { repo: CampaignRepoPort; context: CallContext; proposal: LaunchProposal }, optional?: CallOptions): Promise<Outcome<LaunchProposal>> {
+  const expected = parseBoundary({ schema: proposalSchema, input: required.proposal });
+  if (!expected.ok) return expected;
   const result = await required.repo.saveProposal({ context: required.context, proposal: required.proposal }, optional);
   if (!result.ok) return result;
   const parsed = parseBoundary({ schema: proposalSchema, input: result.value });
   if (!parsed.ok) return parsed;
-  if (digest({ value: parsed.value }) !== digest({ value: required.proposal })) return fail({ code: "conflict", message: "Stored launch card changed" });
+  if (digest({ value: parsed.value }) !== digest({ value: expected.value })) return fail({ code: "conflict", message: "Stored launch card changed" });
   return parsed;
 }

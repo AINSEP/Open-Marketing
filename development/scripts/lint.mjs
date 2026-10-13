@@ -4,9 +4,12 @@ import { readFileSync } from 'node:fs';
 import { sourceFiles } from './workspace.mjs';
 import { outputIntegrity } from './output-integrity.mjs';
 import { fileURLToPath } from 'node:url';
-/** Reject inline controls even when ESLint itself treats them as inert. */
-export function sourceIntegrity({ source }) {
-  const ast = parser.parse(source, { comment: true, ecmaFeatures: { jsx: true } });
+/** Reject inline controls even when ESLint itself treats them as inert.
+ * File extension selects JSX syntax; omitted filenames retain TypeScript parsing.
+ * @complexity O(source bytes) time/space; invalid syntax throws before lint can pass.
+ */
+export function sourceIntegrity({ source, file = 'virtual.ts' }) {
+  const ast = parser.parse(source, { filePath: file, comment: true, ecmaFeatures: { jsx: /\.[jt]sx$/.test(file) } });
   return ast.comments.some(comment => /eslint-(?:disable|enable)|istanbul ignore|c8 ignore|@ts-nocheck/.test(comment.value));
 }
 /** Resolve each file's effective gates; no extension or untracked source can disappear. */
@@ -17,7 +20,7 @@ export async function lintWorkspace({ cwd = process.cwd() } = {}) {
   for (const file of files) {
     const config = await eslint.calculateConfigForFile(file);
     if (!config || config.rules['sonarjs/cognitive-complexity'][0] !== 2 || config.rules['sonarjs/cognitive-complexity'][1] !== 10) failures.push(`${file}: invalid effective gate`);
-    if (sourceIntegrity({ source: readFileSync(`${cwd}/${file}`, 'utf8') })) failures.push(`${file}: forbidden inline directive`);
+    if (sourceIntegrity({ source: readFileSync(`${cwd}/${file}`, 'utf8'), file })) failures.push(`${file}: forbidden inline directive`);
   }
   const results = await eslint.lintFiles(files);
   failures.push(...results.flatMap(result => result.messages.map(message => `${result.filePath}:${message.line}: ${message.ruleId}: ${message.message}`)));

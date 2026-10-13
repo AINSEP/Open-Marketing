@@ -1,5 +1,5 @@
-import { OMChatPane } from "../widgets/om-chat/index.js";
-import { WorkspaceCanvas } from "../widgets/workspace-canvas/index.js";
+import { OMChatPane } from "../../widgets/om-chat/index.js";
+import { WorkspaceCanvas } from "../../widgets/workspace-canvas/index.js";
 import { useShell } from "./Shell.hooks.js";
 import type { ShellProps, NavLink } from "./Shell.hooks.js";
 

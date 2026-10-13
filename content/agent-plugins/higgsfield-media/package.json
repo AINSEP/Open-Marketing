@@ -1,0 +1,11 @@
+{
+  "name": "@open-marketing-plugin/higgsfield-media",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "pnpm --dir io.github.ainsep.openmarketing test",
+    "build": "pnpm --dir io.github.ainsep.openmarketing build",
+    "typecheck": "pnpm --dir io.github.ainsep.openmarketing typecheck"
+  }
+}

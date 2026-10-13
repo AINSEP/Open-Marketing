@@ -18,12 +18,17 @@ function metricRule({ rule, measurements }) {
   return rule.create(context);
  } };
 }
-/** Run the real ESLint complexity rule at report threshold zero; threshold is used solely for collecting metrics. */
+/** Run the real ESLint complexity rule at report threshold zero; threshold is used solely for collecting metrics.
+ * Both AST passes use the source filename's syntax, including generic TypeScript arrows.
+ * @complexity O(b + f*t) time, O(b+f) space: b source bytes, f functions, t tokens.
+ * Syntax failures throw rather than omit a source.
+ */
 export function measureSource({ source, file }) {
  const measurements = []; const linter = new Linter();
- const parsed = parser.parseForESLint(source, { tokens: true, loc: true, range: true, ecmaFeatures: { jsx: true } });
+ const parserOptions = { filePath: file, ecmaFeatures: { jsx: /\.[jt]sx$/.test(file) } };
+ const parsed = parser.parseForESLint(source, { ...parserOptions, tokens: true, loc: true, range: true });
  const collector = { rules: { cyclomatic: metricRule({ rule: builtinRules.get('complexity'), measurements }) } };
- const diagnostics = linter.verify(source, [{ files: ['**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'], languageOptions: { parser, parserOptions: { ecmaFeatures: { jsx: true } } }, plugins: { collector, sonarjs }, rules: { 'collector/cyclomatic': ['error', { max: 0, variant: 'classic' }], 'sonarjs/cognitive-complexity': ['error', 0] } }], { filename: file });
+ const diagnostics = linter.verify(source, [{ files: ['**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'], languageOptions: { parser, parserOptions }, plugins: { collector, sonarjs }, rules: { 'collector/cyclomatic': ['error', { max: 0, variant: 'classic' }], 'sonarjs/cognitive-complexity': ['error', 0] } }], { filename: file });
  if (diagnostics.some(item => item.fatal)) throw new Error(`Metric parse failure: ${file}`);
  return measurements.map(measurement => metricRow({ measurement, diagnostics, parsed, file }));
 }

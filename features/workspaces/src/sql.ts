@@ -1,8 +1,3 @@
-import type { IdPort } from "@open-marketing/contracts";
-import type { IdentityPort, WorkspaceObserverPort } from "./ports.js";
-import type { WorkspaceRepository } from "./store.js";
-import { createSqlStore } from "./adapters/sql-store.js";
-import { createRepository } from "./repository.js";
 import { callPort } from "./boundary.js";
 import { bindingSchema } from "./schemas.js";
 
@@ -18,14 +13,6 @@ export interface WorkspaceSqlSession {
  */
 export interface WorkspaceSqlDatabase extends WorkspaceSqlSession {
   transaction<T>(required: { run: (session: WorkspaceSqlSession) => Promise<T> }): Promise<T>;
-}
-
-/** Persistent adapter for both repository and scoped lookup. Factory is inert; migrations are
- * never applied here. @example createSqlWorkspaceRepo({ db: serverDbAdapter, identity, ids })
- * @complexity O(1) construction, fixed indexed SQL queries per operation.
- */
-export function createSqlWorkspaceRepo(required: { db: WorkspaceSqlDatabase; identity: IdentityPort; ids: IdPort }, optional?: { observer?: WorkspaceObserverPort }): WorkspaceRepository {
-  return createRepository({ store: createSqlStore({ db: required.db }), identity: required.identity, ids: required.ids }, optional);
 }
 
 /** Use the persistent repository's same scoped lookup boundary. @complexity O(1).

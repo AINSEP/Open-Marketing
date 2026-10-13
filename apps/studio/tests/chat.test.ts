@@ -3,7 +3,7 @@ import { afterEach, it, expect } from "vitest";
 import { createElement } from "react";
 import { render, screen, cleanup, act } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
-import { Shell } from "../src/app/Shell.js";
+import { Shell } from "../src/app/shell/Shell.js";
 import { testStudio } from "./support/studio.js";
 
 afterEach(cleanup);

@@ -1,3 +1,7 @@
+import type { IdPort } from "@open-marketing/contracts";
+import type { IdentityPort, WorkspaceObserverPort } from "../ports.js";
+import type { WorkspaceRepository } from "../store.js";
+import { createRepository } from "../repository.js";
 import { z } from "zod";
 import { idSchema } from "@open-marketing/contracts";
 import type { Outcome, Scope } from "@open-marketing/contracts";
@@ -48,4 +52,14 @@ export function createMemoryStore(required: { workspaces?: readonly WorkspaceRec
     async bind(input) { return bind(input); },
     async find({ scope, externalAccountId }) { return structuredClone(byAccount.get(scopeKey({ scope, id: externalAccountId })) ?? null); },
   };
+}
+
+/** Repository double over trusted server seeds. Missing identity/IDs fails closed rather than
+ * fabricating authority. Bind/find are trusted server storage operations; use WorkspaceService
+ * to authenticate transport callers. @complexity O(n) seed construction; O(1) operations.
+ * @example createMemoryWorkspaceRepo({ identity, ids, workspaces: [{ ownerId: "owner", workspaceId: "workspace" }] })
+ */
+export function createMemoryWorkspaceRepo(required: { identity?: IdentityPort; ids?: IdPort; workspaces?: readonly WorkspaceRecord[]; connections?: readonly WorkspaceConnectionRecord[]; bindings?: readonly import("../types.js").AccountBinding[] }, optional?: { observer?: WorkspaceObserverPort }): WorkspaceRepository {
+  const store = createMemoryStore(required);
+  return createRepository({ store, identity: required.identity ?? { async verify() { return failure({ code: "unavailable", message: "Identity adapter required" }); } }, ids: required.ids ?? { next() { return ""; } } }, optional);
 }

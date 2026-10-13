@@ -14,7 +14,7 @@ export function jiniFixture(required: { repo?: CreativeRepoPort; store?: AsyncOp
   const calls: { method: string; url: string; body?: string }[] = [];
   const render: StartOperationParams<unknown>["ctx"] = { surface: request.surface, model: request.model, wireModel: request.model, prompt: request.prompt,
     aspect: undefined, length: undefined, duration: undefined, voice: "", audioKind: undefined, language: "", loop: false,
-    promptInfluence: undefined, imageRef: null, imageRefs: [], requestInit: {}, speechFormat: "mp3" };
+    promptInfluence: undefined, imageRef: null, imageRefs: [], requestInit: { dispatcher: undefined }, speechFormat: "mp3" };
   const result = { bytes: Buffer.from("image"), providerNote: "fixture" };
   const adapter: PollingVendorAdapter<unknown> = {
     expectedLatencyClass: "fast", submitIsIdempotent: required.idempotent ?? false,

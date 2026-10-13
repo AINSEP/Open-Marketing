@@ -57,7 +57,7 @@ export function MediaRepoPortSuite(required: Create<MediaRepoPort>): void {
       expect(await fixture.port.saveCrop({ context, crop })).toEqual({ ok: true, value: crop });
       expect(await fixture.port.saveCrop({ context, crop })).toEqual({ ok: true, value: crop });
       expect(await fixture.port.saveCrop({ context, crop: { ...crop, cropId: 'changed' } })).toMatchObject({ ok: false, error: { code: 'conflict' } });
-      expect(await fixture.port.saveCrop({ context, crop: { ...crop, rendition: { ...crop.rendition, workspaceId: 'foreign' } } })).toMatchObject({ ok: false, error: { code: 'forbidden' } });
+      expect(await fixture.port.saveCrop({ context, crop: { ...crop, rendition: { ...crop.rendition, workspaceId: 'foreign', storageKey: computeBlobStorageKey({ workspaceId: 'foreign', sha256: 'a'.repeat(64) }) } } })).toMatchObject({ ok: false, error: { code: 'forbidden' } });
     });
   });
 }
@@ -105,7 +105,7 @@ export function BlobStorePortSuite(required: Create<BlobStorePort>): void {
     beforeEach(async () => { fixture = await required.create(); });
     afterEach(async () => { await fixture.dispose?.(); });
     it('content-addresses whole bytes, reports create-only dedupe, and copies inputs/outputs', async () => {
-      const input = { workspaceId: 'workspace', sha256: digest, bytes: bytes.slice() };
+      const input = { workspaceId: 'workspace', sha256: digest, bytes: Buffer.from(bytes) };
       const stored = value({ outcome: await fixture.port.put({ context, input }) });
       expect(stored.written).toBe(true);
       input.bytes.fill(0);

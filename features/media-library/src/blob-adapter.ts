@@ -20,7 +20,7 @@ export function createJiniBlobStore(required: { scope: Scope; store: JiniBlobSto
       if (blob?.workspaceId !== required.scope.workspaceId) return fail({ code: 'forbidden', message: 'Blob scope mismatch' });
       if (!digestSchema.safeParse(blob.sha256).success || !(blob.bytes instanceof Uint8Array)) return fail({ code: 'invalid_input', message: 'Invalid blob' });
       if (blob.bytes.byteLength < 1 || blob.bytes.byteLength > 25_000_000) return fail({ code: 'limit_exceeded', message: 'Blob size exceeds limit' });
-      const bytes = blob.bytes.slice();
+      const bytes = new Uint8Array(blob.bytes);
       if (createHash('sha256').update(bytes).digest('hex') !== blob.sha256) return fail({ code: 'invalid_input', message: 'Blob digest mismatch' });
       const storageKey = computeBlobStorageKey(blob);
       const key = checkStorageKey({ context: input.context, storageKey });
@@ -43,7 +43,7 @@ export function createJiniBlobStore(required: { scope: Scope; store: JiniBlobSto
       return boundary({ context: input.context, operation: 'media.blob.read', run: async () => {
         const bytes = await required.store.get({ storageKey: input.storageKey });
         if (!validBytes({ bytes, digest: input.storageKey.split('/').at(-1)! })) return fail({ code: 'unavailable', message: 'Blob read integrity failed' });
-        return success({ value: bytes.slice() });
+        return success({ value: new Uint8Array(bytes) });
       } }, optional);
     },
     async remove(input, options) {

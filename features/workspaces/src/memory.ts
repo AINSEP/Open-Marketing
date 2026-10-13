@@ -1,11 +1,8 @@
 import { z } from "zod";
 import { epochSchema, idSchema, parseBoundary } from "@open-marketing/contracts";
-import type { ClockPort, IdPort, ObserverEvent, Outcome } from "@open-marketing/contracts";
+import type { ClockPort, ObserverEvent, Outcome } from "@open-marketing/contracts";
 import type { AccountBindingLookupPort, IdentityPort, WorkspaceObserverPort } from "./ports.js";
 import type { VerifiedIdentity } from "./types.js";
-import type { WorkspaceConnectionRecord, WorkspaceRecord, WorkspaceRepository } from "./store.js";
-import { createMemoryStore } from "./adapters/memory-store.js";
-import { createRepository } from "./repository.js";
 import { failure } from "./rules.js";
 import { callPort } from "./boundary.js";
 import { bindingSchema, identitySchema, sessionSchema } from "./schemas.js";
@@ -56,16 +53,6 @@ function checkExpiration(required: { session: MemorySession; clock?: ClockPort }
     if (now.data >= required.session.expiresAt) return failure({ code: "expired", message: "Session expired" });
     return { ok: true, value: null };
   } catch { return failure({ code: "unavailable", message: "Identity clock unavailable" }); }
-}
-
-/** Repository double over trusted server seeds. Missing identity/IDs fails closed rather than
- * fabricating authority. Bind/find are trusted server storage operations; use WorkspaceService
- * to authenticate transport callers. @complexity O(n) seed construction; O(1) operations.
- * @example createMemoryWorkspaceRepo({ identity, ids, workspaces: [{ ownerId: "owner", workspaceId: "workspace" }] })
- */
-export function createMemoryWorkspaceRepo(required: { identity?: IdentityPort; ids?: IdPort; workspaces?: readonly WorkspaceRecord[]; connections?: readonly WorkspaceConnectionRecord[]; bindings?: readonly import("./types.js").AccountBinding[] }, optional?: { observer?: WorkspaceObserverPort }): WorkspaceRepository {
-  const store = createMemoryStore(required);
-  return createRepository({ store, identity: required.identity ?? { async verify() { return failure({ code: "unavailable", message: "Identity adapter required" }); } }, ids: required.ids ?? { next() { return ""; } } }, optional);
 }
 
 /** Share the repository's account index instead of maintaining a stale second copy. Empty

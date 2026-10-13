@@ -7,7 +7,8 @@ import { createSqlHarness } from "./sql-fixture.js";
 describe("adapter failure boundaries", () => {
   it("empty doubles fail explicitly and cannot grant authority", async () => {
     expect(await createMemoryIdentity({}).verify({ session: { sessionId: "missing" } })).toMatchObject({ ok: false, error: { code: "unauthenticated" } });
-    expect(await createMemoryWorkspaceRepo({}).resolve({ session: { sessionId: "missing" }, workspaceId: "missing" })).toMatchObject({ ok: false, error: { code: "unavailable" } });
+    expect(await createMemoryWorkspaceRepo({}).resolve({ session: { sessionId: "missing" }, workspaceId: ownerScope.workspaceId })).toMatchObject({ ok: false, error: { code: "unavailable" } });
+    expect(await createMemoryWorkspaceRepo({}).resolve({ session: { sessionId: "missing" }, workspaceId: "missing" })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
     const context = { scope: binding.scope, principal: { kind: "owner" as const, ownerId: binding.scope.ownerId }, correlationId: "correlation", traceId: "trace" };
     expect(await createMemoryAccountBindingLookup({}).find({ context, externalAccountId: "vendor-42" })).toMatchObject({ ok: false, error: { code: "unavailable" } });
   });

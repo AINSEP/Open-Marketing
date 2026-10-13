@@ -1,5 +1,5 @@
 import { createSampleStudioApi } from "../../src/shared/api/index.js";
-import type { ShellProps } from "../../src/app/Shell.hooks.js";
+import type { ShellProps } from "../../src/app/shell/Shell.hooks.js";
 import { createChatSession } from "../../src/features/chat-run/index.js";
 import { createNavigationController } from "../../src/features/navigate/index.js";
 import type { BrowserRoutePort } from "../../src/features/navigate/index.js";

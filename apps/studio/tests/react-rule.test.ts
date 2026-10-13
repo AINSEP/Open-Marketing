@@ -1,11 +1,12 @@
 import { it, expect } from "vitest";
 import { Linter } from "eslint";
 import parser from "@typescript-eslint/parser";
+import { createRequire } from "node:module";
 
 /** Exercises the actual canonical rule; this suite must stay lane-local and does not rewrite it. */
-it("the TSX rule catches JSX arrows and nested effect callbacks while accepting extracted handlers", async () => {
-  const location = new URL("../../../development/eslint-rules/index.mjs", import.meta.url).href;
-  const plugin = (await import(location)).default;
+it("the TSX rule catches JSX arrows and nested effect callbacks while accepting extracted handlers", () => {
+  const require = createRequire(import.meta.url);
+  const plugin = require("../../../development/eslint-rules/index.mjs").default;
   const linter = new Linter();
   const config = [{ files: ["**/*.tsx"], languageOptions: { parser, parserOptions: { ecmaVersion: "latest" as const, sourceType: "module" as const, ecmaFeatures: { jsx: true } } }, plugins: { om: plugin }, rules: { "om/no-functions-in-component-body": "error" as const } }];
   const arrow = linter.verify("export function View() { return <button onClick={() => {}}>Run</button>; }", config, { filename: "View.tsx" });

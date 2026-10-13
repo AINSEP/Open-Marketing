@@ -23,7 +23,7 @@ export const completeData = { jobId: "fixture-job", status: "completed", resourc
   charge: { status: "charged", credits_exact: 1.25, evidence_id: "fixture-charge" } };
 export const failedData = { jobId: "fixture-job", status: "failed", charge: { status: "charged", credits_exact: 1.25, evidence_id: "fixture-charge" } };
 export const renderContext: RenderContext = { surface: "image", model: intent.model, wireModel: intent.model, prompt: intent.prompt, aspect: "1:1", length: undefined,
-  duration: undefined, voice: "", audioKind: undefined, language: "", loop: false, promptInfluence: undefined, imageRef: null, imageRefs: [], requestInit: {}, speechFormat: "mp3" };
+  duration: undefined, voice: "", audioKind: undefined, language: "", loop: false, promptInfluence: undefined, imageRef: null, imageRefs: [], requestInit: { dispatcher: undefined }, speechFormat: "mp3" };
 
 /** Test assertions reject failed fixture setup; negatives cannot pass because of a broken setup. */
 export function value<T>(required: { outcome: Outcome<T> }): T {

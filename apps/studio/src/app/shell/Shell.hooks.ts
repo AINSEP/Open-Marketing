@@ -1,13 +1,13 @@
-import { usePortSnapshot } from "../shared/ui/index.js";
+import { usePortSnapshot } from "../../shared/ui/index.js";
 import { useEffect, useRef, useState } from "react";
 import type { MouseEvent } from "react";
 import type { NavigationTarget } from "@open-marketing/contracts";
-import type { ChatSession } from "../features/chat-run/index.js";
-import type { NavigationController } from "../features/navigate/index.js";
-import { parseStudioSnapshot } from "../shared/api/index.js";
-import type { StudioApiPort, StudioSnapshot } from "../shared/api/index.js";
-import type { StudioRuntime } from "../shared/api/index.js";
-import { NAVIGATION, ROUTES } from "../shared/navigation/index.js";
+import type { ChatSession } from "../../features/chat-run/index.js";
+import type { NavigationController } from "../../features/navigate/index.js";
+import { parseStudioSnapshot } from "../../shared/api/index.js";
+import type { StudioApiPort, StudioSnapshot } from "../../shared/api/index.js";
+import type { StudioRuntime } from "../../shared/api/index.js";
+import { NAVIGATION, ROUTES } from "../../shared/navigation/index.js";
 
 export interface ShellProps { readonly api: StudioApiPort; readonly runtime: StudioRuntime; readonly navigation: NavigationController; readonly session: ChatSession }
 export interface NavLink { readonly target: NavigationTarget; readonly label: string; readonly glyph: string; readonly active: boolean; readonly onClick: (event: MouseEvent<HTMLAnchorElement>) => void }

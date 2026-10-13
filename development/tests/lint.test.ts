@@ -5,6 +5,19 @@ import ts from 'typescript';
 import { sourceIntegrity } from '../scripts/lint.mjs';
 import { measureSource } from '../scripts/metrics.mjs';
 const eslint = new ESLint();
+it.each(['ts', 'mts', 'cts'])('integrity and metrics parse generic arrows in .%s without JSX', extension => {
+ const source = 'const identity = <T>(required: { value: T }): T => required.value;';
+ const file = `virtual.${extension}`;
+ expect(sourceIntegrity({ source, file })).toBe(false);
+ expect(measureSource({ source, file })).toMatchObject([{ cyclomatic: 1 }]);
+ expect(sourceIntegrity({ source: '/* eslint-disable */\n' + source, file })).toBe(true);
+});
+it.each(['tsx', 'jsx'])('integrity and metrics retain JSX parsing in .%s', extension => {
+ const source = 'const View = () => <div />;';
+ const file = `virtual.${extension}`;
+ expect(sourceIntegrity({ source, file })).toBe(false);
+ expect(measureSource({ source, file })).toMatchObject([{ cyclomatic: 1 }]);
+});
 /** Real ESLint invocation over inert fixture programs, never an ignored executable violation. */
 async function fixture(required: { name: string; extension?: string }) {
  const source = readFileSync(`development/fixtures/lint/${required.name}.txt`, 'utf8');

@@ -50,8 +50,9 @@ describe("Higgsfield async image via released Jini runtime", () => {
   });
   it("deadline/restart recovery stays unknown and never resubmits non-idempotent generation", async () => {
     const f = await runtimeFixture({ deadlineMs: 1000 });
-    f.setNow({ now: NOW + 1000 });
+    f.setNow({ now: NOW + 2000 });
     expect(await f.poll()).toMatchObject({ unknown: 1 });
+    expect(await f.store.get({ id: "async-op" })).toMatchObject({ status: "unknown", error: { code: "DEADLINE_EXPIRED" } });
     expect(f.calls).toHaveLength(1);
     await f.store.create({ id: "crash-gap", providerId: "higgsfield", routeKey: "image-generation.v1", ownerRef: "scoped-owner", maxAttempts: 2, deadlineAt: NOW + 60000 });
     expect(await recoverAfterRestart({ ...f.deps, adapters: () => f.runtime.adapter }, { now: NOW + 1000 })).toMatchObject({ unknownCrashGap: 1, resubmittable: [] });
@@ -67,7 +68,7 @@ describe("Higgsfield async image via released Jini runtime", () => {
     expect(f.references).toHaveLength(0);
     expect(f.calls).toHaveLength(2);
   });
-  it("repeated pending charge evidence does not append duplicate amounts; changed amounts fail", async () => {
+  it("deduplicates pending charge evidence and retains rejected charge changes until the attempt cap", async () => {
     const f = await runtimeFixture();
     f.setStatus({ status: { ...pendingData, charge: completeData.charge } });
     f.setNow({ now: NOW + 2000 });
@@ -77,17 +78,26 @@ describe("Higgsfield async image via released Jini runtime", () => {
     expect(f.observations.size).toBe(2);
     f.setStatus({ status: { ...pendingData, charge: { ...completeData.charge, credits_exact: 2 } } });
     f.setNow({ now: NOW + 6000 });
-    expect(await f.poll()).toMatchObject({ failed: 1 });
+    expect(await f.poll()).toMatchObject({ pending: 1 });
+    expect(await f.store.get({ id: "async-op" })).toMatchObject({ status: "polling", error: { message: "Higgsfield operation refused; reconcile possible charge" } });
     expect(f.observations.size).toBe(2);
     expect([...f.observations.values()].find(observation => observation.kind === "actual")?.amount.minorUnits).toBe(25);
+    f.setNow({ now: NOW + 11000 });
+    expect(await f.poll()).toMatchObject({ failed: 1 });
+    expect(await f.store.get({ id: "async-op" })).toMatchObject({ status: "failed", error: { code: "ATTEMPTS_EXHAUSTED" } });
+    expect(f.calls.filter(call => call.call.toolName.endsWith("generate_image"))).toHaveLength(1);
   });
   it("revocation prevents status egress and keeps the job handle for reconciliation", async () => {
     const f = await runtimeFixture();
     f.revoke();
     f.setNow({ now: NOW + 2000 });
-    expect(await f.poll()).toMatchObject({ failed: 1 });
+    expect(await f.poll()).toMatchObject({ pending: 1 });
     expect(f.calls).toHaveLength(1);
-    expect(await f.store.get({ id: "async-op" })).toMatchObject({ state: { jobId: "fixture-job" }, result: null });
+    expect(await f.store.get({ id: "async-op" })).toMatchObject({ status: "polling", error: { message: "Higgsfield operation refused; reconcile possible charge" }, state: { jobId: "fixture-job" }, result: null });
+    f.setNow({ now: NOW + 60000 });
+    expect(await f.poll()).toMatchObject({ unknown: 1 });
+    expect(await f.store.get({ id: "async-op" })).toMatchObject({ status: "unknown", state: { jobId: "fixture-job" }, result: null });
+    expect(f.calls).toHaveLength(1);
   });
   it("keeps parser errors sanitized and bounds streamed metadata before JSON parsing", async () => {
     const f = fixture();

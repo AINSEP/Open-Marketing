@@ -4,7 +4,7 @@ export type { ConversionIdentifiersPort, AttributionTouchPort } from "./src/port
 export { createMeasureService } from "./src/service.js";
 export type { TrackedLinkRequest, TrackedLink, VerifiedConversionSource, ConversionInput, ConversionReceipt, CacQuery, CacReport, PlatformMetricSnapshot, AttributionResult, MeasureService } from "./src/types.js";
 export type { MeasureRepoPort, MeasurementShareabilityPort, ConversionDeliveryPort, PlatformReportingPort, MeasureJobPort, TrackedLinkPort, MeasureAuditPort, MeasureObserverPort } from "./src/ports.js";
-export { createMemoryMeasureRepo, createMemoryMeasurementShareability, createMemoryConversionDelivery, createMemoryPlatformReporting, createMemoryMeasureJob, createMemoryTrackedLink, createMemoryMeasureAudit } from "./src/memory.js";
+export { createMemoryMeasurementShareability, createMemoryConversionDelivery, createMemoryPlatformReporting, createMemoryMeasureJob, createMemoryTrackedLink, createMemoryMeasureAudit } from "./src/memory.js";
 export { createMemoryConversionSourceAuthentication, createMemoryMeasurementGrant, createMemoryConversionDeliveryState } from "./src/memory.js";
 export type { MemoryConsentEvidence } from "./src/memory.js";
 export type { MemoryMeasureRepo } from "./src/adapters/memory-repo.js";
@@ -21,3 +21,4 @@ export type { ConversionSourceAuthenticationPort, MeasurementGrantPort, Conversi
 export type { AttributionSummary, ConversionDispatcher, ConversionDispatchRecord } from "./src/types.js";
 export type { Outcome, CallContext, CallOptions, ClockPort, IdPort, Scope, ConfirmationCard, HaltStopRequest, HaltStopPermit, GenerationAllowanceSettings, GenerationCostQuote, GenerationApprovalRequirement, MeasurementGrant } from "@open-marketing/contracts";
 export type { MeasurePrivacyPort } from "./src/ports.js";
+export { createMemoryMeasureRepo } from "./src/adapters/memory-repo.js";

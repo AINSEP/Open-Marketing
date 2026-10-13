@@ -6,7 +6,6 @@ import type { ConversionDispatchRecord, MeasureGrant, PlatformMetricSnapshot, Ve
 import { validateDeliveryTransition } from "./delivery/ledger-rules.js";
 import { auditInputSchema, clone, conversionKey, conversionSchema, dispatchRecordSchema, eventIdentity, failure, measureGrantSchema, nextId, parseSourceEvent, querySchema, sameScope, serviceContextSchema, scopeKey, snapshotSchema, sourceSchema, storageLimit } from "./rules.js";
 import { deliveryIdentity, parseResolvedDeliveryInput } from "./delivery/input.js";
-export { createMemoryMeasureRepo } from "./adapters/memory-repo.js";
 export { createMemoryTrackedLink } from "./links/links.js";
 
 /** Test evidence is exact-purpose/destination-bound. No evidence means denial. */

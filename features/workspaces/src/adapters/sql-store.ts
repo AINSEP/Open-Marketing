@@ -1,3 +1,7 @@
+import type { IdPort } from "@open-marketing/contracts";
+import type { IdentityPort, WorkspaceObserverPort } from "../ports.js";
+import type { WorkspaceRepository } from "../store.js";
+import { createRepository } from "../repository.js";
 import { z } from "zod";
 import { idSchema } from "@open-marketing/contracts";
 import type { Scope } from "@open-marketing/contracts";
@@ -51,4 +55,12 @@ export function createSqlStore(required: { db: WorkspaceSqlDatabase }): Workspac
     },
     async find(input) { return findBinding({ db: required.db, ...input }); },
   };
+}
+
+/** Persistent adapter for both repository and scoped lookup. Factory is inert; migrations are
+ * never applied here. @example createSqlWorkspaceRepo({ db: serverDbAdapter, identity, ids })
+ * @complexity O(1) construction, fixed indexed SQL queries per operation.
+ */
+export function createSqlWorkspaceRepo(required: { db: WorkspaceSqlDatabase; identity: IdentityPort; ids: IdPort }, optional?: { observer?: WorkspaceObserverPort }): WorkspaceRepository {
+  return createRepository({ store: createSqlStore({ db: required.db }), identity: required.identity, ids: required.ids }, optional);
 }

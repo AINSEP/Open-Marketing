@@ -1,6 +1,6 @@
 import { createElement } from "react";
 import type { Root } from "react-dom/client";
-import { Shell } from "../app/Shell.js";
+import { Shell } from "../app/shell/Shell.js";
 import { createSampleStudioApi } from "../shared/api/index.js";
 import type { StudioApiPort } from "../shared/api/index.js";
 import type { StudioRuntime } from "../shared/api/index.js";

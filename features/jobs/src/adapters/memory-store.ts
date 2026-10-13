@@ -1,3 +1,7 @@
+import type { ClockPort, IdPort } from "@open-marketing/contracts";
+import type { JobRepoPort } from "../ports.js";
+import type { RetryPolicy } from "../types.js";
+import { createJobRepository } from "../repository.js";
 import type { Completion, EnqueueResult, LeaseFence, OutboxJob } from "../types.js";
 import type { ManagedOutboxStore } from "../store.js";
 import { isDue, isFenced, sameRequest, validateClaim, validateCompletion, validateFence, validateResolution, validateTime } from "../store.js";
@@ -139,4 +143,11 @@ function compareIds(required: { first: string; second: string }): number {
         if (difference !== 0) return difference;
     }
     return first.length - second.length;
+}
+
+/** In-memory repository double; caller injects time/IDs. Never compose into a production server.
+ * @example createMemoryJobRepo({ clock, ids, retryPolicy }) @complexity O(1) construction; operations bounded by maxJobs.
+ */
+export function createMemoryJobRepo(required: { clock: ClockPort; ids: IdPort; retryPolicy: RetryPolicy; maxJobs?: number }): JobRepoPort {
+    return createJobRepository({ ...required, outbox: createMemoryOutboxStore({ maxJobs: required.maxJobs }) });
 }

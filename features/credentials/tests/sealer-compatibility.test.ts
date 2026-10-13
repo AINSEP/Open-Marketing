@@ -8,7 +8,7 @@ import { configuration, reference, value } from "./fixtures.js";
  */
 function committedEnvelope(required: { plaintext: string }) {
   const master = new Uint8Array(32).fill(7);
-  const key = hkdfSync("sha256", master, configuration.hkdfSalt, "om.credentials.key.v1:1", 32);
+  const key = new Uint8Array(hkdfSync("sha256", master, configuration.hkdfSalt, "om.credentials.key.v1:1", 32));
   const nonce = new Uint8Array(12).fill(3);
   const aad = JSON.stringify(["om.credentials.aes-gcm.v1", "owner", "workspace", "connection", 1]);
   const cipher = createCipheriv("aes-256-gcm", key, nonce);

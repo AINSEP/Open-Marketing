@@ -1,16 +1,8 @@
-import type { ClockPort, IdPort, ObserverEvent, Outcome } from "@open-marketing/contracts";
-import type { JobRepoPort, JobDispatchPort, JobAuthorizationPort, JobObserverPort } from "./ports.js";
-import type { ProcessResult, RetryPolicy } from "./types.js";
-import { createJobRepository } from "./repository.js";
-import { createMemoryOutboxStore } from "./adapters/memory-store.js";
+import type { ObserverEvent, Outcome } from "@open-marketing/contracts";
+import type { JobDispatchPort, JobAuthorizationPort, JobObserverPort } from "./ports.js";
+import type { ProcessResult } from "./types.js";
 import { jobFailure } from "./errors.js";
 import { parseJobCall } from "./schema.js";
-/** In-memory repository double; caller injects time/IDs. Never compose into a production server.
- * @example createMemoryJobRepo({ clock, ids, retryPolicy }) @complexity O(1) construction; operations bounded by maxJobs.
- */
-export function createMemoryJobRepo(required: { clock: ClockPort; ids: IdPort; retryPolicy: RetryPolicy; maxJobs?: number }): JobRepoPort {
-    return createJobRepository({ ...required, outbox: createMemoryOutboxStore({ maxJobs: required.maxJobs }) });
-}
 /** Dispatch double defaults to unavailable, requiring explicit test behavior to claim an effect.
  * @complexity O(1), excluding injected dispatch work.
  */

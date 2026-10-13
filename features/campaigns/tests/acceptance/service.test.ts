@@ -1,7 +1,28 @@
 import { describe, it, expect } from "vitest";
 import { createCampaignService, createMemoryCampaignSafety } from "../../index.js";
 import type { CampaignDependencies, LaunchProposal, CampaignReadback } from "../../index.js";
-import { context, otherContext, fixture, flight, request, value } from "../fixtures.js";
+import { context, otherContext, fixture, flight, proposal, request, value } from "../fixtures.js";
+import { persistProposal } from "../../src/repo-rules.js";
+import { digest, proposalSchema } from "../../src/rules.js";
+
+it("accepts an unchanged launch card after strict schema normalization", async () => {
+  const env = await fixture();
+  const expected = proposal({ campaignId: "campaign" });
+  const repo = { ...env.repo, async saveProposal() { return { ok: true as const, value: proposalSchema.parse(expected) }; } };
+  expect(await persistProposal({ repo, context, proposal: expected })).toEqual({ ok: true, value: proposalSchema.parse(expected) });
+});
+it.each(["account", "exposure", "effects", "operation"])("rejects a stored launch card with changed %s", async change => {
+  const env = await fixture();
+  const expected = proposal({ campaignId: "campaign" });
+  const changed = proposalSchema.parse(expected);
+  if (change === "account") { changed.arguments.accountId = "foreign"; changed.operations[0].accountId = "foreign"; }
+  if (change === "exposure") { changed.arguments.flight.expectedExposure.minorUnits += 1; changed.operations[0].moneyExposure!.amount.minorUnits += 1; }
+  if (change === "effects") changed.operations[0].effects = ["write"];
+  if (change === "operation") changed.operations[0].operationId = "substituted";
+  changed.operations[0].argumentsDigest = digest({ value: changed.arguments });
+  const repo = { ...env.repo, async saveProposal() { return { ok: true as const, value: changed }; } };
+  expect(await persistProposal({ repo, context, proposal: expected })).toMatchObject({ ok: false, error: { code: "conflict", message: "Stored launch card changed" } });
+});
 
 async function approveLaunch(required: { environment: Awaited<ReturnType<typeof fixture>>; approvalId?: string }) {
   const env = required.environment;
