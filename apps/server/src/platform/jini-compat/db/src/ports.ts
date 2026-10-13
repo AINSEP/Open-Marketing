@@ -1,3 +1,5 @@
+import type { StorageKernel } from '@jini-ai/db/kernel';
+
 /** Minimal result shape compatible with node-postgres, without a driver dependency. */
 export interface QueryResult<Row extends Record<string, unknown> = Record<string, unknown>> {
     rows: Row[];
@@ -22,6 +24,8 @@ export interface PgClient extends PgQueryable {
 export interface PgPool {
     /** Compatibility name retained; SQLite serializes writers with BEGIN IMMEDIATE. */
     dialect?: 'sqlite' | 'postgres';
+    /** Required for SQLite: composition injects the ONE kernel shared with Jini repositories. */
+    kernel?: StorageKernel<unknown>;
     connect(): Promise<PgClient>;
 }
 /** Low-cardinality lifecycle signals. SQL, parameters and driver errors are never emitted. */

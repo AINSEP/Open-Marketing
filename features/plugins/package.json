@@ -18,7 +18,7 @@
     "test": "vitest run tests"
   },
   "dependencies": {
-    "@jini-ai/agent-plugins": "0.4.3",
+    "@jini-ai/agent-plugins": "0.4.4",
     "@open-marketing/contracts": "workspace:*",
     "@open-marketing/om-clock": "workspace:*",
     "ajv": "8.17.1",

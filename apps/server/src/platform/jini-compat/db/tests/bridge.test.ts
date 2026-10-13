@@ -1,7 +1,9 @@
+import { sqliteKernel } from '@jini-ai/db/kernel/sqlite';
 import Database from 'better-sqlite3';
 import type { SqlSession, UnitOfWork } from '@open-marketing/contracts';
-import { describe, expect, it } from 'vitest';
-import { createSqlitePool } from '../src/sqlite.js';
+import { sql } from 'kysely';
+import { describe, expect, it, vi } from 'vitest';
+import { createCheckedSqliteClient, createSqlitePool } from '../src/sqlite.js';
 import { withTransaction } from '../src/transaction.js';
 import { PgFoundationError, type PgPool } from '../src/ports.js';
 
@@ -43,7 +45,7 @@ function sqliteHarness(): Harness {
     const database = new Database(':memory:');
     database.exec('CREATE TABLE items (value TEXT)');
     return {
-        pool: createSqlitePool({ database }),
+        pool: createSqlitePool({ database, kernel: sqliteKernel(createCheckedSqliteClient({ database })) }),
         rows: () => database.prepare('SELECT value FROM items ORDER BY rowid').all().map(row => (row as { value: string }).value),
         close: () => database.close(),
     };
@@ -135,7 +137,7 @@ transactionSuite({ name: 'SQLite', create: sqliteHarness });
 describe('checked SQLite decoding', () => {
     it('decodes safe integer endpoints and preserves non-integer cells', async () => {
         const database = new Database(':memory:');
-        const pool = createSqlitePool({ database });
+        const pool = createSqlitePool({ database, kernel: sqliteKernel(createCheckedSqliteClient({ database })) });
         try {
             const result = await pool.transaction({ work: ({ session }) => session.query({
                 text: 'SELECT $1 AS minimum, $2 AS maximum, 42 AS count, 1.5 AS real, $3 AS text, $4 AS blob, NULL AS empty',
@@ -146,7 +148,7 @@ describe('checked SQLite decoding', () => {
     });
     it.each([9007199254740992n, -9007199254740992n])('rejects overflow %s without losing its typed code', async amount => {
         const database = new Database(':memory:');
-        const pool = createSqlitePool({ database });
+        const pool = createSqlitePool({ database, kernel: sqliteKernel(createCheckedSqliteClient({ database })) });
         try {
             const client = await pool.connect();
             await expect(client.query({ text: 'SELECT $1 AS amount', values: [amount] })).rejects.toMatchObject({ code: 'unsafe_integer' });
@@ -156,28 +158,136 @@ describe('checked SQLite decoding', () => {
     });
 });
 
-describe('failed Outcome cleanup', () => {
-    it('quarantines a failed rollback and preserves failed-Outcome release precedence', async () => {
+describe('kernel ownership and cleanup', () => {
+    it('fails closed when a SQLite pool omits its kernel', async () => {
+        const pool: PgPool = { dialect: 'sqlite', async connect() { throw new Error('must not connect'); } };
+        await expect(withTransaction({ pool, work: async () => 1 })).rejects.toMatchObject({ code: 'kernel_required' });
+    });
+    it('joins real Jini queries and rolls back both consumers on a root denial', async () => {
+        const database = new Database(':memory:');
+        const kernel = sqliteKernel(createCheckedSqliteClient({ database }));
+        const pool = createSqlitePool({ database, kernel });
+        database.exec('CREATE TABLE items (value TEXT)');
         const denied = { ok: false, error: { code: 'denied' } };
-        const released: Array<boolean | undefined> = [];
-        const statements: string[] = [];
-        let failRollback = true;
-        const pool: PgPool = { dialect: 'sqlite', async connect() { return {
-            async query<Row extends Record<string, unknown>>({ text }: { text: string }) {
-                statements.push(text);
-                if (text === 'ROLLBACK' && failRollback) throw new Error('rollback failed');
-                return { rows: [] as Row[], rowCount: null };
-            },
-            release({ destroy }) {
-                released.push(destroy);
-                if (!failRollback) throw new Error('release failed');
-            },
-        }; } };
-        await expect(withTransaction({ pool, work: async () => denied })).rejects.toMatchObject({ code: 'rollback_failed' });
-        expect(statements).toEqual(['BEGIN IMMEDIATE', 'ROLLBACK']);
-        expect(released).toEqual([true]);
-        failRollback = false;
-        await expect(withTransaction({ pool, work: async () => denied })).rejects.toMatchObject({ code: 'release_after_failure', cause: { errors: [denied, expect.any(Error)] } });
-        expect(released).toEqual([true, undefined]);
+        try {
+            expect(await pool.transaction({ work: async ({ session }) => {
+                await session.query({ text: 'INSERT INTO items VALUES ($1)', values: ['OM'] });
+                await kernel.transaction(() => kernel.execute(sql`INSERT INTO items VALUES (${'Jini'})`));
+                expect(await kernel.query(sql`SELECT value FROM items ORDER BY rowid`)).toEqual([{ value: 'OM' }, { value: 'Jini' }]);
+                return denied;
+            } })).toBe(denied);
+            expect(database.prepare('SELECT value FROM items').all()).toEqual([]);
+            expect(database.inTransaction).toBe(false);
+        } finally { database.close(); }
+    });
+    it('applies the same checked integer rule to actual Kysely reads and native iteration', async () => {
+        const database = new Database(':memory:');
+        const client = createCheckedSqliteClient({ database });
+        const kernel = sqliteKernel(client);
+        try {
+            expect(await kernel.query(sql`SELECT ${BigInt(Number.MAX_SAFE_INTEGER)} AS maximum, 42 AS count`)).toEqual([{ maximum: Number.MAX_SAFE_INTEGER, count: 42 }]);
+            await expect(kernel.query(sql`SELECT ${9007199254740992n} AS overflow`)).rejects.toMatchObject({ code: 'unsafe_integer' });
+            expect([...client.prepare('SELECT 42 AS count').iterate()]).toEqual([{ count: 42 }]);
+            expect(() => [...client.prepare('SELECT 9007199254740992 AS overflow').iterate()]).toThrow(expect.objectContaining({ code: 'unsafe_integer' }));
+            client.exec('CREATE TABLE items (value TEXT)');
+            expect(client.prepare('INSERT INTO items VALUES (?)').run('kept')).toEqual({ changes: 1, lastInsertRowid: 1 });
+            client.close();
+            expect(database.open).toBe(true);
+        } finally { database.close(); }
+    });
+    it.each(['denial', 'throw'])('quarantines a failed kernel rollback after %s and retains both causes', async mode => {
+        const database = new Database(':memory:');
+        const nativeExec = database.exec.bind(database);
+        const rollbackFailure = new Error('rollback failed');
+        const original = mode === 'denial' ? { ok: false, error: { code: 'denied' } } : new Error('body failed');
+        const pool = createSqlitePool({ database, kernel: sqliteKernel(createCheckedSqliteClient({ database })) });
+        const spy = vi.spyOn(database, 'exec').mockImplementation(source => {
+            if (source === 'ROLLBACK') throw rollbackFailure;
+            return nativeExec(source);
+        });
+        try {
+            await expect(pool.transaction({ work: async () => {
+                if (mode === 'throw') throw original;
+                return original;
+            } })).rejects.toMatchObject({ code: 'rollback_failed', cause: { errors: [original, expect.objectContaining({ code: 'rollback_failed', cause: rollbackFailure })] } });
+            await expect(pool.connect()).rejects.toMatchObject({ code: 'connection_unavailable' });
+        } finally { spy.mockRestore(); database.close(); }
+    });
+    it('preserves failed-Outcome release precedence after successful rollback', async () => {
+        const database = new Database(':memory:');
+        const base = createSqlitePool({ database, kernel: sqliteKernel(createCheckedSqliteClient({ database })) });
+        const denied = { ok: false, error: { code: 'denied' } };
+        const pool: PgPool = { ...base, async connect() {
+            const client = await base.connect();
+            return { ...client, release(input) { client.release(input); throw new Error('release failed'); } };
+        } };
+        try {
+            await expect(withTransaction({ pool, work: async () => denied })).rejects.toMatchObject({ code: 'release_after_failure', cause: { errors: [denied, expect.any(Error)] } });
+            expect(database.inTransaction).toBe(false);
+        } finally { database.close(); }
+    });
+    it('preserves committed rows and quarantines an uncertain COMMIT without retry', async () => {
+        const database = new Database(':memory:');
+        database.exec('CREATE TABLE items (value TEXT)');
+        const nativeExec = database.exec.bind(database);
+        const pool = createSqlitePool({ database, kernel: sqliteKernel(createCheckedSqliteClient({ database })) });
+        const spy = vi.spyOn(database, 'exec').mockImplementation(source => {
+            nativeExec(source);
+            if (source === 'COMMIT') throw new Error('connection lost after commit');
+            return database;
+        });
+        let bodies = 0;
+        try {
+            await expect(pool.transaction({ work: async ({ session }) => {
+                bodies++;
+                await session.query({ text: 'INSERT INTO items VALUES ($1)', values: ['committed'] });
+                return { ok: true };
+            } })).rejects.toMatchObject({ code: 'commit_failed' });
+            expect(bodies).toBe(1);
+            expect(database.prepare('SELECT value FROM items').all()).toEqual([{ value: 'committed' }]);
+            await expect(pool.connect()).rejects.toMatchObject({ code: 'connection_unavailable' });
+        } finally { spy.mockRestore(); database.close(); }
+    });
+    it('does not run work after the kernel BEGIN fails', async () => {
+        const database = new Database(':memory:');
+        const nativeExec = database.exec.bind(database);
+        const pool = createSqlitePool({ database, kernel: sqliteKernel(createCheckedSqliteClient({ database })) });
+        const spy = vi.spyOn(database, 'exec').mockImplementation(source => {
+            if (source === 'BEGIN IMMEDIATE') throw new Error('begin failed');
+            return nativeExec(source);
+        });
+        let ran = false;
+        try {
+            await expect(pool.transaction({ work: async () => { ran = true; } })).rejects.toMatchObject({ code: 'query_failed' });
+            expect(ran).toBe(false);
+            expect(database.inTransaction).toBe(false);
+            await expect(pool.connect()).rejects.toMatchObject({ code: 'connection_unavailable' });
+        } finally { spy.mockRestore(); database.close(); }
+    });
+    it('retains COMMIT failure when the kernel rollback also fails', async () => {
+        const database = new Database(':memory:');
+        const nativeExec = database.exec.bind(database);
+        const commitFailure = new Error('commit failed');
+        const rollbackFailure = new Error('rollback failed');
+        const pool = createSqlitePool({ database, kernel: sqliteKernel(createCheckedSqliteClient({ database })) });
+        const spy = vi.spyOn(database, 'exec').mockImplementation(source => {
+            if (source === 'COMMIT') throw commitFailure;
+            if (source === 'ROLLBACK') throw rollbackFailure;
+            return nativeExec(source);
+        });
+        try {
+            await expect(pool.transaction({ work: async () => 'done' })).rejects.toMatchObject({ code: 'rollback_failed', cause: { errors: [expect.objectContaining({ code: 'commit_failed', cause: commitFailure }), rollbackFailure] } });
+            await expect(pool.connect()).rejects.toMatchObject({ code: 'connection_unavailable' });
+        } finally { spy.mockRestore(); database.close(); }
+    });
+    it('rolls back a Kysely write whose result contains an unsafe rowid', async () => {
+        const database = new Database(':memory:');
+        database.exec('CREATE TABLE items (value TEXT)');
+        const kernel = sqliteKernel(createCheckedSqliteClient({ database }));
+        const pool = createSqlitePool({ database, kernel });
+        try {
+            await expect(pool.transaction({ work: () => kernel.execute(sql`INSERT INTO items (rowid, value) VALUES (${9007199254740992n}, ${'discarded'})`) })).rejects.toMatchObject({ code: 'transaction_failed', cause: { code: 'unsafe_integer' } });
+            expect(database.prepare('SELECT value FROM items').all()).toEqual([]);
+        } finally { database.close(); }
     });
 });

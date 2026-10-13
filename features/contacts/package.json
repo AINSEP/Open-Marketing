@@ -1,0 +1,24 @@
+{
+  "name": "@open-marketing/contacts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "om": {
+    "kind": "feature"
+  },
+  "exports": {
+    ".": {
+      "types": "./index.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.tests.json",
+    "build": "node ../../development/scripts/build.mjs",
+    "test": "vitest run tests"
+  },
+  "dependencies": {
+    "@open-marketing/contracts": "workspace:*",
+    "libphonenumber-js": "1.13.12"
+  }
+}

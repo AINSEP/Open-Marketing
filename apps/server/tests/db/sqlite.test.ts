@@ -1,12 +1,13 @@
+import { sqliteKernel } from '@jini-ai/db/kernel/sqlite';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createSqlitePool, withTransaction, runMigrations, claimBatch } from '../../src/platform/jini-compat/db/src/index.js';
+import { createCheckedSqliteClient, createSqlitePool, withTransaction, runMigrations, claimBatch } from '../../src/platform/jini-compat/db/src/index.js';
 
 const handles: Database.Database[] = [];
 function fixture() {
     const database = new Database(':memory:');
     handles.push(database);
-    return { database, pool: createSqlitePool({ database }) };
+    return { database, pool: createSqlitePool({ database, kernel: sqliteKernel(createCheckedSqliteClient({ database })) }) };
 }
 afterEach(() => { for (const database of handles.splice(0)) database.close(); });
 

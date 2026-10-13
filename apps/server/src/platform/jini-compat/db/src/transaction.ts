@@ -1,4 +1,5 @@
 import type { SqlSession } from '@open-marketing/contracts';
+import type { StorageKernel } from '@jini-ai/db/kernel';
 import { PgFoundationError, type PgClient, type PgEvent, type PgObserver, type PgPool, type PgQueryable, type QueryResult } from './ports.js';
 /** PostgreSQL statement/lock limits are transaction-local. SQLite's sync driver cannot enforce a
  * statement deadline here: configure native busy_timeout at composition and bound trusted SQL/body work.
@@ -50,6 +51,17 @@ function timeout({ value }: {
         throw new PgFoundationError({ code: 'invalid_timeout', message: 'Timeout must be an integer from 1 to 3600000 milliseconds' });
     }
     return String(value);
+}
+/** Validate configuration before acquiring a lease; SQLite requires its owning kernel. */
+function transactionLimits(required: { pool: PgPool; statementTimeoutMs: number; lockTimeoutMs: number }): string[] {
+    const { pool, statementTimeoutMs, lockTimeoutMs } = required;
+    if (pool.dialect === 'sqlite' && (statementTimeoutMs !== 30000 || lockTimeoutMs !== 5000)) {
+        throw new PgFoundationError({ code: 'unsupported_timeout', message: 'Configure SQLite native timeouts at composition; per-transaction overrides are unsupported' });
+    }
+    if (pool.dialect === 'sqlite' && !pool.kernel) {
+        throw new PgFoundationError({ code: 'kernel_required', message: 'SQLite composition must inject its owning Jini kernel' });
+    }
+    return [timeout({ value: statementTimeoutMs }), timeout({ value: lockTimeoutMs })];
 }
 /** Explicit external query edge; original driver errors stay in cause, not telemetry.
  * @complexity One query, O(1) wrapper space excluding results.
@@ -135,10 +147,7 @@ export async function withTransaction<T>({ pool, work }: {
     pool: PgPool;
     work: (tx: PgQueryable & SqlSession) => Promise<T>;
 }, { statementTimeoutMs = 30000, lockTimeoutMs = 5000, observer }: TransactionOptions = {}): Promise<T> {
-    if (pool.dialect === 'sqlite' && (statementTimeoutMs !== 30000 || lockTimeoutMs !== 5000)) {
-        throw new PgFoundationError({ code: 'unsupported_timeout', message: 'Configure SQLite native timeouts at composition; per-transaction overrides are unsupported' });
-    }
-    const limits = [timeout({ value: statementTimeoutMs }), timeout({ value: lockTimeoutMs })];
+    const limits = transactionLimits({ pool, statementTimeoutMs, lockTimeoutMs });
     let client: PgClient;
     try {
         client = await observed({ operation: 'connect', observer: observer, work: () => pool.connect() });
@@ -151,9 +160,9 @@ export async function withTransaction<T>({ pool, work }: {
     let destroy = true;
     let primaryFailure: unknown;
     try {
-        await queryable.query({ text: pool.dialect === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN' });
-        const result = await runBody({ queryable: queryable, work: work, limits: pool.dialect === 'sqlite' ? undefined : limits });
-        await finishTransaction({ queryable, result });
+        const result = pool.dialect === 'sqlite'
+            ? await kernelTransaction({ kernel: pool.kernel!, queryable, work })
+            : await postgresTransaction({ queryable, work, limits });
         if (failedOutcome({ value: result })) primaryFailure = result;
         destroy = false;
         return result;
@@ -168,6 +177,56 @@ export async function withTransaction<T>({ pool, work }: {
         lifetime.active = false;
         await releaseClient({ client, destroy, primaryFailure, observer });
     }
+}
+
+/** Private signal: a returned denial must reach the kernel's rollback path before being restored. */
+class OutcomeRollback {
+    readonly value: unknown;
+    constructor({ value }: { value: unknown }) { this.value = value; }
+}
+
+/** Delegate all SQLite control to the injected kernel. Only a successfully rolled-back denial returns.
+ * Foreign kernel callbacks are positional by StorageKernel ABI. A failed cleanup keeps both causes.
+ * @complexity O(q) body queries; O(1) wrapper space. Nested repository calls use the same kernel.
+ */
+async function kernelTransaction<T>(required: { kernel: StorageKernel<unknown>; queryable: PgQueryable & SqlSession; work: (tx: PgQueryable & SqlSession) => Promise<T> }): Promise<T> {
+    let denial: OutcomeRollback | undefined;
+    const state: { failure?: unknown } = {};
+    try {
+        return await required.kernel.transaction(async () => {
+            const result = await kernelBody({ ...required, state });
+            if (failedOutcome({ value: result })) {
+                denial = new OutcomeRollback({ value: result });
+                throw denial;
+            }
+            return result;
+        });
+    } catch (cause) {
+        if (denial && cause === denial) return denial.value as T;
+        const primaryFailure = denial?.value ?? state.failure;
+        if (cause instanceof PgFoundationError && cause.code === 'rollback_failed' && primaryFailure !== undefined) {
+            throw new PgFoundationError({ code: 'rollback_failed', message: 'Transaction and kernel rollback failed', options: { cause: new AggregateError([primaryFailure, cause]) } });
+        }
+        if (cause instanceof PgFoundationError) throw cause;
+        throw new PgFoundationError({ code: 'kernel_failed', message: 'Kernel transaction failed; reconcile before retry', options: { cause } });
+    }
+}
+
+/** Preserve body failure separately from kernel cleanup failure; neither path retries work. */
+async function kernelBody<T>(required: { queryable: PgQueryable & SqlSession; work: (tx: PgQueryable & SqlSession) => Promise<T>; state: { failure?: unknown } }): Promise<T> {
+    try { return await required.work(required.queryable); }
+    catch (cause) {
+        required.state.failure = cause;
+        throw new PgFoundationError({ code: 'transaction_failed', message: 'Transaction body failed; kernel rolls back', options: { cause } });
+    }
+}
+
+/** Retained driver-free PostgreSQL compatibility path; SQLite never uses these control statements. */
+async function postgresTransaction<T>(required: { queryable: PgQueryable & SqlSession; work: (tx: PgQueryable & SqlSession) => Promise<T>; limits: string[] }): Promise<T> {
+    await required.queryable.query({ text: 'BEGIN' });
+    const result = await runBody(required);
+    await finishTransaction({ queryable: required.queryable, result });
+    return result;
 }
 
 /** Returned denials roll back; commit failures stay uncertain and are never retried.

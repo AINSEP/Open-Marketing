@@ -1,14 +1,15 @@
+import { sqliteKernel } from '@jini-ai/db/kernel/sqlite';
 import Database from 'better-sqlite3';
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 import { loadMigrations, migrationManifest } from '../../../../composition/migrations.js';
-import { createSqlitePool } from '../src/sqlite.js';
+import { createCheckedSqliteClient, createSqlitePool } from '../src/sqlite.js';
 import { prepareMigrations, runMigrations } from '../src/migrations.js';
 
 describe('trusted migration scripts and catalogue', () => {
     it('runs commented multi-statement scripts and replays without duplicate writes', async () => {
         const database = new Database(':memory:');
-        const pool = createSqlitePool({ database });
+        const pool = createSqlitePool({ database, kernel: sqliteKernel(createCheckedSqliteClient({ database })) });
         const migrations = [{ version: 1, name: 'first', sql: '-- feature migration\nCREATE TABLE items (id TEXT); INSERT INTO items VALUES (\'one\');' }];
         try {
             expect(await runMigrations({ pool, migrations })).toEqual({ appliedVersions: [1] });
@@ -19,7 +20,7 @@ describe('trusted migration scripts and catalogue', () => {
     });
     it('rolls back statements and ledger after a failure within one script', async () => {
         const database = new Database(':memory:');
-        const pool = createSqlitePool({ database });
+        const pool = createSqlitePool({ database, kernel: sqliteKernel(createCheckedSqliteClient({ database })) });
         try {
             await expect(runMigrations({ pool, migrations: [{ version: 1, name: 'broken', sql: '-- comment\nCREATE TABLE items (id TEXT); INSERT INTO missing VALUES (1);' }] })).rejects.toMatchObject({ code: 'transaction_failed' });
             expect(database.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all()).toEqual([]);
@@ -28,7 +29,7 @@ describe('trusted migration scripts and catalogue', () => {
     });
     it('requires explicit script mode and forbids bound script values', async () => {
         const database = new Database(':memory:');
-        const client = await createSqlitePool({ database }).connect();
+        const client = await createSqlitePool({ database, kernel: sqliteKernel(createCheckedSqliteClient({ database })) }).connect();
         try {
             await expect(client.query({ text: 'CREATE TABLE a (id TEXT); CREATE TABLE b (id TEXT);' })).rejects.toMatchObject({ code: 'query_failed' });
             await expect(client.query({ text: 'CREATE TABLE a (id TEXT)', script: true, values: ['bound'] })).rejects.toMatchObject({ code: 'invalid_parameter' });
@@ -60,7 +61,7 @@ describe('trusted migration scripts and catalogue', () => {
     it('loads and replays the actual feature catalogue on throwaway SQLite', async () => {
         const database = new Database(':memory:');
         database.pragma('foreign_keys = ON');
-        const pool = createSqlitePool({ database });
+        const pool = createSqlitePool({ database, kernel: sqliteKernel(createCheckedSqliteClient({ database })) });
         const root = new URL('../../../../../../../', import.meta.url);
         try {
             const migrations = await loadMigrations({ readSql: ({ path }) => readFile(new URL(path, root), 'utf8') });

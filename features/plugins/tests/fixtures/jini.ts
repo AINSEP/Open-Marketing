@@ -8,7 +8,17 @@ import { temporaryDirectory, writePackage } from "./filesystem.js";
 /** Test composition uses the published implementation with native temp files and deterministic
  * time/IDs. Network, tool provisioning and process execution are deliberately unavailable.
  */
-export async function jiniFixture(required: { package?: PluginPackage } = {}) {
+type Lifecycle = ReturnType<typeof createAgentPluginLifecycle>;
+export interface JiniFixture {
+  root: string;
+  layout: ReturnType<typeof createAgentPluginLayout>;
+  lifecycle: Lifecycle;
+  archiveReader: ReturnType<Lifecycle["createBundledSourceArchiveReader"]>;
+  packed: Awaited<ReturnType<Lifecycle["packAgentPluginDirectory"]>>;
+  source: { kind: "archive"; location: string; expectedDigest: string };
+}
+
+export async function jiniFixture(required: { package?: PluginPackage } = {}): Promise<JiniFixture> {
   const root = await temporaryDirectory({});
   const sourceDir = path.join(root, "source");
   await writePackage({ root: sourceDir, package: required.package ?? packageFixture({}, { manifest: { $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json" } }) });
