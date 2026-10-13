@@ -2,6 +2,10 @@
 import { join } from 'node:path';
 import type Database from 'better-sqlite3';
 import type { CallContext, ClockPort, IdPort, ObserverPort, Outcome } from '@open-marketing/contracts';
+import { z } from 'zod';
+import { createSqlCampaignRepo, type CampaignSqlPort } from '@open-marketing/campaigns';
+import { createMemoryConfirmationExchange, createSqlSafetyRepo, type MemoryConfirmationExchange, type SafetySqlDatabase } from '@open-marketing/safety';
+import { handleOwnerRequest, type OwnerServices } from '../inbound/owner.js';
 import type { HttpRequest, HttpListenerPort, LifecyclePort, HttpResponse } from '../ports.js';
 import { handleOmRequest, type RunGrantVerifierPort } from '../inbound/om.js';
 import { createNodeHttpListener, prepareStudioAssets, serveStudioAsset, type HttpEffects, type NodeHttpListener } from '../inbound/http.js';
@@ -34,7 +38,7 @@ export interface ServerBootIo extends HttpEffects {
 }
 /** Explicit owned lifecycle returned after successful boot. stop is idempotent and closes SQLite last. */
 export interface BootedServer { readonly studioUrl: string; stop(required: Record<string, never>): Promise<Outcome<void>> }
-interface BootResources { native?: Database.Database; app?: LifecyclePort; stopped?: Promise<Outcome<void>> }
+interface BootResources { native?: Database.Database; app?: LifecyclePort; confirmations?: MemoryConfirmationExchange; stopped?: Promise<Outcome<void>> }
 
 /** Best-effort low-cardinality lifecycle diagnostics; no credential/token or raw exception details. */
 function observeBoot(required: { observer: ObserverPort; context: CallContext; operation: string; outcome: string }): void {
@@ -48,6 +52,7 @@ async function closeResources(required: { resources: BootResources }): Promise<O
     let result: Outcome<void> = { ok: true, value: undefined };
     try { if (required.resources.app) result = await required.resources.app.stop({}); }
     catch { result = localFailure({ message: 'Server transport cleanup failed' }); }
+    required.resources.confirmations?.reset({});
     try { if (required.resources.native?.open) required.resources.native.close(); }
     catch { return localFailure({ message: 'SQLite cleanup failed' }); }
     return result;
@@ -57,12 +62,12 @@ function stopResources(required: { resources: BootResources }): Promise<Outcome<
     return required.resources.stopped ??= closeResources(required);
 }
 
-/** I1 boot routes. Authenticate before touching bodies; all business effects remain unavailable.
- * Status follows the existing CLI DTO. Owner features/public ingress are implemented in later runs.
+/** Authenticate before bodies and derive owner scope locally. Studio configuration is supplied
+ * in same-origin HTML; the cookie stays HttpOnly. Ingress and agent remain later runs.
  */
 async function handleBootRequest(required: {
     request: HttpRequest; auth: ReturnType<typeof createLocalAuth>; listener: NodeHttpListener;
-    fs: LocalFilesystem; studioRoot: string;
+    fs: LocalFilesystem; studioRoot: string; context: CallContext; services: OwnerServices; ids: IdPort;
 }): Promise<HttpResponse> {
     const origin = required.listener.origin({});
     if (!origin) return { status: 503, body: localFailure({ message: 'Server is stopping' }) };
@@ -72,13 +77,25 @@ async function handleBootRequest(required: {
     if (required.request.path === '/bootstrap') return required.auth.bootstrap({ request: required.request, origin });
     const authenticated = required.auth.verify({ request: required.request, origin });
     if (!authenticated.ok) return { status: authenticated.error.code === 'forbidden' ? 403 : 401, body: authenticated };
-    if (required.request.path === '/api/status' && required.request.method === 'GET') {
-        return { status: 200, body: { ok: true, value: { ready: true, mode: 'local' } } };
-    }
     if (required.request.path.startsWith('/api/')) {
-        return { status: 503, body: localFailure({ message: 'Owner features and agent operations are unavailable in I1 local boot' }) };
+        const context = ownerContext({ request: required.request, context: required.context, ids: required.ids });
+        return handleOwnerRequest({ request: required.request, context, services: required.services });
     }
-    return serveStudioAsset({ request: required.request, fs: required.fs, studioRoot: required.studioRoot });
+    const asset = await serveStudioAsset({ request: required.request, fs: required.fs, studioRoot: required.studioRoot });
+    if (asset.status === 200 && asset.contentType?.startsWith('text/html')) {
+        const html = Buffer.isBuffer(asset.body) ? asset.body.toString('utf8') : String(asset.body);
+        return { ...asset, body: html.replace(/(<head\b[^>]*>)/i, '$1<meta name="om-server-url" content="/">') };
+    }
+    return asset;
+}
+
+/** Client tracing cannot override trusted identity. Invalid/missing IDs receive injected IDs. */
+function ownerContext(required: { request: HttpRequest; context: CallContext; ids: IdPort }): CallContext {
+    const schema = z.string().min(1).max(256).regex(/^[A-Za-z0-9._:-]+$/);
+    const correlation = schema.safeParse(required.request.headers?.['x-correlation-id']);
+    const trace = schema.safeParse(required.request.headers?.['x-trace-id']);
+    return { ...required.context, correlationId: correlation.success ? correlation.data : required.ids.next({}),
+        traceId: trace.success ? trace.data : required.ids.next({}) };
 }
 
 /** Boot one explicitly owned local database: validate config, provision owner, prepare assets,
@@ -117,7 +134,22 @@ export async function bootServer(required: {
         phase = 'HTTP listener';
         const listener = createNodeHttpListener({ ...config.value, effects: required.io, ids: required.ids, observer: required.observer });
         const auth = createLocalAuth({ credentials: credentials.value, clock: required.clock, bootstrapToken: required.io.randomToken({}) });
-        resources.app = createServerApp({ listener, handle: request => handleBootRequest({ request, auth, listener, fs: required.io.fs, studioRoot: assets.value }) });
+        const safetyDb: SafetySqlDatabase = { transaction: ({ execute }) => database.unit.transaction({ work: ({ session }) => execute({
+            session: { query: ({ sql, parameters }) => session.query({ text: sql, values: [...parameters] }) },
+        }) }) };
+        resources.confirmations = createMemoryConfirmationExchange({ clock: required.clock, ids: required.ids });
+        const campaignDb: CampaignSqlPort = {
+            query: <Row extends Record<string, unknown>>(input: { text: string; values?: unknown[] }) =>
+                database.unit.transaction({ work: ({ session }) => session.query<Row>(input) }),
+        };
+        const services: OwnerServices = {
+            campaigns: createSqlCampaignRepo({ db: campaignDb }, { observer: required.observer }),
+            safety: createSqlSafetyRepo({ db: safetyDb, clock: required.clock, ids: required.ids, ownerTimezone: config.value.timezone, observer: required.observer }),
+            confirmations: resources.confirmations,
+        };
+        const bootContext = context;
+        resources.app = createServerApp({ listener, handle: request => handleBootRequest({ request, auth, listener, fs: required.io.fs,
+            studioRoot: assets.value, context: bootContext, services, ids: required.ids }) });
         const started = await resources.app.start({});
         if (!started.ok) { await stopResources({ resources }); return started; }
         const origin = listener.origin({});

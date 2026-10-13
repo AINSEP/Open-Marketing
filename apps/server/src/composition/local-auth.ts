@@ -116,16 +116,22 @@ export function localStateRoot(required: { env: Readonly<Record<string, string |
 }
 
 /** Validate before opening resources; local boot has no production or non-loopback variant. */
-export function parseLocalEnvironment(required: { env: Readonly<Record<string, string | undefined>> }): Outcome<{ stateRoot: string; host: '127.0.0.1'; port: number }> {
+export function parseLocalEnvironment(required: { env: Readonly<Record<string, string | undefined>> }): Outcome<{ stateRoot: string; host: '127.0.0.1'; port: number; timezone: string }> {
     const schema = z.strictObject({
         mode: z.literal('local-sandbox'),
         stateRoot: z.string().min(1).max(4096).refine(isAbsolute).refine(value => value !== '/').refine(value => !value.includes('\0')),
         host: z.literal('127.0.0.1'), port: z.string().regex(/^\d{1,5}$/).transform(Number).pipe(z.number().int().min(0).max(65535)),
+        timezone: z.string().min(1).max(64).refine(isTimeZone),
     });
     const parsed = schema.safeParse({ mode: required.env.OM_MODE ?? 'local-sandbox', stateRoot: required.env.OM_STATE_ROOT,
-        host: required.env.OM_HOST ?? '127.0.0.1', port: required.env.OM_PORT ?? '0' });
+        host: required.env.OM_HOST ?? '127.0.0.1', port: required.env.OM_PORT ?? '0', timezone: required.env.OM_TIMEZONE ?? 'UTC' });
     if (!parsed.success) return localFailure({ code: 'invalid_input', message: 'Local boot requires an absolute OM_STATE_ROOT, OM_MODE=local-sandbox, OM_HOST=127.0.0.1 and OM_PORT=0..65535' });
     return { ok: true, value: parsed.data };
+}
+
+/** Owner allowance resets at local midnight; the executable supplies the host's IANA zone. */
+function isTimeZone(value: string): boolean {
+    try { new Intl.DateTimeFormat('en-US', { timeZone: value }); return true; } catch { return false; }
 }
 
 function sameToken(required: { expected: string; candidate: string | undefined }): boolean {

@@ -1,7 +1,7 @@
-/** Proposed owner HTTP mapping; j22 and studio must adopt or rename it together. */
+/** Owner HTTP mapping shared by the server and CLI. */
 import { z } from "zod";
 import {
-  appErrorSchema, confirmationCardSchema, epochSchema, idSchema, moneySchema, parseBoundary,
+  appErrorSchema, chatMessageSchema, confirmationCardSchema, epochSchema, idSchema, moneySchema, navigationTargetSchema, parseBoundary,
 } from "@open-marketing/contracts";
 import type { AppError, Outcome } from "@open-marketing/contracts";
 
@@ -10,12 +10,21 @@ const campaign = z.strictObject({
 });
 const campaignsPage = z.strictObject({ items: z.array(campaign).max(100), cursor: idSchema.nullable() });
 const approvalsPage = z.strictObject({ items: z.array(confirmationCardSchema).max(100), cursor: idSchema.nullable() });
+const allowance = z.strictObject({ daily: moneySchema, remaining: moneySchema, timezone: z.string().min(1).max(100) });
+/** Shell-only snapshot; unwired domain pages are omitted. Studio validates its own presentation boundary. */
+const studioSnapshot = z.strictObject({
+  workspace: z.string().max(100), mode: z.literal("connected"),
+  metrics: z.array(z.strictObject({ label: z.string().max(100), value: z.string().max(100), detail: z.string().max(200) })).max(12),
+  rows: z.record(navigationTargetSchema, z.array(campaign).max(100)), messages: z.array(chatMessageSchema).max(200),
+  cards: z.array(confirmationCardSchema).max(50), allowance,
+});
 
-/** ONE proposed route contract. Responses use the shared Outcome envelope, not raw DTOs.
- * Missing DTOs are narrow local read models pending contracts integration.
+/** ONE owner route contract. Responses use the shared Outcome envelope, not raw DTOs.
+ * App-local read models stay outside the pure shared contracts package.
  */
 export const routes = {
   status: { method: "GET", path: "/api/status", schema: z.strictObject({ ready: z.boolean(), mode: z.enum(["production", "local", "unavailable"]) }) },
+  snapshot: { method: "GET", path: "/api/studio/snapshot", schema: studioSnapshot },
   campaigns: { method: "GET", path: "/api/campaigns", schema: campaignsPage },
   campaign: { method: "GET", path: "/api/campaigns/:id", schema: campaign },
   approvals: { method: "GET", path: "/api/safety/approvals", schema: approvalsPage },
@@ -25,7 +34,7 @@ export const routes = {
     z.strictObject({ accountId: idSchema, status: z.enum(["requested", "pending", "completed"]) }),
     z.strictObject({ accountId: idSchema, status: z.literal("failed"), error: appErrorSchema }),
   ]) },
-  allowance: { method: "GET", path: "/api/safety/allowance", schema: z.strictObject({ daily: moneySchema, remaining: moneySchema, timezone: z.string().min(1).max(100) }) },
+  allowance: { method: "GET", path: "/api/safety/allowance", schema: allowance },
   ask: { method: "POST", path: "/api/runs", schema: z.strictObject({ runId: idSchema, status: z.enum(["requested", "pending"]), expiresAt: epochSchema.optional() }) },
 } as const;
 

@@ -8,6 +8,13 @@ export function createMemoryStateStore(required: { ownerTimezone: string }): Sta
  const states = new Map<string, SafetyState>();
  const tails = new Map<string, Promise<void>>();
  return {
+  async read(input) {
+   try {
+    const key = scopeKey(input);
+    await tails.get(key);
+    return structuredClone(input.change({ state: structuredClone(states.get(key) ?? initialState(required)) }));
+   } catch { return failure({ code: 'unavailable', message: 'Safety snapshot read failed' }); }
+  },
   async transact(input) {
    const key = scopeKey(input);
    const previous = tails.get(key) ?? Promise.resolve();

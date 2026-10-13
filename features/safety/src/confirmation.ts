@@ -1,5 +1,6 @@
 import type { CallContext, ConfirmationCard, ClockPort, IdPort, Outcome } from "@open-marketing/contracts";
-import { approvalResponseSchema } from "@open-marketing/contracts";
+import { approvalResponseSchema, callContextSchema, idSchema, pageQuerySchema, parseBoundary } from "@open-marketing/contracts";
+import { z } from "zod";
 import type { ConfirmationExchangePort } from "./ports.js";
 import type { EffectRequest, FrozenDispatchRequest } from "./types.js";
 import { choices, classify, digestArguments, effectRequestSchema, failure, sameValue, scopeKey, success, validContext } from "./rules.js";
@@ -28,6 +29,29 @@ function matchesGrant(required: { stored: EffectRequest; request: EffectRequest 
 export function createMemoryConfirmationExchange(required: { clock: ClockPort; ids: IdPort; ttlMs?: number }): MemoryConfirmationExchange {
  const cards = new Map<string, StoredCard>();
  return {
+  /** O(n log n), n <=10,000 existing cards; <=100 exact card copies returned. */
+  async list(input, options) {
+   const parsed = parseBoundary({ schema: z.strictObject({ context: callContextSchema, query: pageQuerySchema }), input });
+   if (!parsed.ok) return parsed;
+   if (!validContext({ context: parsed.value.context, ownerOnly: true })) return failure({ message: "Card reads require scoped owner" });
+   if (options?.signal?.aborted) return failure({ code: "cancelled", message: "Card read cancelled" });
+   const { context, query } = parsed.value;
+   const now = required.clock.now({});
+   const pending = [...cards.values()].filter(stored => scopeKey({ context: stored.context }) === scopeKey({ context })
+    && stored.choice === null && stored.card.expiresAt > now && stored.card.cardId > (query.cursor ?? ""));
+   pending.sort((left, right) => left.card.cardId < right.card.cardId ? -1 : 1);
+   const items = pending.slice(0, query.limit).map(stored => structuredClone(stored.card));
+   return success({ value: { items, cursor: pending.length > query.limit ? items.at(-1)!.cardId : null } });
+  },
+  async get(input, options) {
+   const parsed = parseBoundary({ schema: z.strictObject({ context: callContextSchema, cardId: idSchema }), input });
+   if (!parsed.ok) return parsed;
+   if (!validContext({ context: parsed.value.context, ownerOnly: true })) return failure({ message: "Card reads require scoped owner" });
+   if (options?.signal?.aborted) return failure({ code: "cancelled", message: "Card read cancelled" });
+   const stored = cards.get(parsed.value.cardId);
+   const inScope = stored && scopeKey({ context: stored.context }) === scopeKey({ context: parsed.value.context });
+   return success({ value: inScope ? structuredClone(stored.card) : null });
+  },
   async present(input) {
    if (!validContext(input) || !effectRequestSchema.safeParse(input.request).success) return failure({ code: "invalid_input", message: "Invalid approval request" });
    const digest = digestArguments({ arguments: input.request.arguments });

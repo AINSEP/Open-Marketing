@@ -2,7 +2,7 @@ import type { CallContext, Outcome, Money } from "@open-marketing/contracts";
 import type { SafetyRepoPort } from "./ports.js";
 import type { DispatchPermit, DispatchAdmission, FrozenDispatchRequest, FrozenGenerationRequest, GenerationReservation, SafetySnapshot } from "./types.js";
 import type { RepositoryDependencies, SafetyState, StateStore } from "./state.js";
-import { activeCycle, appendJournal, assessInState, recordKey, sameGeneration, settleInState, validTimezone } from "./state.js";
+import { activeCycle, appendJournal, assessInState, generationUsage, recordKey, sameGeneration, settleInState, validTimezone } from "./state.js";
 import { allowanceEditSchema, dispatchRequestSchema, failure, generationAssessmentSchema, sameValue, settlementSchema, success, validContext } from "./rules.js";
 type RepoDependencies = RepositoryDependencies & { store: StateStore };
 /** Sum unresolved account exposure only across overlapping approved windows. @complexity O(r), O(r) scan, r <=10,000. */
@@ -67,6 +67,11 @@ function generationRetry(required: { existing: SafetyState["generations"][string
 /** Driver-independent repository. Mutations journal atomically; no external transport is constructed. @example createMemorySafetyRepo({ clock, ids, ownerTimezone: "America/Los_Angeles" }) @complexity O(r+g) per mutation, bounded state <=10,000 records. */
 export function createSafetyRepository(required: RepoDependencies): SafetyRepoPort {
  return {
+  async getGenerationAllowanceView(input, options) {
+   if (!validContext(input)) return failure({ code: "invalid_input", message: "Invalid context" });
+   if (options?.signal?.aborted) return failure({ code: "cancelled", message: "Allowance read cancelled" });
+   return required.store.read({ context: input.context, change: ({ state }) => allowanceView({ state, now: required.clock.now({}) }) });
+  },
   async snapshot(input) {
    if (!validContext(input)) return failure({ code: "invalid_input", message: "Invalid context" });
    return required.store.transact({ context: input.context, change: ({ state }) => snapshotInState({ state, context: input.context, accountId: input.accountId }) });
@@ -133,6 +138,17 @@ export function createSafetyRepository(required: RepoDependencies): SafetyRepoPo
    } });
   },
  };
+}
+/** Reuse dispatch accounting on a private read snapshot. Pending bounds survive expiry/midnight;
+ * incomparable totals or disputed charges fail closed rather than display a fictional balance.
+ * @complexity O(g) scan, g <=10,000; local rollover is O(log 48h), no writes.
+ */
+function allowanceView(required: { state: SafetyState; now: number }): Outcome<{ daily: Money; remaining: Money; timezone: string }> {
+ const cycle = activeCycle(required);
+ const usage = generationUsage({ state: required.state, day: cycle.day });
+ if (required.state.discrepancy || !Number.isSafeInteger(usage)) return failure({ code: "unavailable", message: "Allowance requires cost reconciliation" });
+ return success({ value: { daily: required.state.settings.amount,
+  remaining: { currency: required.state.settings.amount.currency, minorUnits: Math.max(0, required.state.settings.amount.minorUnits - usage) }, timezone: cycle.timezone } });
 }
 /** Owner-only compare-and-swap edits keep all incurred accounting. @complexity O(log 48h), O(1). */
 async function editAllowance(required: { input: Parameters<SafetyRepoPort["setGenerationAllowance"]>[0]; dependencies: RepoDependencies }): Promise<Outcome<Parameters<SafetyRepoPort["setGenerationAllowance"]>[0]["settings"]>> {

@@ -1,11 +1,13 @@
 import { z } from "zod";
-import { callContextSchema, idSchema } from "@open-marketing/contracts";
+import { callContextSchema, idSchema, pageQuerySchema } from "@open-marketing/contracts";
 import type { CallContext, CallOptions, Outcome } from "@open-marketing/contracts";
 import type { CampaignRepoPort } from "./ports.js";
 import type { CampaignRecord, CampaignReceipt, LaunchProposal, ObservedCampaignState } from "./types.js";
 import { digest, fail, observationSchema, parseBoundary, proposalBinding, proposalSchema, recordSchema, scopeKey, success } from "./rules.js";
 
 export const getInputSchema = z.strictObject({ context: callContextSchema, campaignId: idSchema });
+/** Both repositories validate identical bounded pagination inputs. */
+export const listInputSchema = z.strictObject({ context: callContextSchema, query: pageQuerySchema });
 export const observeInputSchema = z.strictObject({ context: callContextSchema, state: observationSchema });
 export const proposalInputSchema = z.strictObject({ context: callContextSchema, proposal: proposalSchema });
 export const proposalGetSchema = z.strictObject({ context: callContextSchema, operationId: idSchema });

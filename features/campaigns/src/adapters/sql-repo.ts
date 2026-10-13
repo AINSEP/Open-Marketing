@@ -3,10 +3,10 @@ import type { CallContext, CallOptions, Outcome } from "@open-marketing/contract
 import type { CampaignRepoPort, CampaignSqlPort, CampaignObserverPort } from "../ports.js";
 import type { CampaignRecord, LaunchProposal } from "../types.js";
 import { campaignId, createInputSchema, fail, parseBoundary, recordSchema, proposalBinding, proposalSchema, success, digest, observationSchema } from "../rules.js";
-import { boundRecord, checkCancelled, existingDraft, existingProposal, getInputSchema, observeInputSchema, proposalInputSchema, proposalGetSchema, proposalForRecord, withObservation } from "../repo-rules.js";
+import { boundRecord, checkCancelled, existingDraft, existingProposal, getInputSchema, listInputSchema, observeInputSchema, proposalInputSchema, proposalGetSchema, proposalForRecord, withObservation } from "../repo-rules.js";
 
 interface Dependencies { db: CampaignSqlPort; observer?: CampaignObserverPort }
-const recordQuery = `SELECT c.operation_id, c.record_json, (SELECT r.observation_json FROM campaign_revision r
+const recordQuery = `SELECT c.campaign_id, c.operation_id, c.record_json, (SELECT r.observation_json FROM campaign_revision r
  WHERE r.owner_id=c.owner_id AND r.workspace_id=c.workspace_id AND r.campaign_id=c.campaign_id
  ORDER BY r.revision DESC LIMIT 1) AS observation_json FROM campaign c
  WHERE c.owner_id=$1 AND c.workspace_id=$2 AND c.campaign_id=$3`;
@@ -20,6 +20,21 @@ const recordQuery = `SELECT c.operation_id, c.record_json, (SELECT r.observation
 export function createSqlCampaignRepo(required: { db: CampaignSqlPort }, optional: { observer?: CampaignObserverPort } = {}): CampaignRepoPort {
   const dependencies: Dependencies = { ...required, ...optional };
   return {
+    /** One scoped keyset query, <=101 rows; correlated latest-observation read uses its index. */
+    list(input, options) { return sqlBoundary({ dependencies, context: input?.context, operation: "campaigns.repo.list", execute: async () => {
+      const parsed = parseBoundary({ schema: listInputSchema, input });
+      if (!parsed.ok) return parsed;
+      const { context, query } = parsed.value;
+      const result = await dependencies.db.query({ text: recordQuery.replace("c.campaign_id=$3", "c.campaign_id>$3 ORDER BY c.campaign_id LIMIT $4"),
+        values: [context.scope.ownerId, context.scope.workspaceId, query.cursor ?? "", query.limit + 1] });
+      const items: CampaignRecord[] = [];
+      for (const row of result.rows.slice(0, query.limit)) {
+        const record = decodeRecord({ context, campaignId: row.campaign_id, row });
+        if (!record.ok) return record;
+        items.push(record.value);
+      }
+      return success({ value: { items, cursor: result.rows.length > query.limit ? items.at(-1)!.receipt.campaignId : null } });
+    } }, options); },
     save(input, options) { return sqlBoundary({ dependencies, context: input?.context, operation: "campaigns.repo.save", execute: async () => {
       const parsed = parseBoundary({ schema: createInputSchema, input });
       if (!parsed.ok) return parsed;
@@ -82,6 +97,15 @@ async function readRecord(required: { dependencies: Dependencies; context: CallC
   const result = await dependencies.db.query({ text: recordQuery, values: [context.scope.ownerId, context.scope.workspaceId, campaignId] });
   const row = result.rows[0];
   if (!row) return success({ value: null });
+  return decodeRecord({ context, campaignId, row });
+}
+/** Validate each page row without query fan-out; latest observation comes from the same SQL read.
+ * @complexity O(record bytes), <=256 KiB; identities and scope must agree with the storage key.
+ */
+function decodeRecord(required: { context: CallContext; campaignId: unknown; row: Record<string, unknown> }): Outcome<CampaignRecord> {
+  const { context, row } = required;
+  if (typeof required.campaignId !== "string") return fail({ code: "invalid_input", message: "Stored campaign key invalid" });
+  const campaignId = required.campaignId;
   const parsed = parseStored({ schema: recordSchema, value: row.record_json });
   if (!parsed.ok) return parsed;
   if (parsed.value.draft.operationId !== row.operation_id) return fail({ code: "conflict", message: "Stored creation operation mismatch" });

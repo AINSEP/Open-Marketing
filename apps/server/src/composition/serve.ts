@@ -46,7 +46,8 @@ async function main(): Promise<void> {
             if (stopping) throw new Error('Startup cancelled');
             process.stdout.write('OM_READY ' + JSON.stringify(value) + '\n');
         } });
-    const result = await bootServer({ env: { ...process.env, OM_STATE_ROOT: localStateRoot({ env: process.env, home: homedir() }) }, io, clock, ids, observer });
+    const result = await bootServer({ env: { ...process.env, OM_STATE_ROOT: localStateRoot({ env: process.env, home: homedir() }),
+        OM_TIMEZONE: process.env.OM_TIMEZONE ?? Intl.DateTimeFormat().resolvedOptions().timeZone }, io, clock, ids, observer });
     if (!result.ok) {
         process.off('SIGTERM', onSignal);
         process.off('SIGINT', onSignal);

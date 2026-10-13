@@ -1,7 +1,9 @@
-import type { Outcome, CallContext, CallOptions, ObserverPort, ConfirmationCard, ApprovalResponse, EffectEnvelope, GenerationAllowanceSettings, GenerationCostQuote, GenerationApprovalRequirement, HaltStopRequest, ServiceContext } from "@open-marketing/contracts";
+import type { Outcome, CallContext, CallOptions, ObserverPort, ConfirmationCard, ApprovalResponse, EffectEnvelope, GenerationAllowanceSettings, GenerationCostQuote, GenerationApprovalRequirement, HaltStopRequest, ServiceContext, Page, PageQuery, Money } from "@open-marketing/contracts";
 import type { EffectRequest, FrozenDispatchRequest, DispatchPermit, HaltReceipt, FrozenGenerationRequest, PlatformLimitEvidence, SafetySnapshot, DispatchAdmission, GenerationReservation, GenerationSettlement } from "./types.js";
 /** Durable atomic financial state. All mutations and their accounting journal commit together. */
 export interface SafetyRepoPort {
+ /** Read-only balance includes all unresolved reservations, even from prior days. No authority granted. */
+ getGenerationAllowanceView(required: { context: CallContext }, optional?: CallOptions): Promise<Outcome<{ daily: Money; remaining: Money; timezone: string }>>;
  snapshot(required: { context: CallContext; accountId: string }, optional?: CallOptions): Promise<Outcome<SafetySnapshot>>;
  reserve(required: { context: CallContext; request: FrozenDispatchRequest; admission?: DispatchAdmission }, optional?: CallOptions): Promise<Outcome<DispatchPermit>>;
  halt(required: { context: CallContext; adAccountId: string }, optional?: CallOptions): Promise<Outcome<HaltReceipt>>;
@@ -18,6 +20,9 @@ export interface SpendPolicyPort {
 }
 /** Confirmation is explicit and owner-only; presentation alone never creates authority. */
 export interface ConfirmationExchangePort {
+ /** Scoped card reads expose pending, unexpired cards only; get retains exact answered cards. */
+ list(required: { context: CallContext; query: PageQuery }, optional?: CallOptions): Promise<Outcome<Page<ConfirmationCard>>>;
+ get(required: { context: CallContext; cardId: string }, optional?: CallOptions): Promise<Outcome<ConfirmationCard | null>>;
  present(required: { context: CallContext; request: EffectRequest; policyRevision?: number; classification?: ConfirmationCard["classification"] }, optional?: CallOptions): Promise<Outcome<ConfirmationCard>>;
  confirm(required: { context: CallContext; response: ApprovalResponse }, optional?: CallOptions): Promise<Outcome<void>>;
  verify(required: { context: CallContext; request: FrozenDispatchRequest; classification: ConfirmationCard["classification"] }, optional?: CallOptions): Promise<Outcome<void>>;

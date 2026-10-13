@@ -3,6 +3,22 @@ import { SafetyRepoPortSuite } from "./port-suites.js";
 import { context, createHarness, generationRequest, unwrap } from "../fixtures.js";
 import { createSqlSafetyRepo } from "../../index.js";
 SafetyRepoPortSuite({ create: () => createHarness({ backend: "sql" }) });
+it('balance reads do not insert state, change versions, or append financial journal entries', async () => {
+ const harness = createHarness({ backend: 'sql' });
+ try {
+  unwrap({ outcome: await harness.repo.getGenerationAllowanceView({ context }) });
+  expect(harness.sqlite!.db.prepare('SELECT COUNT(*) AS count FROM safety_state').get()).toMatchObject({ count: 0 });
+  unwrap({ outcome: await harness.repo.halt({ context, adAccountId: 'account' }) });
+  const before = harness.sqlite!.db.prepare('SELECT * FROM safety_state').all();
+  const journal = harness.sqlite!.db.prepare('SELECT * FROM safety_journal').all();
+  harness.time.setNow({ now: harness.time.clock.now({}) + 3 * 86400000 });
+  unwrap({ outcome: await harness.repo.getGenerationAllowanceView({ context }) });
+  expect(harness.sqlite!.db.prepare('SELECT * FROM safety_state').all()).toEqual(before);
+  expect(harness.sqlite!.db.prepare('SELECT * FROM safety_journal').all()).toEqual(journal);
+  harness.sqlite!.db.prepare('UPDATE safety_state SET payload=?').run('{broken');
+  expect(await harness.repo.getGenerationAllowanceView({ context })).toMatchObject({ ok: false, error: { code: 'unavailable' } });
+ } finally { harness.close(); }
+});
 it("rolls back state and financial journal together on SQLite append failure", async () => {
  const harness = createHarness({ backend: "sql" });
  harness.sqlite!.setJournalFailure({ fail: true });

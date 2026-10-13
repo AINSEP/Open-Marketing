@@ -5,7 +5,7 @@ import type { CampaignRepoPort } from "./ports.js";
 import type { CampaignRecord, CampaignReceipt, LaunchProposal, ObservedCampaignState } from "./types.js";
 import { campaignId, createInputSchema, digest, fail, observationSchema, parseBoundary, proposalSchema, scopedKey, success } from "./rules.js";
 
-import { checkCancelled, existingDraft, existingProposal, getInputSchema, observeInputSchema, proposalInputSchema, proposalGetSchema, proposalForRecord, observationFreshness, withObservation } from "./repo-rules.js";
+import { checkCancelled, existingDraft, existingProposal, getInputSchema, listInputSchema, observeInputSchema, proposalInputSchema, proposalGetSchema, proposalForRecord, observationFreshness, withObservation } from "./repo-rules.js";
 
 /** Bounded isolated repository double. Copies reads/writes, never grants authority.
  * @example createMemoryCampaignRepo({}) @complexity O(n) DTO bytes; O(1) key lookup.
@@ -16,6 +16,19 @@ export function createMemoryCampaignRepo(required: { maxEntries?: number }): Cam
   const observations: ObservedCampaignState[] = [];
   const maxEntries = required.maxEntries ?? 10000;
   return {
+    /** O(n log n) over the bounded memory double; returned page is a copy, <=100 records. */
+    async list(input, options) {
+      const parsed = parseBoundary({ schema: listInputSchema, input });
+      if (!parsed.ok) return parsed;
+      const cancelled = checkCancelled({ options });
+      if (!cancelled.ok) return cancelled;
+      const { context, query } = parsed.value;
+      const candidates = [...records.values()].filter(record => record.scope.ownerId === context.scope.ownerId
+        && record.scope.workspaceId === context.scope.workspaceId && record.receipt.campaignId > (query.cursor ?? ""));
+      candidates.sort((left, right) => left.receipt.campaignId < right.receipt.campaignId ? -1 : 1);
+      const items = candidates.slice(0, query.limit);
+      return success({ value: structuredClone({ items, cursor: candidates.length > query.limit ? items.at(-1)!.receipt.campaignId : null }) });
+    },
     async save(input, options) {
       const parsed = parseBoundary({ schema: createInputSchema, input });
       if (!parsed.ok) return parsed;

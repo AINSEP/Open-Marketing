@@ -6,6 +6,27 @@ import { createHash } from "node:crypto";
 /** B1: identical behavioral suite runs against memory and real portable SQL repository. */
 export function CampaignRepoPortSuite(required: { create: () => CampaignRepoPort | Promise<CampaignRepoPort> }) {
   describe("CampaignRepoPort behavior", () => {
+    it("lists bounded scoped keyset pages with latest observations and no duplicates", async () => {
+      const port = await required.create();
+      const receipts = [];
+      for (const operationId of ['list-c', 'list-a', 'list-b']) receipts.push(value({ outcome: await port.save({ context, draft: { ...draft, operationId } }) }));
+      value({ outcome: await port.save({ context: otherContext, draft: { ...draft, operationId: 'foreign-list' } }) });
+      const observed = receipts[0];
+      value({ outcome: await port.observe({ context, state: { campaignId: observed.campaignId, state: 'active', observedAt: 1000, providerReference: 'fixture' } }) });
+      const first = value({ outcome: await port.list({ context, query: { limit: 2 } }) });
+      expect(first.items).toHaveLength(2);
+      expect(first.cursor).toBe(first.items[1].receipt.campaignId);
+      const second = value({ outcome: await port.list({ context, query: { limit: 2, cursor: first.cursor! } }) });
+      expect(second.items).toHaveLength(1);
+      expect(second.cursor).toBeNull();
+      const items = [...first.items, ...second.items];
+      expect(items.map(record => record.receipt.campaignId)).toEqual(receipts.map(receipt => receipt.campaignId).sort());
+      expect(items.find(record => record.receipt.campaignId === observed.campaignId)?.observation?.state).toBe('active');
+      expect(await port.list({ context, query: { limit: 101 } })).toMatchObject({ ok: false, error: { code: 'invalid_input' } });
+      expect(await port.list({ context, query: { limit: 1 } }, { signal: AbortSignal.abort() })).toMatchObject({ ok: false, error: { code: 'cancelled' } });
+      (first.items[0].draft.creativeIds as string[]).push('mutated');
+      expect(value({ outcome: await port.list({ context, query: { limit: 100 } }) }).items.every(record => record.draft.creativeIds.length === 1)).toBe(true);
+    });
     it("persists immutable unknown paused intent and rejects altered operation reuse", async () => {
       const port = await required.create();
       const saved = value({ outcome: await port.save({ context, draft }) });

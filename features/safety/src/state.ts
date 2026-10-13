@@ -12,6 +12,8 @@ export type SafetyState = {
 export type StateChange<T> = (required: { state: SafetyState }) => Outcome<T>;
 /** Internal atomic aggregate store; storage implementations serialize every change for the entire scope. */
 export interface StateStore {
+ /** Evaluate on an isolated snapshot without persisting state or a financial journal. */
+ read<T>(required: { context: CallContext; change: StateChange<T> }): Promise<Outcome<T>>;
  transact<T>(required: { context: CallContext; change: StateChange<T> }): Promise<Outcome<T>>;
 }
 export type RepositoryDependencies = { clock: ClockPort; ids: IdPort; ownerTimezone: string };

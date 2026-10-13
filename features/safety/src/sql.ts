@@ -48,6 +48,20 @@ async function appendSqlJournal(required: { context: CallContext; session: Safet
 export function createSqlSafetyRepo(required: { db: SafetySqlDatabase; clock: ClockPort; ids: IdPort; ownerTimezone: string; observer: ObserverPort }): SafetyRepoPort {
  if (!validTimezone({ timezone: required.ownerTimezone })) throw new Error("Owner timezone is required");
  const store: StateStore = {
+  async read(input) {
+   try {
+    const outcome = await required.db.transaction({ context: input.context, execute: async ({ session }) => {
+     const result = await session.query({ sql: "SELECT version, payload FROM safety_state WHERE scope_key = $1", parameters: [scopeKey(input)] });
+     return input.change({ state: readState({ rows: result.rows, ownerTimezone: required.ownerTimezone }).state });
+    } });
+    required.observer.observe({ operation: "safety.sql.read", outcome: outcome.ok ? "ok" : outcome.error.code,
+     correlationId: input.context.correlationId, traceId: input.context.traceId, runId: input.context.runId });
+    return structuredClone(outcome);
+   } catch {
+    observeFailure({ observer: required.observer, context: input.context });
+    return failure({ code: "unavailable", message: "Safety SQL read failed; no authority granted" });
+   }
+  },
   async transact(input) {
    try {
     const outcome = await required.db.transaction({ context: input.context, execute: ({ session }) => sqlChange({ ...input, session, ownerTimezone: required.ownerTimezone }) });

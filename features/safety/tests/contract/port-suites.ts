@@ -4,6 +4,24 @@ import { context, otherContext, spendRequest, capEvidence, timing, unwrap, gener
 /** B1 behavioral suite; both memory and SQL MUST preserve the same accounting semantics. */
 export function SafetyRepoPortSuite(required: { create: () => { repo: SafetyRepoPort; time: ReturnType<typeof timing>; close: () => void } }) {
  describe("SafetyRepoPort B1", () => {
+  it("reads balances with unresolved commitments across midnight and scoped settlement", async () => {
+   const fixture = required.create();
+   try {
+    expect(await fixture.repo.getGenerationAllowanceView({ context })).toEqual({ ok: true, value: {
+     daily: { minorUnits: 1000, currency: 'USD' }, remaining: { minorUnits: 1000, currency: 'USD' }, timezone: 'America/Los_Angeles',
+    } });
+    const pending = unwrap({ outcome: await fixture.repo.reserveGeneration({ context, ...generationRequest({ amount: 400 }).generation, expectedKind: 'normal_write', expectedRevision: 0 }) });
+    const settled = unwrap({ outcome: await fixture.repo.reserveGeneration({ context, ...generationRequest({ operationId: 'settled', amount: 300 }).generation, expectedKind: 'normal_write', expectedRevision: 0 }) });
+    unwrap({ outcome: await fixture.repo.settleGeneration({ context, settlement: { reservationId: settled.reservationId, observationId: 'balance-cost', actual: { minorUnits: 200, currency: 'USD' } } }) });
+    expect(await fixture.repo.getGenerationAllowanceView({ context })).toMatchObject({ ok: true, value: { remaining: { minorUnits: 400 } } });
+    fixture.time.setNow({ now: Date.parse('2026-10-03T08:00:00Z') });
+    expect(await fixture.repo.getGenerationAllowanceView({ context })).toMatchObject({ ok: true, value: { remaining: { minorUnits: 600 } } });
+    expect(await fixture.repo.getGenerationAllowanceView({ context: otherContext })).toMatchObject({ ok: true, value: { remaining: { minorUnits: 1000 } } });
+    expect(await fixture.repo.getGenerationAllowanceView({ context }, { signal: AbortSignal.abort() })).toMatchObject({ ok: false, error: { code: 'cancelled' } });
+    unwrap({ outcome: await fixture.repo.settleGeneration({ context, settlement: { reservationId: pending.reservationId, observationId: 'excess-cost', actual: { minorUnits: 500, currency: 'USD' } } }) });
+    expect(await fixture.repo.getGenerationAllowanceView({ context })).toMatchObject({ ok: false, error: { code: 'unavailable' } });
+   } finally { fixture.close(); }
+  });
   it("denies quote/argument mismatch and contradictory upper bounds instead of granting an exact-spend bypass", async () => {
    const fixture = required.create();
    const { request, quote } = generationRequest().generation;
@@ -73,6 +91,24 @@ export function SpendPolicyPortSuite(required: { create: () => SpendPolicyPort }
 /** Explicit response, scope and exact arguments are tested against every confirmation adapter. */
 export function ConfirmationExchangePortSuite(required: { create: () => ConfirmationExchangePort }) {
  describe("ConfirmationExchangePort B1", () => {
+  it("reads exact scoped cards, paginates pending cards and removes answers from listing", async () => {
+   const port = required.create();
+   const first = unwrap({ outcome: await port.present({ context, request: spendRequest({ operationId: 'card-first' }) }) });
+   const second = unwrap({ outcome: await port.present({ context, request: spendRequest({ operationId: 'card-second' }) }) });
+   unwrap({ outcome: await port.present({ context: otherContext, request: spendRequest({ operationId: 'card-foreign' }) }) });
+   expect(await port.get({ context, cardId: first.cardId })).toEqual({ ok: true, value: first });
+   expect(await port.get({ context: otherContext, cardId: first.cardId })).toEqual({ ok: true, value: null });
+   const page = unwrap({ outcome: await port.list({ context, query: { limit: 1 } }) });
+   expect(page.items).toHaveLength(1);
+   expect(page.cursor).toBe(page.items[0].cardId);
+   const next = unwrap({ outcome: await port.list({ context, query: { limit: 1, cursor: page.cursor! } }) });
+   expect([...page.items, ...next.items].map(card => card.cardId)).toEqual([first.cardId, second.cardId].sort());
+   expect(next.cursor).toBeNull();
+   unwrap({ outcome: await port.confirm({ context, response: { cardId: first.cardId, operationId: first.operationId, argumentsDigest: first.argumentsDigest, choice: 'cancel' } }) });
+   expect(unwrap({ outcome: await port.list({ context, query: { limit: 100 } }) }).items).toEqual([second]);
+   expect(await port.list({ context, query: { limit: 101 } })).toMatchObject({ ok: false, error: { code: 'invalid_input' } });
+   expect(await port.get({ context, cardId: first.cardId }, { signal: AbortSignal.abort() })).toMatchObject({ ok: false, error: { code: 'cancelled' } });
+  });
   it("presentation is not confirmation; responses and dispatch must exactly match", async () => {
    const port = required.create();
    const request = spendRequest();
