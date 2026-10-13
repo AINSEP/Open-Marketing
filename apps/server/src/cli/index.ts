@@ -1,0 +1,270 @@
+/** Inert owner CLI: terminal commands use HTTP, never features, DB, or vendor configuration. */
+import { parseArgs } from "node:util";
+import { z } from "zod";
+import { approvalChoiceSchema, digestSchema, idSchema, pageQuerySchema, parseBoundary } from "@open-marketing/contracts";
+import type { ApprovalResponse, Outcome, PageQuery } from "@open-marketing/contracts";
+import { answerApproval, readCard } from "./approval.js";
+import type { ApprovalRuntime } from "./approval.js";
+import { createSession, failure, requestOm, routes, terminalText } from "./http.js";
+import type { HttpRuntime, HttpSession } from "./http.js";
+
+/** Inject once in the Node launcher; tests supply an in-memory runtime.
+ * readPrompt yields bounded chunks from a file, or stdin for path "-", honoring the signal.
+ * confirm resolves true only after explicit terminal confirmation; noninteractive resolves false.
+ * Output methods are synchronous sinks. Modules construct no processes, timers, or services.
+ */
+export interface CliRuntime extends HttpRuntime, ApprovalRuntime {
+  readonly stdout: { write(required: { text: string }): void };
+  readonly readPrompt: (required: { path: string; signal: AbortSignal }) => AsyncIterable<Uint8Array>;
+}
+
+const options = {
+  json: { type: "boolean" }, help: { type: "boolean" }, limit: { type: "string" },
+  cursor: { type: "string" }, choice: { type: "string" }, account: { type: "string" },
+  "confirm-digest": { type: "string" }, "prompt-file": { type: "string" },
+} as const;
+type Values = ReturnType<typeof parseCliArgs>["values"];
+type Command =
+  | { name: "help" | "status" | "allowance" }
+  | { name: "campaigns" | "approvals"; query: PageQuery }
+  | { name: "campaign"; id: string }
+  | { name: "answer"; cardId: string; choice: ApprovalResponse["choice"]; confirmDigest?: string }
+  | { name: "halt"; accountId: string }
+  | { name: "ask"; prompt?: string; promptFile?: string };
+
+const help = [
+  "om status", "om campaigns list [--limit 1..100] [--cursor C]", "om campaigns show <id>",
+  "om approvals list [--limit 1..100] [--cursor C]",
+  "om approvals answer <card-id> --choice <allow|allow_chat|always_allow|cancel> [--confirm-digest <digest>]",
+  "om ads halt --account <id>", "om settings generation show",
+  "om ask <prompt> | om ask --prompt-file <path|->", "All commands: --json, --help",
+  "Set OM_SERVER_URL and OM_OWNER_TOKEN (owner session, not agent service credentials).",
+  "Approval answers display the current card and require explicit confirmation. Answers are recorded, not executed.",
+  "Prompt files contain plain prompt text. Ask returns a run receipt without streaming or polling.",
+].join("\n") + "\n";
+
+// Dot-only IDs would be normalized as URL path traversal even after percent encoding.
+const pathId = idSchema.refine(value => value !== "." && value !== "..");
+const askInput = z.strictObject({
+  prompt: z.string().min(1).max(65536).optional(), promptFile: z.string().min(1).max(4096).optional(),
+}).refine(value => (value.prompt === undefined) !== (value.promptFile === undefined));
+
+/** Narrow native parseArgs wrapper; throws are converted at the CLI input boundary. */
+function parseCliArgs(required: { argv: readonly string[] }) {
+  return parseArgs({ args: [...required.argv], options, allowPositionals: true, strict: true, tokens: true });
+}
+
+/** Reject duplicate/irrelevant options and extra operands before command-specific schema parsing.
+ * Help skips required inputs but still rejects extra operands and irrelevant flags.
+ * @complexity O(option count) time/space, bounded to 64 argv entries.
+ */
+function commandInput<N extends Command["name"], T extends object>(required: {
+  name: N; values: Values; allowed: readonly string[]; operands: readonly string[]; count: number;
+  schema: z.ZodType<T>; input: unknown;
+}): Outcome<{ name: "help" } | (T & { name: N })> {
+  const relevant = new Set(["json", "help", ...required.allowed]);
+  if (Object.keys(required.values).some(key => !relevant.has(key))) return failure({ code: "invalid_input", message: "Flag is not supported by this command" });
+  if (required.operands.length > required.count) return failure({ code: "invalid_input", message: "Extra command operands; use --help" });
+  if (required.values.help) return { ok: true, value: { name: "help" } };
+  if (required.operands.length !== required.count) return failure({ code: "invalid_input", message: "Missing or extra command operands; use --help" });
+  const parsed = parseBoundary({ schema: required.schema, input: required.input });
+  if (!parsed.ok) return failure({ code: "invalid_input", message: "Invalid command arguments; use --help" });
+  return { ok: true, value: { name: required.name, ...parsed.value } };
+}
+
+/** Recognize the small fixed surface without a command registry or extensibility layer. */
+function commandName(required: { positionals: readonly string[] }): Outcome<{ name: Command["name"]; operands: readonly string[] }> {
+  const root = required.positionals[0];
+  let count = 2;
+  if (root === "settings") count = 3;
+  if (root === "status" || root === "ask") count = 1;
+  const key = required.positionals.slice(0, count).join(" ");
+  const operands = required.positionals.slice(count);
+  switch (key) {
+    case "": return { ok: true, value: { name: "help", operands } };
+    case "status": return { ok: true, value: { name: "status", operands } };
+    case "campaigns list": return { ok: true, value: { name: "campaigns", operands } };
+    case "campaigns show": return { ok: true, value: { name: "campaign", operands } };
+    case "approvals list": return { ok: true, value: { name: "approvals", operands } };
+    case "approvals answer": return { ok: true, value: { name: "answer", operands } };
+    case "ads halt": return { ok: true, value: { name: "halt", operands } };
+    case "settings generation show": return { ok: true, value: { name: "allowance", operands } };
+    case "ask": return { ok: true, value: { name: "ask", operands } };
+    default: return failure({ code: "invalid_input", message: "Unknown command; use om --help" });
+  }
+}
+
+const pageInput = z.strictObject({
+  limit: z.string().regex(/^\d+$/).default("25").transform(Number), cursor: idSchema.optional(),
+}).pipe(pageQuerySchema);
+
+/** Validate the selected command; successful parsing is the only way to reach dispatch. */
+function buildCommand(required: { name: Command["name"]; operands: readonly string[]; values: Values }): Outcome<Command> {
+  const { name, operands, values } = required;
+  switch (name) {
+    case "help": case "status": case "allowance":
+      return commandInput({ ...required, name, allowed: [], count: 0, schema: z.strictObject({}), input: {} });
+    case "campaigns": case "approvals":
+      return commandInput({ ...required, name, allowed: ["limit", "cursor"], count: 0,
+        schema: z.strictObject({ query: pageInput }), input: { query: { limit: values.limit, cursor: values.cursor } } });
+    case "campaign":
+      return commandInput({ ...required, name, allowed: [], count: 1,
+        schema: z.strictObject({ id: pathId }), input: { id: operands[0] } });
+    case "answer":
+      return commandInput({ ...required, name, allowed: ["choice", "confirm-digest"], count: 1,
+        schema: z.strictObject({ cardId: pathId, choice: approvalChoiceSchema, confirmDigest: digestSchema.optional() }),
+        input: { cardId: operands[0], choice: values.choice, confirmDigest: values["confirm-digest"] } });
+    case "halt":
+      return commandInput({ ...required, name, allowed: ["account"], count: 0,
+        schema: z.strictObject({ accountId: idSchema }), input: { accountId: values.account } });
+    case "ask":
+      return commandInput({ ...required, name, allowed: ["prompt-file"], count: values["prompt-file"] === undefined ? 1 : 0,
+        schema: askInput, input: { prompt: operands[0], promptFile: values["prompt-file"] } });
+    default: { const exhaustive: never = name; return exhaustive; }
+  }
+}
+
+/** Parse strict native flags, rejecting ambiguous duplicates and bounded input before any I/O.
+ * @complexity O(argv bytes) time/space, <=64 entries and <=64 KiB.
+ */
+function parseCommand(required: { argv: readonly string[] }): Outcome<{ command: Command; json: boolean }> {
+  if (required.argv.length > 64 || new TextEncoder().encode(required.argv.join("\0")).byteLength > 65536) {
+    return failure({ code: "limit_exceeded", message: "CLI arguments exceed 64 entries or 64 KiB" });
+  }
+  try {
+    const args = parseCliArgs(required);
+    const names = args.tokens.filter(token => token.kind === "option").map(token => token.name);
+    if (new Set(names).size !== names.length) return failure({ code: "invalid_input", message: "Repeated flags are not supported" });
+    const identified = commandName({ positionals: args.positionals });
+    if (!identified.ok) return identified;
+    const command = buildCommand({ ...identified.value, values: args.values });
+    if (!command.ok) return command;
+    return { ok: true, value: { command: command.value, json: args.values.json ?? false } };
+  } catch {
+    return failure({ code: "invalid_input", message: "Invalid or unknown flags; use om --help" });
+  }
+}
+
+/** Read file/stdin incrementally; never load more than 64 KiB or silently truncate a prompt.
+ * @returns Plain UTF-8 text or a typed input/size error; always disposes the injected deadline.
+ * @complexity O(n) time/space, n <=64 KiB; one injected read, no HTTP.
+ */
+async function readPrompt(required: { runtime: CliRuntime; path: string }): Promise<Outcome<string>> {
+  const deadline = required.runtime.deadline.create({ timeoutMs: 15000 });
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  let bytes = 0;
+  let prompt = "";
+  try {
+    for await (const chunk of required.runtime.readPrompt({ path: required.path, signal: deadline.signal })) {
+      bytes += chunk.byteLength;
+      if (bytes > 65536) return failure({ code: "limit_exceeded", message: "Prompt exceeds 64 KiB" });
+      prompt += decoder.decode(chunk, { stream: true });
+    }
+    return { ok: true, value: prompt + decoder.decode() };
+  } catch {
+    return failure({ code: "invalid_input", message: "Prompt file/stdin could not be read as UTF-8" });
+  } finally {
+    deadline.dispose({});
+  }
+}
+
+/** Send prompt text only; server owns run IDs, grants, agent configuration, and lifecycle. */
+async function ask(required: { command: Extract<Command, { name: "ask" }>; session: HttpSession; runtime: CliRuntime }): Promise<Outcome<unknown>> {
+  let prompt = required.command.prompt ?? "";
+  if (required.command.promptFile !== undefined) {
+    const read = await readPrompt({ runtime: required.runtime, path: required.command.promptFile });
+    if (!read.ok) return read;
+    prompt = read.value;
+  }
+  if (!prompt.trim()) return failure({ code: "invalid_input", message: "Prompt must contain text" });
+  if (new TextEncoder().encode(prompt).byteLength > 65536) return failure({ code: "limit_exceeded", message: "Prompt exceeds 64 KiB" });
+  return requestOm({ session: required.session, route: routes.ask, body: { prompt } });
+}
+
+/** Validate all displayed cards before emitting a page; a mixed unsafe page prints no partial data. */
+async function listApprovals(required: { session: HttpSession; query: PageQuery }): Promise<Outcome<unknown>> {
+  const result = await requestOm({ ...required, route: routes.approvals });
+  if (!result.ok) return result;
+  for (const card of result.value.items) {
+    const validated = readCard({ input: card });
+    if (!validated.ok) return validated;
+  }
+  return result;
+}
+
+/** Match single-resource acknowledgements to the requested identifier. */
+async function showCampaign(required: { session: HttpSession; id: string }): Promise<Outcome<unknown>> {
+  const result = await requestOm({ ...required, route: routes.campaign });
+  if (result.ok && result.value.id !== required.id) return failure({ code: "protocol_mismatch", message: "Server returned a different campaign" });
+  return result;
+}
+
+/** Preserve the server's requested/pending/completed/failed halt status without inventing remote success. */
+async function halt(required: { session: HttpSession; accountId: string }): Promise<Outcome<unknown>> {
+  const result = await requestOm({ session: required.session, route: routes.halt, body: { accountId: required.accountId } });
+  if (result.ok && result.value.accountId !== required.accountId) return failure({ code: "protocol_mismatch", message: "Halt receipt account mismatch; read server state before another submission" });
+  return result;
+}
+
+/** One exhaustive dispatch; no command bypasses the shared HTTP boundary. */
+async function dispatch(required: { command: Command; session: HttpSession; runtime: CliRuntime }): Promise<Outcome<unknown>> {
+  const { command, session, runtime } = required;
+  switch (command.name) {
+    case "help": return { ok: true, value: { help } };
+    case "status": return requestOm({ session, route: routes.status });
+    case "allowance": return requestOm({ session, route: routes.allowance });
+    case "campaigns": return requestOm({ session, route: routes.campaigns, query: command.query });
+    case "campaign": return showCampaign({ session, id: command.id });
+    case "approvals": return listApprovals({ session, query: command.query });
+    case "answer": return answerApproval({ session, runtime, ...command });
+    case "halt": return halt({ session, accountId: command.accountId });
+    case "ask": return ask({ command, session, runtime });
+    default: { const exhaustive: never = command; return exhaustive; }
+  }
+}
+
+/** Emit one JSON Outcome on stdout, or a readable terminal value/error with escaped controls. */
+function printResult(required: { runtime: CliRuntime; result: Outcome<unknown>; json: boolean }): void {
+  if (required.json) { required.runtime.stdout.write({ text: JSON.stringify(required.result) + "\n" }); return; }
+  if (!required.result.ok) {
+    required.runtime.stderr.write({ text: terminalText({ text: required.result.error.code + ": " + required.result.error.message }) + "\n" });
+    return;
+  }
+  required.runtime.stdout.write({ text: terminalText({ text: JSON.stringify(required.result.value) }) + "\n" });
+}
+
+/** Help needs no server session; other commands share one validated owner session. */
+async function runParsedCommand(required: { command: Command; runtime: CliRuntime; json: boolean }): Promise<Outcome<void>> {
+  if (required.command.name === "help") {
+    if (required.json) printResult({ runtime: required.runtime, result: { ok: true, value: { help } }, json: true });
+    else required.runtime.stdout.write({ text: help });
+    return { ok: true, value: undefined };
+  }
+  const session = createSession({ runtime: required.runtime });
+  if (!session.ok) { printResult({ runtime: required.runtime, result: session, json: required.json }); return session; }
+  const result = await dispatch({ command: required.command, session: session.value, runtime: required.runtime });
+  printResult({ runtime: required.runtime, result, json: required.json });
+  if (!result.ok) return result;
+  return { ok: true, value: undefined };
+}
+
+/** Execute one command using injected HTTP/file/terminal dependencies. Importing is inert.
+ * @param required - argv excludes executable names; runtime is owned by the Node launcher.
+ * @returns Outcome<void>; launcher maps invalid_input to exit 2, other failures to 1, success to 0.
+ * Writes one JSON Outcome when --json is present; approval cards/prompts use stderr.
+ * @example await runOmCli({ argv: ["status", "--json"], runtime });
+ * @complexity O(input + response bytes) time/space with fixed caps; at most two HTTP calls.
+ */
+export async function runOmCli(required: { argv: readonly string[]; runtime: CliRuntime }): Promise<Outcome<void>> {
+  let json = required.argv.includes("--json") || required.argv.includes("--json=true");
+  try {
+    const parsed = parseCommand({ argv: required.argv });
+    if (!parsed.ok) { printResult({ runtime: required.runtime, result: parsed, json }); return parsed; }
+    json = parsed.value.json;
+    return await runParsedCommand({ command: parsed.value.command, runtime: required.runtime, json });
+  } catch {
+    const result = failure<void>({ code: "unavailable", message: "CLI runtime failed; read server state before another submission" });
+    printResult({ runtime: required.runtime, result, json });
+    return result;
+  }
+}
