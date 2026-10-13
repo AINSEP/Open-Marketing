@@ -9,7 +9,7 @@
     "google-ads.conversions.v1"
   ],
   "conversionEligibility": "unavailable until independently verified",
-  "dataManager": "unavailable",
+  "dataManager": "implemented data-manager-v1 preflight/ingest/request diagnostics; production eligibility unverified",
   "journal": "adapt ONE server jobs outbox metadata; memory only in --fixture",
   "hostEntry": "./src/index.ts",
   "stdioDefault": "unavailable; authenticated host composition required",

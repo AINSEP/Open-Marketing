@@ -34,10 +34,7 @@ export function createFixtureTransport(required: { fault?: "timeout_before" | "t
     writes: () => writes,
     transport: { async request(input) {
       if (input.method === "search") return success({ value: fixtureSearch({ state, input }) });
-      if (input.method === "upload") {
-        writes += 1;
-        return success({ value: { results: (input.body.conversions as Record<string, unknown>[]).map(item => ({ conversionAction: item.conversionAction, conversionDateTime: item.conversionDateTime })) } });
-      }
+      if (input.method !== "mutate") return failure({ code: "unavailable", message: "Use the dedicated Data Manager conversion fixtures" });
       writes += 1;
       if (required.fault === "timeout_before") return failure({ code: "unavailable", message: "Fixture timeout before commit" });
       const operations = input.body.mutateOperations as Record<string, unknown>[];

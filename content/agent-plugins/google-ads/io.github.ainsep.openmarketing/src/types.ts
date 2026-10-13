@@ -56,7 +56,9 @@ export interface OperationJournalPort {
 }
 /** Internal provider request. Public tools cannot select method, path or body. */
 export interface VendorRequest {
-  method: "search" | "mutate" | "upload"; body: Record<string, unknown>;
+  method: "search" | "mutate" | "ingest" | "request_status"; body: Record<string, unknown>;
+  /** Required for Data Manager; supplied only by the typed backend. */
+  cloudProjectId?: string;
   context: CallContext; operationId: string;
 }
 export interface GoogleTransportPort {
@@ -78,9 +80,17 @@ export interface GooglePluginDependencies {
   authority: HostAuthorityPort; clock: ClockPort;
 }
 /** Injectable JSON HTTP seam. Credential, authorization and bounded transport belong here. */
+export interface HttpRequest {
+  url: string; headers: Record<string, string>; timeoutMs: number; maxBytes: number;
+  context: CallContext; operationId: string;
+}
 export interface HttpPort {
-  post(required: { url: string; headers: Record<string, string>; body: string; timeoutMs: number; maxBytes: number; context: CallContext; operationId: string }): Promise<Outcome<{ status: number; body: unknown; requestId?: string }>>;
+  post(required: HttpRequest & { body: string }): Promise<Outcome<{ status: number; body: unknown; requestId?: string }>>;
+  /** Optional for Search-only hosts; Data Manager diagnostics require GET. */
+  get?(required: HttpRequest): Promise<Outcome<{ status: number; body: unknown; requestId?: string }>>;
 }
 export interface CredentialPort {
-  access(required: { binding: AccountBinding }): Promise<Outcome<{ accessToken: string; loginCustomerId?: string }>>;
+  /** Host resolves per-advertiser OAuth by binding, verifies granted scope and the
+   * owning OAuth Cloud project, and keeps refresh tokens encrypted outside the agent. */
+  access(required: { binding: AccountBinding; requiredScope?: string; cloudProjectId?: string }): Promise<Outcome<{ accessToken: string; loginCustomerId?: string; scopes?: string[]; cloudProjectId?: string }>>;
 }

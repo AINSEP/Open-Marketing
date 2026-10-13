@@ -1,52 +1,101 @@
 import type { ObserverPort, Outcome } from "@open-marketing/contracts";
 import { failure, parse, success, id, numericId, object, text } from "./schema.ts";
 import { bindingSchema } from "./schemas.ts";
-import type { AccountBinding, CredentialPort, GoogleTransportPort, HttpPort, VendorRequest } from "./types.ts";
+import type { AccountBinding, CredentialPort, GoogleTransportPort, HttpPort, HttpRequest, VendorRequest } from "./types.ts";
 
-/** Tokenless v25 access uses the Cloud project owning the OAuth credentials.
- * Credential lookup and HTTPS stay inside the server/plugin path. No retry.
+const dataManagerScope = "https://www.googleapis.com/auth/datamanager";
+/** OAuth credentials remain in the server/plugin path. Fixed Search and Data Manager
+ * endpoints, per-advertiser scope/project lookup, no retries or legacy upload.
  * @example createGoogleRestTransport({ binding, credentials, http }) */
 export function createGoogleRestTransport(required: { binding: AccountBinding; credentials: CredentialPort; http: HttpPort }): GoogleTransportPort {
   return { request: input => restRequest({ ...required, input }) };
 }
+/** Validate scoped credentials before choosing one fixed provider endpoint. */
 async function restRequest(required: { binding: AccountBinding; credentials: CredentialPort; http: HttpPort; input: VendorRequest }): Promise<Outcome<unknown>> {
   const binding = parse<AccountBinding>({ schema: bindingSchema, input: required.binding });
   if (!binding.ok) return binding;
-  const credential = await required.credentials.access({ binding: binding.value });
+  const access = checkDataManagerAccess(required);
+  if (!access.ok) return access;
+  const manager = access.value;
+  const credential = await required.credentials.access({ binding: binding.value, ...(manager ? { requiredScope: dataManagerScope, cloudProjectId: required.input.cloudProjectId } : {}) });
   if (!credential.ok) return credential;
-  const checked = parse<{ accessToken: string; loginCustomerId?: string }>({ schema: object({ properties: { accessToken: { ...text, maxLength: 4096, pattern: "^[^\\r\\n]+$" }, loginCustomerId: { ...numericId, minLength: 10, maxLength: 10 } }, optional: ["loginCustomerId"] }), input: credential.value });
+  const checked = checkCredential({ credential: credential.value, input: required.input, manager });
   if (!checked.ok) return checked;
-  const headers: Record<string, string> = { Authorization: "Bearer " + checked.value.accessToken, "Content-Type": "application/json" };
-  if (checked.value.loginCustomerId) headers["login-customer-id"] = checked.value.loginCustomerId;
-  const suffix = endpoint({ method: required.input.method });
-  const response = await required.http.post({ url: `https://googleads.googleapis.com/v25/customers/${binding.value.customerId}/${suffix}`, headers, body: JSON.stringify(required.input.body), timeoutMs: 15000, maxBytes: 1048576, context: required.input.context, operationId: required.input.operationId });
+  const headers: Record<string, string> = { Authorization: "Bearer " + credential.value.accessToken, "Content-Type": "application/json" };
+  if (!manager && credential.value.loginCustomerId) headers["login-customer-id"] = credential.value.loginCustomerId;
+  const response = await sendRequest({ ...required, binding: binding.value, headers });
   if (!response.ok) return response;
-  if (response.value.status < 200 || response.value.status >= 300) return failure({ code: "unavailable", message: "Google Ads request failed; reconciliation may be required" });
+  if (response.value.status < 200 || response.value.status >= 300) return failure({ code: "unavailable", message: "Google request failed; reconciliation may be required" });
   return success({ value: response.value.body });
 }
-function endpoint(required: { method: VendorRequest["method"] }): string {
+/** Search-only hosts remain valid; ingestion requires a project and GET diagnostics.
+ * Returns whether this request needs Data Manager OAuth. O(1) time/space. */
+function checkDataManagerAccess(required: { input: VendorRequest; http: HttpPort }): Outcome<boolean> {
+  const manager = required.input.method === "ingest" || required.input.method === "request_status";
+  if (!manager) return success({ value: false });
+  if (!required.http.get) return failure({ code: "unavailable", message: "Data Manager requires bounded GET diagnostics" });
+  if (!parse({ schema: id, input: required.input.cloudProjectId }).ok) return failure({ code: "invalid_input", message: "Data Manager OAuth project is required" });
+  return success({ value: true });
+}
+/** Tainted broker output must attest to the requested scope and OAuth project. */
+function checkCredential(required: { credential: unknown; input: VendorRequest; manager: boolean }): Outcome<void> {
+  const parsed = parse<{ accessToken: string; loginCustomerId?: string; scopes?: string[]; cloudProjectId?: string }>({ schema: object({ properties: {
+    accessToken: { ...text, maxLength: 4096, pattern: "^[^\\r\\n]+$" }, loginCustomerId: { ...numericId, minLength: 10, maxLength: 10 },
+    scopes: { type: "array", items: { ...text, maxLength: 256 }, minItems: 1, maxItems: 32 }, cloudProjectId: id,
+  }, optional: ["loginCustomerId", "scopes", "cloudProjectId"] }), input: required.credential });
+  if (!parsed.ok) return parsed;
+  if (!required.manager) return success({ value: undefined });
+  if (parsed.value.cloudProjectId !== required.input.cloudProjectId || !parsed.value.scopes?.includes(dataManagerScope)) return failure({ code: "forbidden", message: "Data Manager credential scope/project mismatch" });
+  return success({ value: undefined });
+}
+/** Exactly one bounded POST or diagnostic GET. URL is never selected by tools. */
+async function sendRequest(required: { binding: AccountBinding; http: HttpPort; input: VendorRequest; headers: Record<string, string> }): Promise<Outcome<{ status: number; body: unknown; requestId?: string }>> {
+  const bounds = { headers: required.headers, timeoutMs: 15000, maxBytes: 1048576, context: required.input.context, operationId: required.input.operationId };
+  if (required.input.method === "request_status") {
+    const receipt = parse<{ requestId: string }>({ schema: object({ properties: { requestId: id } }), input: required.input.body });
+    if (!receipt.ok) return receipt;
+    if (!required.http.get) return failure({ code: "unavailable", message: "Data Manager diagnostics unavailable" });
+    return required.http.get({ ...bounds, url: "https://datamanager.googleapis.com/v1/requestStatus:retrieve?requestId=" + encodeURIComponent(receipt.value.requestId) });
+  }
+  const url = endpoint({ binding: required.binding, method: required.input.method });
+  return required.http.post({ ...bounds, url, body: JSON.stringify(required.input.body) });
+}
+function endpoint(required: { binding: AccountBinding; method: Exclude<VendorRequest["method"], "request_status"> }): string {
   switch (required.method) {
-    case "search": return "googleAds:search";
-    case "mutate": return "googleAds:mutate";
-    case "upload": return "conversionUploads:uploadClickConversions";
+    case "search": return `https://googleads.googleapis.com/v25/customers/${required.binding.customerId}/googleAds:search`;
+    case "mutate": return `https://googleads.googleapis.com/v25/customers/${required.binding.customerId}/googleAds:mutate`;
+    case "ingest": return "https://datamanager.googleapis.com/v1/events:ingest";
     default: { const exhaustive: never = required.method; return exhaustive; }
   }
 }
-/** Real bounded HTTP adapter. Inject fetch; redirects, retries and credential logging
- * are disabled. Network/parse errors return unavailable, never remote success.
- * @complexity O(b), b<=1MiB; one request with a 15s maximum deadline.
+/** Inject fetch; redirects, retries and secret logging are disabled. Both methods
+ * use 15s/1MiB ceilings and emit sanitized correlation/trace/run observations.
+ * @complexity O(b), b<=1MiB time/space; one request, no polling.
  * @example createHttpAdapter({ fetch: hostFetch, observer }) */
 export function createHttpAdapter(required: { fetch: typeof fetch; observer: ObserverPort }): HttpPort {
-  return { post: input => post({ ...required, input }) };
+  return {
+    post: input => httpRequest({ ...required, input }, { method: "POST" }),
+    get: input => httpRequest({ ...required, input }, { method: "GET" }),
+  };
 }
-async function post(required: { fetch: typeof fetch; observer: ObserverPort; input: Parameters<HttpPort["post"]>[0] }): Promise<Outcome<{ status: number; body: unknown; requestId?: string }>> {
+/** Method-specific allowlist; fixed diagnostics path with one bounded receipt ID. */
+function permittedDestination(required: { url: string; method: "POST" | "GET" }): boolean {
+  if (required.method === "POST") return /^https:\/\/googleads\.googleapis\.com\/v25\/customers\/[0-9]{10}\/googleAds:(search|mutate)$/.test(required.url) || required.url === "https://datamanager.googleapis.com/v1/events:ingest";
+  if (!required.url.startsWith("https://datamanager.googleapis.com/v1/requestStatus:retrieve?")) return false;
+  const url = new URL(required.url);
+  if (url.hash || url.searchParams.size !== 1 || !url.searchParams.has("requestId")) return false;
+  return parse({ schema: id, input: url.searchParams.get("requestId") }).ok;
+}
+/** Catch fetch/JSON failures only at the real adapter edge, preserving typed errors. */
+async function httpRequest(required: { fetch: typeof fetch; observer: ObserverPort; input: HttpRequest & { body?: string } }, optional: { method: "POST" | "GET" }): Promise<Outcome<{ status: number; body: unknown; requestId?: string }>> {
   const { input } = required;
-  if (!/^https:\/\/googleads\.googleapis\.com\/v25\/customers\/[0-9]{10}\/(googleAds:(search|mutate)|conversionUploads:uploadClickConversions)$/.test(input.url)) return failure({ code: "forbidden", message: "HTTP destination is outside Google plugin scope" });
-  if (Buffer.byteLength(input.body) > input.maxBytes) return failure({ code: "limit_exceeded", message: "Vendor request exceeds payload bound" });
+  if (!permittedDestination({ url: input.url, method: optional.method })) return failure({ code: "forbidden", message: "HTTP destination is outside Google plugin scope" });
+  const maxBytes = Math.min(input.maxBytes, 1048576);
+  if (Buffer.byteLength(input.body ?? "") > maxBytes) return failure({ code: "limit_exceeded", message: "Vendor request exceeds payload bound" });
   let outcome: Outcome<{ status: number; body: unknown; requestId?: string }>;
   try {
-    const response = await required.fetch(input.url, { method: "POST", headers: input.headers, body: input.body, redirect: "error", signal: AbortSignal.timeout(Math.min(input.timeoutMs, 15000)) });
-    const body = await readBody({ response, maxBytes: Math.min(input.maxBytes, 1048576) });
+    const response = await required.fetch(input.url, { method: optional.method, headers: input.headers, body: input.body, redirect: "error", signal: AbortSignal.timeout(Math.min(input.timeoutMs, 15000)) });
+    const body = await readBody({ response, maxBytes });
     if (!body.ok) outcome = body;
     else outcome = success({ value: { status: response.status, body: body.value, ...requestId({ value: response.headers.get("request-id") }) } });
   } catch { outcome = failure({ code: "unavailable", message: "Google transport outcome is unknown" }); }
@@ -71,7 +120,7 @@ function requestId(required: { value: string | null }): { requestId?: string } {
   const parsed = parse<string>({ schema: id, input: required.value });
   return parsed.ok ? { requestId: parsed.value } : {};
 }
-function observe(required: { observer: ObserverPort; input: Parameters<HttpPort["post"]>[0]; outcome: string }): void {
+function observe(required: { observer: ObserverPort; input: HttpRequest; outcome: string }): void {
   try { required.observer.observe({ operation: "google-ads.http", outcome: required.outcome, correlationId: required.input.context.correlationId, traceId: required.input.context.traceId, runId: required.input.context.runId }); }
-  catch { /* Telemetry cannot reclassify a transmitted write. Required audit belongs to host dispatch. */ }
+  catch { /* Required audit is enforced by host authority; optional telemetry cannot rewrite a provider receipt. */ }
 }

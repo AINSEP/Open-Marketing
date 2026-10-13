@@ -11,6 +11,6 @@ Create the hierarchy PAUSED and verify readback. Activation and every budget cha
 
 Keep operation IDs stable. An unknown result requires reconciliation; never change an ID to bypass an uncertain write. Reconciliation never sends a second mutation. A partially created or changed hierarchy remains unknown until owner recovery.
 
-Backend halt-stop and conversions are not agent tools. A stop permit cannot activate or change budget. Conversion delivery requires the measurement service grant, current consent and verified API eligibility. New integrations need Data Manager API; that adapter is unavailable in this release.
+Backend halt-stop and conversions are not agent tools. A stop permit cannot activate or change budget. Conversion delivery requires the measurement service grant, current consent and verified API eligibility. The typed Data Manager v1 backend validates each immutable event with validateOnly before ingestion, then reconciles processing by the saved request ID. Contacts supplies normalized SHA-256 digests; this plugin validates their shape only. Actions are selected by OM definitionId. Processing success does not establish attribution. Production eligibility remains unverified, so keep admission disabled.
 
 See [verified sources and host setup](references/README.md). Instructions and annotations never grant execution authority.

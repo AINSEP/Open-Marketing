@@ -64,7 +64,7 @@ async function handleMethod(required: { request: Record<string, unknown>; id: Rp
  * at this boundary. stdout receives protocol frames only; EOF disposes the session.
  * @complexity O(b), buffered frame <=256KiB, serialized request dispatch. */
 export async function serveStdio(required: { stdin: Readable; stdout: Writable; session: ReturnType<typeof createMcpSession> }): Promise<Outcome<void>> {
-  let pending = Buffer.alloc(0);
+  let pending: Buffer = Buffer.alloc(0);
   for await (const chunk of required.stdin) {
     const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     if (pending.length + bytes.length > MAX_FRAME) return failure({ code: "limit_exceeded", message: "MCP input frame exceeds bound" });
