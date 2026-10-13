@@ -8,9 +8,19 @@ import { createIds } from "./fixtures.js";
 const handles: Database.Database[] = [];
 afterEach(() => { handles.splice(0).forEach(handle => handle.close()); });
 
-/** Real local SQLite fixture; the narrow driver wrapper is test-only. DDL is applied
- * exclusively to :memory:, and the outbox table represents the external jobs owner. */
-export function createSqlFixture(required: Record<string, never>) {
+/** Real local SQLite fixture; the narrow driver wrapper is test-only. The amended
+ * initial schema (including subject indexes) is applied exclusively to :memory:.
+ * The ID-only fixture outbox represents the external jobs owner. */
+export interface SqlFixture {
+  database: MeasureSqlDatabase;
+  jobs: MeasureTransactionalJobPort;
+  handle: Database.Database;
+  failNextInboxInsert(): void;
+  failNextEnqueue(): void;
+  counts(): { events: number; jobs: number };
+}
+
+export function createSqlFixture(required: Record<string, never>): SqlFixture {
   const handle = new Database(":memory:");
   handles.push(handle);
   handle.exec(readFileSync(new URL("../migrations/0001_measure.sql", import.meta.url), "utf8"));

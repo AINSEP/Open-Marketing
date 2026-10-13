@@ -1,3 +1,6 @@
+export { CONVERSION_EVENT_CAPABILITY } from "./src/types.js";
+export type { ResolvedConversionInput, MeasureGrant, AttributionTouch } from "./src/types.js";
+export type { ConversionIdentifiersPort, AttributionTouchPort } from "./src/ports.js";
 export { createMeasureService } from "./src/service.js";
 export type { TrackedLinkRequest, TrackedLink, VerifiedConversionSource, ConversionInput, ConversionReceipt, CacQuery, CacReport, PlatformMetricSnapshot, AttributionResult, MeasureService } from "./src/types.js";
 export type { MeasureRepoPort, MeasurementShareabilityPort, ConversionDeliveryPort, PlatformReportingPort, MeasureJobPort, TrackedLinkPort, MeasureAuditPort, MeasureObserverPort } from "./src/ports.js";

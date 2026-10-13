@@ -4,7 +4,7 @@ import type { MeasureRepoPort, PlatformReportingPort } from "../ports.js";
 import type { AttributionSummary, CacQuery, CacReport, PlatformMetricSnapshot } from "../types.js";
 import { failure, querySchema, snapshotSchema, summarySchema, validTimezone } from "../rules.js";
 
-/** CAC = one platform spend snapshot / verified OM attribution, never provider totals.
+/** CAC = one platform spend snapshot / attributed customer acquisitions for definitionId.
  * Persist snapshots before returning success. Zero denominator is null (undefined CAC).
  * @complexity Adapter-dependent read; O(1) core arithmetic. */
 export async function reportCac(required: { context: CallContext; query: CacQuery; repo: MeasureRepoPort; reports: PlatformReportingPort; clock: ClockPort }, optional?: CallOptions): Promise<Outcome<CacReport>> {
@@ -19,7 +19,7 @@ export async function reportCac(required: { context: CallContext; query: CacQuer
   const persisted = await required.repo.appendSnapshot({ context: required.context, snapshot: snapshot.value }, optional);
   if (!persisted.ok) return persisted;
   const conversions = summary.value.conversions;
-  return { ok: true, value: { accountId: query.value.accountId, attributionWindow: query.value.attributionWindow, spendSource: "platform_report", conversionSource: "om_attribution", spend: snapshot.value.spend, conversions, cacMinorUnits: conversions === 0 ? null : snapshot.value.spend.minorUnits / conversions, modelVersion: summary.value.modelVersion, retrievedAt: snapshot.value.retrievedAt, watermark: summary.value.watermark } };
+  return { ok: true, value: { definitionId: query.value.definitionId, accountId: query.value.accountId, attributionWindow: query.value.attributionWindow, spendSource: "platform_report", conversionSource: "om_attribution", spend: snapshot.value.spend, conversions, cacMinorUnits: conversions === 0 ? null : snapshot.value.spend.minorUnits / conversions, modelVersion: summary.value.modelVersion, retrievedAt: snapshot.value.retrievedAt, watermark: summary.value.watermark } };
 }
 /** Exact boundaries avoid silently dividing different currency/timezone/windows. */
 function validateSnapshot(required: { snapshot: PlatformMetricSnapshot; query: CacQuery; now: number }): Outcome<PlatformMetricSnapshot> {

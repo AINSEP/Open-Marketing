@@ -35,7 +35,37 @@ describe("verified ingestion", () => {
     const fixture = createServiceFixture({});
     expect(await fixture.service.ingestConversion({ source, event: { ...event, purpose: "audience" } })).toMatchObject({ ok: false, error: { code: "forbidden" } });
     expect(await fixture.service.ingestConversion({ source, event: { ...event, destination: "other" } })).toMatchObject({ ok: false, error: { code: "forbidden" } });
-    expect(await fixture.service.ingestConversion({ source, event: { ...event, identifiers: { email: "unauthorized" } } })).toMatchObject({ ok: false, error: { code: "forbidden" } });
+    expect(await fixture.service.ingestConversion({ source, event: { ...event, identifierDigests: { email: "b".repeat(64) } } })).toMatchObject({ ok: false, error: { code: "forbidden" } });
+  });
+  it("accepts open definitions with Money and an opaque order reference", async () => {
+    const fixture = createServiceFixture({});
+    const purchase = { ...event, definitionId: "purchase_v2", value: { currency: "USD", minorUnits: 1299 }, orderRef: "order-123" };
+    expect(await fixture.service.ingestConversion({ source, event: purchase })).toMatchObject({ ok: true, value: { status: "accepted" } });
+    expect(fixture.repo.inspect({ scope }).events).toEqual([purchase]);
+    expect(JSON.stringify(fixture.repo.inspect({ scope }))).not.toContain("click-1");
+  });
+  it.each(["identifiers", "eventType", "adjustment", "adjustments"])("rejects forbidden durable field %s", async field => {
+    const fixture = createServiceFixture({});
+    expect(await fixture.service.ingestConversion({ source, event: { ...event, [field]: { click_id: "raw-click" } } })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+    expect(fixture.repo.inspect({ scope }).events).toHaveLength(0);
+  });
+  it("rejects malformed digests, empty definitions and invalid money", async () => {
+    const fixture = createServiceFixture({});
+    for (const invalid of [
+      { ...event, identifierDigests: { click_id: "raw-click" } },
+      { ...event, definitionId: "" },
+      { ...event, value: { currency: "USD", minorUnits: -1 } },
+    ]) expect(await fixture.service.ingestConversion({ source, event: invalid })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+    expect(fixture.repo.inspect({ scope }).jobs).toHaveLength(0);
+  });
+  it("keeps identity stable when reserved optional value/order fields are absent", async () => {
+    const fixture = createServiceFixture({});
+    const first = await fixture.service.ingestConversion({ source, event });
+    expect(first).toMatchObject({ ok: true, value: { status: "accepted" } });
+    const duplicate = await fixture.service.ingestConversion({ source, event: { ...event, value: undefined, orderRef: undefined } });
+    expect(duplicate).toMatchObject({ ok: true, value: { status: "duplicate" } });
+    if (first.ok && duplicate.ok) expect(duplicate.value.jobId).toBe(first.value.jobId);
+    expect(fixture.repo.inspect({ scope }).jobs).toHaveLength(1);
   });
   it("cancelled ingress cannot commit", async () => {
     const fixture = createServiceFixture({});

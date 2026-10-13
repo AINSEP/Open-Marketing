@@ -3,7 +3,7 @@ import { appErrorSchema, callContextSchema, parseBoundary } from "@open-marketin
 import type { Outcome } from "@open-marketing/contracts";
 import type { ConversionDeliveryPort, ConversionSourceAuthenticationPort, MeasurementShareabilityPort, MeasureObserverPort, PlatformReportingPort } from "../ports.js";
 import { runBoundary } from "../boundary.js";
-import { parseDeliveryInput } from "../delivery/input.js";
+import { parseResolvedDeliveryInput } from "../delivery/input.js";
 import { assessmentSchema, authenticationSchema, conversionSchema, deliveryStatusSchema, querySchema, snapshotSchema, sourceSchema } from "../rules.js";
 
 /** Parse the entire outcome, including failures, before trusting plugin output.
@@ -23,13 +23,13 @@ async function capabilityOutcome<T>(required: { schema: z.ZodType<T>; work: () =
 export function createConversionDeliveryAdapter(required: { capability: ConversionDeliveryPort }, optional?: { observer?: MeasureObserverPort }): ConversionDeliveryPort {
   return {
     async deliver(input, options) {
-      const parsed = parseDeliveryInput({ input });
+      const parsed = parseResolvedDeliveryInput({ input });
       if (!parsed.ok) return parsed;
       const context = deliveryContext({ input: parsed.value });
       return runBoundary({ context, operation: "measure.capability.deliver", observer: optional?.observer, work: () => capabilityOutcome({ schema: deliveryStatusSchema, work: () => required.capability.deliver(parsed.value, options) }) }, options);
     },
     async reconcile(input, options) {
-      const parsed = parseDeliveryInput({ input });
+      const parsed = parseResolvedDeliveryInput({ input });
       if (!parsed.ok) return parsed;
       const context = deliveryContext({ input: parsed.value });
       return runBoundary({ context, operation: "measure.capability.reconcile", observer: optional?.observer, work: async () => {

@@ -21,7 +21,7 @@ export function createSqlConversionDeliveryState(required: { database: MeasureSq
       return sqlBoundary({ context: asCallContext({ context: input.context }), operation: "measure.sql.claimDelivery", observer: optional?.observer, work: () => required.database.transaction({ work: async transaction => {
         const previous = await latestRecord({ transaction, context: input.context, deliveryId: parsed.value.deliveryId });
         if (previous) {
-          if (previous.record.identity !== parsed.value.identity) return unwrap({ outcome: failure({ code: "conflict", message: "Delivery ID already binds another payload" }) });
+          if (previous.record.identity !== parsed.value.identity || previous.record.subjectId !== parsed.value.subjectId || previous.record.eventId !== parsed.value.eventId) return unwrap({ outcome: failure({ code: "conflict", message: "Delivery ID already binds another payload" }) });
           return { acquired: false, record: previous.record };
         }
         await insertRecord({ transaction, context: input.context, record: parsed.value, version: 1 });
@@ -51,7 +51,7 @@ async function latestRecord(required: { transaction: MeasureSqlQueryable; contex
   return { record: unwrap({ outcome: parseBoundary({ schema: dispatchRecordSchema, input: JSON.parse(String(row.record_json)) }) }), version };
 }
 async function insertRecord(required: { transaction: MeasureSqlQueryable; context: ServiceContext; record: ConversionDispatchRecord; version: number }): Promise<void> {
-  await required.transaction.query({ text: "INSERT INTO measure_conversion_delivery (scope_key,delivery_id,version,record_json,context_json) VALUES ($1,$2,$3,$4,$5)", values: [scopeKey({ scope: required.context.scope }), required.record.deliveryId, required.version, JSON.stringify(required.record), JSON.stringify(required.context)] });
+  await required.transaction.query({ text: "INSERT INTO measure_conversion_delivery (scope_key,delivery_id,version,record_json,context_json,subject_id,event_id) VALUES ($1,$2,$3,$4,$5,$6,$7)", values: [scopeKey({ scope: required.context.scope }), required.record.deliveryId, required.version, JSON.stringify(required.record), JSON.stringify(required.context), required.record.subjectId, required.record.eventId] });
 }
 /** Durable redacted egress audit; IDs/clock/DB are caller-owned. */
 export function createSqlMeasureAudit(required: { database: MeasureSqlDatabase; ids: IdPort; clock: ClockPort }, optional?: { observer?: MeasureObserverPort }): MeasureAuditPort {

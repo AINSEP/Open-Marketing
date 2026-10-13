@@ -1,11 +1,11 @@
 import { z } from "zod";
-import { callContextSchema, epochSchema, idSchema, measurementGrantSchema, scopeSchema, parseBoundary } from "@open-marketing/contracts";
-import type { CallContext, ClockPort, IdPort, MeasurementGrant, Outcome, Scope } from "@open-marketing/contracts";
+import { callContextSchema, epochSchema, idSchema, scopeSchema, parseBoundary } from "@open-marketing/contracts";
+import type { CallContext, ClockPort, IdPort, Outcome, Scope } from "@open-marketing/contracts";
 import type { ConversionDeliveryPort, ConversionDeliveryStatePort, ConversionSourceAuthenticationPort, MeasureAuditPort, MeasureJobPort, MeasurementGrantPort, MeasurementShareabilityPort, PlatformReportingPort } from "./ports.js";
-import type { ConversionDispatchRecord, ConversionInput, PlatformMetricSnapshot, VerifiedConversionSource } from "./types.js";
+import type { ConversionDispatchRecord, MeasureGrant, PlatformMetricSnapshot, VerifiedConversionSource } from "./types.js";
 import { validateDeliveryTransition } from "./delivery/ledger-rules.js";
-import { auditInputSchema, clone, conversionKey, conversionSchema, dispatchRecordSchema, eventIdentity, failure, nextId, parseSourceEvent, querySchema, sameScope, serviceContextSchema, scopeKey, snapshotSchema, sourceSchema, storageLimit } from "./rules.js";
-import { deliveryIdentity, parseDeliveryInput } from "./delivery/input.js";
+import { auditInputSchema, clone, conversionKey, conversionSchema, dispatchRecordSchema, eventIdentity, failure, measureGrantSchema, nextId, parseSourceEvent, querySchema, sameScope, serviceContextSchema, scopeKey, snapshotSchema, sourceSchema, storageLimit } from "./rules.js";
+import { deliveryIdentity, parseResolvedDeliveryInput } from "./delivery/input.js";
 export { createMemoryMeasureRepo } from "./adapters/memory-repo.js";
 export { createMemoryTrackedLink } from "./links/links.js";
 
@@ -30,7 +30,7 @@ export function createMemoryMeasurementShareability(required: { clock?: ClockPor
       const now = required.clock.now({});
       const matches = bounded.value.filter(item => sameScope({ left: item.scope, right: input.context.scope }) && item.subjectId === parsed.value.subjectId && item.destination === parsed.value.destination && item.purpose === parsed.value.purpose);
       if (matches.some(item => item.withdrawn)) return { ok: true, value: { allowed: false, reason: "withdrawn" } };
-      const allowed = matches.some(item => item.expiresAt > now && Object.keys(parsed.value.identifiers).every(key => item.identifierKeys.includes(key)));
+      const allowed = matches.some(item => item.expiresAt > now && Object.keys(parsed.value.identifierDigests).every(key => item.identifierKeys.includes(key)));
       return { ok: true, value: { allowed, reason: allowed ? undefined : "missing_purpose_bound_consent" } };
     },
   };
@@ -111,7 +111,7 @@ export function createMemoryConversionDelivery(required: { status?: "delivered" 
   let calls = 0;
   return {
     async deliver(input) {
-      const parsed = parseDeliveryInput({ input });
+      const parsed = parseResolvedDeliveryInput({ input });
       if (!parsed.ok) return parsed;
       const key = JSON.stringify([scopeKey({ scope: parsed.value.context.scope }), parsed.value.deliveryId]);
       const identity = deliveryIdentity({ input: parsed.value });
@@ -124,7 +124,7 @@ export function createMemoryConversionDelivery(required: { status?: "delivered" 
       return { ok: true, value: { status } };
     },
     async reconcile(input) {
-      const parsed = parseDeliveryInput({ input });
+      const parsed = parseResolvedDeliveryInput({ input });
       if (!parsed.ok) return parsed;
       const key = JSON.stringify([scopeKey({ scope: parsed.value.context.scope }), parsed.value.deliveryId]);
       const previous = records.get(key);
@@ -143,7 +143,7 @@ function deliveryDuplicate(required: { previous: { identity: string; status: "de
   return { ok: true, value: { status: required.previous.status } };
 }
 /** Grant registry permits explicit revocation in tests; never grants a generic tool scope. */
-export function createMemoryMeasurementGrant(required: { grants?: readonly MeasurementGrant[] }): MeasurementGrantPort & { replace(required: { grants: readonly MeasurementGrant[] }): void } {
+export function createMemoryMeasurementGrant(required: { grants?: readonly MeasureGrant[] }): MeasurementGrantPort & { replace(required: { grants: readonly MeasureGrant[] }): void } {
   let grants = clone({ value: required.grants?.slice(0, 1001) ?? [] });
   return {
     replace(input) { grants = clone({ value: input.grants.slice(0, 1001) }); },
@@ -151,11 +151,11 @@ export function createMemoryMeasurementGrant(required: { grants?: readonly Measu
       const parsed = parseBoundary({ schema: z.strictObject({ context: serviceContextSchema, grantId: idSchema }), input });
       if (!parsed.ok) return parsed;
       if (grants.length > 1000) return failure({ code: "limit_exceeded", message: "Grant registry limit" });
-      const registry = parseBoundary({ schema: z.array(measurementGrantSchema).max(1000), input: grants });
+      const registry = parseBoundary({ schema: z.array(measureGrantSchema).max(1000), input: grants });
       if (!registry.ok) return registry;
       const grant = registry.value.find(item => item.grantId === input.grantId && sameScope({ left: item.scope, right: input.context.scope }));
       if (!grant) return failure({ code: "forbidden", message: "Measurement grant not found" });
-      return parseBoundary({ schema: measurementGrantSchema, input: grant });
+      return parseBoundary({ schema: measureGrantSchema, input: grant });
     },
   };
 }
@@ -197,6 +197,6 @@ export function createMemoryConversionDeliveryState(required: { maxRecords?: num
   };
 }
 function existingClaim(required: { previous: ConversionDispatchRecord; record: ConversionDispatchRecord }): Outcome<{ acquired: boolean; record: ConversionDispatchRecord }> {
-  if (required.previous.identity !== required.record.identity) return failure({ code: "conflict", message: "Delivery ID already binds another payload" });
+  if (required.previous.identity !== required.record.identity || required.previous.subjectId !== required.record.subjectId || required.previous.eventId !== required.record.eventId) return failure({ code: "conflict", message: "Delivery ID already binds another payload" });
   return { ok: true, value: { acquired: false, record: clone({ value: required.previous }) } };
 }

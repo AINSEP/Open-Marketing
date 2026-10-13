@@ -66,13 +66,13 @@ export function createMemoryTrackedLink(required: { allowedOrigins?: readonly st
     },
   };
 }
-function makeLink(required: { linkId: string; destinationUrl: string; baseUrl?: string }): Outcome<TrackedLink> {
+function makeLink(required: { linkId: string; destinationUrl: string; campaignId: string; baseUrl?: string }): Outcome<TrackedLink> {
   if (!required.baseUrl) return failure({ code: "unavailable", message: "Tracked link base URL is required" });
   try {
     const base = new URL(required.baseUrl);
     if (base.protocol !== "https:" || base.username || base.password || base.search || base.hash) return failure({ code: "invalid_input", message: "Unsafe tracked link base URL" });
     const url = new URL(encodeURIComponent(required.linkId), base.href.endsWith("/") ? base : base.href + "/");
-    return { ok: true, value: { linkId: required.linkId, url: url.href, destinationUrl: required.destinationUrl } };
+    return { ok: true, value: { linkId: required.linkId, url: url.href, destinationUrl: required.destinationUrl, campaignId: required.campaignId } };
   } catch { return failure({ code: "invalid_input", message: "Invalid tracked link base URL" }); }
 }
 
@@ -89,5 +89,5 @@ export function prepareTrackedLink(required: { linkId: string; request: TrackedL
   Object.entries(request.value.utm).forEach(([key, value]) => destination.searchParams.set(key, value));
   const final = validateTrackedDestination({ url: destination.href, allowedOrigins: required.allowedOrigins, allowedQueryKeys: required.allowedQueryKeys });
   if (!final.ok) return final;
-  return makeLink({ linkId: required.linkId, destinationUrl: final.value, baseUrl: required.baseUrl });
+  return makeLink({ linkId: required.linkId, destinationUrl: final.value, campaignId: request.value.campaignId, baseUrl: required.baseUrl });
 }

@@ -1,7 +1,8 @@
+import { Buffer } from "node:buffer";
 import { callContextSchema, parseBoundary } from "@open-marketing/contracts";
 import type { IdPort, Outcome, Scope } from "@open-marketing/contracts";
 import type { MeasureRepoPort } from "../ports.js";
-import type { AttributionResult, ConversionInput, ConversionReceipt, PlatformMetricSnapshot, VerifiedConversionSource } from "../types.js";
+import type { CacQuery, AttributionResult, ConversionInput, ConversionReceipt, PlatformMetricSnapshot, VerifiedConversionSource } from "../types.js";
 import { snapshotIdentity, validateLineage } from "../reporting/snapshot-rules.js";
 import { attributionInputSchema, clone, conversionKey, eventIdentity, failure, nextId, parseSourceEvent, querySchema, scopeKey, snapshotSchema, storageLimit } from "../rules.js";
 
@@ -14,7 +15,7 @@ export interface MemoryMeasureRepo extends MeasureRepoPort {
 /** Isolated bounded inbox/outbox double. One stored record holds both intent and
  * job receipt, so there is no intermediate state or asynchronous commit gap.
  * @example createMemoryMeasureRepo({ ids })
- * @complexity O(1) append/dedup; attribution scan O(n+a), bounded by maxRecords. */
+ * @complexity O(1) append/dedup; acquisition selection O(n+a), bounded by maxRecords. */
 export function createMemoryMeasureRepo(required: { ids?: IdPort; maxRecords?: number }): MemoryMeasureRepo {
   const events = new Map<string, StoredEvent>();
   const snapshots = new Map<string, { scope: Scope; snapshot: PlatformMetricSnapshot }>();
@@ -76,8 +77,7 @@ export function createMemoryMeasureRepo(required: { ids?: IdPort; maxRecords?: n
       const query = parseBoundary({ schema: querySchema, input: input.query });
       if (!query.ok) return query;
       const tenant = scopeKey({ scope: context.value.scope });
-      const selected = [...attributions.values()].filter(entry => scopeKey({ scope: entry.scope }) === tenant && entry.result.modelVersion === query.value.attributionModel && entry.result.accountId === query.value.accountId && entry.result.campaignId !== null);
-      const times = selected.map(entry => events.get(JSON.stringify([tenant, entry.sourceId, entry.result.eventId]))?.event.occurredAt).filter((time): time is number => time !== undefined && time >= query.value.window.start && time < query.value.window.end);
+      const times = acquisitionTimes({ events, attributions, tenant, query: query.value });
       return { ok: true, value: { conversions: times.length, modelVersion: query.value.attributionModel, watermark: times.reduce((watermark, time) => Math.max(watermark, time), query.value.window.start) } };
     },
     inspect(input) {
@@ -107,4 +107,31 @@ function attributionDuplicate(required: { existing: AttributionResult; result: A
   const right = required.result;
   if (left.resultId !== right.resultId || left.campaignId !== right.campaignId || left.accountId !== right.accountId) return failure({ code: "conflict", message: "Attribution is immutable for a declared model" });
   return { ok: true, value: clone({ value: left }) };
+}
+
+/** Select the first verified outcome before account/model/period filters, so a later
+ * mapped event cannot acquire an existing customer again. No acquisition table.
+ * @complexity O(n+a) time/O(n+a) space, bounded by the memory repo record cap. */
+function acquisitionTimes(required: { events: Map<string, StoredEvent>; attributions: Map<string, AttributionEntry>; tenant: string; query: CacQuery }): number[] {
+  const first = new Map<string, StoredEvent>();
+  for (const entry of required.events.values()) {
+    if (scopeKey({ scope: entry.source.scope }) !== required.tenant || entry.event.definitionId !== required.query.definitionId) continue;
+    const previous = first.get(entry.event.subjectId);
+    if (!previous || earlierAcquisition({ left: entry, right: previous })) first.set(entry.event.subjectId, entry);
+  }
+  const mapped = new Set([...required.attributions.values()]
+    .filter(entry => scopeKey({ scope: entry.scope }) === required.tenant && entry.result.modelVersion === required.query.attributionModel && entry.result.accountId === required.query.accountId && entry.result.campaignId !== null)
+    .map(entry => JSON.stringify([entry.sourceId, entry.result.eventId])));
+  return [...first.values()]
+    .filter(entry => mapped.has(JSON.stringify([entry.source.sourceId, entry.event.eventId])) && entry.event.occurredAt >= required.query.window.start && entry.event.occurredAt < required.query.window.end)
+    .map(entry => entry.event.occurredAt);
+}
+/** Fixed (occurredAt,eventId,sourceId) order uses UTF-8 bytes like SQLite BINARY,
+ * including supplementary Unicode IDs. @complexity O(l) for bounded ID lengths. */
+function earlierAcquisition(required: { left: StoredEvent; right: StoredEvent }): boolean {
+  const left = required.left;
+  const right = required.right;
+  if (left.event.occurredAt !== right.event.occurredAt) return left.event.occurredAt < right.event.occurredAt;
+  if (left.event.eventId !== right.event.eventId) return Buffer.compare(Buffer.from(left.event.eventId), Buffer.from(right.event.eventId)) < 0;
+  return Buffer.compare(Buffer.from(left.source.sourceId), Buffer.from(right.source.sourceId)) < 0;
 }

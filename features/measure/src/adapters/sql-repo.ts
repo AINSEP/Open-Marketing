@@ -11,7 +11,7 @@ type RepoDependencies = { database: MeasureSqlDatabase; jobs: MeasureTransaction
  * hidden connection, migration application or second outbox. The jobs adapter MUST
  * use the supplied transaction; row + job failures roll back together.
  * @example createSqlMeasureRepo({ database, jobs }, { observer })
- * @complexity Indexed event lookup/insert; reporting scans the selected indexed period. */
+ * @complexity Indexed event lookup/insert; reporting selects earliest subject/definition outcomes before period filters. */
 export function createSqlMeasureRepo(required: RepoDependencies, optional?: { observer?: MeasureObserverPort }): MeasureRepoPort {
   return {
     async appendConversion(input, options) {
@@ -38,7 +38,8 @@ export function createSqlMeasureRepo(required: RepoDependencies, optional?: { ob
       const parsed = parseBoundary({ schema: querySchema, input: input.query });
       if (!parsed.ok) return parsed;
       return sqlBoundary({ context: context.value, operation: "measure.sql.readAttribution", observer: optional?.observer, work: async () => {
-        const result = await required.database.query({ text: "SELECT COUNT(*) AS conversions, MAX(e.occurred_at) AS watermark FROM measure_attribution_result a JOIN measure_conversion_event e ON a.scope_key=e.scope_key AND a.source_id=e.source_id AND a.event_id=e.event_id WHERE a.scope_key=$1 AND a.model_version=$2 AND a.campaign_id IS NOT NULL AND e.occurred_at >= $3 AND e.occurred_at < $4 AND a.account_id=$5", values: [scopeKey({ scope: context.value.scope }), parsed.value.attributionModel, parsed.value.window.start, parsed.value.window.end, parsed.value.accountId] });
+        // One aggregate query: indexed subject/definition anti-join excludes every later outcome.
+        const result = await required.database.query({ text: "SELECT COUNT(*) AS conversions, MAX(e.occurred_at) AS watermark FROM measure_attribution_result a JOIN measure_conversion_event e ON a.scope_key=e.scope_key AND a.source_id=e.source_id AND a.event_id=e.event_id WHERE a.scope_key=$1 AND a.model_version=$2 AND a.campaign_id IS NOT NULL AND e.occurred_at >= $3 AND e.occurred_at < $4 AND a.account_id=$5 AND e.definition_id=$6 AND NOT EXISTS (SELECT 1 FROM measure_conversion_event prior WHERE prior.scope_key=e.scope_key AND prior.subject_id=e.subject_id AND prior.definition_id=e.definition_id AND (prior.occurred_at < e.occurred_at OR (prior.occurred_at=e.occurred_at AND prior.event_id < e.event_id) OR (prior.occurred_at=e.occurred_at AND prior.event_id=e.event_id AND prior.source_id < e.source_id)))", values: [scopeKey({ scope: context.value.scope }), parsed.value.attributionModel, parsed.value.window.start, parsed.value.window.end, parsed.value.accountId, parsed.value.definitionId] });
         const row = result.rows[0];
         return unwrap({ outcome: parseBoundary({ schema: summarySchema, input: { conversions: Number(row?.conversions), modelVersion: parsed.value.attributionModel, watermark: row?.watermark == null ? parsed.value.window.start : Number(row.watermark) } }) });
       } }, options);
@@ -58,7 +59,7 @@ async function commitConversion(required: RepoDependencies & { transaction: Meas
   const job = unwrap({ outcome: await required.jobs.enqueue({ transaction: required.transaction, source: required.source, event: required.event, context }, optional) });
   if (optional?.signal?.aborted) return unwrap({ outcome: failure({ code: "cancelled", message: "Conversion transaction cancelled" }) });
   const jobId = unwrap({ outcome: parseBoundary({ schema: idSchema, input: job.jobId }) });
-  await required.transaction.query({ text: "INSERT INTO measure_conversion_event (scope_key,source_id,event_id,authentication_revision,occurred_at,identity,event_json,context_json,job_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)", values: [...values, required.source.authenticationRevision, required.event.occurredAt, identity, JSON.stringify(required.event), JSON.stringify(context), jobId] });
+  await required.transaction.query({ text: "INSERT INTO measure_conversion_event (scope_key,source_id,event_id,subject_id,definition_id,authentication_revision,occurred_at,identity,event_json,context_json,job_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)", values: [...values, required.event.subjectId, required.event.definitionId, required.source.authenticationRevision, required.event.occurredAt, identity, JSON.stringify(required.event), JSON.stringify(context), jobId] });
   return { eventId: required.event.eventId, status: "accepted", jobId };
 }
 function existingConversion(required: { row: Record<string, unknown>; identity: string; eventId: string }): Outcome<ConversionReceipt> {

@@ -1,23 +1,29 @@
+import { createHash } from "node:crypto";
 import { z } from "zod";
-import { callContextSchema, epochSchema, idSchema, moneySchema, parseBoundary, scopeSchema, timeWindowSchema } from "@open-marketing/contracts";
+import { callContextSchema, digestSchema, epochSchema, idSchema, moneySchema, parseBoundary, scopeSchema, timeWindowSchema } from "@open-marketing/contracts";
 import type { AppError, CallContext, IdPort, Outcome, Scope } from "@open-marketing/contracts";
 import type { ConversionInput, VerifiedConversionSource } from "./types.js";
 
 const boundedString = z.string().min(1).max(1024);
 const identifierMap = z.record(z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,63}$/), boundedString).refine(value => Object.keys(value).length <= 16);
+const digestMap = z.record(z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,63}$/), digestSchema).refine(value => Object.keys(value).length <= 16);
+/** Local narrow grant schema deliberately does not depend on the closed shared event types. */
+export const measureGrantSchema = z.strictObject({ kind: z.literal("measurement"), grantId: idSchema, scope: scopeSchema, connectionId: idSchema, accountId: idSchema, definitionIds: z.array(idSchema).min(1).max(16), destination: idSchema, purpose: idSchema, payloadSchema: idSchema, payloadVersion: z.literal(1), expiresAt: epochSchema, revoked: z.boolean() });
 /** Strict schemas reject extra authority and platform totals rather than stripping them. */
-export const conversionSchema = z.strictObject({ eventId: idSchema, eventType: z.enum(["signup", "trial"]), subjectId: idSchema, occurredAt: epochSchema, destination: idSchema, purpose: idSchema, identifiers: identifierMap });
+export const conversionSchema = z.strictObject({ eventId: idSchema, definitionId: idSchema, subjectId: idSchema, occurredAt: epochSchema, destination: idSchema, purpose: idSchema, identifierDigests: digestMap, value: moneySchema.optional(), orderRef: idSchema.optional() });
+export const resolvedConversionSchema = conversionSchema.extend({ identifiers: identifierMap });
+export const identifierLookupSchema = z.strictObject({ subjectId: idSchema, identifiers: identifierMap, identifierDigests: digestMap });
 export const sourceSchema = z.strictObject({ sourceId: idSchema, scope: scopeSchema, authenticationRevision: epochSchema, context: callContextSchema.optional() });
 export const linkRequestSchema = z.strictObject({ destinationUrl: z.string().min(1).max(4096), campaignId: idSchema, utm: z.record(z.string().regex(/^utm_(source|medium|campaign|term|content)$/), z.string().min(1).max(256)).refine(value => Object.keys(value).length <= 5) });
 export const linkInputSchema = z.strictObject({ context: callContextSchema, request: linkRequestSchema });
-export const querySchema = z.strictObject({ accountId: idSchema, attributionWindow: idSchema, window: timeWindowSchema, currency: z.string().regex(/^[A-Z]{3}$/), timezone: idSchema, attributionModel: idSchema });
+export const querySchema = z.strictObject({ definitionId: idSchema, accountId: idSchema, attributionWindow: idSchema, window: timeWindowSchema, currency: z.string().regex(/^[A-Z]{3}$/), timezone: idSchema, attributionModel: idSchema });
 export const reportInputSchema = z.strictObject({ context: callContextSchema, query: querySchema });
 export const snapshotSchema = z.strictObject({ snapshotId: idSchema, accountId: idSchema, window: timeWindowSchema, spend: moneySchema, timezone: idSchema, attributionWindow: idSchema, retrievedAt: epochSchema, restatementOf: idSchema.optional() });
 export const attributionSchema = z.strictObject({ resultId: idSchema, eventId: idSchema, modelVersion: idSchema, accountId: idSchema, campaignId: idSchema.nullable() });
 export const attributionInputSchema = z.strictObject({ context: callContextSchema, sourceId: idSchema, result: attributionSchema });
 export const summarySchema = z.strictObject({ conversions: epochSchema, modelVersion: idSchema, watermark: epochSchema });
 export const receiptSchema = z.strictObject({ eventId: idSchema, status: z.enum(["accepted", "duplicate"]), jobId: idSchema });
-export const dispatchRecordSchema = z.strictObject({ deliveryId: idSchema, identity: z.string().min(1).max(32768), status: z.enum(["dispatching", "delivered", "unknown"]), recordedAt: epochSchema });
+export const dispatchRecordSchema = z.strictObject({ deliveryId: idSchema, subjectId: idSchema, eventId: idSchema, identity: digestSchema, status: z.enum(["dispatching", "delivered", "unknown"]), recordedAt: epochSchema });
 export const auditInputSchema = z.strictObject({ context: callContextSchema, operationId: idSchema, outcome: idSchema });
 export const claimSchema = z.strictObject({ acquired: z.boolean(), record: dispatchRecordSchema });
 export const deliveryStatusSchema = z.strictObject({ status: z.enum(["delivered", "unknown"]) });
@@ -40,12 +46,13 @@ export function parseSourceEvent(required: { input: { source: VerifiedConversion
 export function failure<T>(required: { code: AppError["code"]; message: string; retryable?: boolean }): Outcome<T> {
   return { ok: false, error: { code: required.code, message: required.message, retryable: required.retryable ?? false } };
 }
-/** Canonical flat event identity; identifier insertion order is irrelevant.
+/** Digest-only canonical event identity; digest insertion order is irrelevant.
  * @complexity O(k log k) time/O(k) space for at most 16 keys. */
 export function eventIdentity(required: { event: ConversionInput }): string {
   const event = required.event;
-  const identifiers = Object.keys(event.identifiers).sort().map(key => [key, event.identifiers[key]]);
-  return JSON.stringify([event.eventId, event.eventType, event.subjectId, event.occurredAt, event.destination, event.purpose, identifiers]);
+  const digests = Object.keys(event.identifierDigests).sort().map(key => [key, event.identifierDigests[key]]);
+  const value = event.value ? [event.value.currency, event.value.minorUnits] : null;
+  return createHash("sha256").update(JSON.stringify([event.eventId, event.definitionId, event.subjectId, event.occurredAt, event.destination, event.purpose, digests, value, event.orderRef ?? null])).digest("hex");
 }
 export function scopeKey(required: { scope: Scope }): string { return JSON.stringify([required.scope.ownerId, required.scope.workspaceId]); }
 export function conversionKey(required: { source: VerifiedConversionSource; event: ConversionInput }): string {

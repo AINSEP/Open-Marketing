@@ -5,7 +5,7 @@ import type { MeasureObserverPort, MeasureSqlDatabase, TrackedLinkPort } from ".
 import { failure, linkRequestSchema, nextId, scopeKey } from "../rules.js";
 import { prepareTrackedLink, validateTrackedDestination } from "../links/links.js";
 import { sqlBoundary, unwrap } from "./sql-boundary.js";
-const linkSchema = z.strictObject({ linkId: idSchema, url: z.string().max(4096), destinationUrl: z.string().max(4096) });
+const linkSchema = z.strictObject({ linkId: idSchema, url: z.string().max(4096), destinationUrl: z.string().max(4096), campaignId: idSchema });
 
 /** Durable scoped redirect adapter; only stored validated destinations can redirect.
  * URL policy is applied again on read. No fetch or redirect chain is followed.

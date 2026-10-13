@@ -3,11 +3,11 @@ import { createServer } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import { afterEach } from "vitest";
 import { z } from "zod";
-import { appErrorSchema, callContextSchema, idSchema, measurementGrantSchema, parseBoundary } from "@open-marketing/contracts";
+import { appErrorSchema, callContextSchema, idSchema, parseBoundary } from "@open-marketing/contracts";
 import type { Outcome } from "@open-marketing/contracts";
 import { createMemoryConversionDelivery, createMemoryPlatformReporting } from "../index.js";
 import type { ConversionDeliveryPort, PlatformMetricSnapshot, PlatformReportingPort } from "../index.js";
-import { conversionSchema, querySchema, serviceContextSchema } from "../src/rules.js";
+import { measureGrantSchema, resolvedConversionSchema, querySchema, serviceContextSchema } from "../src/rules.js";
 import { snapshot } from "./fixtures.js";
 
 const servers: Server[] = [];
@@ -20,7 +20,7 @@ afterEach(async () => {
   });
   await Promise.all(closing);
 });
-const deliveryInputSchema = z.strictObject({ context: serviceContextSchema, event: conversionSchema, grant: measurementGrantSchema, deliveryId: idSchema });
+const deliveryInputSchema = z.strictObject({ context: serviceContextSchema, event: resolvedConversionSchema, grant: measureGrantSchema, deliveryId: idSchema });
 const requestSchema = z.discriminatedUnion("action", [
   z.strictObject({ action: z.literal("deliver"), input: deliveryInputSchema }),
   z.strictObject({ action: z.literal("reconcile"), input: deliveryInputSchema }),

@@ -1,7 +1,7 @@
 import { createFakeClock } from "@open-marketing/om-clock";
-import { ConversionVerificationPortSuite, MeasureRepoPortSuite, MeasurementShareabilityPortSuite, ConversionDeliveryPortSuite, PlatformReportingPortSuite, MeasureJobPortSuite, TrackedLinkPortSuite, MeasureAuditPortSuite, ConversionSourceAuthenticationPortSuite, MeasurementGrantPortSuite, ConversionDeliveryStatePortSuite } from "./port-suites.js";
+import { ConversionIdentifiersPortSuite, ConversionVerificationPortSuite, MeasureRepoPortSuite, MeasurementShareabilityPortSuite, ConversionDeliveryPortSuite, PlatformReportingPortSuite, MeasureJobPortSuite, TrackedLinkPortSuite, MeasureAuditPortSuite, ConversionSourceAuthenticationPortSuite, MeasurementGrantPortSuite, ConversionDeliveryStatePortSuite } from "./port-suites.js";
 import { createMemoryConversionVerification, createMemoryMeasureRepo, createMemoryMeasurementShareability, createMemoryConversionDelivery, createMemoryPlatformReporting, createMemoryMeasureJob, createMemoryTrackedLink, createMemoryMeasureAudit, createMemoryConversionSourceAuthentication, createMemoryMeasurementGrant, createMemoryConversionDeliveryState } from "../../index.js";
-import { consent, createIds, event, grant, scope, snapshot, source } from "../fixtures.js";
+import { consent, createIdentifiers, createIds, event, grant, scope, snapshot, source } from "../fixtures.js";
 MeasureRepoPortSuite({ create: () => createMemoryMeasureRepo({}) });
 MeasurementShareabilityPortSuite({ create: () => createMemoryMeasurementShareability({ clock: createFakeClock({ initial: 300 }), evidence: [consent] }) });
 ConversionDeliveryPortSuite({ create: () => createMemoryConversionDelivery({}) });
@@ -14,3 +14,5 @@ MeasurementGrantPortSuite({ create: () => createMemoryMeasurementGrant({ grants:
 ConversionDeliveryStatePortSuite({ create: () => createMemoryConversionDeliveryState({}) });
 
 ConversionVerificationPortSuite({ create: () => createMemoryConversionVerification({ events: [{ scope, event }] }) });
+
+ConversionIdentifiersPortSuite({ create: () => createIdentifiers({}) });

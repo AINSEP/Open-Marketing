@@ -1,9 +1,20 @@
-import type { CallContext, CallOptions, MeasurementGrant, ObserverPort, Outcome, ServiceContext } from "@open-marketing/contracts";
-import type { AttributionResult, AttributionSummary, CacQuery, ConversionDispatchRecord, ConversionInput, ConversionReceipt, PlatformMetricSnapshot, TrackedLink, TrackedLinkRequest, VerifiedConversionSource } from "./types.js";
+import type { CallContext, CallOptions, TimeWindow, ObserverPort, Outcome, ServiceContext } from "@open-marketing/contracts";
+import type { AttributionTouch, MeasureGrant, ResolvedConversionInput, AttributionResult, AttributionSummary, CacQuery, ConversionDispatchRecord, ConversionInput, ConversionReceipt, PlatformMetricSnapshot, TrackedLink, TrackedLinkRequest, VerifiedConversionSource } from "./types.js";
 
+/** Caller owns current contacts/erasure lookup. A missing/erased subject is a typed failure.
+ * @example identifiers.identifiersFor({ context, subjectId, destination, purpose }) */
+export interface ConversionIdentifiersPort {
+  identifiersFor(required: { context: ServiceContext; subjectId: string; destination: string; purpose: string }, optional?: CallOptions): Promise<Outcome<{ readonly subjectId: string; readonly identifiers: Readonly<Record<string, string>>; readonly identifierDigests: Readonly<Record<string, string>> }>>;
+}
+/** Types only: web-events supplies scoped touches later; limit must be 1..100.
+ * @example touches.touchesFor({ context, subjectId, window, limit: 100 }) */
+export interface AttributionTouchPort {
+  touchesFor(required: { context: CallContext; subjectId: string; window: TimeWindow; limit: number }, optional?: CallOptions): Promise<Outcome<readonly AttributionTouch[]>>;
+}
 /** Atomic inbox boundary. appendConversion MUST commit the event and the ONE jobs
  * outbox together. Exact duplicates return the original job; conflicts never overwrite.
- * A SQL adapter binds its transaction-scoped enqueue in the composition root. */
+ * A SQL adapter binds its transaction-scoped enqueue in the composition root.
+ * Production jobs serialize source/event IDs, then reload the committed event. */
 export interface MeasureRepoPort {
   appendConversion(required: { source: VerifiedConversionSource; event: ConversionInput }, optional?: CallOptions): Promise<Outcome<ConversionReceipt>>;
   appendSnapshot(required: { context: CallContext; snapshot: PlatformMetricSnapshot }, optional?: CallOptions): Promise<Outcome<PlatformMetricSnapshot>>;
@@ -17,8 +28,8 @@ export interface MeasurementShareabilityPort {
 /** Typed backend capability only. deliveryId is stable across reconciliation.
  * Adapters must not retry an uncertain non-idempotent effect. */
 export interface ConversionDeliveryPort {
-  deliver(required: { context: ServiceContext; event: ConversionInput; grant: MeasurementGrant; deliveryId?: string }, optional?: CallOptions): Promise<Outcome<{ readonly status: "delivered" | "unknown" }>>;
-  reconcile?(required: { context: ServiceContext; deliveryId: string; event: ConversionInput; grant: MeasurementGrant }, optional?: CallOptions): Promise<Outcome<{ readonly status: "delivered" | "unknown" }>>;
+  deliver(required: { context: ServiceContext; event: ResolvedConversionInput; grant: MeasureGrant; deliveryId?: string }, optional?: CallOptions): Promise<Outcome<{ readonly status: "delivered" | "unknown" }>>;
+  reconcile?(required: { context: ServiceContext; deliveryId: string; event: ResolvedConversionInput; grant: MeasureGrant }, optional?: CallOptions): Promise<Outcome<{ readonly status: "delivered" | "unknown" }>>;
 }
 /** Returns one account/period observation; platform conversion totals are not inputs. */
 export interface PlatformReportingPort {
@@ -37,7 +48,7 @@ export interface TrackedLinkPort {
 export interface MeasureAuditPort {
   record(required: { context: CallContext; operationId: string; outcome: string }, optional?: CallOptions): Promise<Outcome<void>>;
 }
-/** Trusted adapter verifies current scope/revision, never caller claims alone. */
+/** Trusted signed-webhook or authorized-operator adapter verifies current scope/revision, never caller claims alone. */
 export interface ConversionSourceAuthenticationPort {
   verify(required: { source: VerifiedConversionSource }, optional?: CallOptions): Promise<Outcome<{ readonly authenticated: boolean }>>;
 }
@@ -48,7 +59,7 @@ export interface ConversionVerificationPort {
 }
 /** Reads CURRENT grant authority immediately before dispatch. */
 export interface MeasurementGrantPort {
-  current(required: { context: ServiceContext; grantId: string }, optional?: CallOptions): Promise<Outcome<MeasurementGrant>>;
+  current(required: { context: ServiceContext; grantId: string }, optional?: CallOptions): Promise<Outcome<MeasureGrant>>;
 }
 /** Durable claim with append-only outcomes. Existing dispatching/unknown claims
  * require reconciliation and NEVER authorize a fresh send. */
@@ -64,7 +75,8 @@ export interface MeasureSqlQueryable {
 export interface MeasureSqlDatabase extends MeasureSqlQueryable {
   transaction<T>(required: { work: (transaction: MeasureSqlQueryable) => Promise<T> }): Promise<T>;
 }
-/** Bind the jobs outbox to this EXACT transaction; failed enqueue rolls back intent. */
+/** Bind the jobs outbox to this EXACT transaction; failed enqueue rolls back intent.
+ * Persist source/event IDs only; workers reload committed evidence at dispatch. */
 export interface MeasureTransactionalJobPort {
   enqueue(required: { transaction: MeasureSqlQueryable; source: VerifiedConversionSource; event: ConversionInput; context: CallContext }, optional?: CallOptions): Promise<Outcome<{ readonly jobId: string }>>;
 }
