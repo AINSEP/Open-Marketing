@@ -2,27 +2,34 @@ import { z } from "zod";
 import { digestSchema, epochSchema, idSchema, measurementGrantSchema, scopeSchema } from "@open-marketing/contracts";
 import type { CallOptions, ClockPort, MeasurementGrant, ObserverPort, Outcome, ServiceContext } from "@open-marketing/contracts";
 import { boundedJson, failure, isUncertainFailure, parse } from "./boundary.js";
-import { identifiersSchema, normalizeMetaIdentifiers } from "./capi-normalization.js";
+import { identifiersSchema, mapMetaIdentifiers } from "./capi-normalization.js";
 import type { MetaUserData } from "./capi-normalization.js";
 import { vendorIdSchema } from "./commands.js";
 
 const serviceContext = z.strictObject({ scope: scopeSchema, serviceId: idSchema, correlationId: idSchema, traceId: idSchema });
-const eventSchema = z.strictObject({ eventId: idSchema, eventType: z.enum(["signup", "trial"]), subjectId: idSchema, occurredAt: epochSchema, destination: idSchema, purpose: idSchema, identifiers: identifiersSchema });
-const requestSchema = z.strictObject({ context: serviceContext, event: eventSchema, grant: measurementGrantSchema, deliveryId: idSchema });
+const eventSchema = z.strictObject({ eventId: idSchema, eventType: z.enum(["signup", "trial"]), subjectId: idSchema, occurredAt: epochSchema, destination: idSchema, purpose: idSchema, identifiers: identifiersSchema }).refine(event => event.identifiers.click_time_ms === undefined || Number(event.identifiers.click_time_ms) <= event.occurredAt);
+const consentSchema = z.strictObject({ opt_out: z.boolean().optional(), data_processing_options: z.union([z.tuple([]), z.tuple([z.literal("LDU")])]).optional(), data_processing_options_country: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(), data_processing_options_state: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional() });
+const requestSchema = z.strictObject({ context: serviceContext, event: eventSchema, grant: measurementGrantSchema, deliveryId: idSchema, test: z.strictObject({ eventCode: z.string().min(1).max(256).refine(code => code.trim().length > 0) }).optional(), consent: consentSchema.optional() });
 const configurationSchema = z.strictObject({ connectionId: idSchema, accountId: vendorIdSchema, pixelId: vendorIdSchema, apiVersion: z.string().regex(/^v[1-9][0-9]{0,2}\.[0-9]{1,2}$/), pluginDigest: digestSchema, destination: idSchema, purpose: idSchema, payloadSchema: idSchema, mode: z.enum(["production-server", "local-sandbox", "read-only"]), timeoutMs: z.number().int().min(1).max(60000), maxEventAgeMs: z.number().int().min(1000).max(604800000) });
 export type MetaCapiConfiguration = z.infer<typeof configurationSchema>;
-/** Structurally compatible with measure ConversionInput/ConversionDeliveryPort. Backend-only. */
+/** Backend-only signup/trial input. Server composition must adapt measure's open definition IDs/grants. */
 export interface MetaConversionInput { readonly eventId: string; readonly eventType: "signup" | "trial"; readonly subjectId: string; readonly occurredAt: number; readonly destination: string; readonly purpose: string; readonly identifiers: Readonly<Record<string, string>> }
-export interface MetaCapiRequest { readonly context: ServiceContext; readonly event: MetaConversionInput; readonly grant: MeasurementGrant; readonly deliveryId?: string }
-export interface MetaCapiPayload { readonly data: readonly { readonly event_name: "CompleteRegistration" | "StartTrial"; readonly event_time: number; readonly event_id: string; readonly action_source: "website"; readonly event_source_url: string; readonly user_data: MetaUserData }[] }
+/** Server-approved vendor metadata; structural validation does not grant permission or infer regional semantics. */
+interface MetaCapiConsent { readonly opt_out?: boolean; readonly data_processing_options?: readonly [] | readonly ["LDU"]; readonly data_processing_options_country?: number; readonly data_processing_options_state?: number }
+/** Presence of test requires an explicit event code; test/consent metadata never bypasses current authority. */
+export interface MetaCapiRequest { readonly context: ServiceContext; readonly event: MetaConversionInput; readonly grant: MeasurementGrant; readonly deliveryId?: string; readonly test?: { readonly eventCode: string }; readonly consent?: MetaCapiConsent }
+/** One website event per POST; the shared OM event ID supplies vendor deduplication. */
+export interface MetaCapiPayload { readonly test_event_code?: string; readonly data: readonly (MetaCapiConsent & { readonly event_name: "CompleteRegistration" | "StartTrial"; readonly event_time: number; readonly event_id: string; readonly action_source: "website"; readonly event_source_url: string; readonly user_data: MetaUserData })[] }
 export interface MetaConversionOutcome { readonly status: "delivered" | "unknown" }
 
-/** Server fence MUST read current grant/consent for all identifier keys, verify scope/connection/dataset,
- * capability/API-version admission, enforce production-server mode, append pre-egress audit, and
- * keep authority through execute. Jobs/measure own durable dedupe; this plugin adds no outbox.
+/** Server fence MUST read current grant/consent for original identifier keys AND assembled attribution,
+ * verify scope/connection/dataset and capability/API-version admission (unverified => unavailable),
+ * approve test/consent metadata and bind the exact payload to deliveryId in durable jobs/audit.
+ * Enforce production-server mode, append pre-egress audit and keep authority through execute.
+ * Missing current consent => forbidden. Jobs/measure own durable dedupe; this plugin adds no outbox.
  */
 export interface MetaConversionAuthorityPort {
-  dispatch(required: { context: ServiceContext; event: MetaConversionInput; grant: MeasurementGrant; deliveryId: string; configuration: MetaCapiConfiguration; execute: (required: { isCurrent: () => boolean }) => Promise<Outcome<MetaConversionOutcome>> }, optional?: CallOptions): Promise<Outcome<MetaConversionOutcome>>;
+  dispatch(required: { context: ServiceContext; event: MetaConversionInput; payload: MetaCapiPayload; grant: MeasurementGrant; deliveryId: string; configuration: MetaCapiConfiguration; execute: (required: { isCurrent: () => boolean }) => Promise<Outcome<MetaConversionOutcome>> }, optional?: CallOptions): Promise<Outcome<MetaConversionOutcome>>;
 }
 /** Guarded server credentialed I/O. Recheck isCurrent AFTER credential resolution, immediately before
  * POST; enforce byte/timeout/cancellation limits and never redirect credentials or retry implicitly.
@@ -42,7 +49,7 @@ type ParsedRequest = z.infer<typeof requestSchema>;
  * @param required - Pinned dataset/version, injected server authority, credentialed egress, clock/observer.
  * @returns Inert delivery/reconciliation seam. Timeout or ambiguous ACK returns unknown without retry.
  * @example createMetaCapiBackend({ configuration, authority, egress, clock, observer })
- * @complexity O(n) bounded normalization, one POST, no batch fan-out or internal retry/store.
+ * @complexity O(n) bounded validation/assembly, one POST, no batch fan-out or internal retry/store.
  */
 export function createMetaCapiBackend(required: Dependencies): MetaCapiBackend {
   const dependencies: Dependencies = { ...required, configuration: Object.freeze({ ...required.configuration }) };
@@ -69,11 +76,14 @@ function prepareConversion(required: { dependencies: Dependencies; input: MetaCa
   if (!request.ok) return request;
   const checked = checkConversionAuthority({ configuration: configuration.value, request: request.value, now: required.dependencies.clock.now({}) });
   if (!checked.ok) return checked;
-  const normalized = normalizeMetaIdentifiers({ input: request.value.event.identifiers });
-  if (!normalized.ok) return normalized;
+  const mapped = mapMetaIdentifiers({ input: request.value.event.identifiers });
+  if (!mapped.ok) return mapped;
   const event = request.value.event;
   const eventName = event.eventType === "signup" ? "CompleteRegistration" : "StartTrial";
-  const payload: MetaCapiPayload = { data: [{ event_name: eventName, event_time: Math.floor(event.occurredAt / 1000), event_id: event.eventId, action_source: "website", event_source_url: normalized.value.sourceUrl, user_data: normalized.value.userData }] };
+  const payload: MetaCapiPayload = {
+    ...(request.value.test === undefined ? {} : { test_event_code: request.value.test.eventCode }),
+    data: [{ event_name: eventName, event_time: Math.floor(event.occurredAt / 1000), event_id: event.eventId, action_source: "website", event_source_url: mapped.value.sourceUrl, user_data: mapped.value.userData, ...request.value.consent }],
+  };
   return { ok: true, value: { request: request.value, payload } };
 }
 
@@ -103,7 +113,7 @@ async function dispatchConversion(required: { dependencies: Dependencies; reques
   let handedOff = false;
   let result: Outcome<MetaConversionOutcome>;
   try {
-    result = await dependencies.authority.dispatch({ context: request.context, event: request.event, grant: request.grant, deliveryId: request.deliveryId, configuration: dependencies.configuration, execute: async fence => {
+    result = await dependencies.authority.dispatch({ context: request.context, event: request.event, payload: required.payload, grant: request.grant, deliveryId: request.deliveryId, configuration: dependencies.configuration, execute: async fence => {
       if (!fence.isCurrent()) return failure({ code: "forbidden", message: "Meta conversion authority withdrawn" });
       if (optional?.signal?.aborted) return failure({ code: "cancelled", message: "Meta conversion cancelled before egress" });
       handedOff = true;

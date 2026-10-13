@@ -2,20 +2,48 @@ import { describe, expect, it } from "vitest";
 import { digest, failure } from "../../src/boundary.js";
 import { createMetaAdsAdapter, createHostedMetaGateway } from "../../src/adapter.js";
 import { createUnavailableMetaEvidence } from "../../src/evidence.js";
+import { decodeMetaHierarchy } from "../../src/readback.js";
 import type { MetaBinding } from "../../src/evidence.js";
-import { campaign, clock, fixture, observer, pluginDigest, request, schemas } from "../fixtures.js";
+import { binding, campaign, clock, fixture, hierarchy, now, observer, pluginDigest, request, schemas } from "../fixtures.js";
 
 /** Shared applicable contract: evidence, exact payload, cancellation, uncertainty and redacted observations. */
 export function gatewaySuite(required: { kind: "double" | "hosted" }): void {
   describe(required.kind + " Meta gateway contract", () => {
-    it("creates PAUSED with a stable identity but cannot infer observed PAUSED from an ACK", async () => {
+    it("creates PAUSED without spending fields or automatic activation; an ACK cannot prove PAUSED", async () => {
       const f = fixture(required);
-      const result = await f.adapter.invoke(request());
+      const result = await f.adapter.invoke({ ...request(), moneyExposure: null, requiredLimit: null });
       expect(result).toEqual({ ok: true, value: { operationId: "operation", status: "succeeded", data: { id: "456" }, observedState: "unknown" } });
       expect(f.calls).toHaveLength(1);
       expect(f.calls[0].arguments).toEqual({ ad_account_id: "123", name: "fixture", objective: "OUTCOME_TRAFFIC", special_ad_categories: [], status: "PAUSED" });
       expect(f.calls[0].argumentsDigest).toBe(digest({ value: f.calls[0].arguments }));
       expect(f.observations).toEqual([{ operation: "meta-ads.create-campaign", outcome: "succeeded", correlationId: "correlation", traceId: "trace", runId: "run" }]);
+    });
+    it("requires separate activation evidence and current exact host authority after creation", async () => {
+      const f = fixture(required);
+      expect((await f.adapter.invoke(request())).ok).toBe(true);
+      const activation = request({ command: { kind: "activate", entityId: "456", entityType: "campaign" }, operationId: "activation-1" });
+      expect(await f.adapter.invoke(activation)).toMatchObject({ ok: false, error: { code: "forbidden" } });
+      expect(f.calls).toHaveLength(1);
+      f.evidence.value = binding({ invocation: activation });
+      expect(await f.adapter.invoke(activation)).toMatchObject({ ok: true, value: { operationId: "activation-1", status: "succeeded" } });
+      expect(f.calls.map(call => [call.operationId, call.arguments.status])).toEqual([["operation", "PAUSED"], ["activation-1", "ACTIVE"]]);
+      const denied = fixture({ ...required, invocation: activation, handler: async () => failure({ code: "forbidden", message: "Exact activation card missing or revoked" }) });
+      expect(await denied.adapter.invoke(activation)).toMatchObject({ ok: false, error: { code: "forbidden" } });
+      expect(denied.calls).toHaveLength(1);
+    });
+    it("does not promote a creation ACK or incomplete hierarchy readback to observed PAUSED", async () => {
+      const f = fixture(required);
+      expect(await f.adapter.invoke(request())).toMatchObject({ ok: true, value: { observedState: "unknown" } });
+      const incomplete = decodeMetaHierarchy({ input: { ...hierarchy, entities: hierarchy.entities.slice(0, 1) }, accountId: "123", expectedEntityIds: ["456", "457", "458"], observedAt: now });
+      expect(incomplete).toMatchObject({ ok: true, value: { complete: false, state: "unknown" } });
+      expect(f.calls).toHaveLength(1);
+    });
+    it.each(["create", "activation"])("returns unavailable for unverified %s behavior before gateway handoff", async operation => {
+      const invocation = operation === "create" ? request() : request({ command: { kind: "activate", entityId: "456", entityType: "campaign" }, operationId: "activation-1" });
+      const f = fixture({ ...required, invocation });
+      f.evidence.value = { ...(f.evidence.value as MetaBinding), claims: [] };
+      expect(await f.adapter.invoke(invocation)).toMatchObject({ ok: false, error: { code: "unavailable" } });
+      expect(f.calls).toHaveLength(0);
     });
     it("maps activation to exactly one reviewed entity and forwards a fresh operation identity", async () => {
       const invocation = request({ command: { kind: "activate", entityId: "456", entityType: "campaign" }, operationId: "activation-1" });

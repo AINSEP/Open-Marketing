@@ -10,7 +10,7 @@ export { decodeMetaHierarchy, decodeMetaLimit } from "./readback.js";
 export type { MetaHierarchyObservation, MetaLimitReadback } from "./readback.js";
 export { mapMetaHaltStop } from "./stop.js";
 export type { MetaStopMapping } from "./stop.js";
-export { normalizeMetaIdentifiers } from "./capi-normalization.js";
+export { mapMetaIdentifiers } from "./capi-normalization.js";
 export type { MetaUserData, NormalizedMetaIdentifiers } from "./capi-normalization.js";
 export { createMetaCapiBackend, decodeMetaCapiAcknowledgement } from "./capi.js";
 export type { MetaCapiBackend, MetaCapiConfiguration, MetaCapiEgressPort, MetaConversionAuthorityPort, MetaCapiRequest, MetaConversionInput, MetaCapiPayload, MetaConversionOutcome } from "./capi.js";

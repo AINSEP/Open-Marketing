@@ -46,7 +46,7 @@
       "capabilityId": "conversion.signup-trial.v1",
       "version": 1,
       "pluginId": "meta-ads",
-      "schemaFingerprint": "36ebdda3418c9dcc1ff6c4abe769f3162cc68462911259f6f05b3a9334344e9a",
+      "schemaFingerprint": "44288ead6cd72a7e0a42df68ead675e32ec402981a4d885438c976e7dce777b1",
       "admitted": false,
       "effects": [
         "conversion"

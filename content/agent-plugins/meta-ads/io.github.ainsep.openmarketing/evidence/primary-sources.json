@@ -5,36 +5,121 @@
       "id": "agent-plugins-1.1.0",
       "url": "https://github.com/agentplugins/agent-plugins-spec/blob/main/spec/1.1.0.md",
       "access": "readable",
-      "verified": ["Closed transport server entries", "Empty mcpServers allowed", "OM metadata belongs in the extension namespace", "Credentials are client-managed"],
-      "doesNotVerify": ["Meta endpoint", "Meta tools"]
+      "verified": [
+        "Closed transport server entries",
+        "Empty mcpServers allowed",
+        "OM metadata belongs in the extension namespace",
+        "Credentials are client-managed"
+      ],
+      "doesNotVerify": [
+        "Meta endpoint",
+        "Meta tools"
+      ]
     },
     {
       "id": "meta-sdk-normalization",
       "url": "https://github.com/facebook/facebook-python-business-sdk/blob/main/facebook_business/adobjects/serverside/normalize.py",
       "access": "readable",
-      "verified": ["Lowercase/trim email preparation", "International phone formatting removal", "UTF-8 unsalted SHA-256", "Prehashed input detection"],
-      "doesNotVerify": ["Hosted MCP input/output schema", "Current CAPI requiredness/limits", "Eligibility/permissions for a specific account"]
+      "verified": [
+        "Lowercase/trim email preparation",
+        "International phone formatting removal",
+        "UTF-8 unsalted SHA-256",
+        "Prehashed input detection"
+      ],
+      "doesNotVerify": [
+        "Hosted MCP input/output schema",
+        "Current CAPI requiredness/limits",
+        "Eligibility/permissions for a specific account"
+      ],
+      "implementationNote": "Historical vendor preparation evidence only. OM contacts is the sole normalizer/hasher; this plugin validates supplied digests and never normalizes or hashes identifiers."
     },
     {
       "id": "meta-sdk-event",
       "url": "https://github.com/facebook/facebook-python-business-sdk/blob/main/facebook_business/adobjects/serverside/event.py",
       "access": "readable",
-      "verified": ["Event model fields event_name, event_time, event_id, user_data, event_source_url, action_source"],
-      "doesNotVerify": ["Current browser/server matching window", "Per-event reconciliation endpoint", "Dataset-specific acceptance"]
+      "verified": [
+        "Event model fields event_name, event_time, event_id, user_data, event_source_url, action_source"
+      ],
+      "doesNotVerify": [
+        "Current browser/server matching window",
+        "Per-event reconciliation endpoint",
+        "Dataset-specific acceptance"
+      ]
     },
     {
       "id": "meta-sdk-event-request",
       "url": "https://github.com/facebook/facebook-python-business-sdk/blob/main/facebook_business/adobjects/serverside/event_request.py",
       "access": "readable",
-      "verified": ["Versioned Graph pixel events POST", "Top-level test_event_code", "Authorized access_token and optional appsecret proof"],
-      "doesNotVerify": ["test_event_code as a spend/egress sandbox", "Pinned API version/account admission"]
+      "verified": [
+        "Versioned Graph pixel events POST",
+        "Top-level test_event_code",
+        "Authorized access_token and optional appsecret proof"
+      ],
+      "doesNotVerify": [
+        "test_event_code as a spend/egress sandbox",
+        "Pinned API version/account admission"
+      ]
     },
     {
       "id": "meta-sdk-campaign",
       "url": "https://github.com/facebook/facebook-python-business-sdk/blob/main/facebook_business/adobjects/campaign.py",
       "access": "readable",
-      "verified": ["Campaign status includes PAUSED/ACTIVE", "Configured/effective status, daily_budget and spend_cap fields exist"],
-      "doesNotVerify": ["Hosted PAUSED default", "Hosted cap field names/units", "Daily overdelivery percentages", "Hard daily cap guarantee"]
+      "verified": [
+        "Campaign status includes PAUSED/ACTIVE",
+        "Configured/effective status, daily_budget and spend_cap fields exist"
+      ],
+      "doesNotVerify": [
+        "Hosted PAUSED default",
+        "Hosted cap field names/units",
+        "Daily overdelivery percentages",
+        "Hard daily cap guarantee"
+      ],
+      "checkedOn": "2026-10-13"
+    },
+    {
+      "id": "meta-node-sdk-event-request",
+      "url": "https://github.com/facebook/facebook-nodejs-business-sdk/blob/main/src/objects/serverside/event-request.js",
+      "access": "readable",
+      "checkedOn": "2026-10-13",
+      "verified": [
+        "execute places test_event_code beside data at the request root",
+        "Versioned Graph pixel/events POST construction"
+      ],
+      "doesNotVerify": [
+        "Admitted Graph version/dataset permissions",
+        "Test code as an egress or consent sandbox"
+      ]
+    },
+    {
+      "id": "meta-node-sdk-server-event",
+      "url": "https://github.com/facebook/facebook-nodejs-business-sdk/blob/main/src/objects/serverside/server-event.js",
+      "access": "readable",
+      "checkedOn": "2026-10-13",
+      "verified": [
+        "event_id and event_name identify identical events according to SDK comments",
+        "Event-level opt_out and data_processing_options/country/state field names",
+        "Country/state serialization preserves zero"
+      ],
+      "doesNotVerify": [
+        "Current deduplication window",
+        "Regional consent-option semantics or codes",
+        "Explicit opt_out false acceptance",
+        "Per-event reconciliation"
+      ]
+    },
+    {
+      "id": "meta-woocommerce-fbc",
+      "url": "https://github.com/facebook/facebook-for-woocommerce/blob/main/facebook-commerce-pixel-event.php",
+      "access": "readable",
+      "checkedOn": "2026-10-13",
+      "verified": [
+        "Attribution cookie assembly uses fb.1.<milliseconds>.<fbclid>"
+      ],
+      "doesNotVerify": [
+        "Hosted MCP attribution schema",
+        "OM click ID bound of 220 characters",
+        "Vendor acceptance for a particular account"
+      ]
     }
   ],
   "reproducibility": "URLs reference upstream main as observed on checkedOn; no immutable upstream revision or live account behavior is asserted. No upstream source code was copied.",
@@ -42,11 +127,69 @@
     "source": "j13 PEER_DISPATCH, Job-specific notes",
     "ownerAcceptedPattern": true,
     "condition": "Hosted Meta writes are insufficient",
-    "implementation": "deferred; no bundled write server implemented or activated in this delivery"
+    "implementation": "deferred; no bundled write server implemented or activated in this delivery",
+    "currentDispatch": "w3-meta-ads-capi leaves fallback deferred; a recorded owner decision is required before any implementation. Historical pattern acceptance is not authorization to implement in this job."
   },
   "jiniReuse": {
-    "inspectedInstalled": ["@jini-ai/mcp@0.4.3", "@jini-ai/integrations@0.4.2"],
+    "inspectedInstalled": [
+      "@jini-ai/mcp@0.4.3",
+      "@jini-ai/integrations@0.4.2"
+    ],
     "registryCheck": "npm view failed ENOTFOUND; web registry retrieval also unavailable",
-    "reuse": "Server-owned j10 public federation host seam reuses Jini MCP transport; shared OM schemas, Zod 4.1.13, and Node crypto are called directly. No Meta-specific implementation was found in inspected public entries. No sibling imports or installs."
+    "reuse": "Existing server-owned federation host seam, public OM schemas and installed Zod remain in use. Node crypto remains only for existing evidence/argument fingerprints; no identifier hashing or new dependency. No sibling imports or installs."
+  },
+  "capiCampaignCheckedOn": "2026-10-13",
+  "documentationChecks": [
+    {
+      "url": "https://developers.facebook.com/docs/marketing-api/conversions-api/parameters",
+      "checkedOn": "2026-10-13",
+      "access": "failed",
+      "result": "HTTP 429 Too Many Requests",
+      "verifies": []
+    },
+    {
+      "url": "https://developers.facebook.com/docs/marketing-api/reference/ad-campaign-group",
+      "checkedOn": "2026-10-13",
+      "access": "failed",
+      "result": "HTTP 429 Too Many Requests",
+      "verifies": []
+    },
+    {
+      "url": "https://developers.facebook.com/docs/marketing-api/conversions-api/parameters/fbp-and-fbc/",
+      "checkedOn": "2026-10-13",
+      "access": "failed",
+      "result": "HTTP 429 Too Many Requests",
+      "verifies": []
+    },
+    {
+      "url": "https://developers.facebook.com/documentation/ads-commerce/ads-ai-connectors/ads-mcp-server/ads-mcp-server-overview",
+      "checkedOn": "2026-10-13",
+      "access": "failed",
+      "result": "Web retrieval Internal Error; no readable documentation or HTTP status returned",
+      "verifies": []
+    },
+    {
+      "url": "https://developers.facebook.com/documentation/ads-commerce/ads-ai-connectors/ads-mcp-server/ads-mcp-server-get-started",
+      "checkedOn": "2026-10-13",
+      "access": "failed",
+      "result": "Web retrieval Internal Error; no readable documentation or HTTP status returned",
+      "verifies": []
+    },
+    {
+      "url": "https://developers.facebook.com/docs/marketing-api/conversions-api/parameters/customer-information-parameters",
+      "checkedOn": "2026-10-13",
+      "access": "failed",
+      "result": "Web retrieval Internal Error; no readable documentation or HTTP status returned",
+      "verifies": []
+    }
+  ],
+  "conversionFingerprint": {
+    "value": "44288ead6cd72a7e0a42df68ead675e32ec402981a4d885438c976e7dce777b1",
+    "method": "SHA-256 of concatenated UTF-8 file bytes in listed order",
+    "files": [
+      "src/capi-normalization.ts",
+      "src/capi.ts"
+    ],
+    "status": "proposed local codec fingerprint; never hosted-schema or account admission evidence"
   }
 }
