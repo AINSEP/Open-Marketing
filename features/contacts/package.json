@@ -19,6 +19,14 @@
   },
   "dependencies": {
     "@open-marketing/contracts": "workspace:*",
-    "libphonenumber-js": "1.13.12"
+    "libphonenumber-js": "1.13.12",
+    "zod": "4.1.13",
+    "@open-marketing/om-clock": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "3.2.4",
+    "fast-check": "4.3.0",
+    "better-sqlite3": "13.0.3",
+    "@types/better-sqlite3": "9.6.0"
   }
 }
