@@ -13,7 +13,7 @@ export function Shell(props: ShellProps) {
       <header className="topbar"><span>Workspace <span aria-hidden="true">/</span> <strong>{shell.page.label}</strong></span><span className="mode-badge">{shell.mode === "sample" ? "Sample data" : "Connection pending"}</span></header>
       <div className="canvas-content"><header className="page-heading"><div><span className="eyebrow">OPEN MARKETING</span><h1 tabIndex={-1} ref={shell.headingRef}>{shell.page.label}</h1><p>{shell.page.description}</p></div><button type="button" className="assistant-action" onClick={shell.openChat}><span aria-hidden="true">✦</span> Think with Assistant</button></header>
         {shell.error && <p role="alert" className="error-notice">{shell.error}</p>}
-        {shell.snapshot ? <WorkspaceCanvas target={shell.target} snapshot={shell.snapshot} onOpenChat={shell.openChat} /> : !shell.error && <p role="status">Opening your workspace…</p>}
+        {shell.snapshot ? <WorkspaceCanvas target={shell.target} snapshot={shell.snapshot} onOpenChat={shell.openChat} api={props.api} runtime={props.runtime} /> : !shell.error && <p role="status">Opening your workspace…</p>}
       </div>
     </main>
     <OMChatPane session={props.session} api={props.api} runtime={props.runtime} sample={shell.mode === "sample"} available={shell.chatAvailable} open={shell.chatOpen} toggle={shell.toggleChat} />

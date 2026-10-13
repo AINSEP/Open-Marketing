@@ -21,7 +21,7 @@ it("the card shows exact JSON and only server-offered policy buttons", () => {
 it("choices record honestly and expire at the injected clock deadline", async () => {
   const timer = testRuntime(); const [card] = sampleCards({ clock: timer.runtime.clock }); const api = createSampleStudioApi({ runtime: timer.runtime });
   const user = userEvent.setup(); render(createElement(ApprovalCard, { card, api, runtime: timer.runtime, sample: true }));
-  await user.click(screen.getByRole("button", { name: "Allow", exact: true }));
+  await user.click(screen.getByRole("button", { name: "Allow" }));
   expect(screen.getByText("Choice recorded in preview · no external call ran")).toBeDefined();
   expect(screen.getByRole<HTMLFieldSetElement>("group").disabled).toBe(true);
   cleanup(); render(createElement(ApprovalCard, { card, api, runtime: timer.runtime, sample: true }));

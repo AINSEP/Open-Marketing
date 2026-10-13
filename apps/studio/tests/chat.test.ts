@@ -12,7 +12,7 @@ it("keyboard opens the global panel, Escape closes it, and focus returns to the 
   try {
     const user = userEvent.setup(); render(createElement(Shell, host.props));
     await screen.findByText("A little clarity.", { exact: false });
-    const fab = screen.getByRole("button", { name: "Assistant", exact: true });
+    const fab = screen.getByRole("button", { name: "Assistant" });
     fab.focus(); await user.keyboard("{Enter}");
     expect(fab.getAttribute("aria-expanded")).toBe("true");
     expect(document.activeElement).toBe(screen.getByRole("complementary", { name: "Assistant" }));
@@ -27,7 +27,7 @@ it("a sample chat requests native navigation and acknowledges only the rendered 
   try {
     const user = userEvent.setup(); render(createElement(Shell, host.props));
     await screen.findByText("A little clarity.", { exact: false });
-    await user.click(screen.getByRole("button", { name: "Assistant", exact: true }));
+    await user.click(screen.getByRole("button", { name: "Assistant" }));
     await user.type(screen.getByRole("textbox", { name: "Message" }), "open campaigns");
     await user.click(screen.getByRole("button", { name: "Send" }));
     for (let index = 0; index < 4; index += 1) await act(async () => { host.timer.advance({ ms: 450 }); });

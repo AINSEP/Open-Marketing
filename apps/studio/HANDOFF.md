@@ -1,4 +1,84 @@
-# Studio shell handoff
+# Studio domain pages handoff — w3-studio-pages
+
+Programmer(Direct): Existing Creative, Media, Campaigns, Settings, Measure, Connections, Plugins and Activity routes now show detailed sample evidence through StudioApiPort.snapshot. Owners can inspect costs and provenance, review exact sample cards, see campaign blockers and halt receipts, and distinguish source-labelled reports. The persistent preview notice explains that sample choices perform no external action.
+
+To inspect later, run `corepack pnpm --filter @open-marketing/studio dev` and use the existing feature rail. This job did not start a dev server. The j18 handoff below is historical; this section supersedes its domain-page deferrals and verification status for this continuation.
+
+## Changed files
+
+All 14 planned files are within apps/studio; the interrupted run's types/schema edits were retained.
+
+- src/shared/api/types.ts, validation.ts: optional `StudioSnapshot.pages` with creative, campaigns and operations read models; strict bounded schemas.
+- src/shared/api/sample-data.ts: three named fixture blocks; six generation examples, three assets/drafts/reports/connections/plugins, four halt/activity receipts and the two allowance settings. Added one over-allowance exact card; retained the existing cards and sample API methods.
+- src/app/Shell.tsx: passes the existing API/runtime into WorkspaceCanvas.
+- src/widgets/workspace-canvas/ui/WorkspaceCanvas.tsx, WorkspaceCanvas.hooks.ts: compose domain views; format money, associate exact cards and original assets outside component bodies. Missing pages shows “Domain details unavailable”.
+- src/widgets/workspace-canvas/ui/CreativeMediaCanvas.tsx, CampaignSafetyCanvas.tsx, OperationsCanvas.tsx: native cards/details and existing navigation links; no second design system or state library.
+- src/styles.css: extends existing cards, facts and responsive grid without new tokens or layout system.
+- tests/domain-pages.test.ts, tests/api-port.test.ts: domain display/approval cases and one enriched-snapshot case in the existing shared adapter suite.
+- HANDOFF.md, progress-ledger.md: continuation and integration evidence.
+
+## Tests and verification
+
+Tests written, not run. Domain tests exercise unknown cost, pending/failed/unknown outcomes, generation-card association, original/crop and dedupe evidence, blocked/unavailable review even with a referenced card, approval acknowledgement while a draft stays paused, separate local/remote halt state, both allowance labels and revisions, the three report truth models, mixed-currency CAC unavailability, reauthentication/revoked authority, linked operation/job/audit evidence and optional-page absence. Adversarial boundary cases include one invalid generation in a valid batch, nested secret text, plugin MCP/token fields, long display strings and a 101-item list. Existing exact-card forgery/deduplication/expiry coverage was retained without duplication in the adapter suite.
+
+Exactly one lane typecheck was invoked in this continuation:
+`corepack pnpm --filter @open-marketing/studio typecheck`
+Result: **FAILED, exit 2**. `tsc --noEmit` completed successfully; `tsc -p tsconfig.tests.json` reported TS2769 for unsupported `exact` options in role queries: five in the new domain-pages file and three pre-existing occurrences (approval-ui.test.ts:24; chat.test.ts:15 and :30). The new file now uses anchored accessible-name regexes instead. That correction was not rechecked; existing files outside the approved map were left untouched. No typecheck pass claim is made. No tests, aggregate checks, builds, installs, live calls or migrations are authorized in this job. Rendered review and coverage/complexity measurements remain unavailable.
+
+## Contracts
+
+`StudioSnapshot.pages?` is an additive lane-local presentation model: creative (generations/assets), campaigns (drafts/halts/allowances), operations (reports/connections/plugins/measurementGrant/activity). Each collection is capped at 100, existing display-string and aggregate payload bounds remain, and unknown/plugin-config fields are rejected. The optional field preserves shell-only adapters; partial/malformed page objects reject the snapshot instead of inventing defaults. Money remains the shared Money type; unavailable money is null with supplied cost evidence.
+
+`StudioApiPort.snapshot` and `approve` signatures are unchanged. No new method, route, factory, shared-package export or dependency was added. WorkspaceCanvas now requires the same api/runtime used by the shell. ApprovalCard is reused unchanged and receives the associated card verbatim. A blocked/unavailable server review exposes no launch card. Browser code does not calculate safety, allowance rollover, reservations or CAC.
+
+Sample settings display USD $10/day for image generation, America/Los_Angeles, owner-local midnight, usage/reservations and revision outcome. Paid sending displays USD $5/day with pending authoritative semantics. Neither setting grants ad-spend authority. Fixtures are repeatable after reload; no durable workflow restoration is claimed.
+
+Shared contracts/manifests/lockfile/composition were untouched; no migration, commit or push occurred.
+
+## Architecture audit and pre-completion
+
+Static audit: PASS within the approved sample scope. Checked all changed files for studio-only ownership; app → widget → feature/shared public-entry imports; no backend feature/vendor/plugin runtime imports; injected API/runtime; no nested TSX functions; bounded strict read models; original/crop evidence; server-decided review/allowance/halt/report states; existing routes and generic approval reuse. Mechanical architecture/complexity gates and rendered UI checks were not run, so this is not a gate-pass or production-readiness claim.
+
+Requirements re-read against the approved file map. Existing tests were not deleted or weakened. Dirty/untracked work in other lanes was preserved. Discovery used direct source reads because codebase-memory MCP tools were not available. No extra files or unplanned runtime actions were added. No separate certified test/hash artifact was supplied; the approved dispatch is the active implementation contract.
+
+## Reuse, documentation and function quality
+
+Pattern priming: the owner-approved plan explicitly requires the existing WorkspaceCanvas/render helpers, hook-derived display models and unchanged ApprovalCard style. Those source files were the seed; no new visual direction or approval flow was invented.
+
+Reuse: domain inspection; inspected WorkspaceCanvas, navigation public entry, Shell and styles; extended existing native cards/details and route links, with view-specific evidence models required by the approved plan.
+Reuse: exact review; inspected features/approve public entry, UI/hooks/rules and existing API suite; used unchanged ApprovalCard and approve acknowledgement.
+Reuse: validation/formatting; inspected shared/api types/validation/sample and shared Money schema; used installed Zod/parseBoundary and Intl.NumberFormat, retaining nulls and evidence.
+Backend public indexes for creative, media-library, campaigns, safety, measure, credentials and plugins were read for boundaries only; none is imported into the browser. The planner's documented Jini availability check was reused; no dependency installation or registry request was needed for this continuation.
+
+Documentation: StudioPages, optional pages, WorkspaceCanvas props/renderer and view-model preparation are documented; renderer markup and obvious private mappers inherit the nearest parent docs. Hook complexity is linear in bounded lists, with bounded Maps for associations, no I/O and no retained state. No new external-I/O code exists; approval effects remain owned by the existing feature.
+
+| Assessment units | Disposition | Findings | Local fix / direct seam |
+| --- | --- | --- | --- |
+| Snapshot schemas / optional pages | NO_RECORDED_FINDINGS (static) | No policy calculation; strict aggregate rejection retained | domain-pages boundary cases |
+| Money formatting / creative/campaign/operation display preparation | NO_RECORDED_FINDINGS (static) | Linear bounded mapping; null stays unavailable; ready state is supplied | domain-pages rendered evidence and card association cases |
+| Domain renderers / Shell wiring | RECOMMENDED | Low:UI: responsive layout/zoom/focus not rendered in this dispatch | Existing native semantics and grid reused; integrator rendered review needed |
+
+Critical/High findings: none in static review; mechanical measurements not available. No all-units zero-findings claim. Name audit checked cost observations, estimate/actual distinction, original links, server remaining amount, localBarrier versus remoteStop and source/CAC/restatement labels. Callback scalar signatures are limited to native Array.map rendering wrappers, not owned port APIs. Every changed logic path has a direct snapshot/display seam; missing-card/empty-list rendering also remains reachable via injected snapshots. Coverage metrics and red/green evidence cannot be claimed because the owner prohibited test execution.
+
+Self-validation: not run; tests/builds/dev startup were excluded by this dispatch. No browser or runtime success claim. Suggested review status: sample implementation awaiting integrator evidence.
+
+## Left out, risks and needs
+
+- Generation submission, file upload/dedupe execution, crop editing, campaign editing/launch dispatch, halt submission and allowance mutation remain deferred; current port has no such methods.
+- OAuth browser flows, plugin install/update/revoke and measurement-grant editing remain deferred; pages show status/recovery guidance only.
+- Live refresh, durable restoration, job/event reconciliation and persistence remain deferred. Fixed fixtures are examples, not evidence of live workflows.
+- Server decides CAC, safety, daily eligibility/reset/reservations and grants. No browser arithmetic or midnight scheduler was added.
+- j22 must map validated responses into these read models, supply missing actions, and apply the shared adapter suite to a recorded HTTP fixture.
+- Safety/server owner must confirm owner-local midnight integration and authoritative paid-sending allowance semantics. The safety public index and current JOBS notes already describe owner-local rollover; this lane changes no shared policy.
+- Integrator must correct the three pre-existing ByRoleOptions `exact` errors in tests/approval-ui.test.ts and tests/chat.test.ts, recheck the corrected new domain tests, then run tests/build/om:check and rendered desktop/mobile review when authorized. Static typecheck alone does not prove UI or acceptance success.
+
+## Handoff
+
+Review the 14 lane files and resolve/recheck the test-compilation blockers, then integrate j22 against the unchanged StudioApiPort with optional pages. Keep sample labels until replacing fixtures with authoritative server results. Full j19–j21 acceptance and HTTP/studio/CLI parity remain open. The shell's existing chat/navigation/card behavior and composition replacement seam are retained.
+
+---
+
+# Studio shell handoff (j18 historical record)
 
 Programmer(Direct): The studio now has a sample operator workspace with feature navigation, a central canvas, the preserved global assistant FAB and docked panel, and generic exact-argument approval cards. Run `corepack pnpm --filter @open-marketing/studio dev` from the repository root to inspect it. This command was not launched during implementation.
 

@@ -929,3 +929,64 @@ button:hover:enabled {
     scroll-behavior:auto!important
   }
 }
+
+/* Domain views extend the shell cards and stack with the existing canvas grid. */
+.domain-note {
+  font-size:12px;
+  line-height:1.8;
+  margin:14px 0 22px
+}
+.domain-section {
+  margin-top:28px
+}
+.domain-facts {
+  margin:16px 0;
+  font-size:11px
+}
+.domain-facts>div {
+  display:flex;
+  justify-content:space-between;
+  flex-wrap:wrap;
+  gap:8px 16px;
+  margin:10px 0
+}
+.domain-facts dt {
+  color:var(--muted)
+}
+.domain-facts dd {
+  margin:0;
+  overflow-wrap:anywhere
+}
+.domain-evidence {
+  padding-left:18px;
+  font-size:11px;
+  color:var(--muted);
+  line-height:1.8
+}
+.domain-scope {
+  display:block
+}
+.canvas-card details {
+  font-size:11px;
+  line-height:1.8;
+  margin-top:16px
+}
+.canvas-card summary {
+  cursor:pointer;
+  padding:8px 0
+}
+.canvas-card code {
+  display:block;
+  overflow-wrap:anywhere;
+  margin:8px 0
+}
+.canvas-card .approval-card {
+  margin:18px 0 0
+}
+.workspace-canvas .canvas-card a,.workspace-canvas .domain-note a {
+  text-decoration:underline;
+  text-underline-offset:3px
+}
+.canvas-card-body {
+  overflow-wrap:anywhere
+}
