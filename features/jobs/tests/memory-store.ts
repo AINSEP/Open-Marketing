@@ -1,64 +1,14 @@
-import type { Completion, EnqueueResult, LeaseFence, OutboxJob, OutboxStore } from "../src/types.js";
-/** TEST ONLY. Single-process synchronous mutations simulate atomic transitions; no durability. */
+import { createMemoryOutboxStore } from "../index.js";
+import type { Completion, LeaseFence, OutboxJob, OutboxStore } from "../index.js";
+/** Characterization compatibility wrapper over the same double exercised by the memory/SQL B1 suite.
+ * Test-only construction performs no I/O; it retains the preserved fixture's snapshot ABI.
+ */
 export class MemoryStore implements OutboxStore {
-    private readonly jobs = new Map<string, OutboxJob>();
-    snapshot(): readonly OutboxJob[] { return [...this.jobs.values()].map(job => ({ ...job })); }
-    async enqueue(job: OutboxJob): Promise<EnqueueResult> {
-        const existing = [...this.jobs.values()].find(value => value.tenantId === job.tenantId && value.idempotencyKey === job.idempotencyKey);
-        if (existing) {
-            if (existing.requestDigest !== job.requestDigest || existing.operation !== job.operation || existing.payload !== job.payload)
-                return { kind: "conflict" };
-            return { kind: "existing", job: { ...existing } };
-        }
-        if (this.jobs.has(job.id))
-            throw new Error("Duplicate generated ID");
-        this.jobs.set(job.id, { ...job });
-        return { kind: "inserted", job: { ...job } };
-    }
-    async recoverExpired({ now, limit }: {
-        now: number;
-        limit: number;
-    }): Promise<number> {
-        let recovered = 0;
-        for (const job of this.jobs.values()) {
-            if (recovered >= limit)
-                break;
-            if ((job.state === "leased" || job.state === "dispatching") && job.leaseExpiresAt! <= now) {
-                this.jobs.set(job.id, { ...job, state: "reconcile", leaseToken: null, leaseExpiresAt: null });
-                recovered++;
-            }
-        }
-        return recovered;
-    }
-    async claim(input: {
-        now: number;
-        leaseToken: string;
-        leaseExpiresAt: number;
-        maxAttempts: number;
-    }): Promise<OutboxJob | null> {
-        const job = [...this.jobs.values()].find(value => (value.state === "pending" || value.state === "retry") && value.availableAt <= input.now && value.attempts < input.maxAttempts);
-        if (!job)
-            return null;
-        const claimed: OutboxJob = { ...job, state: "leased", attempts: job.attempts + 1, leaseToken: input.leaseToken, leaseExpiresAt: input.leaseExpiresAt };
-        this.jobs.set(job.id, claimed);
-        return { ...claimed };
-    }
-    private fenced(fence: LeaseFence): OutboxJob | undefined {
-        const job = this.jobs.get(fence.id);
-        return job && job.tenantId === fence.tenantId && job.leaseToken === fence.token && job.leaseExpiresAt! > fence.now && (job.state === "leased" || job.state === "dispatching") ? job : undefined;
-    }
-    async beginDispatch(fence: LeaseFence): Promise<boolean> {
-        const job = this.fenced(fence);
-        if (!job || job.state !== "leased")
-            return false;
-        this.jobs.set(job.id, { ...job, state: "dispatching" });
-        return true;
-    }
-    async complete(fence: LeaseFence, completion: Completion): Promise<boolean> {
-        const job = this.fenced(fence);
-        if (!job)
-            return false;
-        this.jobs.set(job.id, { ...job, ...completion, leaseToken: null, leaseExpiresAt: null });
-        return true;
-    }
+    private readonly store = createMemoryOutboxStore({});
+    snapshot(): readonly OutboxJob[] { return this.store.snapshot({}); }
+    enqueue(job: OutboxJob) { return this.store.enqueue(job); }
+    recoverExpired(input: Parameters<OutboxStore["recoverExpired"]>[0]) { return this.store.recoverExpired(input); }
+    claim(input: Parameters<OutboxStore["claim"]>[0]) { return this.store.claim(input); }
+    beginDispatch(fence: LeaseFence) { return this.store.beginDispatch(fence); }
+    complete(fence: LeaseFence, completion: Completion) { return this.store.complete(fence, completion); }
 }

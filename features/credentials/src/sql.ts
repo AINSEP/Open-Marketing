@@ -22,7 +22,7 @@ const dbRecordSchema = dbSummarySchema.extend({ version: z.union([z.number(), z.
 export function createSqlCredentialRepo(required: { db: CredentialSqlPort; clock: ClockPort }): CredentialRepoPort {
   return {
     async get(input, options) {
-      return boundary({ run: async () => {
+      return boundary<ConnectionSummary | null>({ run: async () => {
         if (!lookupSchema.safeParse(input).success) return failure({ code: "invalid_input" });
         const result = await required.db.query({ text: `SELECT ${summaryColumns} FROM om_credential_connection WHERE ${identityWhere}`, values: identityValues(input) });
         if (!result.rows.length) return { ok: true, value: null };
@@ -30,7 +30,7 @@ export function createSqlCredentialRepo(required: { db: CredentialSqlPort; clock
       } }, options);
     },
     async getSecret(input, options) {
-      return boundary({ run: async () => {
+      return boundary<CredentialRecord | null>({ run: async () => {
         if (!lookupSchema.safeParse(input).success) return failure({ code: "invalid_input" });
         if (input.context.principal.kind !== "service") return failure({ code: "forbidden" });
         const result = await required.db.query({ text: `SELECT ${summaryColumns}, version, ciphertext, aad_digest FROM om_credential_connection WHERE ${identityWhere} AND status = 'connected'`, values: identityValues(input) });

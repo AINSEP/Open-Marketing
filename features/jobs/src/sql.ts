@@ -1,9 +1,10 @@
 import type { Completion, EnqueueResult, LeaseFence, OutboxEvent, OutboxJob } from "./types.js";
 import type { ManagedOutboxStore } from "./store.js";
 import type { JobsSqlDatabase, JobsSqlSession } from "./sql-types.js";
-import { validateClaim, validateCompletion, validateTime } from "./store.js";
+import { validateClaim, validateCompletion, validateFence, validateResolution, validateTime } from "./store.js";
 import { appendTransition, enqueueSqlJob, sqlJob } from "./sql-queries.js";
 import { JobStoreError } from "./errors.js";
+import { validateStoredJob } from "./schema.js";
 /** Serialized durable outbox adapter, driver-free and timer-free. Migration application belongs to server composition.
  * @example createSqlOutboxStore({ database })
  * @complexity Indexed transitions/claims plus bounded recovery (<=1000 rows); capacity check O(n), n <=maxJobs.
@@ -28,34 +29,42 @@ export function createSqlOutboxStore(required: { database: JobsSqlDatabase; maxJ
         try { required.observe?.(event); } catch { /* Never retry because telemetry failed. */ }
     }
     return {
-        enqueue(job): Promise<EnqueueResult> {
+        async enqueue(input): Promise<EnqueueResult> {
+            const job = validateStoredJob({ job: input });
             return transact({ operation: "enqueue", execute: ({ session }) => enqueueSqlJob({ session, job, maxJobs }) });
         },
-        recoverExpired(input): Promise<number> {
+        async recoverExpired(input): Promise<number> {
             validateTime(input);
             if (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 1000) throw new JobStoreError({ code: "invalid_input", message: "Invalid recovery limit" });
-            return transact({ operation: "recovery", execute: ({ session }) => recover({ session, ...input }) });
+            const snapshot = { ...input };
+            return transact({ operation: "recovery", execute: ({ session }) => recover({ session, ...snapshot }) });
         },
-        claim(input): Promise<OutboxJob | null> {
+        async claim(input): Promise<OutboxJob | null> {
             validateClaim(input);
-            return transact({ operation: "claim", execute: ({ session }) => claim({ session, ...input }) });
+            const snapshot = { ...input };
+            return transact({ operation: "claim", execute: ({ session }) => claim({ session, ...snapshot }) });
         },
-        beginDispatch(fence): Promise<boolean> {
-            validateTime(fence);
+        async beginDispatch(input): Promise<boolean> {
+            validateFence(input);
+            const fence = { ...input };
             return transact({ operation: "dispatch", execute: ({ session }) => fencedUpdate({ session, fence, states: "'leased'", state: "dispatching", event: "dispatch" }) });
         },
-        complete(fence: LeaseFence, completion: Completion): Promise<boolean> {
+        async complete(input: LeaseFence, result: Completion): Promise<boolean> {
+            const fence = { ...input };
+            const completion = { ...result };
             validateCompletion({ fence, completion });
             return transact({ operation: "complete", execute: ({ session }) => fencedUpdate({ session, fence, states: "'leased','dispatching'", state: completion.state, availableAt: retryAt({ completion }), event: "complete" }) });
         },
-        get(input): Promise<OutboxJob | null> {
+        get(request): Promise<OutboxJob | null> {
+            const input = { ...request };
             return transact({ operation: "claim", execute: async ({ session }) => {
                 const result = await session.query({ sql: "SELECT * FROM job WHERE tenant_id = $1 AND id = $2", parameters: [input.tenantId, input.id] });
                 if (result.rows.length === 0) return null;
                 return sqlJob({ row: result.rows[0] });
             } });
         },
-        cancel(input): Promise<boolean> {
+        async cancel(request): Promise<boolean> {
+            const input = { ...request };
             validateTime(input);
             return transact({ operation: "complete", execute: async ({ session }) => {
                 const result = await session.query({
@@ -65,9 +74,9 @@ export function createSqlOutboxStore(required: { database: JobsSqlDatabase; maxJ
                 return recordUpdate({ session, rows: result.rows, event: "cancel", now: input.now });
             } });
         },
-        resolve(input): Promise<boolean> {
-            validateTime(input);
-            if (!input.evidenceId.trim() || input.evidenceId.length > 256) throw new JobStoreError({ code: "invalid_input", message: "Reconciliation requires evidence" });
+        async resolve(request): Promise<boolean> {
+            const input = { ...request };
+            validateResolution(input);
             return transact({ operation: "complete", execute: async ({ session }) => {
                 const result = await session.query({
                     sql: "UPDATE job SET state = $1 WHERE tenant_id = $2 AND id = $3 AND state = 'reconcile' RETURNING *",
@@ -89,6 +98,8 @@ async function recover(required: { session: JobsSqlSession; now: number; limit: 
 }
 /** Serialized selection and update prevent two claimers from seeing the same due job. @complexity Indexed select + update + append. */
 async function claim(required: { session: JobsSqlSession; now: number; leaseToken: string; leaseExpiresAt: number; maxAttempts: number }): Promise<OutboxJob | null> {
+    const duplicate = await required.session.query({ sql: "SELECT id FROM job WHERE lease_token = $1", parameters: [required.leaseToken] });
+    if (duplicate.rows.length > 0) throw new JobStoreError({ code: "conflict", message: "Lease token already active" });
     const result = await required.session.query({
         sql: "UPDATE job SET state = 'leased', attempts = attempts + 1, lease_token = $1, lease_expires_at = $2 WHERE id = (SELECT id FROM job WHERE state IN ('pending','retry') AND available_at <= $3 AND attempts < $4 ORDER BY available_at, created_at, id LIMIT 1) AND state IN ('pending','retry') RETURNING *",
         parameters: [required.leaseToken, required.leaseExpiresAt, required.now, required.maxAttempts],

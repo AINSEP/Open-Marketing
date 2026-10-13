@@ -16,9 +16,15 @@ export const generationRequestSchema = z.strictObject({
 });
 /** Bounded polling boundary shared by service and adapter. */
 export const pollRequestSchema = z.strictObject({ leaseOwner: idSchema, leaseMs: z.number().int().min(1000).max(60_000), limit: z.number().int().min(1).max(100), cursor: idSchema.optional() });
+/** Dispatch receipts must identify the durable provider operation, unlike an enqueue receipt. */
+export const dispatchReceiptSchema = z.strictObject({ generationId: idSchema, operationId: idSchema, asyncOperationId: idSchema, status: z.enum(["pending", "succeeded"]) });
 /** Append-only money boundary. Negative/refund inference is deliberately absent. */
 export const costSchema = z.strictObject({ observationId: idSchema, generationId: idSchema, operationId: idSchema, amount: moneySchema, kind: z.enum(["estimated", "actual", "correction"]), correctionOf: idSchema.optional() }).refine(value => (value.kind === "correction") === (value.correctionOf !== undefined));
 const resultSchema = z.strictObject({ bytesBase64: z.string().max(22_369_624).regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/), providerNote: z.string().max(4096), suggestedExt: z.string().max(16).optional() });
+/** Media boundary validates bounded payload shape; guarded URL fetching remains media-owned. */
+export const generationOutputSchema = z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("bytes"), result: resultSchema }), z.strictObject({ kind: z.literal("url"), sourceUrl: z.url().max(4096), expectedDigest: digestSchema })]);
+/** Original generation/rights evidence is retained independently of an imported asset. */
+export const provenanceSchema = z.strictObject({ operationId: idSchema, generationId: idSchema, prompt: z.string().min(1).max(32_768), model: idSchema, seed: z.number().int().min(0).max(4_294_967_295).nullable(), quoteId: idSchema, vendorTermsDigest: digestSchema.nullable(), rightsEvidenceId: idSchema, assetId: idSchema.optional() });
 /** Validates tainted Jini rows before they can become provenance or assets. Credentials are not a row field. */
 export const operationSchema = z.strictObject({
   schemaVersion: z.literal(1), id: idSchema, providerId: idSchema, routeKey: idSchema, ownerRef: z.string().min(1).max(1024),

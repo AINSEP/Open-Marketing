@@ -2,16 +2,16 @@ import type { z } from "zod";
 import type { CallContext, CallOptions, Outcome } from "@open-marketing/contracts";
 import type { CampaignRepoPort, CampaignSqlPort, CampaignObserverPort } from "../ports.js";
 import type { CampaignRecord, LaunchProposal } from "../types.js";
-import { campaignId, createInputSchema, fail, parseBoundary, recordSchema, proposalSchema, success, digest, observationSchema, scopeKey } from "../rules.js";
-import { checkCancelled, existingDraft, existingProposal, getInputSchema, observeInputSchema, proposalInputSchema, proposalGetSchema, proposalForRecord, withObservation } from "../repo-rules.js";
+import { campaignId, createInputSchema, fail, parseBoundary, recordSchema, proposalBinding, proposalSchema, success, digest, observationSchema } from "../rules.js";
+import { boundRecord, checkCancelled, existingDraft, existingProposal, getInputSchema, observeInputSchema, proposalInputSchema, proposalGetSchema, proposalForRecord, withObservation } from "../repo-rules.js";
 
 interface Dependencies { db: CampaignSqlPort; observer?: CampaignObserverPort }
-const recordQuery = `SELECT c.record_json, (SELECT r.observation_json FROM campaign_revision r
+const recordQuery = `SELECT c.operation_id, c.record_json, (SELECT r.observation_json FROM campaign_revision r
  WHERE r.owner_id=c.owner_id AND r.workspace_id=c.workspace_id AND r.campaign_id=c.campaign_id
  ORDER BY r.revision DESC LIMIT 1) AS observation_json FROM campaign c
  WHERE c.owner_id=$1 AND c.workspace_id=$2 AND c.campaign_id=$3`;
 
-/** Inert portable SQL repository. Caller supplies the documented db-shaped shim,
+/** Inert portable SQL repository. Caller supplies the server-owned query port,
  * initializes the additive migration separately, and owns connection/lifecycle.
  * Never imports a driver or another feature's tables.
  * @example createSqlCampaignRepo({ db: serverQueryable }, { observer });
@@ -20,7 +20,7 @@ const recordQuery = `SELECT c.record_json, (SELECT r.observation_json FROM campa
 export function createSqlCampaignRepo(required: { db: CampaignSqlPort }, optional: { observer?: CampaignObserverPort } = {}): CampaignRepoPort {
   const dependencies: Dependencies = { ...required, ...optional };
   return {
-    save(input, options) { return sqlBoundary({ dependencies, context: input.context, operation: "campaigns.repo.save", execute: async () => {
+    save(input, options) { return sqlBoundary({ dependencies, context: input?.context, operation: "campaigns.repo.save", execute: async () => {
       const parsed = parseBoundary({ schema: createInputSchema, input });
       if (!parsed.ok) return parsed;
       const { context, draft } = parsed.value;
@@ -32,12 +32,12 @@ export function createSqlCampaignRepo(required: { db: CampaignSqlPort }, optiona
       if (!saved.value) return fail({ code: "unavailable", message: "Saved SQL campaign missing" });
       return existingDraft({ record: saved.value, draftDigest: digest({ value: draft }) });
     } }, options); },
-    get(input, options) { return sqlBoundary({ dependencies, context: input.context, operation: "campaigns.repo.get", execute: async () => {
+    get(input, options) { return sqlBoundary({ dependencies, context: input?.context, operation: "campaigns.repo.get", execute: async () => {
       const parsed = parseBoundary({ schema: getInputSchema, input });
       if (!parsed.ok) return parsed;
       return readRecord({ dependencies, ...parsed.value });
     } }, options); },
-    observe(input, options) { return sqlBoundary({ dependencies, context: input.context, operation: "campaigns.repo.observe", execute: async () => {
+    observe(input, options) { return sqlBoundary({ dependencies, context: input?.context, operation: "campaigns.repo.observe", execute: async () => {
       const parsed = parseBoundary({ schema: observeInputSchema, input });
       if (!parsed.ok) return parsed;
       const { context, state } = parsed.value;
@@ -52,7 +52,7 @@ export function createSqlCampaignRepo(required: { db: CampaignSqlPort }, optiona
       if (appended.rowCount !== 1) return fail({ code: "conflict", message: "Stale observation" });
       return success({ value: state });
     } }, options); },
-    saveProposal(input, options) { return sqlBoundary({ dependencies, context: input.context, operation: "campaigns.repo.saveProposal", execute: async () => {
+    saveProposal(input, options) { return sqlBoundary({ dependencies, context: input?.context, operation: "campaigns.repo.saveProposal", execute: async () => {
       const parsed = parseBoundary({ schema: proposalInputSchema, input });
       if (!parsed.ok) return parsed;
       const { context, proposal } = parsed.value;
@@ -67,13 +67,16 @@ export function createSqlCampaignRepo(required: { db: CampaignSqlPort }, optiona
       if (!saved.value) return fail({ code: "unavailable", message: "SQL proposal missing" });
       return existingProposal({ existing: saved.value, proposal });
     } }, options); },
-    getProposal(input, options) { return sqlBoundary({ dependencies, context: input.context, operation: "campaigns.repo.getProposal", execute: async () => {
+    getProposal(input, options) { return sqlBoundary({ dependencies, context: input?.context, operation: "campaigns.repo.getProposal", execute: async () => {
       const parsed = parseBoundary({ schema: proposalGetSchema, input });
       if (!parsed.ok) return parsed;
       return readProposal({ dependencies, ...parsed.value });
     } }, options); },
   };
 }
+/** Read the latest append-only observation and bind every nested identity to its row key.
+ * @complexity One indexed SQL query plus O(n) bounded JSON/schema validation.
+ */
 async function readRecord(required: { dependencies: Dependencies; context: CallContext; campaignId: string }): Promise<Outcome<CampaignRecord | null>> {
   const { context, campaignId, dependencies } = required;
   const result = await dependencies.db.query({ text: recordQuery, values: [context.scope.ownerId, context.scope.workspaceId, campaignId] });
@@ -81,17 +84,26 @@ async function readRecord(required: { dependencies: Dependencies; context: CallC
   if (!row) return success({ value: null });
   const parsed = parseStored({ schema: recordSchema, value: row.record_json });
   if (!parsed.ok) return parsed;
-  if (scopeKey({ scope: parsed.value.scope }) !== scopeKey({ scope: context.scope }) || parsed.value.receipt.campaignId !== campaignId) return fail({ code: "invalid_input", message: "Stored campaign scope mismatch" });
-  if (row.observation_json === null) return parsed;
+  if (parsed.value.draft.operationId !== row.operation_id) return fail({ code: "conflict", message: "Stored creation operation mismatch" });
+  if (row.observation_json === null) return boundRecord({ context, campaignId, value: parsed.value });
   const observation = parseStored({ schema: observationSchema, value: row.observation_json });
   if (!observation.ok) return observation;
-  return success({ value: withObservation({ record: parsed.value, state: observation.value }) });
+  return boundRecord({ context, campaignId, value: withObservation({ record: parsed.value, state: observation.value }) });
 }
+/** A schema-valid card must still match its storage key and entire spend envelope.
+ * @complexity One indexed SQL query plus O(n) bounded proposal bytes.
+ */
 async function readProposal(required: { dependencies: Dependencies; context: CallContext; operationId: string }): Promise<Outcome<LaunchProposal | null>> {
   const { context, operationId, dependencies } = required;
-  const result = await dependencies.db.query({ text: "SELECT proposal_json FROM campaign_launch_proposal WHERE owner_id=$1 AND workspace_id=$2 AND operation_id=$3", values: [context.scope.ownerId, context.scope.workspaceId, operationId] });
+  const result = await dependencies.db.query({ text: "SELECT campaign_id, proposal_json FROM campaign_launch_proposal WHERE owner_id=$1 AND workspace_id=$2 AND operation_id=$3", values: [context.scope.ownerId, context.scope.workspaceId, operationId] });
   if (!result.rows[0]) return success({ value: null });
-  return parseStored({ schema: proposalSchema, value: result.rows[0].proposal_json });
+  const parsed = parseStored({ schema: proposalSchema, value: result.rows[0].proposal_json });
+  if (!parsed.ok) return parsed;
+  const proposal = parsed.value;
+  if (proposal.operations[0].operationId !== operationId || proposal.campaignId !== result.rows[0].campaign_id) return fail({ code: "conflict", message: "Stored proposal identity mismatch" });
+  const bound = proposalBinding({ proposal });
+  if (!bound.ok) return bound;
+  return parsed;
 }
 /** Stored rows are tainted too; bound JSON before parsing and map corrupt data explicitly. */
 function parseStored<T>(required: { schema: z.ZodType<T>; value: unknown }): Outcome<T> {

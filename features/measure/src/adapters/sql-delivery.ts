@@ -2,7 +2,7 @@ import { callContextSchema, idSchema, parseBoundary } from "@open-marketing/cont
 import type { CallContext, ClockPort, IdPort, ServiceContext } from "@open-marketing/contracts";
 import type { ConversionDeliveryStatePort, MeasureAuditPort, MeasureObserverPort, MeasureSqlDatabase, MeasureSqlQueryable } from "../ports.js";
 import type { ConversionDispatchRecord } from "../types.js";
-import { dispatchRecordSchema, failure, scopeKey } from "../rules.js";
+import { dispatchRecordSchema, failure, scopeKey, serviceContextSchema } from "../rules.js";
 import { validateDeliveryTransition } from "../delivery/ledger-rules.js";
 import { sqlBoundary, unwrap } from "./sql-boundary.js";
 
@@ -13,6 +13,8 @@ import { sqlBoundary, unwrap } from "./sql-boundary.js";
 export function createSqlConversionDeliveryState(required: { database: MeasureSqlDatabase }, optional?: { observer?: MeasureObserverPort }): ConversionDeliveryStatePort {
   return {
     async begin(input, options) {
+      const context = parseBoundary({ schema: serviceContextSchema, input: input.context });
+      if (!context.ok) return context;
       const parsed = parseBoundary({ schema: dispatchRecordSchema, input: input.record });
       if (!parsed.ok) return parsed;
       if (parsed.value.status !== "dispatching") return failure({ code: "invalid_input", message: "Claim must begin dispatching" });
@@ -27,6 +29,8 @@ export function createSqlConversionDeliveryState(required: { database: MeasureSq
       } }) }, options);
     },
     async append(input, options) {
+      const context = parseBoundary({ schema: serviceContextSchema, input: input.context });
+      if (!context.ok) return context;
       const parsed = parseBoundary({ schema: dispatchRecordSchema, input: input.record });
       if (!parsed.ok) return parsed;
       return sqlBoundary({ context: asCallContext({ context: input.context }), operation: "measure.sql.appendDelivery", observer: optional?.observer, work: () => required.database.transaction({ work: async transaction => {

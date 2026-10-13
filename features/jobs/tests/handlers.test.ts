@@ -64,4 +64,30 @@ describe("handler lifecycle", () => {
         expect(await registry.dispatch({ context, job: { ...job, payload: { invalid: Number.NaN } } })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
         expect(handle).toHaveBeenCalledTimes(1);
     });
+    it("malformed handler classification cannot authorize a retry", async () => {
+        const registry = createJobHandlerRegistry({});
+        registry.register({ name: "write", handler: {
+            async handle() { return { kind: "failure", classification: "unrecognized" } as unknown as TransportResult; },
+            async dispose() {},
+        } });
+        expect(await registry.dispatch({ context, job })).toEqual({ ok: true, value: { kind: "completed", jobId: job.operationId, state: "reconcile" } });
+        await registry.dispose({});
+    });
+    it("bounds active effects across handlers and frees capacity after settlement", async () => {
+        const registry = createJobHandlerRegistry({ maxActive: 1 });
+        const attempt = pendingAttempt({});
+        registry.register({ name: "write", handler: attempt.handler });
+        const handle = vi.fn(async (): Promise<TransportResult> => ({ kind: "success" }));
+        registry.register({ name: "second", handler: { handle, async dispose() {} } });
+        const dispatched = registry.dispatch({ context, job });
+        await attempt.started;
+        const second = { context, job: { ...job, handler: "second" } };
+        expect(await registry.dispatch(second)).toMatchObject({ ok: false, error: { code: "limit_exceeded" } });
+        expect(handle).not.toHaveBeenCalled();
+        attempt.resolve({ kind: "success" });
+        await dispatched;
+        expect(await registry.dispatch(second)).toMatchObject({ ok: true, value: { state: "succeeded" } });
+        expect(handle).toHaveBeenCalledTimes(1);
+        await registry.dispose({});
+    });
 });

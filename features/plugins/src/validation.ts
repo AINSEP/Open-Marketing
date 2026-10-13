@@ -10,6 +10,7 @@ import { failure, success } from "./results.js";
 const entrySchema = z.strictObject({ path: z.string().max(4096), kind: z.enum(["file", "directory", "symlink", "hardlink"]), content: z.string().max(16 * 1024 * 1024).optional() });
 const packageSchema = z.strictObject({ entries: z.array(entrySchema).max(4096) });
 const knownManifestFields = new Set(["$schema", "name", "version", "description", "author", "homepage", "repository", "license", "keywords", "extensions"]);
+type FileInventory = { files: Map<string, string>; seen: Set<string>; bytes: number };
 
 /** Portable v1.1 inspection, with local schemas and explicit narrow failure boundaries.
  * Links/duplicate entries/escapes invalidate the package. Invalid MCP entries/skills are reported
@@ -27,7 +28,7 @@ export function inspectPluginPackage(required: { package: PluginPackage; digest:
   const parsed = manifestSchema.safeParse(manifest.value);
   if (!parsed.success) return failure({ code: "invalid_input", message: "Invalid or unsupported portable plugin manifest" });
   reportUnknown({ value: manifest.value, diagnostics });
-  const servers = inspectServers({ files: collected.value, diagnostics });
+  const servers = inspectServers({ files: collected.value, diagnostics, exists: required.package.entries.some(entry => entry.path === "mcp.json") });
   const value = namespaceValue({ manifest: manifest.value, diagnostics });
   const extension = validateExtension({ value, pluginId: parsed.data.name, digest: required.digest, files: collected.value, servers: new Set(Object.keys(servers)) });
   if (!extension.ok) return extension;
@@ -40,22 +41,28 @@ export function inspectPluginPackage(required: { package: PluginPackage; digest:
 function collectFiles(required: { package: PluginPackage }): Outcome<ReadonlyMap<string, string>> {
   const parsed = packageSchema.safeParse(required.package);
   if (!parsed.success) return failure({ code: "invalid_input", message: "Invalid or oversized package inventory" });
-  const files = new Map<string, string>();
-  const seen = new Set<string>();
-  let total = 0;
+  const inventory: FileInventory = { files: new Map(), seen: new Set(), bytes: 0 };
   for (const entry of parsed.data.entries) {
-    if (unsafeEntry({ entry, seen })) {
-      return failure({ code: "invalid_input", message: "Unsafe, linked or duplicate package entry" });
-    }
-    seen.add(entry.path);
-    if (entry.kind === "directory") continue;
-    if (entry.content === undefined) return failure({ code: "invalid_input", message: "Package file content is missing" });
-    const bytes = Buffer.byteLength(entry.content);
-    total += bytes;
-    if (bytes > 16 * 1024 * 1024 || total > 64 * 1024 * 1024) return failure({ code: "limit_exceeded", message: "Package byte limit exceeded" });
-    files.set(entry.path, entry.content);
+    const collected = collectEntry({ entry, inventory });
+    if (!collected.ok) return collected;
   }
-  return success({ value: files });
+  return success({ value: inventory.files });
+}
+
+/** Local inventory mutation happens only after path checks; all files consume the byte budget.
+ * @complexity O(b) time for content size, O(1) map/set operations plus content storage.
+ */
+function collectEntry(required: { entry: PluginPackage["entries"][number]; inventory: FileInventory }): Outcome<void> {
+  const { entry, inventory } = required;
+  if (unsafeEntry({ entry, seen: inventory.seen })) return failure({ code: "invalid_input", message: "Unsafe, linked or duplicate package entry" });
+  inventory.seen.add(entry.path);
+  if (entry.kind === "directory") return success({ value: undefined });
+  if (entry.content === undefined) return failure({ code: "invalid_input", message: "Package file content is missing" });
+  const bytes = Buffer.byteLength(entry.content);
+  inventory.bytes += bytes;
+  if (bytes > 16 * 1024 * 1024 || inventory.bytes > 64 * 1024 * 1024) return failure({ code: "limit_exceeded", message: "Package byte limit exceeded" });
+  inventory.files.set(entry.path, entry.content);
+  return success({ value: undefined });
 }
 
 /** JSON objects only; raw parse errors/content never leave the boundary. @complexity O(b). */
@@ -95,8 +102,8 @@ function namespaceValue(required: { manifest: Record<string, unknown>; diagnosti
 }
 
 /** Malformed/unsupported MCP disables MCP; individual server failures don't discard valid peers. @complexity O(n+b). */
-function inspectServers(required: { files: ReadonlyMap<string, string>; diagnostics: PluginDiagnostic[] }): Record<string, PluginServer> {
-  if (!required.files.has("mcp.json")) return {};
+function inspectServers(required: { files: ReadonlyMap<string, string>; diagnostics: PluginDiagnostic[]; exists: boolean }): Record<string, PluginServer> {
+  if (!required.exists) return {};
   const object = readObject({ content: required.files.get("mcp.json") });
   if (!object.ok) return invalidMcp(required);
   const parsed = mcpSchema.safeParse(object.value);

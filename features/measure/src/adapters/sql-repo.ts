@@ -2,7 +2,7 @@ import { callContextSchema, idSchema, parseBoundary } from "@open-marketing/cont
 import type { CallContext, CallOptions, Outcome } from "@open-marketing/contracts";
 import type { MeasureObserverPort, MeasureRepoPort, MeasureSqlDatabase, MeasureSqlQueryable, MeasureTransactionalJobPort } from "../ports.js";
 import type { AttributionResult, ConversionInput, ConversionReceipt, PlatformMetricSnapshot, VerifiedConversionSource } from "../types.js";
-import { attributionSchema, conversionSchema, eventIdentity, failure, ingestionContext, querySchema, scopeKey, snapshotSchema, sourceSchema, summarySchema } from "../rules.js";
+import { attributionInputSchema, attributionSchema, eventIdentity, failure, ingestionContext, parseSourceEvent, querySchema, scopeKey, snapshotSchema, summarySchema } from "../rules.js";
 import { snapshotIdentity, validateLineage } from "../reporting/snapshot-rules.js";
 import { sqlBoundary, unwrap } from "./sql-boundary.js";
 
@@ -15,22 +15,22 @@ type RepoDependencies = { database: MeasureSqlDatabase; jobs: MeasureTransaction
 export function createSqlMeasureRepo(required: RepoDependencies, optional?: { observer?: MeasureObserverPort }): MeasureRepoPort {
   return {
     async appendConversion(input, options) {
-      const parsedSource = parseBoundary({ schema: sourceSchema, input: input.source });
-      if (!parsedSource.ok) return parsedSource;
-      const parsedEvent = parseBoundary({ schema: conversionSchema, input: input.event });
-      if (!parsedEvent.ok) return parsedEvent;
-      const value = { source: parsedSource.value, event: parsedEvent.value };
+      const parsed = parseSourceEvent({ input });
+      if (!parsed.ok) return parsed;
+      const value = parsed.value;
       return sqlBoundary({ context: ingestionContext(value), operation: "measure.sql.appendConversion", observer: optional?.observer, work: () => required.database.transaction({ work: transaction => commitConversion({ ...required, transaction, ...value }, options) }) }, options);
     },
     async appendSnapshot(input, options) {
+      const context = parseBoundary({ schema: callContextSchema, input: input.context });
+      if (!context.ok) return context;
       const parsed = parseBoundary({ schema: snapshotSchema, input: input.snapshot });
       if (!parsed.ok) return parsed;
-      return sqlBoundary({ context: input.context, operation: "measure.sql.appendSnapshot", observer: optional?.observer, work: () => required.database.transaction({ work: transaction => commitSnapshot({ transaction, context: input.context, snapshot: parsed.value }) }) }, options);
+      return sqlBoundary({ context: context.value, operation: "measure.sql.appendSnapshot", observer: optional?.observer, work: () => required.database.transaction({ work: transaction => commitSnapshot({ transaction, context: context.value, snapshot: parsed.value }) }) }, options);
     },
     async appendAttribution(input, options) {
-      const parsed = parseBoundary({ schema: attributionSchema, input: input.result });
+      const parsed = parseBoundary({ schema: attributionInputSchema, input });
       if (!parsed.ok) return parsed;
-      return sqlBoundary({ context: input.context, operation: "measure.sql.appendAttribution", observer: optional?.observer, work: () => required.database.transaction({ work: transaction => commitAttribution({ ...input, result: parsed.value, transaction }) }) }, options);
+      return sqlBoundary({ context: parsed.value.context, operation: "measure.sql.appendAttribution", observer: optional?.observer, work: () => required.database.transaction({ work: transaction => commitAttribution({ ...parsed.value, transaction }) }) }, options);
     },
     async readAttribution(input, options) {
       const context = parseBoundary({ schema: callContextSchema, input: input.context });
@@ -38,7 +38,7 @@ export function createSqlMeasureRepo(required: RepoDependencies, optional?: { ob
       const parsed = parseBoundary({ schema: querySchema, input: input.query });
       if (!parsed.ok) return parsed;
       return sqlBoundary({ context: context.value, operation: "measure.sql.readAttribution", observer: optional?.observer, work: async () => {
-        const result = await required.database.query({ text: "SELECT COUNT(*) AS conversions, MAX(e.occurred_at) AS watermark FROM measure_attribution_result a JOIN measure_conversion_event e ON a.scope_key=e.scope_key AND a.source_id=e.source_id AND a.event_id=e.event_id WHERE a.scope_key=$1 AND a.model_version=$2 AND a.campaign_id IS NOT NULL AND e.occurred_at >= $3 AND e.occurred_at < $4", values: [scopeKey({ scope: context.value.scope }), parsed.value.attributionModel, parsed.value.window.start, parsed.value.window.end] });
+        const result = await required.database.query({ text: "SELECT COUNT(*) AS conversions, MAX(e.occurred_at) AS watermark FROM measure_attribution_result a JOIN measure_conversion_event e ON a.scope_key=e.scope_key AND a.source_id=e.source_id AND a.event_id=e.event_id WHERE a.scope_key=$1 AND a.model_version=$2 AND a.campaign_id IS NOT NULL AND e.occurred_at >= $3 AND e.occurred_at < $4 AND a.account_id=$5", values: [scopeKey({ scope: context.value.scope }), parsed.value.attributionModel, parsed.value.window.start, parsed.value.window.end, parsed.value.accountId] });
         const row = result.rows[0];
         return unwrap({ outcome: parseBoundary({ schema: summarySchema, input: { conversions: Number(row?.conversions), modelVersion: parsed.value.attributionModel, watermark: row?.watermark == null ? parsed.value.window.start : Number(row.watermark) } }) });
       } }, options);
@@ -47,6 +47,7 @@ export function createSqlMeasureRepo(required: RepoDependencies, optional?: { ob
 }
 /** A failed jobs outcome is thrown to force rollback of BOTH participants. */
 async function commitConversion(required: RepoDependencies & { transaction: MeasureSqlQueryable; source: VerifiedConversionSource; event: ConversionInput }, optional?: CallOptions): Promise<ConversionReceipt> {
+  if (optional?.signal?.aborted) return unwrap({ outcome: failure({ code: "cancelled", message: "Conversion transaction cancelled" }) });
   const tenant = scopeKey({ scope: required.source.scope });
   const values = [tenant, required.source.sourceId, required.event.eventId];
   const existing = await required.transaction.query({ text: "SELECT identity, job_id FROM measure_conversion_event WHERE scope_key=$1 AND source_id=$2 AND event_id=$3", values });
@@ -55,6 +56,7 @@ async function commitConversion(required: RepoDependencies & { transaction: Meas
   if (row) return unwrap({ outcome: existingConversion({ row, identity, eventId: required.event.eventId }) });
   const context = ingestionContext(required);
   const job = unwrap({ outcome: await required.jobs.enqueue({ transaction: required.transaction, source: required.source, event: required.event, context }, optional) });
+  if (optional?.signal?.aborted) return unwrap({ outcome: failure({ code: "cancelled", message: "Conversion transaction cancelled" }) });
   const jobId = unwrap({ outcome: parseBoundary({ schema: idSchema, input: job.jobId }) });
   await required.transaction.query({ text: "INSERT INTO measure_conversion_event (scope_key,source_id,event_id,authentication_revision,occurred_at,identity,event_json,context_json,job_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)", values: [...values, required.source.authenticationRevision, required.event.occurredAt, identity, JSON.stringify(required.event), JSON.stringify(context), jobId] });
   return { eventId: required.event.eventId, status: "accepted", jobId };
@@ -93,11 +95,13 @@ async function commitAttribution(required: { transaction: MeasureSqlQueryable; c
   const existing = await required.transaction.query({ text: "SELECT result_json FROM measure_attribution_result WHERE scope_key=$1 AND source_id=$2 AND event_id=$3 AND model_version=$4", values });
   if (existing.rows[0]) {
     const previous = unwrap({ outcome: parseBoundary({ schema: attributionSchema, input: JSON.parse(String(existing.rows[0].result_json)) }) });
-    if (previous.resultId !== required.result.resultId || previous.campaignId !== required.result.campaignId) return unwrap({ outcome: failure({ code: "conflict", message: "Attribution is immutable for a declared model" }) });
+    if (previous.resultId !== required.result.resultId || previous.campaignId !== required.result.campaignId || previous.accountId !== required.result.accountId) return unwrap({ outcome: failure({ code: "conflict", message: "Attribution is immutable for a declared model" }) });
     return previous;
   }
+  const reused = await required.transaction.query({ text: "SELECT result_id FROM measure_attribution_result WHERE scope_key=$1 AND result_id=$2", values: [tenant, required.result.resultId] });
+  if (reused.rows[0]) return unwrap({ outcome: failure({ code: "conflict", message: "Attribution result ID already binds another event or model" }) });
   const event = await required.transaction.query({ text: "SELECT event_id FROM measure_conversion_event WHERE scope_key=$1 AND source_id=$2 AND event_id=$3", values: values.slice(0, 3) });
   if (!event.rows[0]) return unwrap({ outcome: failure({ code: "invalid_input", message: "Attribution requires a verified conversion" }) });
-  await required.transaction.query({ text: "INSERT INTO measure_attribution_result (scope_key,source_id,event_id,model_version,result_id,campaign_id,result_json) VALUES ($1,$2,$3,$4,$5,$6,$7)", values: [...values, required.result.resultId, required.result.campaignId, JSON.stringify(required.result)] });
+  await required.transaction.query({ text: "INSERT INTO measure_attribution_result (scope_key,source_id,event_id,model_version,result_id,campaign_id,result_json,account_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)", values: [...values, required.result.resultId, required.result.campaignId, JSON.stringify(required.result), required.result.accountId] });
   return required.result;
 }

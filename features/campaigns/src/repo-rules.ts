@@ -3,7 +3,7 @@ import { callContextSchema, idSchema } from "@open-marketing/contracts";
 import type { CallContext, CallOptions, Outcome } from "@open-marketing/contracts";
 import type { CampaignRepoPort } from "./ports.js";
 import type { CampaignRecord, CampaignReceipt, LaunchProposal, ObservedCampaignState } from "./types.js";
-import { campaignId, createInputSchema, digest, fail, observationSchema, parseBoundary, proposalSchema, scopedKey, success } from "./rules.js";
+import { digest, fail, observationSchema, parseBoundary, proposalBinding, proposalSchema, recordSchema, scopeKey, success } from "./rules.js";
 
 export const getInputSchema = z.strictObject({ context: callContextSchema, campaignId: idSchema });
 export const observeInputSchema = z.strictObject({ context: callContextSchema, state: observationSchema });
@@ -38,17 +38,54 @@ export function proposalForRecord(required: { record: CampaignRecord | null; pro
   if (args.campaignId !== record.receipt.campaignId || proposal.campaignId !== args.campaignId) return fail({ code: "conflict", message: "Proposal campaign mismatch" });
   if (args.connectionId !== record.draft.connectionId || args.accountId !== record.draft.accountId) return fail({ code: "forbidden", message: "Proposal account mismatch" });
   if (args.creativeDigest !== record.draft.creativeDigest || proposal.creativeDigest !== args.creativeDigest) return fail({ code: "conflict", message: "Proposal creative mismatch" });
-  return proposalOperationValid({ proposal });
+  return proposalBinding({ proposal });
 }
-/** One exact ad-spend operation; exposure describes arguments, never a reusable grant. */
-function proposalOperationValid(required: { proposal: LaunchProposal }): Outcome<void> {
-  const { proposal } = required;
-  const args = proposal.arguments;
-  const operation = proposal.operations[0];
-  if (operation.argumentsDigest !== digest({ value: args })) return fail({ code: "conflict", message: "Proposal arguments mismatch" });
-  if (operation.accountId !== args.accountId || operation.connectionId !== args.connectionId) return fail({ code: "forbidden", message: "Operation account mismatch" });
-  if (operation.effects.length !== 1 || operation.effects[0] !== "ad_spend" || operation.requiredLimit !== null) return fail({ code: "conflict", message: "Unexpected launch effect" });
-  const exposure = { amount: args.flight.expectedExposure, window: args.flight.window };
-  if (digest({ value: operation.moneyExposure }) !== digest({ value: exposure })) return fail({ code: "conflict", message: "Launch exposure mismatch" });
-  return success({ value: undefined });
+/** Validate repository output against the requested key, including nested evidence.
+ * Rejects tainted/cross-scope records before they influence dispatch decisions.
+ * @complexity O(n) bounded record bytes; pure, no I/O.
+ */
+export function boundRecord(required: { context: CallContext; campaignId: string; value: unknown }): Outcome<CampaignRecord> {
+  const parsed = parseBoundary({ schema: recordSchema, input: required.value });
+  if (!parsed.ok) return parsed;
+  const record = parsed.value;
+  if (scopeKey({ scope: record.scope }) !== scopeKey({ scope: required.context.scope })) return fail({ code: "forbidden", message: "Campaign scope mismatch" });
+  if (record.receipt.campaignId !== required.campaignId) return fail({ code: "conflict", message: "Stored campaign identity mismatch" });
+  if (record.observation && record.observation.campaignId !== required.campaignId) return fail({ code: "conflict", message: "Stored observation campaign mismatch" });
+  const observedState = record.observation?.state === "paused" ? "paused" : "unknown";
+  if (record.receipt.observedState !== observedState) return fail({ code: "conflict", message: "Receipt contradicts observed evidence" });
+  return parsed;
+}
+/** Validate a scoped repository read before it can supply effect arguments.
+ * @complexity One port read and O(n) bounded record validation; no retries.
+ */
+export async function readCampaign(required: { repo: CampaignRepoPort; context: CallContext; campaignId: string }, optional?: CallOptions): Promise<Outcome<CampaignRecord | null>> {
+  const result = await required.repo.get({ context: required.context, campaignId: required.campaignId }, optional);
+  if (!result.ok) return result;
+  if (result.value === null) return success({ value: null });
+  return boundRecord({ ...required, value: result.value });
+}
+/** Bind a persisted launch card to its operation key before accessing its arguments.
+ * @complexity One port read and O(n) bounded proposal bytes; malformed output fails closed.
+ */
+export async function readLaunchProposal(required: { repo: CampaignRepoPort; context: CallContext; operationId: string }, optional?: CallOptions): Promise<Outcome<LaunchProposal | null>> {
+  const result = await required.repo.getProposal({ context: required.context, operationId: required.operationId }, optional);
+  if (!result.ok) return result;
+  if (result.value === null) return success({ value: null });
+  const parsed = parseBoundary({ schema: proposalSchema, input: result.value });
+  if (!parsed.ok) return parsed;
+  if (parsed.value.operations[0].operationId !== required.operationId) return fail({ code: "conflict", message: "Proposal operation identity mismatch" });
+  const bound = proposalBinding({ proposal: parsed.value });
+  if (!bound.ok) return bound;
+  return parsed;
+}
+/** A storage adapter cannot replace the exact card returned to the user.
+ * @complexity One port write and O(n) bounded proposal bytes; no retries.
+ */
+export async function persistProposal(required: { repo: CampaignRepoPort; context: CallContext; proposal: LaunchProposal }, optional?: CallOptions): Promise<Outcome<LaunchProposal>> {
+  const result = await required.repo.saveProposal({ context: required.context, proposal: required.proposal }, optional);
+  if (!result.ok) return result;
+  const parsed = parseBoundary({ schema: proposalSchema, input: result.value });
+  if (!parsed.ok) return parsed;
+  if (digest({ value: parsed.value }) !== digest({ value: required.proposal })) return fail({ code: "conflict", message: "Stored launch card changed" });
+  return parsed;
 }

@@ -188,5 +188,33 @@ export function AuditSqlPortSuite(required: {
         expect((await fixture.session.query({ text: "SELECT $1 AS value", values: ["after-failure"] })).rows).toEqual([{ value: "after-failure" }]);
       } finally { fixture.dispose({}); }
     });
+    it("does not execute a transaction cancelled before acquisition", async () => {
+      const fixture = required.create({});
+      let executed = false;
+      try {
+        await expect(fixture.db.transaction({ context: context(), execute: async () => { executed = true; return "unexpected"; } }, { signal: AbortSignal.abort() }))
+          .rejects.toThrow("Cancelled acquisition");
+        expect(executed).toBe(false);
+      } finally { fixture.dispose({}); }
+    });
+    it("serializes concurrent transaction callbacks until the first completes", async () => {
+      const fixture = required.create({});
+      const started: string[] = [];
+      let release = (): void => {};
+      const barrier = new Promise<void>(resolve => { release = resolve; });
+      const first = fixture.db.transaction({ context: context(), execute: async () => { started.push("first"); await barrier; return 1; } });
+      const second = fixture.db.transaction({ context: context(), execute: async () => { started.push("second"); return 2; } });
+      try {
+        await Promise.resolve();
+        expect(started).toEqual(["first"]);
+        release();
+        expect(await Promise.all([first, second])).toEqual([1, 2]);
+        expect(started).toEqual(["first", "second"]);
+      } finally {
+        release();
+        await Promise.allSettled([first, second]);
+        fixture.dispose({});
+      }
+    });
   });
 }

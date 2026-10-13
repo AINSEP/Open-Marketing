@@ -1,11 +1,44 @@
 import { z } from "zod";
 import { callContextSchema, digestSchema, epochSchema, idSchema } from "@open-marketing/contracts";
-import type { JobRequest, OutboxJob } from "./types.js";
+import type { CallContext, Outcome } from "@open-marketing/contracts";
+import type { JobRequest, OutboxJob, TransportResult } from "./types.js";
+import { jobFailure } from "./errors.js";
+/** Transport classifications are a boundary value, never inferred from an arbitrary retryable flag. */
+export const transportResultSchema = z.discriminatedUnion("kind", [
+    z.strictObject({ kind: z.literal("success") }),
+    z.strictObject({ kind: z.literal("failure"), classification: z.enum(["permanent", "transient", "unknown"]) }),
+]);
+export const processResultSchema = z.discriminatedUnion("kind", [
+    z.strictObject({ kind: z.literal("idle") }),
+    z.strictObject({ kind: z.literal("aborted") }),
+    z.strictObject({ kind: z.literal("stale") }),
+    z.strictObject({ kind: z.literal("completed"), jobId: idSchema,
+        state: z.enum(["succeeded", "denied", "failed", "reconcile", "cancelled", "retry"]) }),
+]);
+/** Invalid adapter output means uncertainty; it cannot manufacture success or safe replay.
+ * @returns A detached classification, defaulting to unknown. @complexity O(1) time/space.
+ */
+export function parseTransportResult(required: { value: unknown }): TransportResult {
+    const parsed = transportResultSchema.safeParse(required.value);
+    if (!parsed.success) return { kind: "failure", classification: "unknown" };
+    return parsed.data;
+}
 export const jobRequestSchema = z.strictObject({
     operationId: idSchema, idempotencyKey: idSchema, argumentsDigest: digestSchema,
     handler: idSchema, payload: z.record(z.string(), z.json()),
 });
 export const workerSchema = z.strictObject({ workerId: idSchema });
+/** Validate and detach a domain call before handing it to an attempt adapter.
+ * @returns Parsed call or invalid_input without leaking payload/schema errors.
+ * @complexity O(n log k) time, O(n) space under canonicalJson bounds.
+ */
+export function parseJobCall(required: { context: CallContext; job: JobRequest }): Outcome<{ context: CallContext; job: JobRequest }> {
+    try {
+        const context = callContextSchema.parse(required.context);
+        const job = jobRequestSchema.parse(JSON.parse(canonicalJson({ value: required.job })));
+        return { ok: true, value: { context, job } };
+    } catch { return jobFailure({ code: "invalid_input", message: "Invalid handler request" }); }
+}
 export const outboxJobSchema = z.strictObject({
     tenantId: z.string().min(1).max(1024), idempotencyKey: idSchema, requestDigest: idSchema,
     operation: idSchema, payload: z.string().max(262144), id: idSchema,

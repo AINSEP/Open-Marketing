@@ -25,6 +25,12 @@ describe("verified ingestion", () => {
     expect(await fixture.service.ingestConversion({ source, event: { ...event, occurredAt: 301 } })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
     expect(fixture.repo.inspect({ scope }).jobs).toHaveLength(0);
   });
+  it("malformed transport input returns a typed failure before deriving trace context", async () => {
+    const fixture = createServiceFixture({});
+    const malformed = { event } as unknown as Parameters<typeof fixture.service.ingestConversion>[0];
+    expect(await fixture.service.ingestConversion(malformed)).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+    expect(fixture.repo.inspect({ scope }).events).toHaveLength(0);
+  });
   it("purpose/destination/identifier changes cannot borrow consent", async () => {
     const fixture = createServiceFixture({});
     expect(await fixture.service.ingestConversion({ source, event: { ...event, purpose: "audience" } })).toMatchObject({ ok: false, error: { code: "forbidden" } });
@@ -52,6 +58,18 @@ describe("atomic SQL inbox/outbox", () => {
     const repo = createSqlMeasureRepo(fixture);
     fixture.failNextEnqueue();
     expect(await repo.appendConversion({ source, event })).toMatchObject({ ok: false, error: { code: "unavailable" } });
+    expect(fixture.counts()).toEqual({ events: 0, jobs: 0 });
+  });
+  it("cancellation during enqueue rolls back both participants", async () => {
+    const fixture = createSqlFixture({});
+    const controller = new AbortController();
+    const jobs = { async enqueue(input: Parameters<typeof fixture.jobs.enqueue>[0]) {
+      const outcome = await fixture.jobs.enqueue(input);
+      controller.abort();
+      return outcome;
+    } };
+    const repo = createSqlMeasureRepo({ database: fixture.database, jobs });
+    expect(await repo.appendConversion({ source, event }, { signal: controller.signal })).toMatchObject({ ok: false, error: { code: "cancelled" } });
     expect(fixture.counts()).toEqual({ events: 0, jobs: 0 });
   });
   it("carries original scope/correlation/trace through the job transaction", async () => {

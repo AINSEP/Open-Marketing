@@ -137,7 +137,7 @@ export function createMemoryAgentPluginMcpProvisioning(_required: Record<string,
     async provision(input) {
       const parsed = parseBoundary({ schema: installedSchema, input: input.plugin });
       if (!parsed.ok) return parsed;
-      if (!parsed.value.admitted) return failure({ code: "forbidden", message: "Plugin is not admitted" });
+      if (!parsed.value.admitted || !parsed.value.schemaFingerprint) return failure({ code: "forbidden", message: "Plugin has no current schema admission" });
       bindings.set(pluginScopeKey({ context: input.context, pluginId: input.plugin.pluginId }), structuredClone(parsed.value));
       return success({ value: undefined });
     },

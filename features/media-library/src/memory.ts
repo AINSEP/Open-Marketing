@@ -1,4 +1,4 @@
-import { InMemoryMediaRepo, InMemoryAssetBlobRepo, InMemoryAssetRenditionRepo, InMemoryTransformDefinitionRepo, InMemoryBlobStore, InMemoryImageTransformer } from '@jini-ai/cms/media';
+import { InMemoryMediaRepo, InMemoryAssetBlobRepo, InMemoryAssetRenditionRepo, InMemoryTransformDefinitionRepo, InMemoryBlobStore, InMemoryImageTransformer, sniffContentType } from '@jini-ai/cms/media';
 import { idSchema, notImplemented, parseBoundary } from '@open-marketing/contracts';
 import type { CallContext, ClockPort, IdPort, Outcome, ObserverEvent, Scope } from '@open-marketing/contracts';
 import type { EvidenceRow, EvidenceStore } from './evidence-repo.js';
@@ -6,8 +6,10 @@ import { createEvidenceRepo } from './evidence-repo.js';
 import { createJiniMediaAdapter } from './jini-media.js';
 import { createJiniBlobStore } from './blob-adapter.js';
 import { createJiniImageTransform } from './transform-adapter.js';
-import type { MediaRepoPort, JiniMediaPort, JiniMediaDependencies, BlobStorePort, GuardedAssetImportPort, ImageTransformPort, MediaAuditPort, MediaObserverPort } from './ports.js';
-import type { PlacementCropPreset } from './types.js';
+import type { MediaRepoPort, JiniMediaPort, JiniMediaDependencies, BlobStorePort, GuardedAssetImportPort, ImageInspectionPort, ImageTransformPort, MediaAuditPort, MediaObserverPort } from './ports.js';
+import type { ImageInspection, PlacementCropPreset } from './types.js';
+import { createJiniGuardedAssetImport } from './import-adapter.js';
+import { createMemoryImageInspection } from './image-inspection.js';
 import { checkContext, fail, importSchema, scopeKey, success } from './validation.js';
 
 /** Convenience doubles default to this explicit test scope; production adapters require a bound scope. */
@@ -16,9 +18,9 @@ const testScope: Scope = { ownerId: 'owner', workspaceId: 'workspace' };
  * @example createMemoryJiniDependencies({ clock, ids }) @complexity O(1) setup, no effects.
  */
 export function createMemoryJiniDependencies(required: { clock: ClockPort; ids: IdPort }): JiniMediaDependencies {
-  return { mediaRepo: new InMemoryMediaRepo(), blobRepo: new InMemoryAssetBlobRepo(), renditionRepo: new InMemoryAssetRenditionRepo(),
-    transformRepo: new InMemoryTransformDefinitionRepo(), blobStore: new InMemoryBlobStore(), imageTransformer: new InMemoryImageTransformer(),
-    clock: { nowIso() { return new Date(required.clock.now({})).toISOString(); } }, idGen: { newId() { return required.ids.next({}); } } };
+  return { mediaRepo: new InMemoryMediaRepo({}), blobRepo: new InMemoryAssetBlobRepo({}), renditionRepo: new InMemoryAssetRenditionRepo({}),
+    transformRepo: new InMemoryTransformDefinitionRepo({}), blobStore: new InMemoryBlobStore(), imageTransformer: new InMemoryImageTransformer(),
+    clock: { nowMs() { return required.clock.now({}); } }, idGen: { newId() { return required.ids.next({}); } } };
 }
 /** Deterministic test dependencies only; no wall clock, randomness or singleton state. */
 function defaultDependencies(): JiniMediaDependencies {
@@ -62,24 +64,41 @@ export function createMemoryJiniMedia(required: { scope?: Scope; dependencies?: 
 export function createMemoryBlobStore(required: { scope?: Scope }): BlobStorePort {
   return createJiniBlobStore({ scope: required.scope ?? testScope, store: new InMemoryBlobStore() });
 }
-/** Explicit deferred importer: Jini 0.3.11 does not publish media/import. No fetch, DNS or filesystem access.
- * @example createMemoryGuardedAssetImport({ scope }) @complexity O(1), bounded request parsing.
+/** Strict URL/byte fixture double over the published Jini importer; unknown URLs are refused without I/O.
+ * Empty fixtures keep the original explicit not_implemented convenience behavior.
+ * No DNS/redirect/codec proof is claimed by this double. @complexity O(bytes + fixtures), cap 100 fixtures.
+ * @example createMemoryGuardedAssetImport({ scope, dependencies, fixtures: [{ sourceUrl, bytes, image }] })
  */
-export function createMemoryGuardedAssetImport(required: { scope?: Scope }): GuardedAssetImportPort {
+export function createMemoryGuardedAssetImport(required: { scope?: Scope; dependencies?: JiniMediaDependencies; fixtures?: readonly { sourceUrl: string; bytes: Uint8Array; image: ImageInspection }[] }): GuardedAssetImportPort {
+  if (required.fixtures?.length) return fixtureImporter(required);
   return {
     async import(input, options) {
       const context = checkContext({ context: input.context, options, scope: required.scope ?? testScope });
       if (!context.ok) return context;
       const request = parseBoundary({ schema: importSchema, input: input.request });
       if (!request.ok) return request;
-      return notImplemented({ operation: 'media-library.urlImport (requires public Jini media/import export)' });
+      return notImplemented({ operation: 'media-library.urlImport (no memory fixture configured)' });
     },
   };
+}
+/** Only configured exact HTTPS URLs produce replies; direct transport usage always fails. */
+function fixtureImporter(required: { scope?: Scope; dependencies?: JiniMediaDependencies; fixtures?: readonly { sourceUrl: string; bytes: Uint8Array; image: ImageInspection }[] }): GuardedAssetImportPort {
+  const scope = required.scope ?? testScope;
+  const fixtures = (required.fixtures ?? []).slice(0, 100).map(fixture => ({ ...fixture, bytes: fixture.bytes.slice(), image: structuredClone(fixture.image) }));
+  const inspection = createMemoryImageInspection({ scope, fixtures: fixtures.map(fixture => ({ ...fixture, contentType: sniffContentType(fixture) })) });
+  return createJiniGuardedAssetImport({ scope, dependencies: required.dependencies ?? defaultDependencies(), inspection,
+    httpClient: { async send() { throw new Error('Memory transport must not be called directly'); } },
+    outboundGuard: { async send(input) {
+      const fixture = fixtures.find(item => item.sourceUrl === input.request.url);
+      if (!fixture) throw new Error('Unconfigured memory URL');
+      return { status: 200, headers: {}, bodyText: '', bodyBytes: fixture.bytes.slice(), bodyBytesTruncated: false, finalUrl: fixture.sourceUrl };
+    } },
+  });
 }
 /** Uses Jini's deterministic transform double (not a pixel codec). Share dependencies with the media double.
  * @example createMemoryImageTransform({ scope, dependencies }) @complexity O(bytes + presets).
  */
-export function createMemoryImageTransform(required: { scope?: Scope; dependencies?: JiniMediaDependencies }, optional?: { placementPresets?: readonly PlacementCropPreset[] }): ImageTransformPort {
+export function createMemoryImageTransform(required: { scope?: Scope; dependencies?: JiniMediaDependencies }, optional?: { placementPresets?: readonly PlacementCropPreset[]; inspection?: ImageInspectionPort }): ImageTransformPort {
   return createJiniImageTransform({ scope: required.scope ?? testScope, dependencies: required.dependencies ?? defaultDependencies() }, optional);
 }
 /** Idempotent audit double; one operation cannot silently change its asset binding. No generation authority.

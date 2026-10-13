@@ -2,10 +2,10 @@ import { z } from "zod";
 import type { CallContext, Outcome } from "@open-marketing/contracts";
 import type { CreativeRepoPort } from "./ports.js";
 import type { GenerationStatus, GenerationCostObservation } from "./types.js";
-import { costSchema, failure, statusSchema, success, validContext } from "./rules.js";
+import { costSchema, failure, success, validContext } from "./rules.js";
 import { validateCostLink, validateReplacement, validateStatus } from "./repository-rules.js";
 
-/** Removable query seam for the server's @jini-ai/db-shaped shim. No native driver in this feature. */
+/** Server-supplied OM query seam; no native driver or temporary Jini implementation in this feature. */
 export interface CreativeSqlSession {
   query(required: { sql: string; parameters: readonly (string | number | null)[] }): Promise<readonly unknown[]>;
   execute(required: { sql: string; parameters: readonly (string | number | null)[] }): Promise<{ readonly changes: number }>;

@@ -177,12 +177,12 @@ export function CredentialBrokerPortSuite(required: { create: () => Promise<Brok
 }
 
 /** Refresh adapter contract; a fresh token is represented by null, never fake success data. */
-export function CredentialRefreshPortSuite(required: { create: () => CredentialRefreshPort; record: CredentialRecord }) {
+export function CredentialRefreshPortSuite(required: { create: () => Promise<{ port: CredentialRefreshPort; record: CredentialRecord }> }) {
   describe("CredentialRefreshPort", () => {
     it("leaves a fresh version alone and respects cancellation", async () => {
-      const port = required.create();
-      expect(value({ outcome: await port.refresh({ context: hostContext, record: required.record }) })).toBeNull();
-      expect((await port.refresh({ context: hostContext, record: required.record }, { signal: AbortSignal.abort() })).ok).toBe(false);
+      const { port, record } = await required.create();
+      expect(value({ outcome: await port.refresh({ context: hostContext, record }) })).toBeNull();
+      expect((await port.refresh({ context: hostContext, record }, { signal: AbortSignal.abort() })).ok).toBe(false);
     });
   });
 }

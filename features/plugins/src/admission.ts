@@ -3,11 +3,17 @@ import { z } from "zod";
 import { capabilityEnvelopeSchema, parseBoundary } from "@open-marketing/contracts";
 import type { CallContext, CallOptions, Outcome } from "@open-marketing/contracts";
 import type { AgentPluginMcpProvisioningPort } from "./ports.js";
-import type { InstalledPlugin, PluginExtensionDescriptor } from "./types.js";
+import type { InstalledPlugin, PluginExtensionDescriptor, PluginReference } from "./types.js";
 import { attempt, failure, success } from "./results.js";
 
 /** Closed local extension boundary; capability admission is host-owned. */
-export const descriptorSchema = z.strictObject({ namespace: z.literal("io.github.ainsep.openmarketing"), version: z.literal(1), capabilities: z.array(capabilityEnvelopeSchema).max(128) });
+export const descriptorSchema = z.strictObject({ namespace: z.literal("io.github.ainsep.openmarketing"), version: z.literal(1), capabilities: z.array(capabilityEnvelopeSchema).max(128) })
+  .refine(descriptor => new Set(descriptor.capabilities.map(capability => capability.capabilityId)).size === descriptor.capabilities.length);
+
+/** Rejects declarations belonging to other installed bytes or plugins. No effects. @complexity O(n), n <=128. */
+export function matchesPluginIdentity(required: { reference: PluginReference; descriptor: PluginExtensionDescriptor }): boolean {
+  return required.descriptor.capabilities.every(capability => capability.pluginId === required.reference.pluginId && capability.pluginDigest === required.reference.digest);
+}
 /** Catalog schema pin ignores declaration ordering/admitted hints, includes effects/identity/schema.
  * @example pluginSchemaFingerprint({ descriptor })
  * @complexity O(n log n+b) time, O(n+b) space, n <=128.
@@ -17,7 +23,7 @@ export function pluginSchemaFingerprint(required: { descriptor: PluginExtensionD
     capabilityId: capability.capabilityId, version: capability.version, pluginId: capability.pluginId,
     pluginDigest: capability.pluginDigest, schemaFingerprint: capability.schemaFingerprint,
     effects: [...capability.effects].sort(),
-  })).sort((left, right) => left.capabilityId.localeCompare(right.capabilityId));
+  })).sort((left, right) => left.capabilityId < right.capabilityId ? -1 : Number(left.capabilityId > right.capabilityId));
   return createHash("sha256").update(JSON.stringify({ namespace: required.descriptor.namespace, version: required.descriptor.version, capabilities })).digest("hex");
 }
 
@@ -60,8 +66,8 @@ export function createPluginMcpProvisioningAdapter(required: {
 
 /** Every capability is pinned to installed bytes; schema changes never reuse prior authority. @complexity O(n+b). */
 function checkAdmission(required: { plugin: InstalledPlugin; descriptor: PluginExtensionDescriptor }): Outcome<PluginExtensionDescriptor> {
-  const mismatch = required.descriptor.capabilities.some(capability => capability.pluginId !== required.plugin.pluginId || capability.pluginDigest !== required.plugin.digest);
-  if (mismatch || pluginSchemaFingerprint({ descriptor: required.descriptor }) !== required.plugin.schemaFingerprint) {
+  const matches = matchesPluginIdentity({ reference: required.plugin, descriptor: required.descriptor });
+  if (!matches || pluginSchemaFingerprint({ descriptor: required.descriptor }) !== required.plugin.schemaFingerprint) {
     return failure({ code: "forbidden", message: "Plugin digest or schema changed; reinstall and readmit" });
   }
   const capabilities = required.descriptor.capabilities.map(capability => ({ ...capability, admitted: false }));

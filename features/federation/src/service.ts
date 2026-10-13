@@ -5,11 +5,11 @@ import type {
   FederatedToolPermissionGate, FederatedCallConfirmation, ExternalMcpToolApprovalRepoPort,
   FederatedDispatchGatePort, FederationAuditPort, ToolRegistryPort, FederationObserverPort,
 } from "./ports.js";
-import type { ExternalToolCall, ExternalToolResult, FederationHost } from "./types.js";
+import type { ExternalToolCall, ExternalToolResult, FederationHost, ReloadReceipt } from "./types.js";
 import { admitCall, isReadOnly } from "./admission.js";
 import { snapshotJson } from "./json.js";
 import { boundary, failure, success } from "./outcomes.js";
-import { freezeCall, parseJson, validateApproval, validateResult } from "./validation.js";
+import { connectionSchema, freezeCall, parseJson, sameScope, validateApproval, validateResult } from "./validation.js";
 
 /** Required server ports. Composition owns implementations and durable authority. */
 export type FederationHostDependencies = {
@@ -39,6 +39,7 @@ function hasDependencies(required: { dependencies: FederationHostDependencies })
 
 /** Parse context and freeze it independently of the caller; no effects before validation. */
 function parseInvocation(required: { invocation: Invocation }): Outcome<Invocation> {
+  if (!required.invocation || typeof required.invocation !== "object") return failure({ code: "invalid_input", message: "Invocation object required" });
   const context = parseJson({ schema: callContextSchema, input: required.invocation.context, maxBytes: 4096 });
   if (!context.ok) return context;
   const call = freezeCall({ call: required.invocation.call });
@@ -171,14 +172,17 @@ export function createFederationHost(required: FederationHostDependencies, optio
   };
 }
 
-/** Mark revision before the first await so concurrent confirmation cannot survive a reload. */
-async function reloadConnection(required: { dependencies: FederationHostDependencies; context: CallContext; connectionId: string; revisions: Map<string, number> }, optional?: CallOptions) {
+/** Verify lookup binding, then mark revision before catalog/session effects so pending calls are fenced.
+ * @returns Typed lookup/cleanup failure or revision receipt. @complexity O(1) revision update, <=100 keys.
+ */
+async function reloadConnection(required: { dependencies: FederationHostDependencies; context: CallContext; connectionId: string; revisions: Map<string, number> }, optional?: CallOptions): Promise<Outcome<ReloadReceipt>> {
   if (!required.revisions.has(required.connectionId) && required.revisions.size >= 100) return failure({ code: "limit_exceeded", message: "Reload connection limit exceeded" });
-  const found = await boundary({ perform: () => required.dependencies.connections.get(required, optional) });
+  const found = await boundary({ perform: () => required.dependencies.connections.get({ context: required.context, connectionId: required.connectionId }, optional) });
   if (!found.ok) return found;
-  const connection = parseJson({ schema: callContextSchema.shape.scope, input: found.value.scope, maxBytes: 1024 });
+  const connection = parseJson({ schema: connectionSchema, input: found.value, maxBytes: 4096 });
   if (!connection.ok) return connection;
-  if (JSON.stringify(connection.value) !== JSON.stringify(required.context.scope)) return failure({ code: "forbidden", message: "Connection scope mismatch" });
+  if (!sameScope({ context: required.context, connection: connection.value }) || connection.value.connectionId !== required.connectionId) return failure({ code: "forbidden", message: "Connection binding mismatch" });
+  if (!required.revisions.has(required.connectionId) && required.revisions.size >= 100) return failure({ code: "limit_exceeded", message: "Reload connection limit exceeded" });
   const revision = (required.revisions.get(required.connectionId) ?? 0) + 1;
   required.revisions.set(required.connectionId, revision);
   const invalidated = await boundary({ perform: () => required.dependencies.registry.invalidate({ connectionId: required.connectionId }, optional) });

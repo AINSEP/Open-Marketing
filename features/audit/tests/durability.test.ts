@@ -81,10 +81,23 @@ describe("durable SQL audit", () => {
 });
 
 function storedRow(required: { sequence?: number; context?: ReturnType<typeof context>; payload?: string } = {}) {
-  return { entry_id: "audit-1", recorded_at: 1234, sequence: required.sequence ?? 1, payload: required.payload ?? JSON.stringify(entry()), context_json: JSON.stringify(required.context ?? context()) };
+  const storedContext = required.context ?? context();
+  return {
+    entry_id: "audit-1", recorded_at: 1234, sequence: required.sequence ?? 1,
+    owner_id: storedContext.scope.ownerId, workspace_id: storedContext.scope.workspaceId,
+    operation_id: "operation-1", kind: "intent", arguments_digest: "a".repeat(64), correction_of: null,
+    payload: required.payload ?? JSON.stringify(entry()), context_json: JSON.stringify(storedContext),
+  };
 }
 
 describe("tainted SQL seam", () => {
+  it("does not return a page cancelled during the final SQL read", async () => {
+    const controller = new AbortController();
+    const harness = memorySqlHarness({ respond() { controller.abort(); return { rows: [] }; } });
+    const repo = createSqlAuditRepo({ ...dependencies(), db: harness.db, observer: createMemoryAuditObserver({}) });
+    expect(await repo.list({ context: context(), query: { limit: 1 } }, { signal: controller.signal }))
+      .toEqual({ ok: false, error: { code: "cancelled", message: "Audit cancelled", retryable: false } });
+  });
   it("maps transaction failure and emits correlated status without leaking driver data", async () => {
     const observer = createMemoryAuditObserver({});
     const repo = createSqlAuditRepo({ ...dependencies(), observer, db: { async transaction() { throw new Error("person@example.com password=secret"); } } });
@@ -129,5 +142,55 @@ describe("tainted SQL seam", () => {
     const repo = createSqlAuditRepo({ ...dependencies(), db: harness.db, observer: createMemoryAuditObserver({}) });
     expect(await repo.append({ context: context(), entry: entry() })).toMatchObject({ ok: false, error: { code: "protocol_mismatch" } });
     expect(harness.committed({})).toEqual([]);
+  });
+
+  it.each([
+    { mutation: { owner_id: "other-owner" } },
+    { mutation: { workspace_id: "other-workspace" } },
+    { mutation: { operation_id: "other-operation" } },
+    { mutation: { kind: "outcome" } },
+    { mutation: { arguments_digest: "b".repeat(64) } },
+    { mutation: { correction_of: "other-receipt" } },
+  ])("rejects indexed metadata that disagrees with JSON: $mutation", async ({ mutation }) => {
+    const harness = memorySqlHarness({ respond() { return { rows: [{ ...storedRow(), ...mutation }] }; } });
+    const repo = createSqlAuditRepo({ ...dependencies(), db: harness.db, observer: createMemoryAuditObserver({}) });
+    expect(await repo.list({ context: context(), query: { limit: 1 } }))
+      .toEqual({ ok: false, error: { code: "protocol_mismatch", message: "Audit protocol_mismatch", retryable: false } });
+    expect(harness.committed({})).toEqual([]);
+  });
+
+  it("rejects repeated receipt IDs at different sequences instead of exporting duplicate evidence", async () => {
+    const harness = memorySqlHarness({ respond() {
+      return { rows: [storedRow({ sequence: 1 }), storedRow({ sequence: 2 })] };
+    } });
+    const repo = createSqlAuditRepo({ ...dependencies(), db: harness.db, observer: createMemoryAuditObserver({}) });
+    expect(await repo.list({ context: context(), query: { limit: 2 } }))
+      .toMatchObject({ ok: false, error: { code: "protocol_mismatch" } });
+    expect(harness.committed({})).toEqual([]);
+  });
+
+  it("rejects malformed SQL row containers as protocol errors", async () => {
+    const harness = memorySqlHarness({ respond() {
+      const result = { rows: [] };
+      Reflect.set(result, "rows", null);
+      return result;
+    } });
+    const repo = createSqlAuditRepo({ ...dependencies(), db: harness.db, observer: createMemoryAuditObserver({}) });
+    expect(await repo.list({ context: context(), query: { limit: 1 } }))
+      .toMatchObject({ ok: false, error: { code: "protocol_mismatch" } });
+    expect(harness.committed({})).toEqual([]);
+  });
+
+  it("detects inconsistent evidence actually persisted in a disposable SQLite database", async () => {
+    const fixture = sqliteHarness();
+    try {
+      fixture.native.prepare("INSERT INTO audit_entry (entry_id, owner_id, workspace_id, sequence, operation_id, kind, arguments_digest, recorded_at, payload, context_json) VALUES (?,?,?,?,?,?,?,?,?,?)")
+        .run("audit-1", "owner-1", "workspace-1", 1, "operation-1", "intent", "b".repeat(64), 1234, JSON.stringify(entry()), JSON.stringify(context()));
+      const repo = createSqlAuditRepo({ ...dependencies(), db: fixture.db, observer: createMemoryAuditObserver({}) });
+      expect(await repo.list({ context: context(), query: { limit: 1 } }))
+        .toMatchObject({ ok: false, error: { code: "protocol_mismatch" } });
+      expect(fixture.native.prepare("SELECT arguments_digest FROM audit_entry WHERE entry_id = ?").get("audit-1"))
+        .toEqual({ arguments_digest: "b".repeat(64) });
+    } finally { fixture.native.close(); }
   });
 });

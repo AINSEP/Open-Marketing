@@ -6,6 +6,8 @@ export { createMemoryConversionSourceAuthentication, createMemoryMeasurementGran
 export type { MemoryConsentEvidence } from "./src/memory.js";
 export type { MemoryMeasureRepo } from "./src/adapters/memory-repo.js";
 export { createConversionDispatcher } from "./src/delivery/dispatcher.js";
+export { createMemoryConversionVerification, createSqlConversionVerification } from "./src/adapters/verification.js";
+export type { ConversionVerificationPort } from "./src/ports.js";
 export { validateTrackedDestination } from "./src/links/links.js";
 export { createSqlMeasureRepo } from "./src/adapters/sql-repo.js";
 export { createSqlTrackedLink } from "./src/adapters/sql-links.js";

@@ -3,7 +3,7 @@ import { createMemoryPluginRepo, createMemoryPluginLifecycle, createMemoryAgentP
 import { memoryFixture, source } from "../fixtures/plugin.js";
 PluginRepoPortSuite({ create: () => createMemoryPluginRepo({}) });
 PluginLifecyclePortSuite({ create: () => ({ port: createMemoryPluginLifecycle({}, { packages: [memoryFixture({})] }), source }) });
-AgentPluginLayoutPortSuite({ create: () => ({ port: createMemoryAgentPluginLayout({}, { packages: [memoryFixture({})] }), source }) });
+AgentPluginLayoutPortSuite({ create: input => ({ port: createMemoryAgentPluginLayout({}, { packages: [memoryFixture({}, { package: input.package })] }), source }) });
 AgentPluginMcpProvisioningPortSuite({ create: () => {
   const port = createMemoryAgentPluginMcpProvisioning({});
   return { port, bindings: () => port.bindings({}).map(binding => binding.plugin) };

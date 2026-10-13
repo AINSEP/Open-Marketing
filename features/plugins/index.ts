@@ -14,3 +14,4 @@ export { createPluginMcpProvisioningAdapter, pluginSchemaFingerprint } from "./s
 export { createPluginTrustAdapter } from "./src/trust-adapter.js";
 export { createPluginAuditAdapter } from "./src/audit-adapter.js";
 export type { PluginPackage, PluginPackageEntry, PluginPackageInspection, PluginDiagnostic, PluginServer, AgentPluginInstructions, MemoryPluginPackage } from "./src/package-types.js";
+export { createJiniArchivePackageReader } from "./src/archive-reader.js";

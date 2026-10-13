@@ -12,16 +12,24 @@ export type AdmissionDependencies = { connections: FederationConnectionRepoPort;
 export function checkCatalogBinding(required: { context: CallContext; call: ExternalToolCall; connection: FederationConnection; descriptor: FederatedToolDescriptor }): Outcome<void> {
   const { call, connection, descriptor } = required;
   if (!sameScope({ context: required.context, connection })) return failure({ code: "forbidden", message: "Connection scope mismatch" });
-  const pluginMatches = connection.pluginDigest === call.pluginDigest && descriptor.capability.pluginDigest === call.pluginDigest && descriptor.capability.pluginId === connection.pluginId;
-  const schemaMatches = descriptor.fingerprint === call.schemaFingerprint && descriptor.capability.schemaFingerprint === call.schemaFingerprint;
-  const toolMatches = descriptor.connectionId === call.connectionId && connection.connectionId === call.connectionId && descriptor.name === call.toolName;
-  if (!pluginMatches || !schemaMatches || !toolMatches) return failure({ code: "forbidden", message: "Catalog binding changed" });
+  if (!catalogIdentityMatches(required)) return failure({ code: "forbidden", message: "Catalog binding changed" });
   const fingerprint = fingerprintSchemas(descriptor);
   if (!fingerprint.ok) return fingerprint;
   if (fingerprint.value !== call.schemaFingerprint) return failure({ code: "forbidden", message: "Tool schema changed" });
   if (!descriptor.capability.admitted || descriptor.capability.effects.length === 0) return failure({ code: "forbidden", message: "Tool not admitted" });
   if (!call.toolName.startsWith(`io.github.ainsep.openmarketing.${call.connectionId}.`)) return failure({ code: "forbidden", message: "Tool namespace mismatch" });
   return success({ value: undefined });
+}
+
+/** Match the current connection, implementation and admitted tool identity independently of schema hashing.
+ * @complexity O(1); no I/O or caller mutation.
+ */
+function catalogIdentityMatches(required: { call: ExternalToolCall; connection: FederationConnection; descriptor: FederatedToolDescriptor }): boolean {
+  const { call, connection, descriptor } = required;
+  const pluginMatches = connection.pluginDigest === call.pluginDigest && descriptor.capability.pluginDigest === call.pluginDigest && descriptor.capability.pluginId === connection.pluginId;
+  const schemaMatches = descriptor.fingerprint === call.schemaFingerprint && descriptor.capability.schemaFingerprint === call.schemaFingerprint;
+  const toolMatches = descriptor.connectionId === call.connectionId && connection.connectionId === call.connectionId && descriptor.name === call.toolName;
+  return pluginMatches && schemaMatches && toolMatches;
 }
 
 /** Re-read connection/catalog and assess safety every time; caller never supplies trusted effects. */

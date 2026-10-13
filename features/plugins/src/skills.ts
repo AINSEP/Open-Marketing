@@ -13,6 +13,10 @@ function containsServerData(required: { content: string }): boolean {
 
 /** Discover immediate skill directories only, skip invalid entries with diagnostics. @complexity O(n+b) time/space. */
 export function inspectSkills(required: { files: ReadonlyMap<string, string>; diagnostics: PluginDiagnostic[] }): AgentPluginInstructions["skills"] {
+  if (required.files.has("skills")) {
+    required.diagnostics.push({ code: "invalid_skills_directory", path: "skills" });
+    return [];
+  }
   const skills: AgentPluginInstructions["skills"][number][] = [];
   for (const [path, content] of required.files) {
     const match = /^skills\/([^/]+)\/SKILL\.md$/.exec(path);

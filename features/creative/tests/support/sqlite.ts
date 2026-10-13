@@ -13,20 +13,20 @@ export function sqliteFixture(required: Record<string, never>) {
     async query(input) { return native.prepare(input.sql).all(...input.parameters); },
     async execute(input) { return { changes: native.prepare(input.sql).run(...input.parameters).changes }; },
   };
-  let tail: Promise<unknown> = Promise.resolve();
+  let tail: Promise<void> = Promise.resolve();
   const database: CreativeSqlDatabase = {
     async transaction(input) {
-      const previous = tail;
-      let release = () => {};
-      tail = new Promise<void>(resolve => { release = resolve; });
-      await previous;
-      native.exec("BEGIN IMMEDIATE");
-      try {
-        const result = await input.run({ session });
-        native.exec(result.ok ? "COMMIT" : "ROLLBACK");
-        return result;
-      } catch (error) { native.exec("ROLLBACK"); throw error; }
-      finally { release(); }
+      // Promise.then's foreign callbacks carry no positional values into owned logic.
+      const pending = tail.then(async () => {
+        native.exec("BEGIN IMMEDIATE");
+        try {
+          const result = await input.run({ session });
+          native.exec(result.ok ? "COMMIT" : "ROLLBACK");
+          return result;
+        } catch (error) { native.exec("ROLLBACK"); throw error; }
+      });
+      tail = pending.then(() => undefined, () => undefined);
+      return pending;
     },
   };
   const repo = createSqlCreativeRepo({ database });

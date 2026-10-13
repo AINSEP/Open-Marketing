@@ -4,15 +4,17 @@ import type { JobService, ProcessResult, RetryPolicy, TransportResult } from "./
 import { createOutbox } from "./outbox.js";
 import { validateRetryPolicy } from "./retry.js";
 import { decodeClaim, decodeRequest, storeFailure } from "./repository.js";
-import { workerSchema } from "./schema.js";
+import { processResultSchema, workerSchema } from "./schema.js";
 import { jobFailure } from "./errors.js";
 /** Map a single attempt without inventing a known failure from an error/timeout. Non-idempotent uncertainty reconciles.
  * @complexity O(1). Dispatch adapters own trustworthy transient/permanent classification.
  */
-export function dispatchResult(required: { outcome: Outcome<ProcessResult> }): TransportResult {
+export function dispatchResult(required: { outcome: Outcome<ProcessResult>; operationId: string }): TransportResult {
     if (!required.outcome.ok) return { kind: "failure", classification: "unknown" };
-    const result = required.outcome.value;
-    if (result.kind !== "completed") return { kind: "failure", classification: "unknown" };
+    const parsed = processResultSchema.safeParse(required.outcome.value);
+    if (!parsed.success) return { kind: "failure", classification: "unknown" };
+    const result = parsed.data;
+    if (result.kind !== "completed" || result.jobId !== required.operationId) return { kind: "failure", classification: "unknown" };
     switch (result.state) {
         case "succeeded": return { kind: "success" };
         case "retry": return { kind: "failure", classification: "transient" };
@@ -65,8 +67,9 @@ export function createJobService(required: {
                     idempotent: false,
                     async dispatch(request) {
                         const claimed = decodeRequest({ request });
+                        const operationId = claimed.job.operationId;
                         const outcome = await required.dispatcher.dispatch({ context: claimed.context, job: claimed.job }, options);
-                        return dispatchResult({ outcome });
+                        return dispatchResult({ outcome, operationId });
                     },
                 },
                 observe(event) {

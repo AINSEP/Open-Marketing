@@ -41,6 +41,11 @@ export interface MeasureAuditPort {
 export interface ConversionSourceAuthenticationPort {
   verify(required: { source: VerifiedConversionSource }, optional?: CallOptions): Promise<Outcome<{ readonly authenticated: boolean }>>;
 }
+/** Dispatch consumes only an exact event from the committed verified inbox.
+ * Scope and canonical identity must match; caller claims are insufficient. */
+export interface ConversionVerificationPort {
+  verify(required: { context: ServiceContext; event: ConversionInput }, optional?: CallOptions): Promise<Outcome<{ readonly verified: boolean }>>;
+}
 /** Reads CURRENT grant authority immediately before dispatch. */
 export interface MeasurementGrantPort {
   current(required: { context: ServiceContext; grantId: string }, optional?: CallOptions): Promise<Outcome<MeasurementGrant>>;
@@ -51,7 +56,7 @@ export interface ConversionDeliveryStatePort {
   begin(required: { context: ServiceContext; record: ConversionDispatchRecord }, optional?: CallOptions): Promise<Outcome<{ readonly acquired: boolean; readonly record: ConversionDispatchRecord }>>;
   append(required: { context: ServiceContext; record: ConversionDispatchRecord }, optional?: CallOptions): Promise<Outcome<ConversionDispatchRecord>>;
 }
-/** DB-shaped seam compatible with the server jini-compat PgQueryable. */
+/** Portable DB-shaped seam; the server adapts its SQLite OM DB port. */
 export interface MeasureSqlQueryable {
   query<Row extends Record<string, unknown> = Record<string, unknown>>(required: { text: string; values?: unknown[] }): Promise<{ rows: Row[]; rowCount: number | null }>;
 }

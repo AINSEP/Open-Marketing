@@ -1,4 +1,5 @@
 import type { PluginExtensionDescriptor, PluginSource } from "./types.js";
+import type { McpServerEntry } from "@jini-ai/agent-plugins/manifest";
 
 /** Bounded immutable package view supplied by safe filesystem/archive readers. */
 export type PluginPackage = { readonly entries: readonly PluginPackageEntry[] };
@@ -8,9 +9,7 @@ export type PluginPackageEntry = {
   readonly content?: string;
 };
 /** Server-only validated configuration. Never send this type to an agent. */
-export type PluginServer =
-  | { readonly type: "stdio"; readonly command: string; readonly args?: readonly string[]; readonly env?: Readonly<Record<string, string>>; readonly cwd?: string }
-  | { readonly type: "streamable-http" | "sse"; readonly url: string; readonly headers?: Readonly<Record<string, string>> };
+export type PluginServer = McpServerEntry;
 /** Diagnostic paths/IDs contain no package content, secrets or exception messages. */
 export type PluginDiagnostic = { readonly code: string; readonly path: string };
 /** Explicit allowlist for agent export; references/configuration are absent. */

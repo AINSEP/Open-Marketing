@@ -1,12 +1,16 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { capabilityEnvelopeSchema } from "@open-marketing/contracts";
+import { capabilityEnvelopeSchema, digestSchema } from "@open-marketing/contracts";
 import type { CapabilityEnvelope, Outcome } from "@open-marketing/contracts";
 import type { PluginExtensionDescriptor } from "./types.js";
 import { OM_NAMESPACE, safePackagePath } from "./portable.js";
 import { failure, success } from "./results.js";
 
 const bindingSchema = z.strictObject({ server: z.string().min(1).max(256), binding: z.string().max(4096) });
+/** Package declarations may omit host-owned pins/authority; output is always a full envelope. */
+const packageCapabilitySchema = capabilityEnvelopeSchema.extend({
+  pluginDigest: digestSchema.optional().default("0".repeat(64)), admitted: z.boolean().optional().default(false),
+});
 const serverMetadata = z.strictObject({
   authMode: z.enum(["oauth", "none", "host"]).optional(),
   defaultTools: z.strictObject({ discover: z.array(z.string().max(256)).max(128) }).optional(),
@@ -15,7 +19,7 @@ const serverMetadata = z.strictObject({
 const extensionSchema = z.strictObject({
   version: z.literal(1), enabled: z.boolean().optional(), admitted: z.boolean().optional(),
   servers: z.record(z.string().max(256), serverMetadata).optional(),
-  capabilities: z.union([z.array(capabilityEnvelopeSchema).max(128), z.record(z.string().max(256), bindingSchema)]).optional(),
+  capabilities: z.union([z.array(packageCapabilitySchema).max(128), z.record(z.string().max(256), bindingSchema)]).optional(),
 });
 
 /** Namespace validation treats plugin hints as data, never authority. References resolve only inside
@@ -26,7 +30,7 @@ const extensionSchema = z.strictObject({
 export function validateExtension(required: {
   value: unknown; pluginId: string; digest: string; files: ReadonlyMap<string, string>; servers: ReadonlySet<string>;
 }): Outcome<PluginExtensionDescriptor> {
-  const empty = { namespace: OM_NAMESPACE, version: 1 as const, capabilities: [] };
+  const empty: PluginExtensionDescriptor = { namespace: OM_NAMESPACE, version: 1, capabilities: [] };
   if (required.value === undefined) return success({ value: empty });
   const parsed = extensionSchema.safeParse(required.value);
   if (!parsed.success) return failure({ code: "invalid_input", message: "Invalid Open Marketing extension" });
@@ -38,16 +42,19 @@ export function validateExtension(required: {
   return resolveBindings({ declarations: declarations as Record<string, z.infer<typeof bindingSchema>>, ...required });
 }
 
-/** Duplicate/cross-plugin envelopes are rejected; admitted is always false. @complexity O(n). */
+/** Reject duplicates/cross-plugin names; byte pins and admission always come from the host.
+ * A package cannot contain its own archive hash without a circular digest dependency.
+ * Its declared digest is therefore inert metadata. @complexity O(n).
+ */
 function normalizeEnvelopes(required: { declarations: readonly CapabilityEnvelope[]; pluginId: string; digest: string }): Outcome<PluginExtensionDescriptor> {
   const ids = new Set<string>();
   const capabilities: CapabilityEnvelope[] = [];
   for (const declaration of required.declarations) {
-    if (ids.has(declaration.capabilityId) || declaration.pluginId !== required.pluginId || declaration.pluginDigest !== required.digest) {
+    if (ids.has(declaration.capabilityId) || declaration.pluginId !== required.pluginId) {
       return failure({ code: "invalid_input", message: "Duplicate or mismatched capability identity" });
     }
     ids.add(declaration.capabilityId);
-    capabilities.push({ ...declaration, admitted: false });
+    capabilities.push({ ...declaration, pluginDigest: required.digest, admitted: false });
   }
   return success({ value: { namespace: OM_NAMESPACE, version: 1, capabilities } });
 }
@@ -82,7 +89,7 @@ function resolveOne(required: {
   let value: unknown;
   try { value = JSON.parse(content); }
   catch { return failure({ code: "invalid_input", message: "Capability binding is not JSON" }); }
-  const parsed = capabilityEnvelopeSchema.safeParse(value);
+  const parsed = packageCapabilitySchema.safeParse(value);
   if (!parsed.success || parsed.data.capabilityId !== required.capabilityId) return failure({ code: "invalid_input", message: "Invalid capability binding envelope" });
   return success({ value: { ...parsed.data, schemaFingerprint: createHash("sha256").update(content).digest("hex"), admitted: false } });
 }

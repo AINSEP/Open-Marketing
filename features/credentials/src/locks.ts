@@ -1,4 +1,4 @@
-/// <reference lib="esnext.promise" />
+/// <reference lib="es2024.promise" />
 import type { CallOptions, Outcome } from "@open-marketing/contracts";
 import type { CredentialReference } from "./types.js";
 import type { CredentialLockPort } from "./ports.js";

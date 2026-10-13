@@ -17,6 +17,8 @@ export type PluginFilesystem = {
   readdir(required: { path: string; maxEntries: number }): Promise<readonly string[]>;
   readFile(required: { path: string; maxBytes: number }): Promise<Uint8Array>;
 };
+type Directory = { absolute: string; relative: string; depth: number };
+type Walk = { entries: PluginPackageEntry[]; pending: Directory[]; bytes: number };
 
 /** Real filesystem adapter; absolute source directory must remain under the configured root.
  * Archive preview is injected from Jini's safe reader; this feature never writes/extracts archives.
@@ -59,23 +61,30 @@ async function readDirectory(required: { filesystem: PluginFilesystem; allowedRo
   const allowedRoot = await required.filesystem.realpath({ path: required.allowedRoot });
   const root = await required.filesystem.realpath({ path: required.location });
   if (!contained({ root: allowedRoot, candidate: root })) return failure({ code: "forbidden", message: "Plugin source escapes the allowed root" });
-  const entries: PluginPackageEntry[] = [];
-  const pending = [{ absolute: root, relative: "", depth: 0 }];
-  let total = 0;
-  while (pending.length) {
-    const directory = pending.pop()!;
-    if (directory.depth > 32) return failure({ code: "limit_exceeded", message: "Plugin directory nesting limit exceeded" });
-    const names = await required.filesystem.readdir({ path: directory.absolute, maxEntries: 4096 - entries.length });
-    for (const name of names) {
-      const entry = await readEntry({ filesystem: required.filesystem, root, directory, name, count: entries.length }, options);
-      if (!entry.ok) return entry;
-      entries.push(entry.value.entry);
-      total += entry.value.bytes;
-      if (total > 64 * 1024 * 1024) return failure({ code: "limit_exceeded", message: "Plugin directory byte limit exceeded" });
-      if (entry.value.entry.kind === "directory") pending.push({ absolute: entry.value.absolute, relative: entry.value.entry.path, depth: directory.depth + 1 });
-    }
+  const walk: Walk = { entries: [], pending: [{ absolute: root, relative: "", depth: 0 }], bytes: 0 };
+  while (walk.pending.length) {
+    const read = await readChildren({ filesystem: required.filesystem, root, walk, directory: walk.pending.pop()! }, options);
+    if (!read.ok) return read;
   }
-  return success({ value: { entries } });
+  return success({ value: { entries: walk.entries } });
+}
+
+/** Bounded directory batch; mutates only the operation's local inventory. @complexity O(n+b).
+ * Filesystem calls are sequential per entry so byte/entry budgets are enforced before the next read.
+ */
+async function readChildren(required: { filesystem: PluginFilesystem; root: string; walk: Walk; directory: Directory }, options?: CallOptions): Promise<Outcome<void>> {
+  if (required.directory.depth > 32) return failure({ code: "limit_exceeded", message: "Plugin directory nesting limit exceeded" });
+  if (options?.signal?.aborted) return failure({ code: "cancelled", message: "Plugin inspection cancelled" });
+  const names = await required.filesystem.readdir({ path: required.directory.absolute, maxEntries: 4096 - required.walk.entries.length });
+  for (const name of names) {
+    const entry = await readEntry({ ...required, name, count: required.walk.entries.length }, options);
+    if (!entry.ok) return entry;
+    required.walk.entries.push(entry.value.entry);
+    required.walk.bytes += entry.value.bytes;
+    if (required.walk.bytes > 64 * 1024 * 1024) return failure({ code: "limit_exceeded", message: "Plugin directory byte limit exceeded" });
+    if (entry.value.entry.kind === "directory") required.walk.pending.push({ absolute: entry.value.absolute, relative: entry.value.entry.path, depth: required.directory.depth + 1 });
+  }
+  return success({ value: undefined });
 }
 
 /** Reject links/unsupported kinds before reading; lexical and disk containment both apply. @complexity O(b). */
@@ -92,10 +101,17 @@ async function readEntry(required: {
   const real = await required.filesystem.realpath({ path: absolute });
   if (!contained({ root: required.root, candidate: real })) return failure({ code: "forbidden", message: "Filesystem entry escapes plugin root" });
   if (stat.kind === "directory") return success({ value: { entry: { path: relative, kind: "directory" }, bytes: 0, absolute } });
-  if (stat.size > 16 * 1024 * 1024) return failure({ code: "limit_exceeded", message: "Plugin file is oversized" });
-  const bytes = await required.filesystem.readFile({ path: absolute, maxBytes: 16 * 1024 * 1024 });
+  return readRegularFile({ filesystem: required.filesystem, stat, relative, absolute });
+}
+
+/** Refuse oversized/invalid metadata and recheck observed bytes after the bounded, non-following read.
+ * @complexity O(b) time/space for b <=16 MiB.
+ */
+async function readRegularFile(required: { filesystem: PluginFilesystem; stat: { size: number }; relative: string; absolute: string }): Promise<Outcome<{ entry: PluginPackageEntry; bytes: number; absolute: string }>> {
+  if (!Number.isSafeInteger(required.stat.size) || required.stat.size < 0 || required.stat.size > 16 * 1024 * 1024) return failure({ code: "limit_exceeded", message: "Plugin file size is invalid or oversized" });
+  const bytes = await required.filesystem.readFile({ path: required.absolute, maxBytes: 16 * 1024 * 1024 });
   if (bytes.byteLength > 16 * 1024 * 1024) return failure({ code: "limit_exceeded", message: "Plugin file grew beyond limit" });
-  return success({ value: { entry: { path: relative, kind: "file", content: Buffer.from(bytes).toString("utf8") }, bytes: bytes.byteLength, absolute } });
+  return success({ value: { entry: { path: required.relative, kind: "file", content: Buffer.from(bytes).toString("utf8") }, bytes: bytes.byteLength, absolute: required.absolute } });
 }
 
 /** Path.relative avoids sibling-prefix and Windows-volume mistakes. @complexity O(n). */

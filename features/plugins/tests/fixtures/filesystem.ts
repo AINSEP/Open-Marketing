@@ -1,12 +1,25 @@
 import { constants } from "node:fs";
-import { mkdtemp, mkdir, open, readdir, lstat, realpath, readFile, writeFile, rename, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, open, readdir, lstat, realpath, readFile, writeFile, rename, rm, chmod } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll } from "vitest";
 import type { PluginFilesystem, PluginPackage } from "../../index.js";
 const temporaryRoots: string[] = [];
-afterAll(async () => { await Promise.all(temporaryRoots.map(root => rm(root, { recursive: true, force: true }))); });
+afterAll(async () => { await Promise.all(temporaryRoots.map(root => removeTemporaryRoot({ root }))); });
+
+/** Jini freezes installed trees; cleanup opens only fixture directories, never follows symlinks. */
+async function removeTemporaryRoot(required: { root: string }): Promise<void> {
+  await unfreezeFixtureDirectories(required);
+  await rm(required.root, { recursive: true, force: true });
+}
+async function unfreezeFixtureDirectories(required: { root: string }): Promise<void> {
+  await chmod(required.root, 0o700);
+  const entries = await readdir(required.root, { withFileTypes: true });
+  for (const entry of entries) {
+    if (entry.isDirectory()) await unfreezeFixtureDirectories({ root: path.join(required.root, entry.name) });
+  }
+}
 
 /** Native fs is constructed in test composition only; production receives this shape by injection. */
 export function nativeFilesystem(_required: Record<string, never>): PluginFilesystem {

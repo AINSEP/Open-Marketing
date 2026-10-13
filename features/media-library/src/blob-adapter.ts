@@ -26,13 +26,13 @@ export function createJiniBlobStore(required: { scope: Scope; store: JiniBlobSto
       const key = checkStorageKey({ context: input.context, storageKey });
       if (!key.ok) return key;
       return boundary({ context: input.context, operation: 'media.blob.put', run: async () => {
-        return withSha256Lock(`om-blob:${storageKey}`, async () => {
+        return withSha256Lock({ key: `om-blob:${storageKey}`, criticalSection: async () => {
           const stored = await required.store.putIfAbsent({ ...blob, bytes });
           if (stored.storageKey !== storageKey || typeof stored.written !== 'boolean') return fail({ code: 'unavailable', message: 'Invalid blob write response' });
           const persisted = await required.store.get({ storageKey });
           if (!validBytes({ bytes: persisted, digest: blob.sha256 })) return fail({ code: 'unavailable', message: 'Blob write integrity could not be verified' });
           return success({ value: { storageKey, written: stored.written } });
-        });
+        } });
       } }, optional);
     },
     async read(input, options) {

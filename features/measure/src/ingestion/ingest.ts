@@ -2,7 +2,7 @@ import { parseBoundary } from "@open-marketing/contracts";
 import type { CallOptions, ClockPort, Outcome } from "@open-marketing/contracts";
 import type { ConversionSourceAuthenticationPort, MeasureRepoPort, MeasurementShareabilityPort } from "../ports.js";
 import type { ConversionInput, ConversionReceipt, VerifiedConversionSource } from "../types.js";
-import { assessmentSchema, authenticationSchema, conversionSchema, failure, ingestionContext, receiptSchema, sameScope, sourceSchema } from "../rules.js";
+import { assessmentSchema, authenticationSchema, failure, ingestionContext, parseSourceEvent, receiptSchema } from "../rules.js";
 
 type Input = { source: VerifiedConversionSource; event: ConversionInput };
 /** Validate/authenticate before consent or storage; repo owns the atomic outbox commit.
@@ -22,18 +22,17 @@ export async function ingest(required: { input: Input; repo: MeasureRepoPort; po
   if (optional?.signal?.aborted) return failure({ code: "cancelled", message: "Measurement ingestion cancelled" });
   const receipt = await required.repo.appendConversion(input, optional);
   if (!receipt.ok) return receipt;
-  return parseBoundary({ schema: receiptSchema, input: receipt.value });
+  const validated = parseBoundary({ schema: receiptSchema, input: receipt.value });
+  if (!validated.ok) return validated;
+  if (validated.value.eventId !== input.event.eventId) return failure({ code: "conflict", message: "Conversion receipt identity mismatch" });
+  return validated;
 }
 /** Pure preflight rejects forged cross-scope context and future event timestamps. */
 function validateInput(required: { input: Input; now: number }): Outcome<Input> {
-  const source = parseBoundary({ schema: sourceSchema, input: required.input.source });
-  if (!source.ok) return source;
-  const event = parseBoundary({ schema: conversionSchema, input: required.input.event });
-  if (!event.ok) return event;
-  if (event.value.occurredAt > required.now) return failure({ code: "invalid_input", message: "Conversion occurs in the future" });
-  const context = source.value.context;
-  if (context && !sameScope({ left: context.scope, right: source.value.scope })) return failure({ code: "forbidden", message: "Source context scope mismatch" });
-  return { ok: true, value: { source: source.value, event: event.value } };
+  const parsed = parseSourceEvent({ input: required.input });
+  if (!parsed.ok) return parsed;
+  if (parsed.value.event.occurredAt > required.now) return failure({ code: "invalid_input", message: "Conversion occurs in the future" });
+  return parsed;
 }
 async function authenticate(required: { authentication?: ConversionSourceAuthenticationPort; source: VerifiedConversionSource }, optional?: CallOptions): Promise<Outcome<void>> {
   if (!required.authentication) return failure({ code: "unauthenticated", message: "Source authenticator is required" });

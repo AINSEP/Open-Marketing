@@ -11,3 +11,8 @@ export { createJiniImageTransform } from './src/transform-adapter.js';
 export { createSqlMediaRepo } from './src/sql.js';
 export type { MediaSqlPort } from './src/sql.js';
 export { createMemoryJiniDependencies, createMemoryMediaObserver } from './src/memory.js';
+export { createJiniGuardedAssetImport } from './src/import-adapter.js';
+export type { JiniAssetImportDependencies } from './src/import-adapter.js';
+export { createImageInspectionAdapter, createMemoryImageInspection, DEFAULT_IMAGE_LIMITS } from './src/image-inspection.js';
+export type { ImageInspectionPort } from './src/ports.js';
+export type { ImageInspection, ImageInspectionLimits } from './src/types.js';

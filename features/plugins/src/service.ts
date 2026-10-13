@@ -3,7 +3,7 @@ import type { CallContext, CallOptions, Outcome } from "@open-marketing/contract
 import type { PluginAuditPort, PluginLifecyclePort, PluginObserverPort, PluginRepoPort,
   AgentPluginLayoutPort, AgentPluginMcpProvisioningPort, PluginTrustPort } from "./ports.js";
 import type { InstalledPlugin, PluginService, PluginSource, UninstallReceipt } from "./types.js";
-import { descriptorSchema, pluginSchemaFingerprint } from "./admission.js";
+import { descriptorSchema, matchesPluginIdentity, pluginSchemaFingerprint } from "./admission.js";
 import { attempt, failure } from "./results.js";
 import { enableSchema, installedSchema, installSchema, referenceSchema, removeSchema } from "./schemas.js";
 
@@ -85,6 +85,7 @@ export function createPluginService(required: Dependencies, optional: { observer
     const reference = parseBoundary({ schema: referenceSchema, input: trusted.value });
     if (!reference.ok) return reference;
     if (reference.value.digest !== input.source.expectedDigest) return failure({ code: "forbidden", message: "Verified plugin digest differs from source pin" });
+    if (!matchesPluginIdentity({ reference: reference.value, descriptor: descriptor.value })) return failure({ code: "forbidden", message: "Plugin declarations differ from verified identity" });
     return { ok: true, value: { pluginId: reference.value.pluginId, schemaFingerprint: pluginSchemaFingerprint({ descriptor: descriptor.value }) } };
   }
 
@@ -98,6 +99,8 @@ export function createPluginService(required: Dependencies, optional: { observer
     if (sameAdmission({ plugin: previous.value, source: input.source, schemaFingerprint: verified.value.schemaFingerprint })) {
       return { ok: true, value: previous.value! };
     }
+    const audited = await required.audit.record({ ...invocation, operation: "install.requested" }, options);
+    if (!audited.ok) return audited;
     if (previous.value) {
       const retired = await retirePrevious(invocation, options);
       if (!retired.ok) return retired;
@@ -111,10 +114,8 @@ export function createPluginService(required: Dependencies, optional: { observer
     return input.plugin.digest === input.source.expectedDigest && input.plugin.schemaFingerprint === input.schemaFingerprint;
   }
 
-  /** Records intent before package effects; installs start disabled regardless of adapter claims. @complexity O(1). */
+  /** After audited intent, installs start disabled regardless of adapter claims. @complexity O(1). */
   async function installVerified(input: { context: CallContext; source: PluginSource; pluginId: string; schemaFingerprint: string }, options?: CallOptions): Promise<Outcome<InstalledPlugin>> {
-    const audited = await required.audit.record({ context: input.context, pluginId: input.pluginId, operation: "install.requested" }, options);
-    if (!audited.ok) return audited;
     const result = await required.lifecycle.install({ context: input.context, source: input.source }, options);
     if (!result.ok) return result;
     const parsed = parseBoundary({ schema: installedSchema, input: result.value });
@@ -139,9 +140,15 @@ export function createPluginService(required: Dependencies, optional: { observer
     const audited = await required.audit.record({ context: input.context, pluginId: input.pluginId, operation: input.enabled ? "enable.requested" : "disable.requested" }, options);
     if (!audited.ok) return audited;
     if (input.enabled) return enableAdmitted({ ...input, plugin: current.value }, options);
-    const disabled = await required.repo.save({ context: input.context, plugin: { ...current.value, enabled: false } }, options);
-    if (!disabled.ok) return disabled;
-    const disposed = await required.provisioning.dispose(input, options);
+    return disableCurrent({ ...input, plugin: current.value }, options);
+  }
+
+  /** Always unregister on disable; failed persistence must not preserve runtime dispatch.
+   * Returns the cleanup failure first, otherwise the metadata outcome. @complexity O(1).
+   */
+  async function disableCurrent(input: Invocation & { plugin: InstalledPlugin }, options?: CallOptions): Promise<Outcome<InstalledPlugin>> {
+    const disabled = await attempt({ run: () => required.repo.save({ context: input.context, plugin: { ...input.plugin, enabled: false } }, options) });
+    const disposed = await attempt({ run: () => required.provisioning.dispose(input, options) });
     if (!disposed.ok) return disposed;
     return disabled;
   }

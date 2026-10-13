@@ -40,11 +40,36 @@ function validTimezone(required: { timezone: string }): boolean {
 /** Reject drift independently of safety, including a substituted immutable proposal. */
 export function exactMatch(required: { request: ApprovedLaunchRequest; proposal: LaunchProposal }): boolean {
   const { request, proposal } = required;
+  if (!proposalBinding({ proposal }).ok) return false;
   const operation = proposal.operations[0];
   if (!operation) return false;
   if (request.campaignId !== proposal.campaignId || request.operationId !== operation.operationId) return false;
   if (request.creativeDigest !== proposal.creativeDigest || request.argumentsDigest !== operation.argumentsDigest) return false;
   return request.argumentsDigest === digest({ value: proposal.arguments });
+}
+/** Validate the entire spend envelope, including account, creative and exposure binding.
+ * A matching arguments digest alone cannot make a substituted effect/card exact.
+ * Returns conflict/forbidden without effects. @complexity O(n) bounded argument bytes.
+ */
+export function proposalBinding(required: { proposal: LaunchProposal }): Outcome<void> {
+  const { proposal } = required;
+  const args = proposal.arguments;
+  if (proposal.campaignId !== args.campaignId || proposal.creativeDigest !== args.creativeDigest) return fail({ code: "conflict", message: "Proposal identity mismatch" });
+  const operation = proposal.operations[0];
+  if (proposal.operations.length !== 1 || !operation) return fail({ code: "conflict", message: "One exact launch operation required" });
+  if (operation.argumentsDigest !== digest({ value: args })) return fail({ code: "conflict", message: "Proposal arguments mismatch" });
+  if (operation.accountId !== args.accountId || operation.connectionId !== args.connectionId) return fail({ code: "forbidden", message: "Operation account mismatch" });
+  return proposalSpendBinding({ proposal });
+}
+/** Exposure and effects must describe exactly the frozen flight, with no reusable limit. */
+function proposalSpendBinding(required: { proposal: LaunchProposal }): Outcome<void> {
+  const { proposal } = required;
+  const args = proposal.arguments;
+  const operation = proposal.operations[0];
+  if (operation.effects.length !== 1 || operation.effects[0] !== "ad_spend" || operation.requiredLimit !== null) return fail({ code: "conflict", message: "Unexpected launch effect" });
+  const exposure = { amount: args.flight.expectedExposure, window: args.flight.window };
+  if (digest({ value: operation.moneyExposure }) !== digest({ value: exposure })) return fail({ code: "conflict", message: "Launch exposure mismatch" });
+  return success({ value: undefined });
 }
 /** Full, nonempty, duplicate-free hierarchy evidence is necessary for a known state. */
 export function verifiedState(required: { readback: CampaignReadback; expected: "paused" | "active" }): boolean {

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { createPluginService, createMemoryPluginRepo, createMemoryPluginLifecycle, createMemoryAgentPluginLayout, createMemoryAgentPluginMcpProvisioning, createMemoryPluginTrust, createMemoryPluginAudit, createMemoryPluginObserver } from "../index.js";
 import type { MemoryPluginPackage, PluginRepoPort, AgentPluginMcpProvisioningPort, PluginLifecyclePort, PluginTrustPort, PluginAuditPort, AgentPluginLayoutPort } from "../index.js";
-import { context, source, digest, memoryFixture, packageFixture } from "./fixtures/plugin.js";
+import { context, source, digest, descriptor, memoryFixture, packageFixture, capabilityFixture } from "./fixtures/plugin.js";
 import { failure } from "../src/results.js";
 
 function harness(required: { packages?: readonly MemoryPluginPackage[] }, optional: {
@@ -144,6 +144,57 @@ describe("plugin service acceptance", () => {
     const fixture = harness({}, { audit: { async record() { return failure({ code: "unavailable", message: "fixture audit failure" }); } } });
     expect(await fixture.service.install({ context, source })).toMatchObject({ ok: false });
     expect(fixture.lifecycle.installed({ context, pluginId: "demo" })).toBeNull();
+  });
+
+  it("failed update audit preserves the prior package and registered resources", async () => {
+    const updatedSource = { ...source, location: "/fixtures/updated", expectedDigest: "c".repeat(64) };
+    const audit = createMemoryPluginAudit({});
+    let rejectAudit = false;
+    const fixture = harness({ packages: [memoryFixture({}), memoryFixture({}, { source: updatedSource, actualDigest: updatedSource.expectedDigest })] }, {
+      audit: { async record(input) {
+        if (rejectAudit) return failure({ code: "unavailable", message: "fixture audit failure" });
+        return audit.record(input);
+      } },
+    });
+    expect(await fixture.service.install({ context, source })).toMatchObject({ ok: true });
+    expect(await fixture.service.setEnabled({ context, pluginId: "demo", enabled: true })).toMatchObject({ ok: true });
+    rejectAudit = true;
+    expect(await fixture.service.install({ context, source: updatedSource })).toMatchObject({ ok: false, error: { code: "unavailable" } });
+    expect(fixture.lifecycle.installed({ context, pluginId: "demo" })).toMatchObject({ digest });
+    expect(fixture.provisioning.bindings({})).toHaveLength(1);
+    expect(await fixture.repo.get({ context, pluginId: "demo" })).toMatchObject({ ok: true, value: { digest, enabled: true, admitted: true } });
+  });
+
+  it("disable unregisters resources even when metadata save throws", async () => {
+    const repo = createMemoryPluginRepo({});
+    let failSave = false;
+    const fixture = harness({}, { repo: { ...repo, async save(input) {
+      if (failSave) throw new Error("fixture unavailable metadata");
+      return repo.save(input);
+    } } });
+    expect(await fixture.service.install({ context, source })).toMatchObject({ ok: true });
+    expect(await fixture.service.setEnabled({ context, pluginId: "demo", enabled: true })).toMatchObject({ ok: true });
+    failSave = true;
+    expect(await fixture.service.setEnabled({ context, pluginId: "demo", enabled: false })).toMatchObject({ ok: false, error: { code: "unavailable" } });
+    expect(fixture.provisioning.bindings({})).toEqual([]);
+  });
+
+  it("schema update with an unchanged byte pin invalidates prior admission", async () => {
+    let declaration = descriptor;
+    const fixture = harness({}, { layout: { async validate() { return { ok: true, value: declaration }; } } });
+    expect(await fixture.service.install({ context, source })).toMatchObject({ ok: true });
+    expect(await fixture.service.setEnabled({ context, pluginId: "demo", enabled: true })).toMatchObject({ ok: true });
+    declaration = { ...descriptor, capabilities: [capabilityFixture({})] };
+    expect(await fixture.service.install({ context, source })).toMatchObject({ ok: true, value: { enabled: false, admitted: true } });
+    expect(fixture.provisioning.bindings({})).toEqual([]);
+  });
+
+  it("cross-plugin layout envelopes fail before installation or audit", async () => {
+    const wrong = { ...capabilityFixture({}), pluginId: "other" };
+    const fixture = harness({}, { layout: { async validate() { return { ok: true, value: { ...descriptor, capabilities: [wrong] } }; } } });
+    expect(await fixture.service.install({ context, source })).toMatchObject({ ok: false, error: { code: "forbidden" } });
+    expect(fixture.lifecycle.installed({ context, pluginId: "demo" })).toBeNull();
+    expect(fixture.audit.entries({})).toEqual([]);
   });
 
   it("exceptions are typed/redacted and the scope lock releases for retry", async () => {

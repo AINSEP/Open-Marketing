@@ -1,66 +1,74 @@
 # media-library
 
-OM adds marketing provenance, rights, costs and placement links to canonical **@jini-ai/cms/media 0.3.11** assets. Jini owns asset/blob/rendition records, content addressing, the transform registry and the image codec. There is no parallel OM asset table. Only public Jini exports are used.
+A thin OM layer over **@jini-ai/cms 0.5.6**. Jini owns canonical asset/blob/rendition records, hashing, upload, transforms and garbage collection. OM owns append-only marketing provenance, rights, cost observations and placement links. Public OM imports use `@open-marketing/media-library`.
 
-The factory is inert. It implements listing, non-destructive placement crops, provenance recording and cost recording. `importAsset` can associate a known content digest with a new operation without fetching; new URL ingestion returns typed `not_implemented` through the deferred importer. Failures never grant authority, silently retry an ambiguous write or delete a shared original.
+The factories are inert. The server injects authenticated scopes, Jini repositories, storage, clock/IDs, guarded egress, a bounded image decoder and durable audit. No vendor SDK, credential or configuration is embedded in the feature.
 
-## Composition and usage
-
-Bind real adapters to a host-authenticated `Scope`. The server owns dependencies, SQLite connections, storage roots, authorization and lifecycle. An owner principal is checked against its owner ID; agent/service contexts require authentication and grant validation in the host before feature calls. Workspace IDs must be globally assigned to one owner in shared Jini repositories (Jini records carry workspace IDs, not owner IDs).
+## Composition
 
 ```ts
 import {
   createMediaLibrary, createSqlMediaRepo, createJiniMediaAdapter,
-  createJiniBlobStore, createJiniImageTransform, createMemoryGuardedAssetImport,
+  createJiniBlobStore, createJiniGuardedAssetImport, createJiniImageTransform,
+  createImageInspectionAdapter,
 } from '@open-marketing/media-library';
 
-const media = createJiniMediaAdapter({ scope, dependencies: jiniDependencies });
-const repo = createSqlMediaRepo({ scope, db: serverDbConnection });
+const inspection = createImageInspectionAdapter({ scope, decode: hostImageDecoder });
+const importer = createJiniGuardedAssetImport({
+  scope, dependencies: jiniDependencies, inspection,
+  httpClient: serverGuardedClient,
+  outboundGuard: serverOutboundGuard,
+});
 const library = createMediaLibrary({
-  repo, media,
+  repo: createSqlMediaRepo({ scope, db: serverDbConnection }),
+  media: createJiniMediaAdapter({ scope, dependencies: jiniDependencies }),
   blobs: createJiniBlobStore({ scope, store: jiniDependencies.blobStore }),
-  importer: createMemoryGuardedAssetImport({ scope }), // explicit unavailable seam
-  transforms: createJiniImageTransform({ scope, dependencies: jiniDependencies }),
+  importer,
+  transforms: createJiniImageTransform(
+    { scope, dependencies: jiniDependencies }, { inspection },
+  ),
   clock, ids, audit: serverMediaAudit,
 });
 
 await library.recordCost({ context, cost: {
   observationId: 'estimate-1', operationId: 'generation-1',
   amount: { currency: 'USD', minorUnits: 35 }, kind: 'estimated',
-} }); // retained even if generation produces no asset
-const crop = await library.createCrop({ context, request: {
-  assetId: canonicalAssetId, placement: 'ad-square', presetVersion: 1,
-} }); // new rendition; original preserved; inspect crop.ok before use
+} }); // retained even when generation produces no asset
+
+const asset = await library.importAsset({ context, request: {
+  sourceUrl, expectedDigest, operationId: provenance.operationId, provenance,
+} });
+if (asset.ok) {
+  await library.createCrop({ context, request: {
+    assetId: asset.value.record.id, placement: 'ad-square', presetVersion: 1,
+  } }); // inspect the Outcome before using the rendition
+}
 ```
 
-Populate canonical assets via public Jini `uploadMedia` in the host's guarded upload path; `JiniMediaPort.save` registers an already-ingested canonical record, requires source bytes and refuses replacement. OM intentionally exposes no second byte-upload algorithm. Jini record reads return `provenance: null`; marketing evidence is read with `repo.evidence({ context, operationId })`. Import results include the current operation's provenance.
+The injected outbound guard must enforce destination policy, DNS/IP validation, socket peer pinning, every redirect hop, decompressed-byte bounds and the total deadline. A raw HTTP client or URL preflight is not a valid guard. The feature uses public Jini `fetchImage`, `parseImportUrl`, `validateImageBytes` (through fetch), `buildImportFilename` and `uploadMedia`; it does not implement a second fetch/import algorithm. Correlation/trace/run IDs and cancellation travel through the guarded request. Headers and filenames do not authorize MIME: sniffed bytes do.
 
-For hermetic composition, `createMemoryJiniDependencies({ clock, ids })` supplies Jini's published repositories, blob store and transform double. Share those dependencies between `createMemoryJiniMedia` and `createMemoryImageTransform`. Empty argument objects remain supported for all original memory factories; their explicit convenience scope is `{ ownerId: 'owner', workspaceId: 'workspace' }`. Each factory instance has independent state.
+`hostImageDecoder` receives `{ bytes, contentType, maxPixels }` and optional `CallOptions`. It must fully validate the image, enforce the total decoded pixel bound **before allocation**, cover every frame, honor cancellation and bound execution time. It returns `{ width, height, frames }`. Jini 0.5.6's public transformer does not expose this metadata, so the host must supply the inspection binding. Default limits are 8,000 pixels per edge, 40 million total pixels and one frame. Import defaults to 10 MB and a 20-second egress deadline; byte caps cannot exceed 25 MB. Unsafe schemes/embedded credentials, missing/truncated bytes, unsupported raster types, digest mismatch and excessive dimensions are explicit failures before canonical publication.
 
-## Evidence and storage
+## Persistence and retries
 
-Provenance is immutable per operation. An unattached root is retained before ingestion; adding an asset association appends another record. Repeated identical writes are idempotent; a changed operation/observation/crop binding returns `conflict`. Costs can precede assets. Estimated and actual observations coexist; corrections reference an existing observation of the same operation/currency and append a replacement observation, rather than signed debits or mutable totals. This is evidence, not an authoritative spend ledger.
+Provenance is write-once per operation. An unattached root is retained before ingestion; later asset association appends a link. Identical retries are idempotent, changed bindings conflict. Estimated/actual/corrective costs can exist without assets. Corrections append and reference an existing observation of the same operation/currency. These records are evidence, not spend authorization or an authoritative financial ledger.
 
-Apply `migrations/0001_media_evidence.sql` through the server migration runner. The feature never executes DDL or starts services. SQL uses the existing server's structural query shape and `$n` parameters, without importing its implementation or a driver. A provenance root and later association are intentionally separate appends: if association fails, root evidence remains; the operation returns a failure. Crop IDs are stable Jini rendition IDs.
+Apply the existing `migrations/0001_media_evidence.sql` only through the authorized server migration operation. This feature performs no DDL at import/factory time. `MediaSqlPort` is an injected structural query seam; production code imports no database driver.
 
-Blob wrappers reuse Jini `putIfAbsent`, copy bytes at boundaries, reject traversal/foreign keys, verify digest and enforce a 25 MB buffer cap. They serialize same-key writes within a process. Removing bytes is for the host's GC/compensation authority, not arbitrary product requests. The wrapper cannot authenticate a caller or establish whether a blob is still referenced. Uncertain/partial writes return `unavailable` and remain for host/Jini reconciliation; originals are never deleted as speculative compensation.
+Known canonical digests are reused by the service without URL fetching; each operation retains its supplied provenance. The direct importer also rechecks stored bytes and dimensions. Concurrent direct imports serialize lookup/upload within one process. Jini canonical records retain creator attribution independently of shared blobs; `get`/`list` return `provenance: null`, and marketing evidence is read through `repo.evidence`.
 
-Placement versions use names such as `om-ad-square-v1`, each with Jini transform version 1. This retains old OM presets without relying on Jini's latest-version generation gate. Geometry is immutable; modifying a preset requires a new OM version. Only bounded, exact-size `cover`/`fill` image presets are accepted. Jini's `InMemoryImageTransformer` is a deterministic byte double, not a pixel codec.
+Upload delegates to Jini using a create-only, digest-verifying byte wrapper. A failed upload rolls back only its newly minted media/rendition rows via public `rollbackUploadedMedia`, then tombstones its unreferenced new blob row via public `tombstoneBlobIfUnreferenced`. Compensation does not delete shared bytes. Torn writes or failures before blob-row publication may leave orphan bytes; failures are explicit and require host reconciliation/GC. No automatic retry is performed for unknown outcomes.
 
-## Bounds and release limitations
+## Placement crops and doubles
 
-Pages contain at most 100 assets; adapter sorting/projection refuses more than 1,000 loaded canonical records. Cursors are scoped canonical IDs; deleted/inaccessible cursor IDs fail explicitly. Jini's underlying `listMedia` still materializes the entire workspace before this cap can be applied. Evidence reads are capped at 1,000 rows per operation. Presets are capped at 100 and dimensions at 8,000 pixels each. Abort is checked before dispatch; Jini 0.3.11 does not accept cancellation/deadline propagation into DB/codec work. Host workers must bound execution.
+Presets include square, portrait, story and landscape. Names encode the OM version, e.g. `om-ad-square-v1` with Jini transform version 1. Changing geometry requires a new OM preset version. Exact-size `cover`/`fill` presets are admitted. Originals are copied before codec calls and never rewritten/deleted during cropping.
 
-Deferred / NEEDS:
+Bind `inspection` to `createJiniImageTransform` in production: it validates source limits and exact output dimensions before rendition publication, and checks cached outputs too. Omitting inspection preserves the existing injected-codec contract; pixel validity is then entirely the codec's responsibility and is not OM dimension-acceptance evidence. Jini's `InMemoryImageTransformer` is a byte double, not a pixel codec.
 
-- Public Jini `./media/import` export: URL fetching, DNS/SSRF/redirect/MIME/decoded-size checks and ingress cleanup remain unavailable. Unavailability tests are not ingress acceptance evidence.
-- Durable canonical Jini repositories are a host concern. OM supplies durable **marketing metadata** only; server composition must bind Jini repo ports to its database.
-- Real codec/pixel-dimension acceptance requires the host's installed image transformer. This job tests the OM/Jini transform wrapper with Jini's published deterministic double, never claims it resizes pixels.
-- Jini local filesystem `putIfAbsent` can leave partial files when a write fails; the wrapper detects corruption, preserves shared content and fails closed. Crash-safe atomic byte publication/repair and rendition orphan cleanup remain upstream/host work. Jini's lazy rendition service writes bytes before its rendition metadata, without compensating orphan cleanup.
-- Host durable audit binding, outbox/worker composition, authenticated HTTP/studio/CLI surfaces, DB/codec timeouts and cross-process locking belong to integration. No unauthorized root/platform/app changes are made here.
+`createMemoryJiniDependencies({ clock, ids })` supplies Jini's published repositories/storage/transform double. Share dependencies across media/import/transform doubles. Original empty-object memory calls remain supported with explicit test scope `{ ownerId: 'owner', workspaceId: 'workspace' }`. `createMemoryGuardedAssetImport` accepts exact URL/byte/image fixtures; without fixtures it returns typed `not_implemented`. `createMemoryImageInspection` recognizes fixture fingerprints only; it never decodes pixels or proves SSRF policy.
 
-## Verification
+## Remaining integration and verification
 
-`tests/contract/port-suites.ts` is the shared behavioral suite for all original ports. It is registered for memory doubles and the real adapters supplied by this feature (SQL metadata, temporary filesystem blob storage, injected Jini canonical/transform wrappers). Core tests include dedupe/provenance preservation, failure evidence, stable crops, scope denial, tainted outputs, concurrent identical writes/crops, currency correction conflicts and typed dependency errors.
+The host authenticates contexts and assigns globally unique workspace-to-owner mappings; Jini itself scopes records by workspace only. Durable canonical repositories/audit, a real bounded decoder, published platform guard binding, worker deadlines, cross-process transactions and HTTP/studio/CLI integration remain with the Coordinator. Listing still materializes all Jini workspace records before OM's 1,000-row cap; evidence reads cap at 1,000, pages at 100, presets at 100.
 
-Owner override: tests, builds, lint and `om:check` are **written, not run**. Only one package-scoped typecheck is permitted. Coordinator performs combined verification later. No red/green regression or runtime acceptance is claimed without test execution.
+Shared memory/SQL metadata and memory/temporary-filesystem byte suites are retained. Import/inspection shared suites and fault-injection cases are written. They exercise published Jini code with injected dependencies; they do not certify actual DNS/peer/redirect enforcement or real pixel decoding. Owner override forbids test/lint/build/install runs. The single permitted package typecheck result is recorded in `HANDOFF.md`.

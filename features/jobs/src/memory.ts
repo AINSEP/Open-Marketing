@@ -4,6 +4,7 @@ import type { ProcessResult, RetryPolicy } from "./types.js";
 import { createJobRepository } from "./repository.js";
 import { createMemoryOutboxStore } from "./adapters/memory-store.js";
 import { jobFailure } from "./errors.js";
+import { parseJobCall } from "./schema.js";
 /** In-memory repository double; caller injects time/IDs. Never compose into a production server.
  * @example createMemoryJobRepo({ clock, ids, retryPolicy }) @complexity O(1) construction; operations bounded by maxJobs.
  */
@@ -16,7 +17,9 @@ export function createMemoryJobRepo(required: { clock: ClockPort; ids: IdPort; r
 export function createMemoryJobDispatch(required: { result?: Outcome<ProcessResult> }): JobDispatchPort {
     const result = structuredClone(required.result ?? jobFailure<ProcessResult>({ code: "unavailable", message: "No test dispatch behavior configured" }));
     return {
-        async dispatch(_input, optional) {
+        async dispatch(input, optional) {
+            const parsed = parseJobCall(input);
+            if (!parsed.ok) return parsed;
             if (optional?.signal?.aborted) return jobFailure({ code: "cancelled", message: "Dispatch cancelled before effect" });
             return structuredClone(result);
         },

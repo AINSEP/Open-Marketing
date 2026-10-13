@@ -1,7 +1,15 @@
 import { it, expect, vi } from 'vitest';
 import { InMemoryBlobStore } from '@jini-ai/cms/media';
-import { createJiniBlobStore, createJiniMediaAdapter, createJiniImageTransform, createMemoryMediaObserver, createMemoryMediaRepo } from '../index.js';
+import { createJiniBlobStore, createJiniMediaAdapter, createJiniImageTransform, createMemoryImageInspection, createMemoryMediaObserver, createMemoryMediaRepo } from '../index.js';
 import { bytes, context, dependencies, digest, seedAsset, value } from './fixtures.js';
+
+it('published Jini composition uses the injected epoch clock for canonical timestamps', async () => {
+  const deps = dependencies();
+  const asset = await seedAsset({ deps });
+  expect(asset.record.createdAt).toBe('1970-01-01T00:00:01.000Z');
+  expect(asset.record.updatedAt).toBe('1970-01-01T00:00:01.000Z');
+  expect(asset.blob.createdAt).toBe('1970-01-01T00:00:01.000Z');
+});
 
 it('ambiguous partial byte writes never delete shared bytes and fail integrity checks', async () => {
   const store = new InMemoryBlobStore(); const remove = vi.spyOn(store, 'remove');
@@ -86,4 +94,30 @@ it('a transformer declaring a mismatched output type fails before rendition pers
   const port = createJiniImageTransform({ scope: context.scope, dependencies: deps });
   expect(await port.crop({ context, request: { assetId: asset.record.id, placement: 'ad-square', presetVersion: 1 } })).toMatchObject({ ok: false, error: { code: 'invalid_input' } });
   expect(await deps.renditionRepo.findOne({ workspaceId: 'workspace', assetId: asset.record.id, transformName: 'om-ad-square-v1', version: 1 })).toBeNull();
+});
+
+it('strict inspection rejects wrong placement pixels before publication', async () => {
+  const deps = dependencies(); const asset = await seedAsset({ deps });
+  const params = { width: 1080, height: 1080, fit: 'cover' as const, format: 'webp' as const };
+  const output = await deps.imageTransformer.transform({ bytes, params });
+  const fixtures = [{ bytes, contentType: 'image/png', image: { width: 1, height: 1, frames: 1 } },
+    { ...output, image: { width: 1079, height: 1080, frames: 1 } }];
+  const inspection = createMemoryImageInspection({ scope: context.scope, fixtures });
+  const port = createJiniImageTransform({ scope: context.scope, dependencies: deps }, { inspection });
+  expect(await port.crop({ context, request: { assetId: asset.record.id, placement: 'ad-square', presetVersion: 1 } })).toMatchObject({ ok: false, error: { code: 'conflict' } });
+  expect(await deps.renditionRepo.findOne({ workspaceId: 'workspace', assetId: asset.record.id, transformName: 'om-ad-square-v1', version: 1 })).toBeNull();
+  expect(await deps.blobStore.get({ storageKey: asset.blob.storageKey })).toEqual(bytes);
+  const corrected = createMemoryImageInspection({ scope: context.scope, fixtures: [fixtures[0], { ...output, image: { width: 1080, height: 1080, frames: 1 } }] });
+  const strict = createJiniImageTransform({ scope: context.scope, dependencies: deps }, { inspection: corrected });
+  expect((await strict.crop({ context, request: { assetId: asset.record.id, placement: 'ad-square', presetVersion: 1 } })).ok).toBe(true);
+});
+it('cached renditions also undergo strict pixel inspection', async () => {
+  const deps = dependencies(); const asset = await seedAsset({ deps });
+  const request = { assetId: asset.record.id, placement: 'ad-square', presetVersion: 1 };
+  const port = createJiniImageTransform({ scope: context.scope, dependencies: deps });
+  const crop = value({ outcome: await port.crop({ context, request }) });
+  const renditionBytes = await deps.blobStore.get({ storageKey: crop.rendition.storageKey });
+  const inspection = createMemoryImageInspection({ scope: context.scope, fixtures: [{ bytes: renditionBytes, contentType: 'image/webp', image: { width: 1, height: 1, frames: 1 } }] });
+  const strict = createJiniImageTransform({ scope: context.scope, dependencies: deps }, { inspection });
+  expect(await strict.crop({ context, request })).toMatchObject({ ok: false, error: { code: 'conflict' } });
 });

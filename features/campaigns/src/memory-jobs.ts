@@ -4,6 +4,7 @@ import type { CampaignJobPort } from "./ports.js";
 import type { CampaignJob } from "./types.js";
 import { checkCancelled, proposalGetSchema } from "./repo-rules.js";
 import { digest, fail, intentSchema, parseBoundary, scopedKey, success } from "./rules.js";
+import { intentIdentity } from "./job-rules.js";
 const enqueueSchema = z.strictObject({ context: callContextSchema, operationId: idSchema, argumentsDigest: digestSchema, intent: intentSchema });
 const finishSchema = z.strictObject({ context: callContextSchema, operationId: idSchema, status: z.enum(["submitted", "unknown"]) });
 
@@ -67,10 +68,6 @@ export function createMemoryCampaignJob(required: { maxEntries?: number }): Camp
       return success({ value: undefined });
     },
   };
-}
-function intentIdentity(required: Pick<CampaignJob, "operationId" | "argumentsDigest" | "intent">): boolean {
-  if (required.intent.kind === "create") return required.operationId === required.intent.draft.operationId && required.argumentsDigest === digest({ value: required.intent.draft });
-  return required.operationId === required.intent.request.operationId && required.argumentsDigest === required.intent.request.argumentsDigest;
 }
 function existingJob(required: { existing: CampaignJob; input: Pick<CampaignJob, "argumentsDigest" | "intent"> }) {
   if (required.existing.argumentsDigest !== required.input.argumentsDigest || digest({ value: required.existing.intent }) !== digest({ value: required.input.intent })) return fail<{ readonly jobId: string }>({ code: "conflict", message: "Operation identity reused with changed intent" });

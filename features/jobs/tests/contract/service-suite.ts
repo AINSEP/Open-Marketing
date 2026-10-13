@@ -77,6 +77,16 @@ export function JobServiceSuite(required: { name: string; create: (required: { c
             expect(await fixture.service.processOne({ worker: { workerId: "a" } })).toMatchObject({ ok: true, value: { state: "reconcile" } });
             expect(await fixture.service.processOne({ worker: { workerId: "b" } })).toEqual({ ok: true, value: { kind: "idle" } });
         });
+        it("malformed dispatch results reconcile instead of claiming success or retry authority", async () => {
+            const fixture = setup({});
+            await fixture.service.enqueue({ context, job });
+            const malformed = { ok: true, value: { kind: "completed", state: "retry", jobId: "different-operation" } };
+            fixture.dispatch.mockResolvedValue(malformed as unknown as Awaited<ReturnType<JobDispatchPort["dispatch"]>>);
+            expect(await fixture.service.processOne({ worker: { workerId: "a" } })).toMatchObject({ ok: true, value: { state: "reconcile" } });
+            fixture.clock.advance({ milliseconds: 1000 });
+            expect(await fixture.service.processOne({ worker: { workerId: "b" } })).toEqual({ ok: true, value: { kind: "idle" } });
+            expect(fixture.dispatch).toHaveBeenCalledTimes(1);
+        });
         it("bounds known transient retries and preserves operation/key/digest through every attempt", async () => {
             const fixture = setup({});
             await fixture.service.enqueue({ context, job });

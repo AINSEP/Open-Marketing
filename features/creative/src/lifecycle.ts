@@ -1,8 +1,8 @@
-import { generationApprovalRequirementSchema, parseBoundary } from "@open-marketing/contracts";
+import { generationApprovalRequirementSchema, idSchema, parseBoundary } from "@open-marketing/contracts";
 import type { CallContext, CallOptions, ClockPort, IdPort, Outcome } from "@open-marketing/contracts";
 import type { CreativeRepoPort, CreativeJobPort, CreativeSpendPort, GenerationCapabilityPort, CreativeAssetPort, CreativeAuditPort, CreativeObserverPort } from "./ports.js";
 import type { GenerationRequest, GenerationReceipt, GenerationStatus } from "./types.js";
-import { failure, freezeValue, parseGeneration, receipt, sameEvidence, success, validateQuote } from "./rules.js";
+import { dispatchReceiptSchema, failure, freezeValue, parseGeneration, receipt, sameEvidence, success, validateQuote } from "./rules.js";
 
 /** Dependencies supplied by the server; core never constructs an adapter or scheduler. */
 export type CreativeDependencies = { repo: CreativeRepoPort; generation: GenerationCapabilityPort; assets: CreativeAssetPort; jobs: CreativeJobPort; safety: CreativeSpendPort; clock: ClockPort; ids: IdPort; audit: CreativeAuditPort; observer?: CreativeObserverPort };
@@ -70,16 +70,20 @@ function duplicateDispatch(required: { status: GenerationStatus }): Outcome<Gene
   return success({ value: receipt({ status: required.status }) });
 }
 async function submitReserved(required: { deps: CreativeDependencies; context: CallContext; generationId: string; status: GenerationStatus; reservationId: string }, optional?: CallOptions): Promise<Outcome<GenerationReceipt>> {
+  const reservation = parseBoundary({ schema: idSchema, input: required.reservationId });
+  if (!reservation.ok) return reservation;
   const saved = await required.deps.repo.save({ context: required.context, status: { ...required.status, reservationId: required.reservationId } }, optional);
   if (!saved.ok) return saved;
   const submitted = await required.deps.generation.generate({ context: required.context, request: saved.value.request, quote: saved.value.quote, generationId: saved.value.generationId }, optional);
   if (!submitted.ok) return submitted;
-  if (submitted.value.generationId !== saved.value.generationId || submitted.value.operationId !== saved.value.request.operationId) return failure({ code: "protocol_mismatch", message: "Generation receipt does not bind the submitted intent" });
+  const parsed = parseBoundary({ schema: dispatchReceiptSchema, input: submitted.value });
+  if (!parsed.ok) return parsed;
+  if (parsed.value.generationId !== saved.value.generationId || parsed.value.operationId !== saved.value.request.operationId) return failure({ code: "protocol_mismatch", message: "Generation receipt does not bind the submitted intent" });
   const current = await required.deps.repo.get({ context: required.context, generationId: saved.value.generationId }, optional);
   if (!current.ok) return current;
-  const projected = await required.deps.repo.save({ context: required.context, status: { ...current.value, dispatchState: "submitted", asyncOperationId: submitted.value.asyncOperationId } }, optional);
+  const projected = await required.deps.repo.save({ context: required.context, status: { ...current.value, dispatchState: "submitted", asyncOperationId: parsed.value.asyncOperationId } }, optional);
   if (!projected.ok) return projected;
-  return submitted;
+  return parsed;
 }
 /** Only a claim with no durable reservation can be returned to the queue. Reserved errors remain unknown. */
 async function resetClaim<T>(required: { deps: CreativeDependencies; context: CallContext; generationId: string; status: GenerationStatus; outcome: Outcome<T> }, optional?: CallOptions): Promise<Outcome<T>> {

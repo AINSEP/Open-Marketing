@@ -44,7 +44,7 @@ export interface CampaignAuditPort {
   record(required: { context: CallContext; operationId: string; outcome: string }, optional?: CallOptions): Promise<Outcome<void>>;
 }
 export type CampaignObserverPort = ObserverPort;
-/** Structural subset of the documented @jini-ai/db-shaped local shim. No driver import. */
+/** Server-owned SQL query shape; composition adapts its DB port. No driver or shim import. */
 export interface CampaignSqlPort {
   query<Row extends Record<string, unknown> = Record<string, unknown>>(required: { text: string; values?: unknown[] }): Promise<{ rows: Row[]; rowCount: number | null }>;
 }

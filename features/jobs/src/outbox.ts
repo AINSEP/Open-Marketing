@@ -1,5 +1,6 @@
 import { assertEpochMilliseconds } from "@open-marketing/om-clock";
 import { failureCompletion, validateRetryPolicy } from "./retry.js";
+import { parseTransportResult } from "./schema.js";
 import type { AbortSignalPort, Completion, EnqueueRequest, EnqueueResult, OutboxEvent, OutboxJob, OutboxPorts, ProcessResult, RetryPolicy, TransportResult } from "./types.js";
 /** Construct a timer-free outbox service. Call processOne from a host-owned scheduler.
  * Store failures propagate: never repeat an external operation merely because its ack failed.
@@ -40,7 +41,7 @@ export function createOutbox({ ports, inputPolicy }: {
             return complete(job, failureCompletion({ kind: "transient", attempt: job.attempts, now: now(), policy: policy, idempotent: false }));
         let authorized: boolean;
         try {
-            authorized = await ports.authorize(job);
+            authorized = await ports.authorize(structuredClone(job));
         }
         catch {
             observe({ operation: "authorization", outcome: "unavailable" });
@@ -70,7 +71,7 @@ export function createOutbox({ ports, inputPolicy }: {
         let result: TransportResult;
         const request: EnqueueRequest = { tenantId: job.tenantId, idempotencyKey: job.idempotencyKey, requestDigest: job.requestDigest, operation: job.operation, payload: job.payload, context: job.context };
         try {
-            result = await ports.transport.dispatch(request, signal);
+            result = parseTransportResult({ value: await ports.transport.dispatch(request, signal) });
         }
         catch {
             result = { kind: "failure", classification: "unknown" };

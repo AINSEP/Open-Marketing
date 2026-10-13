@@ -14,7 +14,7 @@ export function unwrap<T>(required: { outcome: Outcome<T> }): T {
 }
 /** Transaction errors preserve typed domain denials; driver throws become unavailable. */
 export async function sqlBoundary<T>(required: { context: CallContext; operation: string; observer?: MeasureObserverPort; work: () => Promise<T> }, optional?: CallOptions): Promise<Outcome<T>> {
-  return runBoundary({ ...required, work: async () => {
+  return runBoundary<T>({ ...required, work: async (): Promise<Outcome<T>> => {
     try { return { ok: true, value: await required.work() }; }
     catch (error) { if (error instanceof MeasureRollback) return error.outcome; throw error; }
   } }, optional);

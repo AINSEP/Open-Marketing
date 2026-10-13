@@ -3,7 +3,7 @@ import type { IdPort, Outcome, Scope } from "@open-marketing/contracts";
 import type { MeasureRepoPort } from "../ports.js";
 import type { AttributionResult, ConversionInput, ConversionReceipt, PlatformMetricSnapshot, VerifiedConversionSource } from "../types.js";
 import { snapshotIdentity, validateLineage } from "../reporting/snapshot-rules.js";
-import { attributionSchema, clone, conversionKey, conversionSchema, eventIdentity, failure, querySchema, scopeKey, snapshotSchema, sourceSchema } from "../rules.js";
+import { attributionInputSchema, clone, conversionKey, eventIdentity, failure, nextId, parseSourceEvent, querySchema, scopeKey, snapshotSchema, storageLimit } from "../rules.js";
 
 type StoredEvent = { source: VerifiedConversionSource; event: ConversionInput; receipt: ConversionReceipt; identity: string };
 type AttributionEntry = { scope: Scope; sourceId: string; result: AttributionResult };
@@ -19,26 +19,28 @@ export function createMemoryMeasureRepo(required: { ids?: IdPort; maxRecords?: n
   const events = new Map<string, StoredEvent>();
   const snapshots = new Map<string, { scope: Scope; snapshot: PlatformMetricSnapshot }>();
   const attributions = new Map<string, AttributionEntry>();
-  const limit = required.maxRecords ?? 10000;
+  const limit = storageLimit(required);
+  const resultIds = new Map<string, string>();
   let sequence = 0;
   return {
     async appendConversion(input) {
-      const source = parseBoundary({ schema: sourceSchema, input: input.source });
-      if (!source.ok) return source;
-      const event = parseBoundary({ schema: conversionSchema, input: input.event });
-      if (!event.ok) return event;
-      const value = { source: source.value, event: event.value };
+      const parsed = parseSourceEvent({ input });
+      if (!parsed.ok) return parsed;
+      const value = parsed.value;
       const key = conversionKey(value);
       const identity = eventIdentity({ event: value.event });
       const existing = events.get(key);
       if (existing) return duplicate({ existing, identity });
       if (events.size >= limit) return failure({ code: "limit_exceeded", message: "Conversion storage limit" });
-      const jobId = required.ids?.next({}) ?? "conversion-job-" + ++sequence;
-      const receipt: ConversionReceipt = { eventId: value.event.eventId, status: "accepted", jobId };
+      const id = nextId({ ids: required.ids, fallback: "conversion-job-" + ++sequence });
+      if (!id.ok) return id;
+      const receipt: ConversionReceipt = { eventId: value.event.eventId, status: "accepted", jobId: id.value };
       events.set(key, clone({ value: { ...value, identity, receipt } }));
       return { ok: true, value: clone({ value: receipt }) };
     },
     async appendSnapshot(input) {
+      const context = parseBoundary({ schema: callContextSchema, input: input.context });
+      if (!context.ok) return context;
       const parsed = parseBoundary({ schema: snapshotSchema, input: input.snapshot });
       if (!parsed.ok) return parsed;
       const tenant = scopeKey({ scope: input.context.scope });
@@ -52,17 +54,21 @@ export function createMemoryMeasureRepo(required: { ids?: IdPort; maxRecords?: n
       return parsed;
     },
     async appendAttribution(input) {
-      const parsed = parseBoundary({ schema: attributionSchema, input: input.result });
+      const parsed = parseBoundary({ schema: attributionInputSchema, input });
       if (!parsed.ok) return parsed;
-      const key = JSON.stringify([scopeKey({ scope: input.context.scope }), input.sourceId, parsed.value.eventId]);
-      const event = events.get(JSON.stringify([scopeKey({ scope: input.context.scope }), input.sourceId, parsed.value.eventId]));
+      input = parsed.value;
+      const key = JSON.stringify([scopeKey({ scope: input.context.scope }), input.sourceId, input.result.eventId]);
+      const event = events.get(JSON.stringify([scopeKey({ scope: input.context.scope }), input.sourceId, input.result.eventId]));
       if (!event) return failure({ code: "invalid_input", message: "Attribution requires a verified conversion" });
-      const modelKey = JSON.stringify([key, parsed.value.modelVersion]);
+      const modelKey = JSON.stringify([key, input.result.modelVersion]);
       const existing = attributions.get(modelKey);
-      if (existing) return attributionDuplicate({ existing: existing.result, result: parsed.value });
+      if (existing) return attributionDuplicate({ existing: existing.result, result: input.result });
+      const resultIdKey = JSON.stringify([scopeKey({ scope: input.context.scope }), input.result.resultId]);
+      if (resultIds.has(resultIdKey)) return failure({ code: "conflict", message: "Attribution result ID already binds another event or model" });
       if (attributions.size >= limit) return failure({ code: "limit_exceeded", message: "Attribution storage limit" });
-      attributions.set(modelKey, clone({ value: { scope: input.context.scope, sourceId: input.sourceId, result: parsed.value } }));
-      return parsed;
+      resultIds.set(resultIdKey, modelKey);
+      attributions.set(modelKey, clone({ value: { scope: input.context.scope, sourceId: input.sourceId, result: input.result } }));
+      return { ok: true, value: input.result };
     },
     async readAttribution(input) {
       const context = parseBoundary({ schema: callContextSchema, input: input.context });
@@ -70,7 +76,7 @@ export function createMemoryMeasureRepo(required: { ids?: IdPort; maxRecords?: n
       const query = parseBoundary({ schema: querySchema, input: input.query });
       if (!query.ok) return query;
       const tenant = scopeKey({ scope: context.value.scope });
-      const selected = [...attributions.values()].filter(entry => scopeKey({ scope: entry.scope }) === tenant && entry.result.modelVersion === query.value.attributionModel && entry.result.campaignId !== null);
+      const selected = [...attributions.values()].filter(entry => scopeKey({ scope: entry.scope }) === tenant && entry.result.modelVersion === query.value.attributionModel && entry.result.accountId === query.value.accountId && entry.result.campaignId !== null);
       const times = selected.map(entry => events.get(JSON.stringify([tenant, entry.sourceId, entry.result.eventId]))?.event.occurredAt).filter((time): time is number => time !== undefined && time >= query.value.window.start && time < query.value.window.end);
       return { ok: true, value: { conversions: times.length, modelVersion: query.value.attributionModel, watermark: times.reduce((watermark, time) => Math.max(watermark, time), query.value.window.start) } };
     },
@@ -99,6 +105,6 @@ function checkLineage(required: { snapshots: Map<string, { scope: Scope; snapsho
 function attributionDuplicate(required: { existing: AttributionResult; result: AttributionResult }): Outcome<AttributionResult> {
   const left = required.existing;
   const right = required.result;
-  if (left.resultId !== right.resultId || left.campaignId !== right.campaignId) return failure({ code: "conflict", message: "Attribution is immutable for a declared model" });
+  if (left.resultId !== right.resultId || left.campaignId !== right.campaignId || left.accountId !== right.accountId) return failure({ code: "conflict", message: "Attribution is immutable for a declared model" });
   return { ok: true, value: clone({ value: left }) };
 }

@@ -1,8 +1,7 @@
 import type { CallContext, CallOptions, Outcome } from "@open-marketing/contracts";
 import type { JobDispatchPort } from "./ports.js";
 import type { JobRequest, ProcessResult, TransportResult } from "./types.js";
-import { canonicalJson, jobRequestSchema } from "./schema.js";
-import { callContextSchema } from "@open-marketing/contracts";
+import { parseJobCall, parseTransportResult } from "./schema.js";
 import { jobFailure } from "./errors.js";
 /** Handler executes exactly one attempt. It owns vendor-specific result validation and the authority/transport barrier. */
 export interface JobHandler {
@@ -18,16 +17,19 @@ export interface JobHandlerRegistry extends JobDispatchPort {
 }
 interface Binding { handler: JobHandler; active: Set<Promise<void>> }
 /** Instance-scoped bounded registry; no timers, global runtime registry, or feature-specific queue.
- * @example createJobHandlerRegistry({ maxHandlers: 100 })
- * @complexity O(1) lookup/register; reset/dispose O(h+a), h <=maxHandlers, a active calls.
+ * @example createJobHandlerRegistry({ maxHandlers: 100, maxActive: 128 })
+ * @complexity O(1) lookup/register; reset/dispose O(h+a), h <=maxHandlers, a <=maxActive.
  */
-export function createJobHandlerRegistry(required: { maxHandlers?: number }): JobHandlerRegistry {
+export function createJobHandlerRegistry(required: { maxHandlers?: number; maxActive?: number }): JobHandlerRegistry {
     const maxHandlers = required.maxHandlers ?? 100;
     if (!Number.isSafeInteger(maxHandlers) || maxHandlers < 1 || maxHandlers > 1000) throw new RangeError("Invalid handler capacity");
+    const maxActive = required.maxActive ?? 128;
+    if (!Number.isSafeInteger(maxActive) || maxActive < 1 || maxActive > 10000) throw new RangeError("Invalid active attempt capacity");
     const bindings = new Map<string, Binding>();
     const retiring = new Map<string, Promise<Outcome<{ readonly removed: boolean }>>>();
     let disposed = false;
     let resetting = false;
+    let active = 0;
     /** Unpublish first, then drain. Cleanup cannot hide a possible remote effect. @complexity O(a) active calls. */
     async function unregister(input: { name: string }): Promise<Outcome<{ readonly removed: boolean }>> {
         const retirement = retiring.get(input.name);
@@ -63,12 +65,15 @@ export function createJobHandlerRegistry(required: { maxHandlers?: number }): Jo
             return { ok: true, value: { registered: true } };
         },
         async dispatch(input, optional): Promise<Outcome<ProcessResult>> {
-            const parsed = parseDispatch(input);
+            const parsed = parseJobCall(input);
             if (!parsed.ok) return parsed;
             if (optional?.signal?.aborted) return jobFailure({ code: "cancelled", message: "Dispatch cancelled before effect" });
             const binding = bindings.get(parsed.value.job.handler);
             if (!binding || disposed || resetting) return jobFailure({ code: "unavailable", message: "Job handler unavailable" });
-            return dispatchBinding({ binding, input: parsed.value, optional });
+            if (active >= maxActive) return jobFailure({ code: "limit_exceeded", message: "Active attempt capacity reached" });
+            active++;
+            try { return await dispatchBinding({ binding, input: parsed.value, optional }); }
+            finally { active--; }
         },
         unregister,
         reset,
@@ -80,24 +85,17 @@ export function createJobHandlerRegistry(required: { maxHandlers?: number }): Jo
         },
     };
 }
-/** Validate/detach before invoking the trusted handler, including bounded JSON. @complexity O(n log k), n <=10000. */
-function parseDispatch(required: { context: CallContext; job: JobRequest }): Outcome<{ context: CallContext; job: JobRequest }> {
-    try {
-        const context = callContextSchema.parse(required.context);
-        const job = jobRequestSchema.parse(JSON.parse(canonicalJson({ value: required.job })));
-        return { ok: true, value: { context, job } };
-    } catch { return jobFailure({ code: "invalid_input", message: "Invalid handler request" }); }
-}
 /** Track the whole attempt, including rejection, so unregister never disposes a handler mid-effect. @complexity O(1) plus handler work. */
 async function dispatchBinding(required: { binding: Binding; input: { context: CallContext; job: JobRequest }; optional?: CallOptions }): Promise<Outcome<ProcessResult>> {
+    const operationId = required.input.job.operationId;
     let release!: () => void;
     const active = new Promise<void>(resolve => { release = resolve; });
     required.binding.active.add(active);
     try {
-        const result = await required.binding.handler.handle(required.input, required.optional);
-        return { ok: true, value: { kind: "completed", jobId: required.input.job.operationId, state: handlerState({ result }) } };
+        const result = parseTransportResult({ value: await required.binding.handler.handle(required.input, required.optional) });
+        return { ok: true, value: { kind: "completed", jobId: operationId, state: handlerState({ result }) } };
     } catch {
-        return { ok: true, value: { kind: "completed", jobId: required.input.job.operationId, state: "reconcile" } };
+        return { ok: true, value: { kind: "completed", jobId: operationId, state: "reconcile" } };
     } finally {
         required.binding.active.delete(active);
         release();

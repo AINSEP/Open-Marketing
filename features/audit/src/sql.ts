@@ -8,12 +8,15 @@ import { auditEntrySchema, auditReceiptSchema, failure, validateAppend, validate
 import { observe } from "./observation.js";
 
 const storedRowSchema = z.strictObject({
-  entry_id: idSchema, recorded_at: epochSchema, sequence: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER),
+  entry_id: auditReceiptSchema.shape.entryId, recorded_at: epochSchema, sequence: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER),
+  owner_id: idSchema, workspace_id: idSchema, operation_id: idSchema,
+  kind: auditEntrySchema.shape.kind, arguments_digest: auditEntrySchema.shape.argumentsDigest, correction_of: idSchema.nullable(),
   payload: z.string().max(32768), context_json: z.string().max(8192),
 });
+const queryResultSchema = z.object({ rows: z.array(z.record(z.string(), z.unknown())).max(101) });
 type StoredRow = { entry: AuditEntry; receipt: AuditReceipt; sequence: number; context: CallContext };
 type SqlDependencies = { db: AuditSqlDatabase; clock: ClockPort; ids: IdPort; observer: AuditObserverPort };
-const columns = "entry_id, recorded_at, sequence, payload, context_json";
+const columns = "entry_id, recorded_at, sequence, owner_id, workspace_id, operation_id, kind, arguments_digest, correction_of, payload, context_json";
 
 /** Internal validation exception rolls the injected transaction back, then becomes a typed outcome. */
 class AuditStorageError extends Error {
@@ -66,8 +69,22 @@ async function transaction<T>(required: {
   return result;
 }
 
+/** Check the tainted DB container before inspecting rows; all queries return at most 101 rows.
+ * @returns Validated rows; malformed output rolls back via AuditStorageError. Driver errors
+ * propagate to the transaction boundary, which maps them without exposing driver messages.
+ * @complexity One injected query and O(p*k) container parsing, p <=101, k returned columns.
+ */
+async function query(required: {
+  session: AuditSqlSession; text: string; values: unknown[];
+}): Promise<{ rows: readonly Readonly<Record<string, unknown>>[] }> {
+  const result = await required.session.query({ text: required.text, values: required.values });
+  const parsed = queryResultSchema.safeParse(result);
+  if (!parsed.success) throw new AuditStorageError({ code: "protocol_mismatch" });
+  return parsed.data;
+}
+
 /** Validate persisted evidence before returning it. JSON never repairs or silently replaces history.
- * @complexity O(r), payload <=32KiB, context <=8KiB.
+ * @complexity O(r), payload <=32,768 characters, context <=8,192 characters.
  */
 function decodeRow(required: { row: Readonly<Record<string, unknown>> }): StoredRow {
   const parsed = storedRowSchema.safeParse(required.row);
@@ -75,10 +92,25 @@ function decodeRow(required: { row: Readonly<Record<string, unknown>> }): Stored
   const entry = auditEntrySchema.safeParse(parseStoredJson({ text: parsed.data.payload }));
   const context = callContextSchema.safeParse(parseStoredJson({ text: parsed.data.context_json }));
   if (!entry.success || !context.success) throw new AuditStorageError({ code: "protocol_mismatch" });
+  if (!metadataMatches({ row: parsed.data, entry: entry.data, context: context.data })) throw new AuditStorageError({ code: "protocol_mismatch" });
   return {
     entry: entry.data, context: context.data, sequence: parsed.data.sequence,
     receipt: { entryId: parsed.data.entry_id, recordedAt: parsed.data.recorded_at },
   };
+}
+
+/** Indexed scope/filter/lineage columns must describe the same immutable JSON evidence.
+ * @complexity O(1) comparisons of bounded identifiers and digests; no I/O or mutation.
+ */
+function metadataMatches(required: {
+  row: z.infer<typeof storedRowSchema>; entry: AuditEntry; context: CallContext;
+}): boolean {
+  return required.row.owner_id === required.context.scope.ownerId
+    && required.row.workspace_id === required.context.scope.workspaceId
+    && required.row.operation_id === required.entry.operationId
+    && required.row.kind === required.entry.kind
+    && required.row.arguments_digest === required.entry.argumentsDigest
+    && required.row.correction_of === (required.entry.correctionOf ?? null);
 }
 
 function parseStoredJson(required: { text: string }): unknown {
@@ -95,7 +127,7 @@ function scopedRow(required: { row: Readonly<Record<string, unknown>>; context: 
 
 /** Scoped lookup used for both correction lineage and cursor ownership. @complexity Indexed O(log n). */
 async function findRow(required: { session: AuditSqlSession; context: CallContext; entryId: string }): Promise<StoredRow | undefined> {
-  const rows = await required.session.query({
+  const rows = await query({ session: required.session,
     text: `SELECT ${columns} FROM audit_entry WHERE owner_id = $1 AND workspace_id = $2 AND entry_id = $3 LIMIT 1`,
     values: [required.context.scope.ownerId, required.context.scope.workspaceId, required.entryId],
   });
@@ -118,7 +150,7 @@ async function appendSql(required: {
   if (!receipt.ok) return receipt;
   const sequence = await nextSequence(required);
   if (optional?.signal?.aborted) return failure({ code: "cancelled" });
-  const rows = await required.session.query({
+  const rows = await query({ session: required.session,
     text: "INSERT INTO audit_entry (entry_id, owner_id, workspace_id, sequence, operation_id, kind, arguments_digest, correction_of, recorded_at, payload, context_json) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (entry_id) DO NOTHING RETURNING entry_id, recorded_at",
     values: [receipt.value.entryId, required.context.scope.ownerId, required.context.scope.workspaceId, sequence,
       required.entry.operationId, required.entry.kind, required.entry.argumentsDigest, required.entry.correctionOf ?? null,
@@ -143,7 +175,7 @@ async function correctionTarget(required: {
  * @complexity Indexed O(log n), one bounded read.
  */
 async function nextSequence(required: { session: AuditSqlSession; context: CallContext }): Promise<number> {
-  const result = await required.session.query({
+  const result = await query({ session: required.session,
     text: "SELECT sequence FROM audit_entry WHERE owner_id = $1 AND workspace_id = $2 ORDER BY sequence DESC LIMIT 1",
     values: [required.context.scope.ownerId, required.context.scope.workspaceId],
   });
@@ -178,10 +210,11 @@ async function listSql(required: { session: AuditSqlSession; context: CallContex
     values.push(required.query.operationId);
   }
   values.push(required.query.limit + 1);
-  const result = await required.session.query({
+  const result = await query({ session: required.session,
     text: `SELECT ${columns} FROM audit_entry WHERE owner_id = $1 AND workspace_id = $2 AND sequence > $3${filter} ORDER BY sequence ASC LIMIT $${values.length}`,
     values,
   });
+  if (optional?.signal?.aborted) return failure({ code: "cancelled" });
   if (result.rows.length > required.query.limit + 1) throw new AuditStorageError({ code: "protocol_mismatch" });
   const rows = result.rows.map(row => scopedRow({ row, context: required.context }));
   if (!validPageRows({ rows, query: required.query, after: cursor.value })) throw new AuditStorageError({ code: "protocol_mismatch" });
@@ -192,12 +225,17 @@ async function listSql(required: { session: AuditSqlSession; context: CallContex
   } };
 }
 
-/** Validate query shape on tainted results, including ordering and operation filters. @complexity O(p). */
+/** Validate query shape on tainted results, including unique receipts, ordering and operation filters.
+ * @complexity O(p) time and O(p) identity-set space, p <=101; no I/O or mutation of rows.
+ */
 function validPageRows(required: { rows: readonly StoredRow[]; query: AuditQuery; after: number }): boolean {
   let previous = required.after;
+  const seen = new Set<string>();
   for (const row of required.rows) {
     if (row.sequence <= previous) return false;
+    if (seen.has(row.receipt.entryId)) return false;
     if (required.query.operationId !== undefined && row.entry.operationId !== required.query.operationId) return false;
+    seen.add(row.receipt.entryId);
     previous = row.sequence;
   }
   return true;

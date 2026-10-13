@@ -1,8 +1,8 @@
-import { parseBoundary } from "@open-marketing/contracts";
 import type { CallContext, CallOptions, Outcome } from "@open-marketing/contracts";
 import type { CreativeDependencies } from "./lifecycle.js";
 import type { GenerationStatus, GenerationCostObservation } from "./types.js";
-import { evidenceId, failure, provenance, sameEvidence, statusSchema, success } from "./rules.js";
+import { evidenceId, failure, provenance, sameEvidence, scopedKey, success } from "./rules.js";
+import { validateStatus } from "./repository-rules.js";
 
 /** Refresh durable provider evidence, settle observed charges and import bytes idempotently.
  * Every step is replayable after partial failure; no failure/cancellation releases a reservation.
@@ -14,18 +14,41 @@ export async function refreshJob(required: { deps: CreativeDependencies; context
   if (original.value.dispatchState === "queued") return original;
   const observed = await required.deps.generation.status(required, optional);
   if (!observed.ok) return observed;
-  const parsed = parseBoundary({ schema: statusSchema, input: observed.value });
+  const parsed = validateStatus({ status: observed.value });
   if (!parsed.ok) return parsed;
   if (!matchesIntent({ original: original.value, observed: parsed.value })) return failure({ code: "protocol_mismatch", message: "Capability status changed original intent" });
-  const status: GenerationStatus = { ...original.value, operation: parsed.value.operation, providerJobId: parsed.value.providerJobId, actualCost: parsed.value.actualCost, costs: parsed.value.costs, asyncOperationId: parsed.value.asyncOperationId,
-    state: original.value.state === "cancelled" ? "cancelled" : parsed.value.state };
+  const evidence = validateObservation({ ...required, original: original.value, observed: parsed.value });
+  if (!evidence.ok) return evidence;
+  const status = projectObservation({ original: original.value, observed: parsed.value });
   const saved = await required.deps.repo.save({ context: required.context, status }, optional);
   if (!saved.ok) return saved;
   const costs = await recordCosts({ ...required, status: saved.value }, optional);
   if (!costs.ok) return costs;
-  const evidence = await required.deps.assets.recordProvenance({ context: required.context, provenance: provenance({ status: saved.value }) }, optional);
-  if (!evidence.ok) return evidence;
+  const recorded = await required.deps.assets.recordProvenance({ context: required.context, provenance: provenance({ status: saved.value }) }, optional);
+  if (!recorded.ok) return recorded;
   return importResult({ ...required, status: saved.value }, optional);
+}
+/** Keep local scheduling/cancellation authority while copying validated vendor evidence. @complexity O(c) bounded costs. */
+function projectObservation(required: { original: GenerationStatus; observed: GenerationStatus }): GenerationStatus {
+  return { ...required.original, operation: required.observed.operation, providerJobId: required.observed.providerJobId,
+    actualCost: required.observed.actualCost, costs: observations({ status: required.observed }), asyncOperationId: required.observed.asyncOperationId,
+    dispatchState: required.observed.operation === null ? required.original.dispatchState : "submitted",
+    state: required.original.state === "cancelled" ? "cancelled" : required.observed.state };
+}
+/** Reject an entire tainted observation before any projection, ledger or media writes.
+ * @complexity O(c) time/space for c <=100 cost identities.
+ */
+function validateObservation(required: { context: CallContext; original: GenerationStatus; observed: GenerationStatus }): Outcome<void> {
+  const operation = required.observed.operation;
+  if (operation !== null && (operation.id !== required.observed.asyncOperationId || operation.ownerRef !== scopedKey({ context: required.context, id: required.original.generationId }))) return failure({ code: "forbidden", message: "Observed operation does not belong to this generation" });
+  const identities = new Map<string, GenerationCostObservation>(required.original.costs.map(cost => [cost.observationId, cost]));
+  for (const cost of observations({ status: required.observed })) {
+    if (cost.generationId !== required.original.generationId || cost.operationId !== required.original.request.operationId) return failure({ code: "protocol_mismatch", message: "Observed cost belongs to another generation" });
+    const previous = identities.get(cost.observationId);
+    if (previous !== undefined && !sameEvidence({ left: previous, right: cost })) return failure({ code: "conflict", message: "Observation repeats conflicting cost identity" });
+    identities.set(cost.observationId, cost);
+  }
+  return success({ value: undefined });
 }
 function matchesIntent(required: { original: GenerationStatus; observed: GenerationStatus }): boolean {
   if (required.original.generationId !== required.observed.generationId) return false;
@@ -41,8 +64,8 @@ async function recordCosts(required: { deps: CreativeDependencies; context: Call
 }
 function observations(required: { status: GenerationStatus }): readonly GenerationCostObservation[] {
   const status = required.status;
-  if (status.actualCost === null || status.costs.length > 0) return status.costs;
-  return [{ observationId: evidenceId({ generationId: status.generationId, kind: "actual" }), generationId: status.generationId, operationId: status.request.operationId, amount: status.actualCost, kind: "actual" }];
+  if (status.actualCost === null || status.costs.some(cost => cost.kind !== "estimated")) return status.costs;
+  return [...status.costs, { observationId: evidenceId({ generationId: status.generationId, kind: "actual" }), generationId: status.generationId, operationId: status.request.operationId, amount: status.actualCost, kind: "actual" }];
 }
 async function recordCost(required: { deps: CreativeDependencies; context: CallContext; status: GenerationStatus; cost: GenerationCostObservation }, optional?: CallOptions): Promise<Outcome<void>> {
   if (required.cost.generationId !== required.status.generationId || required.cost.operationId !== required.status.request.operationId) return failure({ code: "protocol_mismatch", message: "Cost observation belongs to another generation" });

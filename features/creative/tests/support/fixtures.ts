@@ -1,6 +1,7 @@
 import { createCreativeService, createMemoryCreativeAsset, createMemoryCreativeAudit, createMemoryCreativeJob, createMemoryCreativeObserver, createMemoryCreativeRepo, createMemoryCreativeSpend, createMemoryGenerationCapability, digestGenerationRequest } from "../../index.js";
 import type { CallContext, GenerationCostQuote, GenerationRequest, GenerationStatus, Outcome } from "../../index.js";
-import type { CreativeRepoPort } from "../../src/ports.js";
+import type { CreativeRepoPort, CreativeJobPort } from "../../src/ports.js";
+import { evidenceId, scopedKey } from "../../src/rules.js";
 
 export const NOW = 1_791_000_000_000;
 export const context: CallContext = { scope: { ownerId: "owner", workspaceId: "workspace" }, principal: { kind: "service", serviceId: "creative-worker" }, correlationId: "correlation", traceId: "trace", runId: "run" };
@@ -28,13 +29,13 @@ export function value<T>(required: { outcome: Outcome<T> }): T {
   if (!required.outcome.ok) throw new Error(required.outcome.error.code + ": " + required.outcome.error.message);
   return required.outcome.value;
 }
-export function serviceFixture(required: { repo?: CreativeRepoPort; kind?: "normal_write" | "exact_spend" | "denied"; dispatchAllowed?: boolean; unknownQuote?: boolean; rejectEnqueue?: boolean } = {}) {
+export function serviceFixture(required: { repo?: CreativeRepoPort; jobs?: CreativeJobPort; kind?: "normal_write" | "exact_spend" | "denied"; dispatchAllowed?: boolean; unknownQuote?: boolean; rejectEnqueue?: boolean } = {}) {
   const repo = required.repo ?? createMemoryCreativeRepo({});
   const request = generationRequest();
   const quote = quoteFor({ request, unknown: required.unknownQuote });
   const generation = createMemoryGenerationCapability({ repo, quote });
   const assets = createMemoryCreativeAsset({});
-  const jobs = createMemoryCreativeJob({ repo, reject: required.rejectEnqueue });
+  const jobs = required.jobs ?? createMemoryCreativeJob({ repo, reject: required.rejectEnqueue });
   const safety = createMemoryCreativeSpend({ kind: required.kind, dispatchAllowed: required.dispatchAllowed });
   const audit = createMemoryCreativeAudit({});
   const observer = createMemoryCreativeObserver({});
@@ -46,7 +47,7 @@ export function serviceFixture(required: { repo?: CreativeRepoPort; kind?: "norm
 }
 export function completedStatus(required: { status: GenerationStatus; failed?: boolean; unknown?: boolean; minorUnits?: number }): GenerationStatus {
   const status = required.status;
-  const id = status.asyncOperationId ?? "async-operation";
+  const id = status.asyncOperationId ?? evidenceId({ generationId: scopedKey({ context, id: status.generationId }), kind: "async" });
   return { ...status, state: required.unknown ? "unknown" : (required.failed ? "failed" : "succeeded"), dispatchState: "submitted", asyncOperationId: id,
     actualCost: required.minorUnits === undefined ? null : { minorUnits: required.minorUnits, currency: "USD" },
     operation: { schemaVersion: 1, id, providerId: "fixture-provider", routeKey: "fixture-route", ownerRef: JSON.stringify([context.scope.ownerId, context.scope.workspaceId, status.generationId]),

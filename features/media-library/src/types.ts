@@ -18,7 +18,7 @@ export type AssetProvenance = {
     readonly providerJobId?: string;
     readonly reservationId?: string;
 };
-/** URL import is supplied by the Jini import adapter when its public export is published. */
+/** URL ingestion uses public Jini import services behind the injected outbound guard. */
 export type AssetImportRequest = { readonly sourceUrl: string; readonly operationId: string; readonly expectedDigest: string; readonly provenance: AssetProvenance };
 /** Estimated, observed and linked corrective costs survive absent or delayed output. */
 export type AssetCost = { readonly observationId: string; readonly operationId: string; readonly amount: Money; readonly kind: 'estimated' | 'actual' | 'correction'; readonly correctionOf?: string };
@@ -35,6 +35,10 @@ export type AssetPage = Page<Asset>;
 export type BlobReference = Pick<AssetBlobRecord, 'workspaceId' | 'sha256' | 'storageKey'>;
 /** Guarded URL ingestion returns the canonical Jini asset, not a parallel asset record. */
 export type ImportedAsset = Asset;
+/** Decoded per-frame dimensions; frames includes every page/animation frame inspected by the codec. */
+export type ImageInspection = { readonly width: number; readonly height: number; readonly frames: number };
+/** Host codecs enforce maxPixels before allocation; OM also checks decoded edge/frame totals. */
+export type ImageInspectionLimits = { readonly maxEdge: number; readonly maxPixels: number; readonly maxFrames: number };
 /** Append-only evidence may exist before an asset, or after failed generation. */
 export type ProvenanceLink = { readonly provenance: AssetProvenance; readonly assetId?: string };
 /** Thin OM orchestration: evidence/cost/placement policy over public Jini media operations. */

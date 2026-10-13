@@ -1,15 +1,15 @@
 import {
   FederationConnectionRepoPortSuite, McpTransportPortSuite, FederationCredentialPortSuite,
   FederatedToolPermissionGateSuite, FederatedCallConfirmationSuite, ExternalMcpToolApprovalRepoPortSuite,
-  FederatedDispatchGatePortSuite, FederationAuditPortSuite, ToolRegistryPortSuite,
+  FederatedDispatchGatePortSuite, FederationAuditPortSuite, ToolRegistryPortSuite, FederationObserverPortSuite,
 } from "./port-suites.js";
 import {
   createMemoryFederationConnectionRepo, createMemoryMcpTransport, createMemoryFederationCredential,
   createMemoryFederatedToolPermissionGate, createMemoryFederatedCallConfirmation,
   createMemoryExternalMcpToolApprovalRepo, createMemoryFederatedDispatchGate, createMemoryFederationAudit,
-  createMemoryToolRegistry,
+  createMemoryToolRegistry, createMemoryFederationObserver,
 } from "../../index.js";
-import type { MemoryAudit } from "../../index.js";
+import type { MemoryAudit, MemoryFederationObserver } from "../../index.js";
 import { context, call, connection, descriptor, respond } from "../fixtures/domain.js";
 
 FederationConnectionRepoPortSuite({ create: () => createMemoryFederationConnectionRepo({ entries: [connection] }) });
@@ -21,3 +21,4 @@ ExternalMcpToolApprovalRepoPortSuite({ create: () => createMemoryExternalMcpTool
 FederatedDispatchGatePortSuite({ create: () => createMemoryFederatedDispatchGate({ entries: [{ context, call: call({}), permitId: "permit" }] }) });
 FederationAuditPortSuite({ create: () => createMemoryFederationAudit({}), read: ({ port }) => (port as MemoryAudit).entries({}) });
 ToolRegistryPortSuite({ create: () => createMemoryToolRegistry({}) });
+FederationObserverPortSuite({ create: () => createMemoryFederationObserver({}), read: ({ port }) => (port as MemoryFederationObserver).entries({}) });

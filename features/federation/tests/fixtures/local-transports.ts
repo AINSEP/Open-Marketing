@@ -2,12 +2,10 @@ import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { once } from "node:events";
 import { fileURLToPath } from "node:url";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { createSdkMcpTransport } from "../../index.js";
+import { createFetchMcpHttpExchange, defaultFederationMessages } from "@jini-ai/mcp/federation";
+import { spawnMcpStdioChannel } from "@jini-ai/mcp/federation/stdio";
+import { createJiniHttpMcpTransport, createJiniStdioMcpTransport } from "../../index.js";
 import type { TransportFixture } from "../contract/port-suites.js";
-import type { FederationSdkSessionOpener } from "../../index.js";
 import { protocolReply } from "./protocol.js";
 
 /** Node's foreign request ABI is wrapped immediately into the owned two-object handler. */
@@ -31,15 +29,11 @@ export async function httpFixture(): Promise<TransportFixture> {
   await once(server, "listening");
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("Fixture address unavailable");
-  const opener: FederationSdkSessionOpener = {
-    async open(input, options) {
-      const client = new Client({ name: "om-fixture", version: "1.0.0" }, { capabilities: {} });
-      const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${address.port}`), { fetch });
-      await client.connect(transport, { timeout: input.timeoutMs, signal: options?.signal });
-      return { ok: true, value: client };
-    },
-  };
-  const port = createSdkMcpTransport({ opener, timeoutMs: 2000 });
+  const port = createJiniHttpMcpTransport({
+    connectionId: "fixture", credentialReference: "broker-reference", timeoutMs: 2000,
+    clientInfo: { name: "om-fixture", version: "1.0.0" }, exchange: createFetchMcpHttpExchange({ fetch }),
+    spec: { url: `http://127.0.0.1:${address.port}`, headers: {} }, bearerToken: () => undefined,
+  });
   return { port, async cleanup() {
     await port.dispose({ connectionId: "fixture" });
     server.closeAllConnections();
@@ -50,14 +44,11 @@ export async function httpFixture(): Promise<TransportFixture> {
 
 /** Real child-process stdio fixture; injected process/configuration exists only in this test assembly. */
 export async function stdioFixture(): Promise<TransportFixture> {
-  const opener: FederationSdkSessionOpener = {
-    async open(input, options) {
-      const client = new Client({ name: "om-fixture", version: "1.0.0" }, { capabilities: {} });
-      const transport = new StdioClientTransport({ command: process.execPath, args: [fileURLToPath(new URL("./stdio-server.mjs", import.meta.url))], env: {}, stderr: "pipe" });
-      await client.connect(transport, { timeout: input.timeoutMs, signal: options?.signal });
-      return { ok: true, value: client };
-    },
-  };
-  const port = createSdkMcpTransport({ opener, timeoutMs: 2000 });
+  const port = createJiniStdioMcpTransport({
+    connectionId: "fixture", credentialReference: "broker-reference", timeoutMs: 2000,
+    clientInfo: { name: "om-fixture", version: "1.0.0" },
+    openChannel: async () => spawnMcpStdioChannel({ command: process.execPath,
+      args: [fileURLToPath(new URL("./stdio-server.mjs", import.meta.url))], env: {}, launchEnv: {}, messages: defaultFederationMessages }),
+  });
   return { port, async cleanup() { await port.dispose({ connectionId: "fixture" }); } };
 }

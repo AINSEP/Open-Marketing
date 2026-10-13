@@ -16,7 +16,7 @@ export const importSchema = z.strictObject({ sourceUrl: z.url().max(2048), opera
 const isoSchema = z.iso.datetime({ offset: true });
 const pixelsSchema = z.number().int().positive().max(8000).nullable();
 export const recordSchema = z.strictObject({
-  id: idSchema, workspaceId: idSchema, title: z.string().max(2048), slug: z.string().min(1).max(256),
+  id: idSchema, workspaceId: idSchema, createdBy: idSchema.nullable().optional(), title: z.string().max(2048), slug: z.string().min(1).max(256),
   alt: z.string().max(4096), caption: z.string().max(16000), credit: z.string().max(4096),
   source: z.strictObject({ sha256: digestSchema }), status: z.enum(['active', 'trashed']),
   createdAt: isoSchema, updatedAt: isoSchema, version: z.number().int().positive(),

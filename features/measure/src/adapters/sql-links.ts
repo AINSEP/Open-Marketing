@@ -2,7 +2,7 @@ import { z } from "zod";
 import { callContextSchema, idSchema, parseBoundary } from "@open-marketing/contracts";
 import type { IdPort } from "@open-marketing/contracts";
 import type { MeasureObserverPort, MeasureSqlDatabase, TrackedLinkPort } from "../ports.js";
-import { failure, linkRequestSchema, scopeKey } from "../rules.js";
+import { failure, linkRequestSchema, nextId, scopeKey } from "../rules.js";
 import { prepareTrackedLink, validateTrackedDestination } from "../links/links.js";
 import { sqlBoundary, unwrap } from "./sql-boundary.js";
 const linkSchema = z.strictObject({ linkId: idSchema, url: z.string().max(4096), destinationUrl: z.string().max(4096) });
@@ -18,7 +18,9 @@ export function createSqlTrackedLink(required: { database: MeasureSqlDatabase; i
       if (!context.ok) return context;
       const request = parseBoundary({ schema: linkRequestSchema, input: input.request });
       if (!request.ok) return request;
-      const link = prepareTrackedLink({ linkId: required.ids.next({}), request: request.value, baseUrl: required.baseUrl, allowedOrigins: required.allowedOrigins, allowedQueryKeys: required.allowedQueryKeys });
+      const id = nextId({ ids: required.ids, fallback: "" });
+      if (!id.ok) return id;
+      const link = prepareTrackedLink({ linkId: id.value, request: request.value, baseUrl: required.baseUrl, allowedOrigins: required.allowedOrigins, allowedQueryKeys: required.allowedQueryKeys });
       if (!link.ok) return link;
       return sqlBoundary({ context: context.value, operation: "measure.sql.createLink", observer: optional?.observer, work: () => required.database.transaction({ work: async transaction => {
         const values = [scopeKey({ scope: context.value.scope }), link.value.linkId];
@@ -31,6 +33,8 @@ export function createSqlTrackedLink(required: { database: MeasureSqlDatabase; i
     async resolve(input, options) {
       const context = parseBoundary({ schema: callContextSchema, input: input.context });
       if (!context.ok) return context;
+      const linkId = parseBoundary({ schema: idSchema, input: input.linkId });
+      if (!linkId.ok) return linkId;
       return sqlBoundary({ context: context.value, operation: "measure.sql.resolveLink", observer: optional?.observer, work: async () => {
         const result = await required.database.query({ text: "SELECT link_json FROM measure_tracked_link WHERE scope_key=$1 AND link_id=$2", values: [scopeKey({ scope: context.value.scope }), input.linkId] });
         if (!result.rows[0]) return unwrap({ outcome: failure({ code: "unavailable", message: "Tracked link not found" }) });

@@ -3,9 +3,9 @@ import type { AuditRedactorPort } from "./ports.js";
 import type { AuditEntry } from "./types.js";
 import { failure, operationalId, validateAppend } from "./validation.js";
 
-/** Adapter for the published @jini-ai/core redactSecrets function. Composition wraps its foreign
- * string ABI in an object argument; audit never copies Jini's secret/PII patterns.
- * @example createJiniAuditRedactor({ scrubber: { redact: ({ text }) => redactSecrets(text) } });
+/** Adapter for the published @jini-ai/core 0.4.3 redactSecrets function. Composition adapts
+ * its public input object; audit never copies Jini's secret/PII patterns.
+ * @example createJiniAuditRedactor({ scrubber: { redact: ({ text }) => redactSecrets({ input: text }) } });
  * @returns A typed failure if scrubber fails or an identity contains recognized sensitive content.
  * @complexity O(r*s), r <=64, s <=256; scrubber cost is injected and must remain bounded.
  */

@@ -9,7 +9,8 @@ export type AuditEntry = {
   readonly references: readonly string[];
   readonly correctionOf?: string;
 };
-/** Returned only after append commits. Keep this receipt to identify correction lineage. */
+/** Returned only after append commits. Keep this receipt to identify correction lineage.
+ * IDs must be opaque non-personal identifiers using letters, digits, colon, underscore or hyphen. */
 export type AuditReceipt = { readonly entryId: string; readonly recordedAt: number };
 /** Forward-only pagination: 1..100 entries, optionally filtered to an operation. */
 export type AuditQuery = PageQuery & { readonly operationId?: string };

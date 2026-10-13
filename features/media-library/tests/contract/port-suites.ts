@@ -1,5 +1,5 @@
 import { beforeEach, afterEach, describe, it, expect } from 'vitest';
-import type { MediaRepoPort, JiniMediaPort, BlobStorePort, GuardedAssetImportPort, ImageTransformPort, MediaAuditPort, JiniMediaDependencies } from '../../index.js';
+import type { MediaRepoPort, JiniMediaPort, BlobStorePort, GuardedAssetImportPort, ImageTransformPort, ImageInspectionPort, MediaAuditPort, JiniMediaDependencies } from '../../index.js';
 import { bytes, context, foreignContext, otherOwner, digest, provenance, seedAsset, value } from '../fixtures.js';
 import { computeBlobStorageKey } from '@jini-ai/cms/media';
 
@@ -133,20 +133,50 @@ export function BlobStorePortSuite(required: Create<BlobStorePort>): void {
     });
   });
 }
-/** The deferred seam is explicitly tested as unavailable; these are not SSRF ingress acceptance tests. */
-export function GuardedAssetImportPortSuite(required: { create: () => GuardedAssetImportPort }): void {
-  describe('GuardedAssetImportPort deferred contract', () => {
-    it('valid URL requests remain not_implemented, including unsafe network destinations', async () => {
-      const port = required.create();
-      for (const sourceUrl of ['https://example.com/image.png', 'http://127.0.0.1/', 'http://169.254.169.254/']) {
-        expect(await port.import({ context, request: { sourceUrl, operationId: 'operation', expectedDigest: digest, provenance } })).toMatchObject({ ok: false, error: { code: 'not_implemented' } });
-      }
+/** Same published Jini ingestion behavior for fixture double and injected real adapter.
+ * Actual connect-time DNS/IP/redirect enforcement needs the platform guard's own suite/composition.
+ */
+export function GuardedAssetImportPortSuite(required: { create: () => { port: GuardedAssetImportPort; deps: JiniMediaDependencies } }): void {
+  describe('GuardedAssetImportPort behavior', () => {
+    it('stores canonical bytes and deduplicates repeated/concurrent imports with each provenance', async () => {
+      const { port, deps } = required.create();
+      const request = { sourceUrl: 'https://example.com/image.png', operationId: 'operation', expectedDigest: digest, provenance };
+      const results = await Promise.all([port.import({ context, request }), port.import({ context, request: { ...request, operationId: 'second', provenance: { ...provenance, operationId: 'second', prompt: 'second' } } })]);
+      const first = value({ outcome: results[0] }); const second = value({ outcome: results[1] });
+      expect(first.record.id).toBe(second.record.id); expect(second.provenance?.prompt).toBe('second');
+      expect(await deps.mediaRepo.list({ workspaceId: 'workspace' })).toEqual([first.record]);
+      expect(await deps.blobStore.get({ storageKey: first.blob.storageKey })).toEqual(bytes);
+      expect(value({ outcome: await port.import({ context, request }) })).toEqual(first);
     });
-    it('rejects malformed provenance and foreign contexts before the unavailable seam', async () => {
-      const port = required.create();
+    it('rejects HTTPS credential/scheme violations and mismatched content before publishing records', async () => {
+      const { port, deps } = required.create();
+      for (const sourceUrl of ['http://127.0.0.1/', 'file:///tmp/image.png', 'https://user:secret@example.com/image.png']) {
+        expect(await port.import({ context, request: { sourceUrl, operationId: 'operation', expectedDigest: digest, provenance } })).toMatchObject({ ok: false, error: { code: 'invalid_input' } });
+      }
+      expect(await port.import({ context, request: { sourceUrl: 'https://example.com/image.png', operationId: 'operation', expectedDigest: 'a'.repeat(64), provenance } })).toMatchObject({ ok: false, error: { code: 'conflict' } });
+      expect(await deps.mediaRepo.list({ workspaceId: 'workspace' })).toEqual([]);
+      expect(await deps.blobRepo.list({ workspaceId: 'workspace' })).toEqual([]);
+    });
+    it('rejects malformed provenance and foreign contexts before ingress', async () => {
+      const { port } = required.create();
       const request = { sourceUrl: 'https://example.com/image.png', operationId: 'different', expectedDigest: digest, provenance };
       expect(await port.import({ context, request })).toMatchObject({ ok: false, error: { code: 'invalid_input' } });
       expect(await port.import({ context: foreignContext, request })).toMatchObject({ ok: false, error: { code: 'forbidden' } });
+    });
+  });
+}
+/** One inspection contract over the fingerprint double and host decoder adapter; no fake pixel-codec claim. */
+export function ImageInspectionPortSuite(required: { create: () => ImageInspectionPort }): void {
+  describe('ImageInspectionPort behavior', () => {
+    it('returns decoded metadata, refuses pixel overflow and denies another workspace', async () => {
+      const port = required.create();
+      const input = { context, bytes, contentType: 'image/png', maxPixels: 100 };
+      expect(await port.inspect(input)).toEqual({ ok: true, value: { width: 7, height: 9, frames: 1 } });
+      expect(await port.inspect({ ...input, maxPixels: 62 })).toMatchObject({ ok: false, error: { code: 'limit_exceeded' } });
+      expect(await port.inspect({ ...input, context: foreignContext })).toMatchObject({ ok: false, error: { code: 'forbidden' } });
+      expect(await port.inspect({ ...input, contentType: 'image/svg+xml' })).toMatchObject({ ok: false, error: { code: 'invalid_input' } });
+      const controller = new AbortController(); controller.abort();
+      expect(await port.inspect(input, { signal: controller.signal })).toMatchObject({ ok: false, error: { code: 'cancelled' } });
     });
   });
 }

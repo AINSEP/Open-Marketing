@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { CampaignRepoPort, CampaignCapabilityPort, CampaignAssetPort, CampaignSafetyPort, CampaignJobPort, CampaignAuditPort, MemoryCampaignAsset, MemoryCampaignSafety, MemoryCampaignAudit } from "../../index.js";
+import type { CampaignRepoPort, CampaignCapabilityPort, CampaignAssetPort, CampaignSafetyPort, CampaignJobPort, CampaignAuditPort, MemoryCampaignAsset, MemoryCampaignSafety, MemoryCampaignAudit, MemoryCampaignObserver, LaunchProposal } from "../../index.js";
 import { context, otherContext, draft, flight, proposal, request, value, revisionDigest } from "../fixtures.js";
 import { createHash } from "node:crypto";
 
@@ -91,7 +91,29 @@ export function CampaignCapabilityPortSuite(required: { create: () => CampaignCa
       expect(await port.launch({ context, request: { ...approved, argumentsDigest: "b".repeat(64) }, proposal: exact, permitId: "permit" })).toMatchObject({ ok: false, error: { code: "conflict" } });
       expect(await port.launch({ context: otherContext, request: approved, proposal: exact, permitId: "permit" })).toMatchObject({ ok: false, error: { code: "forbidden" } });
     });
+    it.each(["account", "effect", "exposure", "creative"] as const)("rejects substituted %s even when the original arguments digest matches", async (kind) => {
+      const port = required.create();
+      value({ outcome: await port.createPaused({ context, draft, campaignId: "campaign", permitId: "permit" }) });
+      const exact = proposal({ campaignId: "campaign" });
+      const changed = substitutedEnvelope({ proposal: exact, kind });
+      expect(await port.launch({ context, request: request({ proposal: changed }), proposal: changed, permitId: "permit" })).toMatchObject({ ok: false, error: { code: "conflict" } });
+      const read = value({ outcome: await port.readState({ context, campaignId: "campaign", connectionId: "connection", accountId: "account", operationId: "launch-1" }) });
+      expect(read.state.state).toBe("paused");
+      expect(read.operationId).toBe("create-1");
+    });
   });
+}
+/** Keep the argument digest unchanged while changing a distinct authority-bearing field. */
+function substitutedEnvelope(required: { proposal: LaunchProposal; kind: "account" | "effect" | "exposure" | "creative" }): LaunchProposal {
+  const exact = required.proposal;
+  const operation = exact.operations[0];
+  switch (required.kind) {
+    case "account": return { ...exact, operations: [{ ...operation, accountId: "foreign" }] };
+    case "effect": return { ...exact, operations: [{ ...operation, effects: ["read"] }] };
+    case "exposure": return { ...exact, operations: [{ ...operation, moneyExposure: { amount: { minorUnits: 9999, currency: "USD" }, window: exact.arguments.flight.window } }] };
+    case "creative": return { ...exact, creativeDigest: "b".repeat(64) };
+    default: { const exhaustive: never = required.kind; throw new Error(String(exhaustive)); }
+  }
 }
 export function CampaignAssetPortSuite(required: { create: () => MemoryCampaignAsset }) {
   describe("CampaignAssetPort behavior", () => {
@@ -130,6 +152,18 @@ export function CampaignSafetyPortSuite(required: { create: () => MemoryCampaign
       expect(await port.authorizeCreation({ context, draft })).toMatchObject({ ok: false, error: { code: "forbidden" } });
       expect(effects).toBe(1);
     });
+    it("rejects substituted exposure even if a double was told to approve it", async () => {
+      const port = required.create();
+      const exact = proposal({ campaignId: "campaign" });
+      const changed = substitutedEnvelope({ proposal: exact, kind: "exposure" });
+      value({ outcome: port.approve({ context, proposal: changed, approvalId: "approval-1" }) });
+      let effects = 0;
+      expect(await port.dispatchLaunch({ context, proposal: changed, request: request({ proposal: changed }), execute: async () => {
+        effects += 1;
+        return { ok: true, value: { operationId: "launch-1", status: "submitted" } };
+      } })).toMatchObject({ ok: false, error: { code: "conflict" } });
+      expect(effects).toBe(0);
+    });
   });
 }
 export function CampaignJobPortSuite(required: { create: () => CampaignJobPort }) {
@@ -155,6 +189,28 @@ export function CampaignJobPortSuite(required: { create: () => CampaignJobPort }
       value({ outcome: await port.enqueue({ context, operationId: draft.operationId, argumentsDigest, intent: { kind: "create", campaignId: "campaign", draft } }) });
       expect(await port.finish({ context, operationId: draft.operationId, status: "submitted" })).toMatchObject({ ok: false, error: { code: "conflict" } });
       expect(await port.enqueue({ context, operationId: "wrong", argumentsDigest, intent: { kind: "create", campaignId: "campaign", draft } })).toMatchObject({ ok: false, error: { code: "conflict" } });
+    });
+    it("refuses a launch intent with substituted exposure before storing it", async () => {
+      const port = required.create();
+      const changed = substitutedEnvelope({ proposal: proposal({ campaignId: "campaign" }), kind: "exposure" });
+      const approved = request({ proposal: changed });
+      expect(await port.enqueue({ context, operationId: approved.operationId, argumentsDigest: approved.argumentsDigest, intent: { kind: "launch", proposal: changed, request: approved } })).toMatchObject({ ok: false, error: { code: "conflict" } });
+      expect(value({ outcome: await port.get({ context, operationId: approved.operationId }) })).toBeNull();
+    });
+  });
+}
+/** B1: same observer contract can be reused when composition supplies another adapter. */
+export function CampaignObserverPortSuite(required: { create: () => MemoryCampaignObserver }) {
+  describe("CampaignObserverPort behavior", () => {
+    it("records bounded copied events and preserves correlation/trace/run IDs", () => {
+      const observer = required.create();
+      const event = { operation: "campaigns.dispatch", outcome: "unknown", correlationId: "correlation", traceId: "trace", runId: "run" };
+      observer.observe(event);
+      event.traceId = "mutated";
+      const snapshot = observer.events({});
+      expect(snapshot).toEqual([{ operation: "campaigns.dispatch", outcome: "unknown", correlationId: "correlation", traceId: "trace", runId: "run" }]);
+      (snapshot[0] as { traceId: string }).traceId = "changed-snapshot";
+      expect(observer.events({})[0].traceId).toBe("trace");
     });
   });
 }

@@ -56,6 +56,16 @@ describe("dispatch leases", () => {
         expect(dispatch).not.toHaveBeenCalled();
         expect(store.snapshot()[0]?.state).toBe("denied");
     });
+    it("authorization cannot mutate the persisted request or its lease fence", async () => {
+        const { outbox, authorize, dispatch } = setup({});
+        await outbox.enqueue(request);
+        authorize.mockImplementation(async lease => {
+            Object.assign(lease, { payload: "changed-effect", leaseToken: "changed-token" });
+            return true;
+        });
+        expect(await outbox.processOne()).toMatchObject({ state: "succeeded" });
+        expect(dispatch).toHaveBeenCalledWith({ ...request, context: undefined }, undefined);
+    });
     it("does not dispatch when authorization outlives the lease", async () => {
         const { outbox, authorize, clock, dispatch, store } = setup({});
         await outbox.enqueue(request);
@@ -114,6 +124,14 @@ describe("retries and uncertainty", () => {
         dispatch.mockResolvedValue({ kind: "failure", classification: "permanent" });
         await outbox.enqueue(request);
         expect(await outbox.processOne()).toMatchObject({ state: "failed" });
+    });
+    it("malformed transport output reconciles rather than granting retry authority", async () => {
+        const { outbox, dispatch } = setup({});
+        dispatch.mockResolvedValue({ kind: "failure", classification: "unexpected" } as unknown as TransportResult);
+        await outbox.enqueue(request);
+        expect(await outbox.processOne()).toMatchObject({ state: "reconcile" });
+        expect(await outbox.processOne()).toEqual({ kind: "idle" });
+        expect(dispatch).toHaveBeenCalledTimes(1);
     });
     it("thrown or reported unknown outcomes require reconciliation without deduplication", async () => {
         for (const throws of [true, false]) {

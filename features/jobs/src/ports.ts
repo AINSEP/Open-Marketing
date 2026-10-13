@@ -15,6 +15,7 @@ export interface JobRepoPort {
 }
 /** Dispatch performs one attempt only. A returned retry means known transient failure; reconcile means uncertain effect.
  * Implementations must preserve the stable operation/key/digest and recheck authority through their dispatch barrier.
+ * A completed dispatch's jobId is the request's operationId; the worker reports the persisted outbox ID to its caller.
  * The jobs worker owns persistence/retries; adapters cannot implement another queue.
  */
 export interface JobDispatchPort {

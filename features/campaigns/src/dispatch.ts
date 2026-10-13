@@ -1,29 +1,10 @@
 import type { CallContext, CallOptions, Outcome } from "@open-marketing/contracts";
 import type { CampaignDependencies } from "./dependencies.js";
 import type { CampaignJob, CampaignReadback, LaunchReceipt } from "./types.js";
-import { assetResultSchema, exactMatch, fail, jobReceipt, launchReceiptSchema, operationInputSchema, parseBoundary, readbackSchema, receiptSchema, success, verifiedState } from "./rules.js";
-
-/** Re-resolves creative revisions before every dispatch, including creation recovery. */
-export async function checkIntent(required: { dependencies: CampaignDependencies; context: CallContext; job: CampaignJob }, optional?: CallOptions): Promise<Outcome<void>> {
-  const { dependencies: ports, context, job } = required;
-  const campaignId = intentCampaignId({ job });
-  const record = await ports.repo.get({ context, campaignId }, optional);
-  if (!record.ok) return record;
-  if (!record.value) return fail({ code: "forbidden", message: "Campaign unavailable in scope" });
-  const assets = await ports.assets.resolve({ context, creativeIds: record.value.draft.creativeIds }, optional);
-  if (!assets.ok) return assets;
-  const parsed = parseBoundary({ schema: assetResultSchema, input: assets.value });
-  if (!parsed.ok) return parsed;
-  if (parsed.value.creativeDigest !== record.value.draft.creativeDigest) return fail({ code: "conflict", message: "Creative revisions changed" });
-  if (job.intent.kind === "create") return success({ value: undefined });
-  if (!exactMatch({ request: job.intent.request, proposal: job.intent.proposal })) return fail({ code: "conflict", message: "Queued approval drifted" });
-  if (job.intent.proposal.arguments.flight.window.end <= ports.clock.now({})) return fail({ code: "expired", message: "Flight ended before dispatch" });
-  return success({ value: undefined });
-}
-function intentCampaignId(required: { job: CampaignJob }): string {
-  if (required.job.intent.kind === "create") return required.job.intent.campaignId;
-  return required.job.intent.request.campaignId;
-}
+import { digest, fail, jobReceipt, launchReceiptSchema, operationInputSchema, parseBoundary, readbackSchema, receiptSchema, success, verifiedState } from "./rules.js";
+import { boundJob, readJob } from "./job-rules.js";
+import { readCampaign } from "./repo-rules.js";
+import { checkIntent, intentCampaignId } from "./dispatch-intent.js";
 
 /** CAS ownership prevents duplicate writes. No recovery path reclaims an uncertain job. */
 export async function dispatchOperation(required: { dependencies: CampaignDependencies; input: { context: CallContext; operationId: string } }, optional?: CallOptions): Promise<Outcome<LaunchReceipt>> {
@@ -31,7 +12,7 @@ export async function dispatchOperation(required: { dependencies: CampaignDepend
   if (!parsed.ok) return parsed;
   const { context, operationId } = parsed.value;
   const ports = required.dependencies;
-  const found = await ports.jobs.get({ context, operationId }, optional);
+  const found = await readJob({ jobs: ports.jobs, context, operationId }, optional);
   if (!found.ok) return found;
   if (!found.value) return fail({ code: "forbidden", message: "Operation unavailable in scope" });
   if (found.value.status !== "queued") return success({ value: jobReceipt({ job: found.value }) });
@@ -39,13 +20,29 @@ export async function dispatchOperation(required: { dependencies: CampaignDepend
   if (!fresh.ok) return fresh;
   const claim = await ports.jobs.claim({ context, operationId }, optional);
   if (!claim.ok) return claim;
-  if (!claim.value) return currentReceipt({ dependencies: ports, context, operationId }, optional);
+  return dispatchClaim({ dependencies: ports, context, expected: found.value, value: claim.value }, optional);
+}
+/** The CAS result must be the same immutable job just checked, with dispatching status.
+ * An adapter substitution cannot become a newly authorized mutation.
+ * @complexity O(n) bounded job bytes; one continuation, no retry.
+ */
+async function dispatchClaim(required: { dependencies: CampaignDependencies; context: CallContext; expected: CampaignJob; value: unknown }, optional?: CallOptions): Promise<Outcome<LaunchReceipt>> {
+  const { dependencies: ports, context, expected } = required;
+  const claim = boundJob({ context, operationId: expected.operationId, value: required.value });
+  if (!claim.ok) return claim;
+  if (!claim.value) return currentReceipt({ dependencies: ports, context, operationId: expected.operationId }, optional);
+  const expectedClaim = { ...expected, status: "dispatching" };
+  if (digest({ value: claim.value }) !== digest({ value: expectedClaim })) return fail({ code: "conflict", message: "Claimed intent differs from queued intent" });
   return completeDispatch({ dependencies: ports, context, job: claim.value }, optional);
 }
+/** After claim, any failure remains uncertain and requires read-only reconciliation.
+ * Completion/audit persistence deliberately ignores request cancellation after an effect.
+ * @complexity Constant port calls and O(n) bounded intent validation.
+ */
 async function completeDispatch(required: { dependencies: CampaignDependencies; context: CallContext; job: CampaignJob }, optional?: CallOptions): Promise<Outcome<LaunchReceipt>> {
   const { dependencies: ports, context, job } = required;
   const operationId = job.operationId;
-  const dispatched = await performEffect(required, optional);
+  const dispatched = await checkedEffect(required, optional);
   let status: "submitted" | "unknown" = "unknown";
   if (dispatched.ok && dispatched.value.status === "submitted") status = "submitted";
   // Persist outcomes even if the request was cancelled after a possible provider effect.
@@ -56,8 +53,18 @@ async function completeDispatch(required: { dependencies: CampaignDependencies; 
   if (!dispatched.ok) return dispatched;
   return success({ value: { operationId, status } });
 }
+/** Catch broken injected ports inside the claimed-operation boundary so unknown evidence
+ * is persisted even when authority/transport throws. @complexity Constant port calls.
+ */
+async function checkedEffect(required: { dependencies: CampaignDependencies; context: CallContext; job: CampaignJob }, optional?: CallOptions): Promise<Outcome<LaunchReceipt>> {
+  try {
+    const current = await checkIntent(required, optional);
+    if (!current.ok) return current;
+    return await performEffect(required, optional);
+  } catch { return fail({ code: "unavailable", message: "Claimed campaign dispatch unavailable" }); }
+}
 async function currentReceipt(required: { dependencies: CampaignDependencies; context: CallContext; operationId: string }, optional?: CallOptions): Promise<Outcome<LaunchReceipt>> {
-  const found = await required.dependencies.jobs.get({ context: required.context, operationId: required.operationId }, optional);
+  const found = await readJob({ jobs: required.dependencies.jobs, context: required.context, operationId: required.operationId }, optional);
   if (!found.ok) return found;
   if (!found.value) return fail({ code: "unavailable", message: "Claimed operation disappeared" });
   return success({ value: jobReceipt({ job: found.value }) });
@@ -92,7 +99,7 @@ export async function reconcileOperation(required: { dependencies: CampaignDepen
   if (!parsed.ok) return parsed;
   const { context, operationId } = parsed.value;
   const ports = required.dependencies;
-  const found = await ports.jobs.get({ context, operationId }, optional);
+  const found = await readJob({ jobs: ports.jobs, context, operationId }, optional);
   if (!found.ok) return found;
   if (!found.value) return fail({ code: "forbidden", message: "Operation unavailable in scope" });
   if (found.value.status === "queued") return success({ value: jobReceipt({ job: found.value }) });
@@ -108,7 +115,7 @@ export async function reconcileOperation(required: { dependencies: CampaignDepen
 async function reconcileEvidence(required: { dependencies: CampaignDependencies; context: CallContext; job: CampaignJob }, optional?: CallOptions): Promise<Outcome<LaunchReceipt>> {
   const { dependencies: ports, context, job } = required;
   const campaignId = intentCampaignId({ job });
-  const record = await ports.repo.get({ context, campaignId }, optional);
+  const record = await readCampaign({ repo: ports.repo, context, campaignId }, optional);
   if (!record.ok) return record;
   if (!record.value) return fail({ code: "forbidden", message: "Campaign unavailable in scope" });
   const { connectionId, accountId } = record.value.draft;

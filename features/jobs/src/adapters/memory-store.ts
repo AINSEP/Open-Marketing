@@ -1,6 +1,6 @@
 import type { Completion, EnqueueResult, LeaseFence, OutboxJob } from "../types.js";
 import type { ManagedOutboxStore } from "../store.js";
-import { isDue, isFenced, sameRequest, validateClaim, validateCompletion, validateTime } from "../store.js";
+import { isDue, isFenced, sameRequest, validateClaim, validateCompletion, validateFence, validateResolution, validateTime } from "../store.js";
 import { validateStoredJob } from "../schema.js";
 import { JobStoreError } from "../errors.js";
 /** Single-process test double. Synchronous mutations are atomic; this is never a production durability adapter.
@@ -10,17 +10,9 @@ export interface MemoryOutboxStore extends ManagedOutboxStore {
     snapshot(required: Record<string, never>): readonly OutboxJob[];
 }
 export function createMemoryOutboxStore(required: { maxJobs?: number; initialJobs?: readonly OutboxJob[] }): MemoryOutboxStore {
-    const jobs = new Map<string, OutboxJob>();
-    const keys = new Map<string, string>();
     const maxJobs = required.maxJobs ?? 10000;
     if (!Number.isSafeInteger(maxJobs) || maxJobs < 1 || maxJobs > 100000) throw new RangeError("Invalid outbox capacity");
-    for (const input of required.initialJobs ?? []) {
-        const job = validateStoredJob({ job: input });
-        const key = JSON.stringify([job.tenantId, job.idempotencyKey]);
-        if (jobs.has(job.id) || keys.has(key) || jobs.size >= maxJobs) throw new JobStoreError({ code: "invalid_input", message: "Invalid memory checkpoint" });
-        jobs.set(job.id, structuredClone(job));
-        keys.set(key, job.id);
-    }
+    const { jobs, keys, leases } = restoreCheckpoint({ initialJobs: required.initialJobs ?? [], maxJobs });
     /** Detached sorted snapshots make claim ordering identical to SQL. @complexity O(n log n). */
     function ordered(): OutboxJob[] {
         return [...jobs.values()].sort((first, second) => first.availableAt - second.availableAt || first.createdAt - second.createdAt || compareIds({ first: first.id, second: second.id }));
@@ -28,6 +20,9 @@ export function createMemoryOutboxStore(required: { maxJobs?: number; initialJob
     /** Store only data copies; returned snapshots cannot mutate leases/context. @complexity O(p), p <=256KiB. */
     function save(job: OutboxJob): OutboxJob {
         const snapshot = structuredClone(job);
+        const prior = jobs.get(job.id);
+        if (prior?.leaseToken) leases.delete(prior.leaseToken);
+        if (job.leaseToken !== null) leases.set(job.leaseToken, job.id);
         jobs.set(job.id, snapshot);
         return structuredClone(snapshot);
     }
@@ -54,12 +49,13 @@ export function createMemoryOutboxStore(required: { maxJobs?: number; initialJob
         },
         async claim(input): Promise<OutboxJob | null> {
             validateClaim(input);
+            if (leases.has(input.leaseToken)) throw new JobStoreError({ code: "conflict", message: "Lease token already active" });
             const job = ordered().find(job => isDue({ job, ...input }));
             if (!job) return null;
             return save({ ...job, state: "leased", attempts: job.attempts + 1, leaseToken: input.leaseToken, leaseExpiresAt: input.leaseExpiresAt });
         },
         async beginDispatch(fence): Promise<boolean> {
-            validateTime(fence);
+            validateFence(fence);
             const job = jobs.get(fence.id);
             if (!job || job.state !== "leased" || !isFenced({ job, fence })) return false;
             save({ ...job, state: "dispatching" });
@@ -87,14 +83,37 @@ export function createMemoryOutboxStore(required: { maxJobs?: number; initialJob
             return true;
         },
         async resolve(input): Promise<boolean> {
-            validateTime(input);
-            if (!input.evidenceId.trim() || input.evidenceId.length > 256) throw new JobStoreError({ code: "invalid_input", message: "Reconciliation requires evidence" });
+            validateResolution(input);
             const job = jobs.get(input.id);
             if (!job || job.tenantId !== input.tenantId || job.state !== "reconcile") return false;
             save({ ...job, state: input.state });
             return true;
         },
     };
+}
+/** Checkpoint loading enforces the same key/active-lease uniqueness as SQL before exposing a store.
+ * @throws JobStoreError for duplicate identities/capacity; schema errors for corrupt records.
+ * @complexity O(n+p) time/space, n <=maxJobs, p total bounded payload data.
+ */
+function restoreCheckpoint(required: { initialJobs: readonly OutboxJob[]; maxJobs: number }) {
+    const jobs = new Map<string, OutboxJob>();
+    const keys = new Map<string, string>();
+    const leases = new Map<string, string>();
+    for (const input of required.initialJobs) {
+        const job = validateStoredJob({ job: input });
+        const key = JSON.stringify([job.tenantId, job.idempotencyKey]);
+        if (jobs.has(job.id) || keys.has(key) || jobs.size >= required.maxJobs) throw new JobStoreError({ code: "invalid_input", message: "Invalid memory checkpoint" });
+        restoreLease({ job, leases });
+        jobs.set(job.id, structuredClone(job));
+        keys.set(key, job.id);
+    }
+    return { jobs, keys, leases };
+}
+/** A restored token must identify one active claim. @complexity O(1) time/space. */
+function restoreLease(required: { job: OutboxJob; leases: Map<string, string> }): void {
+    if (required.job.leaseToken === null) return;
+    if (required.leases.has(required.job.leaseToken)) throw new JobStoreError({ code: "invalid_input", message: "Duplicate checkpoint lease token" });
+    required.leases.set(required.job.leaseToken, required.job.id);
 }
 /** Lease loss remains uncertain even when transport may not have started. @complexity O(1). */
 function isExpired(required: { job: OutboxJob; now: number }): boolean {
@@ -109,8 +128,15 @@ function cancellationState(required: { job: OutboxJob }): "cancelled" | "reconci
         default: return null;
     }
 }
-/** Match database binary ordering for ordinary ASCII IDs. @complexity O(i), i <=256. */
+/** Match SQLite's UTF-8 binary collation rather than JavaScript's UTF-16 ordering.
+ * @complexity O(i) time/space, i <=256 characters per ID.
+ */
 function compareIds(required: { first: string; second: string }): number {
-    if (required.first === required.second) return 0;
-    return required.first < required.second ? -1 : 1;
+    const first = new TextEncoder().encode(required.first);
+    const second = new TextEncoder().encode(required.second);
+    for (let index = 0; index < Math.min(first.length, second.length); index++) {
+        const difference = first[index] - second[index];
+        if (difference !== 0) return difference;
+    }
+    return first.length - second.length;
 }

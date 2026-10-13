@@ -3,7 +3,8 @@ import { generationCostQuoteSchema, parseBoundary } from "@open-marketing/contra
 import type { CallContext, GenerationApprovalRequirement, GenerationCostQuote, Outcome } from "@open-marketing/contracts";
 import type { CreativeAssetPort, CreativeAuditPort, CreativeJobPort, CreativeObserverPort, CreativeRepoPort, CreativeSpendPort, GenerationCapabilityPort } from "./ports.js";
 import type { GenerationCostObservation, GenerationProvenance, GenerationStatus } from "./types.js";
-import { costSchema, evidenceId, failure, freezeValue, receipt, sameEvidence, scopedKey, statusSchema, success, validContext } from "./rules.js";
+import { costSchema, evidenceId, failure, freezeValue, generationOutputSchema, pollRequestSchema, provenanceSchema, receipt, sameEvidence, scopedKey, success, validContext } from "./rules.js";
+import { validateStatus } from "./repository-rules.js";
 export { createMemoryCreativeRepo } from "./memory-repo.js";
 export type { MemoryCreativeRepo, MemoryCreativeRepoState } from "./memory-repo.js";
 
@@ -32,24 +33,34 @@ export function createMemoryGenerationCapability(required: { repo?: CreativeRepo
       if (required.repo === undefined) return failure({ code: "unavailable", message: "Generation double requires a repository" });
       const intent = await required.repo.get(input);
       if (!intent.ok) return intent;
+      if (intent.value.state === "cancelled") return failure({ code: "cancelled", message: "Generation is locally cancelled" });
+      if (intent.value.reservationId === null) return failure({ code: "forbidden", message: "Generation has no durable safety reservation" });
       if (!sameEvidence({ left: intent.value.request, right: input.request }) || !sameEvidence({ left: intent.value.quote, right: input.quote })) return failure({ code: "conflict", message: "Dispatch changed original intent" });
-      const status = statuses.get(scopedKey({ context: input.context, id: input.generationId })) ?? intent.value;
-      return success({ value: { ...receipt({ status }), asyncOperationId: evidenceId({ generationId: scopedKey({ context: input.context, id: input.generationId }), kind: "async" }) } });
+      if (intent.value.asyncOperationId !== null) return failure({ code: "conflict", message: "Generation already handed off; reconcile instead of resubmitting" });
+      const asyncOperationId = evidenceId({ generationId: scopedKey({ context: input.context, id: input.generationId }), kind: "async" });
+      const saved = await required.repo.save({ context: input.context, status: { ...intent.value, asyncOperationId } });
+      if (!saved.ok) return saved;
+      const status = statuses.get(scopedKey({ context: input.context, id: input.generationId })) ?? saved.value;
+      return success({ value: { ...receipt({ status }), asyncOperationId } });
     },
     async status(input) {
       calls.push({ context: input.context, operation: "status" });
       if (!validContext(input)) return failure({ code: "forbidden", message: "Invalid creative scope" });
       const status = statuses.get(scopedKey({ context: input.context, id: input.generationId }));
-      if (status !== undefined) return parseBoundary({ schema: statusSchema, input: structuredClone(status) });
+      if (status !== undefined) return validateStatus({ status: structuredClone(status) });
       if (required.repo === undefined) return failure({ code: "unavailable", message: "Generation not found" });
       return required.repo.get(input);
     },
     async pollDue(input) {
       calls.push({ context: input.context, operation: "pollDue" });
+      if (!validContext(input)) return failure({ code: "forbidden", message: "Invalid creative scope" });
+      const parsed = parseBoundary({ schema: pollRequestSchema, input: input.request });
+      if (!parsed.ok) return parsed;
       return success({ value: { claimed: 0, completed: 0, failed: 0, pending: 0, unknown: 0 } });
     },
     async recover(input) {
       calls.push({ context: input.context, operation: "recover" });
+      if (!validContext(input)) return failure({ code: "forbidden", message: "Invalid creative scope" });
       return success({ value: { leasesReleased: 0, deadlineExpired: 0, unknownCrashGap: 0, resubmittable: [] } });
     },
     async cancel(input) {
@@ -79,8 +90,13 @@ export function createMemoryCreativeAsset(required: Record<string, never>): Memo
     imports, provenance, costs,
     async import(input) {
       if (!validContext(input)) return failure({ code: "forbidden", message: "Invalid creative scope" });
+      const output = parseBoundary({ schema: generationOutputSchema, input: input.output });
+      if (!output.ok) return output;
+      const evidence = parseBoundary({ schema: provenanceSchema, input: input.provenance });
+      if (!evidence.ok) return evidence;
+      if (evidence.value.generationId !== input.generationId || evidence.value.operationId !== input.operationId) return failure({ code: "conflict", message: "Media provenance does not bind generation" });
       const key = scopedKey({ context: input.context, id: input.generationId });
-      const digest = createHash("sha256").update(JSON.stringify(input.output)).digest("hex");
+      const digest = createHash("sha256").update(JSON.stringify(output.value)).digest("hex");
       const existing = imports.get(key);
       if (existing !== undefined && existing.digest !== digest) return failure({ code: "conflict", message: "Generation already imported different output" });
       const assetId = evidenceId({ generationId: key, kind: "asset" });
@@ -88,10 +104,14 @@ export function createMemoryCreativeAsset(required: Record<string, never>): Memo
       return success({ value: { assetId } });
     },
     async recordProvenance(input) {
-      const key = scopedKey({ context: input.context, id: evidenceId({ generationId: input.provenance.generationId, kind: input.provenance.assetId ?? "pending" }) });
-      return appendEvidence({ map: provenance, key, value: input.provenance });
+      if (!validContext(input)) return failure({ code: "forbidden", message: "Invalid creative scope" });
+      const parsed = parseBoundary({ schema: provenanceSchema, input: input.provenance });
+      if (!parsed.ok) return parsed;
+      const key = scopedKey({ context: input.context, id: evidenceId({ generationId: parsed.value.generationId, kind: parsed.value.assetId ?? "pending" }) });
+      return appendEvidence({ map: provenance, key, value: parsed.value });
     },
     async recordCost(input) {
+      if (!validContext(input)) return failure({ code: "forbidden", message: "Invalid creative scope" });
       const parsed = parseBoundary({ schema: costSchema, input: input.cost });
       if (!parsed.ok) return parsed;
       return appendEvidence({ map: costs, key: scopedKey({ context: input.context, id: input.cost.observationId }), value: parsed.value });
@@ -120,19 +140,22 @@ export function createMemoryCreativeJob(required: { repo?: CreativeRepoPort; rej
       if (input.operationId !== input.intent.request.operationId || input.argumentsDigest !== input.intent.request.argumentsDigest) return failure({ code: "conflict", message: "Outbox identity does not bind intent" });
       const existing = await required.repo.get({ context: input.context, generationId: input.intent.generationId });
       if (existing.ok) return duplicateJob({ previous: existing.value, next: input.intent, context: input.context });
+      if (existing.error.code !== "unavailable") return existing;
       const saved = await required.repo.save({ context: input.context, status: input.intent, expectedRevision: -1 });
-      if (!saved.ok) {
-        if (saved.error.code !== "conflict") return saved;
-        const winner = await required.repo.get({ context: input.context, generationId: input.intent.generationId });
-        if (!winner.ok) return winner;
-        return duplicateJob({ previous: winner.value, next: input.intent, context: input.context });
-      }
+      if (!saved.ok) return concurrentJob({ repo: required.repo, context: input.context, intent: input.intent, outcome: saved });
       const key = scopedKey({ context: input.context, id: input.operationId });
       const jobId = evidenceId({ generationId: key, kind: "job" });
       jobs.set(key, { jobId, argumentsDigest: input.argumentsDigest });
       return success({ value: { jobId } });
     },
   };
+}
+/** A concurrent enqueue winner is reused only when its original arguments match. @complexity O(n), bounded intent. */
+async function concurrentJob(required: { repo: CreativeRepoPort; context: CallContext; intent: GenerationStatus; outcome: Extract<Outcome<GenerationStatus>, { ok: false }> }): Promise<Outcome<{ jobId: string }>> {
+  if (required.outcome.error.code !== "conflict") return required.outcome;
+  const winner = await required.repo.get({ context: required.context, generationId: required.intent.generationId });
+  if (!winner.ok) return winner;
+  return duplicateJob({ previous: winner.value, next: required.intent, context: required.context });
 }
 function duplicateJob(required: { previous: GenerationStatus; next: GenerationStatus; context: CallContext }): Outcome<{ jobId: string }> {
   if (!sameEvidence({ left: required.previous.request, right: required.next.request })) return failure({ code: "conflict", message: "Operation already binds different arguments" });
@@ -150,9 +173,11 @@ export function createMemoryCreativeSpend(required: { kind?: GenerationApprovalR
   return {
     reservations, settlements,
     async assess(input) {
+      if (!validContext(input)) return failure({ code: "forbidden", message: "Invalid creative scope" });
       return success({ value: { kind: required.kind ?? "normal_write", reason: "scripted safety assessment", quoteId: input.quote.quoteId, allowanceRevision: 0, dispatchDay: "2026-10-02" } });
     },
     async withDispatch(input) {
+      if (!validContext(input)) return failure({ code: "forbidden", message: "Invalid creative scope" });
       if (required.dispatchAllowed === false || required.kind === "denied") return failure({ code: "forbidden", message: "Scripted dispatch authority denied" });
       const key = scopedKey({ context: input.context, id: input.request.operationId });
       const reservationId = evidenceId({ generationId: key, kind: "reservation" });
@@ -160,7 +185,11 @@ export function createMemoryCreativeSpend(required: { kind?: GenerationApprovalR
       return input.dispatch(freezeValue({ value: { reservationId } }));
     },
     async settle(input) {
-      if (![...reservations.values()].includes(input.reservationId)) return failure({ code: "conflict", message: "Unknown generation reservation" });
+      if (!validContext(input)) return failure({ code: "forbidden", message: "Invalid creative scope" });
+      const key = scopedKey({ context: input.context, id: input.cost.operationId });
+      if (reservations.get(key) !== input.reservationId) return failure({ code: "conflict", message: "Unknown generation reservation" });
+      const parsed = parseBoundary({ schema: costSchema, input: input.cost });
+      if (!parsed.ok) return parsed;
       return appendEvidence({ map: settlements, key: scopedKey({ context: input.context, id: input.cost.observationId }), value: input.cost });
     },
   };

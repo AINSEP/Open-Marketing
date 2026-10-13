@@ -1,8 +1,8 @@
 import { effectEnvelopeSchema, idSchema, parseBoundary } from "@open-marketing/contracts";
-import type { CallContext, CallOptions, EffectCategory, Outcome } from "@open-marketing/contracts";
+import type { CallContext, CallOptions, EffectCategory, ObserverEvent, Outcome } from "@open-marketing/contracts";
 import type {
   FederationConnectionRepoPort, McpTransportPort, FederationCredentialPort, FederatedToolPermissionGate,
-  FederatedCallConfirmation, ExternalMcpToolApprovalRepoPort, FederatedDispatchGatePort, FederationAuditPort,
+  FederatedCallConfirmation, ExternalMcpToolApprovalRepoPort, FederatedDispatchGatePort, FederationAuditPort, FederationObserverPort,
 } from "./ports.js";
 import type { ExternalToolCall, ExternalToolResult, FederationConnection, FederatedApproval } from "./types.js";
 import { failure, success } from "./outcomes.js";
@@ -146,7 +146,7 @@ export function createMemoryExternalMcpToolApprovalRepo(required: { entries?: re
       if (options?.signal?.aborted) return failure({ code: "cancelled", message: "Approval lookup cancelled" });
       const approval = approvals.get(input.operationId);
       if (!approval) return failure({ code: "forbidden", message: "Approval missing" });
-      if (JSON.stringify(approval.context.scope) !== JSON.stringify(input.context.scope)) return failure({ code: "forbidden", message: "Approval scope mismatch" });
+      if (!sameScope({ context: input.context, connection: { scope: approval.context.scope } })) return failure({ code: "forbidden", message: "Approval scope mismatch" });
       return parseJson({ schema: approvalSchema, input: approval, maxBytes: 75000 });
     },
   };
@@ -228,7 +228,7 @@ export interface MemoryMcpTransport extends McpTransportPort {
   disposals(required: Record<string, never>): readonly string[];
 }
 /**
- * Configured test transport uses the same result validator as the SDK adapter. Missing responder
+ * Configured test transport uses the same result validator as the Jini adapters. Missing responder
  * fails explicitly. Dispose drops a simulated session; the next call may reconnect, without replay.
  * @complexity O(n) snapshot; <=1000 captured calls/disposals. No network or processes.
  */
@@ -259,8 +259,31 @@ export function createMemoryMcpTransport(required: { respond?: (required: Parame
   };
 }
 
-/** Narrow simulator ABI wrapper matches SDK uncertainty after handoff. */
+/** Narrow simulator ABI wrapper matches transport uncertainty after handoff. */
 async function respondSafely(required: { respond: NonNullable<Parameters<typeof createMemoryMcpTransport>[0]["respond"]>; outbound: Parameters<McpTransportPort["invoke"]>[0]; options?: CallOptions }): Promise<Outcome<ExternalToolResult>> {
   try { return await required.respond(required.outbound, required.options); }
   catch { return success({ value: { operationId: required.outbound.call.operationId, status: "unknown", content: [] } }); }
+}
+
+/** Redacted bounded observation double; diagnostics have no authority and may drop at capacity. */
+export interface MemoryFederationObserver extends FederationObserverPort {
+  entries(required: Record<string, never>): readonly ObserverEvent[];
+}
+
+/** Retain independent event snapshots, up to 1000; malformed diagnostics are discarded.
+ * @example createMemoryFederationObserver({}).entries({})
+ * @complexity O(n) bounded event copying; O(e) entries copy, e<=1000.
+ */
+export function createMemoryFederationObserver(required: Record<string, never>): MemoryFederationObserver {
+  const records: ObserverEvent[] = [];
+  return {
+    entries() { return [...records]; },
+    observe(input) {
+      if (records.length >= 1000) return;
+      const event = { operation: input.operation, outcome: input.outcome, correlationId: input.correlationId,
+        traceId: input.traceId, ...(input.runId === undefined ? {} : { runId: input.runId }) };
+      const copied = snapshotJson({ value: event, maxBytes: 4096 });
+      if (copied.ok) records.push(copied.value as ObserverEvent);
+    },
+  };
 }

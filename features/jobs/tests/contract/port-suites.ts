@@ -73,6 +73,11 @@ export function JobDispatchPortSuite(required: { name: string; create: (required
             const controller = new AbortController(); controller.abort();
             expect(await required.create({ result: { kind: "success" } }).dispatch({ context, job }, { signal: controller.signal })).toMatchObject({ ok: false, error: { code: "cancelled" } });
         });
+        it("rejects malformed requests before claiming any effect", async () => {
+            const port = required.create({ result: { kind: "success" } });
+            expect(await port.dispatch({ context, job: { ...job, argumentsDigest: "invalid" } })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+            expect(await port.dispatch({ context, job: { ...job, payload: { invalid: undefined } } })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+        });
     });
 }
 export function JobAuthorizationPortSuite(required: { create: (required: { allowed?: boolean }) => JobAuthorizationPort }): void {

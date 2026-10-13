@@ -18,5 +18,5 @@ export function memoryFixture(_required: Record<string, never>, optional: { pack
   return { source: optional.source ?? source, actualDigest: optional.actualDigest ?? digest, package: optional.package ?? packageFixture({}), trusted: optional.trusted ?? true };
 }
 export function capabilityFixture(_required: Record<string, never>, optional: { schemaFingerprint?: string; admitted?: boolean } = {}): CapabilityEnvelope {
-  return { capabilityId: "image-generation.v1", version: 1, pluginId: "demo", pluginDigest: digest, schemaFingerprint: optional.schemaFingerprint ?? "b".repeat(64), admitted: optional.admitted ?? true, effects: ["read", "write", "spend"] };
+  return { capabilityId: "image-generation.v1", version: 1, pluginId: "demo", pluginDigest: digest, schemaFingerprint: optional.schemaFingerprint ?? "b".repeat(64), admitted: optional.admitted ?? true, effects: ["read", "write", "ad_spend"] };
 }

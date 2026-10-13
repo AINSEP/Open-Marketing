@@ -52,7 +52,7 @@ export function freezeCall(required: { call: unknown }): Outcome<ExternalToolCal
 }
 
 /** Same scope required at every connection/approval boundary. @complexity O(1). */
-export function sameScope(required: { context: CallContext; connection: FederationConnection }): boolean {
+export function sameScope(required: { context: Pick<CallContext, "scope">; connection: Pick<FederationConnection, "scope"> }): boolean {
   return required.context.scope.ownerId === required.connection.scope.ownerId && required.context.scope.workspaceId === required.connection.scope.workspaceId;
 }
 
@@ -102,7 +102,8 @@ export function validateResult(required: { input: unknown; operationId: string; 
   if (!parsed.ok) return parsed;
   if (parsed.value.operationId !== required.operationId) return failure({ code: "protocol_mismatch", message: "Result operation mismatch" });
   if (parsed.value.content.length > required.maxContent) return failure({ code: "limit_exceeded", message: "Result content limit exceeded" });
-  if (!required.outputSchema) return parsed;
+  // Failed and uncertain executions need no successful-output payload; preserve uncertainty for reconciliation.
+  if (!required.outputSchema || parsed.value.status !== "succeeded") return parsed;
   const structured = parsed.value.content.find(item => item.type === "json");
   if (!structured || structured.type !== "json") return failure({ code: "invalid_input", message: "Required structured result missing" });
   const valid = validateSchema({ schema: required.outputSchema, value: structured.data });
@@ -117,7 +118,7 @@ export function fingerprintSchemas(required: { inputSchema: Readonly<Record<stri
   return digestArguments({ arguments: { input: required.inputSchema, output: required.outputSchema ?? null } });
 }
 
-/** Parse the transport boundary before any SDK/session effect; copy all outbound values. */
+/** Parse the transport boundary before any session effect; copy all outbound values. */
 export function validateOutbound(required: { context: unknown; call: unknown; credentialReference: unknown }): Outcome<{ context: CallContext; call: ExternalToolCall; credentialReference: string }> {
   const context = parseJson({ schema: callContextSchema, input: required.context, maxBytes: 4096 });
   if (!context.ok) return context;

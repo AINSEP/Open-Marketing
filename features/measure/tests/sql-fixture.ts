@@ -1,3 +1,4 @@
+import { EventEmitter, once } from "node:events";
 import Database from "better-sqlite3";
 import { readFileSync } from "node:fs";
 import { afterEach } from "vitest";
@@ -13,6 +14,8 @@ export function createSqlFixture(required: Record<string, never>) {
   const handle = new Database(":memory:");
   handles.push(handle);
   handle.exec(readFileSync(new URL("../migrations/0001_measure.sql", import.meta.url), "utf8"));
+  handle.exec(readFileSync(new URL("../migrations/0002_attribution_account.sql", import.meta.url), "utf8"));
+  handle.pragma("foreign_keys = ON");
   handle.exec("CREATE TABLE fixture_jobs (scope_key TEXT NOT NULL, source_id TEXT NOT NULL, event_id TEXT NOT NULL, job_id TEXT NOT NULL, identity TEXT NOT NULL, context_json TEXT NOT NULL, PRIMARY KEY(scope_key,source_id,event_id))");
   let failInsert = false;
   let failEnqueue = false;
@@ -26,13 +29,13 @@ export function createSqlFixture(required: Record<string, never>) {
   };
   const transaction: MeasureSqlDatabase["transaction"] = async <T>(input: { work: (transaction: MeasureSqlQueryable) => Promise<T> }) => {
     const previous = tail;
-    let release: () => void = () => undefined;
-    tail = new Promise<void>(resolve => { release = resolve; });
+    const completed = new EventEmitter();
+    tail = once(completed, "release").then(() => undefined);
     await previous;
     handle.exec("BEGIN IMMEDIATE");
     try { const value = await input.work({ query }); handle.exec("COMMIT"); return value; }
     catch (error) { handle.exec("ROLLBACK"); throw error; }
-    finally { release(); }
+    finally { completed.emit("release"); }
   };
   const database: MeasureSqlDatabase = { query, transaction };
   const ids = createIds({ prefix: "sql-job" });

@@ -1,5 +1,18 @@
 import type { Completion, LeaseFence, OutboxJob, OutboxStore } from "./types.js";
 import { JobStoreError } from "./errors.js";
+import { z } from "zod";
+import { epochSchema, idSchema } from "@open-marketing/contracts";
+const tenantSchema = z.string().min(1).max(1024);
+const nonblankIdSchema = idSchema.refine(value => value.trim().length > 0);
+const fenceSchema = z.strictObject({ id: idSchema, tenantId: tenantSchema, token: nonblankIdSchema, now: epochSchema });
+const completionSchema = z.discriminatedUnion("state", [
+    z.strictObject({ state: z.literal("succeeded") }), z.strictObject({ state: z.literal("denied") }),
+    z.strictObject({ state: z.literal("failed") }), z.strictObject({ state: z.literal("reconcile") }),
+    z.strictObject({ state: z.literal("cancelled") }),
+    z.strictObject({ state: z.literal("retry"), availableAt: epochSchema }),
+]);
+const resolutionSchema = z.strictObject({ tenantId: tenantSchema, id: idSchema, now: epochSchema,
+    state: z.enum(["succeeded", "denied", "failed"]), evidenceId: nonblankIdSchema });
 /** Operator transitions require externally verified evidence; unknown outcomes are never automatically requeued. */
 export interface ManagedOutboxStore extends OutboxStore {
     get(required: { tenantId: string; id: string }): Promise<OutboxJob | null>;
@@ -28,7 +41,7 @@ export function validateClaim(required: { now: number; leaseToken: string; lease
     validateTime({ now: required.now });
     if (!Number.isSafeInteger(required.leaseExpiresAt) || required.leaseExpiresAt <= required.now) throw invalidStoreInput();
     if (!Number.isSafeInteger(required.maxAttempts) || required.maxAttempts < 1 || required.maxAttempts > 1000) throw invalidStoreInput();
-    if (!required.leaseToken.trim() || required.leaseToken.length > 256) throw invalidStoreInput();
+    if (!nonblankIdSchema.safeParse(required.leaseToken).success) throw invalidStoreInput();
 }
 /** Invalid dates cannot accidentally extend a lease or turn a retry into a hot loop. @complexity O(1). */
 export function validateTime(required: { now: number }): void {
@@ -36,10 +49,21 @@ export function validateTime(required: { now: number }): void {
 }
 /** Retry dates are bounded and cannot precede completion. @complexity O(1). */
 export function validateCompletion(required: { fence: LeaseFence; completion: Completion }): void {
-    validateTime({ now: required.fence.now });
+    validateFence(required.fence);
+    if (!completionSchema.safeParse(required.completion).success) throw invalidStoreInput();
     if (required.completion.state !== "retry") return;
     validateTime({ now: required.completion.availableAt });
     if (required.completion.availableAt < required.fence.now) throw invalidStoreInput();
+}
+/** Fence identity is parsed before either adapter touches state. @throws JobStoreError for invalid input. @complexity O(1). */
+export function validateFence(required: LeaseFence): void {
+    if (!fenceSchema.safeParse(required).success) throw invalidStoreInput();
+}
+/** Reconciliation closes uncertainty with evidence; it never authorizes another attempt.
+ * @throws JobStoreError for invalid/extra fields. @complexity O(1), bounded identity strings.
+ */
+export function validateResolution(required: Parameters<ManagedOutboxStore["resolve"]>[0]): void {
+    if (!resolutionSchema.safeParse(required).success) throw invalidStoreInput();
 }
 /** Typed validation failure shared by adapters. @complexity O(1). */
 function invalidStoreInput(): JobStoreError {

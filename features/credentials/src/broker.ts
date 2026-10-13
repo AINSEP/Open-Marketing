@@ -49,11 +49,11 @@ async function readCurrent(required: { repo: CredentialRepoPort; input: BrokerUs
   const loaded = await required.repo.getSecret({ context: required.input.context, connectionId: required.input.reference.connectionId }, optional);
   if (!loaded.ok) return loaded;
   if (!loaded.value) return failure({ code: "unauthenticated", message: "Connection unavailable; reconnect required" });
-  if (!recordSchema.safeParse(loaded.value).success) return failure({ code: "protocol_mismatch" });
-  const record = loaded.value;
+  const parsed = recordSchema.safeParse(loaded.value);
+  if (!parsed.success) return failure({ code: "protocol_mismatch" });
+  const record = parsed.data;
   if (record.summary.status !== "connected" || record.reference.connectionId !== required.input.reference.connectionId) return failure({ code: "forbidden" });
   if (!sameScope({ left: record.reference.scope, right: required.input.context.scope })) return failure({ code: "forbidden" });
-  if (!sameScope({ left: record.summary.scope, right: record.reference.scope }) || record.summary.connectionId !== record.reference.connectionId) return failure({ code: "protocol_mismatch" });
   if (record.reference.version !== required.input.reference.version) return failure({ code: "conflict", message: "Credential version changed; resolve current connection" });
   return { ok: true, value: record };
 }
@@ -78,13 +78,16 @@ async function markFailedRefresh(required: { dependencies: BrokerDependencies; c
   if (!marked.ok) return marked;
   return { ok: true, value: undefined };
 }
-/** Authenticate next-version ciphertext before CAS; never overwrite a revoked record. @complexity O(ciphertext length). */
+/** Authenticate next-version ciphertext before CAS; never overwrite a revoked record.
+ * Once a provider rotated its refresh token, finish persistence despite caller cancellation.
+ * Later dispatch checks still honor cancellation. @complexity O(ciphertext length).
+ */
 async function storeRefresh(required: { dependencies: BrokerDependencies; context: CallContext; record: CredentialRecord; secret: SealedSecret }, optional?: CallOptions): Promise<Outcome<CredentialRecord>> {
   if (!secretSchema.safeParse(required.secret).success) return failure({ code: "protocol_mismatch" });
   const reference = { ...required.record.reference, version: required.record.reference.version + 1 };
-  const opened = await required.dependencies.sealer.open({ reference, secret: required.secret }, optional);
+  const opened = await required.dependencies.sealer.open({ reference, secret: required.secret });
   if (!opened.ok) return opened;
-  const stored = await required.dependencies.repo.store({ context: required.context, reference, secret: required.secret, pluginId: required.record.summary.pluginId }, optional);
+  const stored = await required.dependencies.repo.store({ context: required.context, reference, secret: required.secret, pluginId: required.record.summary.pluginId });
   if (!stored.ok) return stored;
   return { ok: true, value: { summary: stored.value, reference, secret: required.secret } };
 }

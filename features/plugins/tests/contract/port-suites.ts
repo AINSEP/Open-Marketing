@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
-import type { PluginRepoPort, PluginLifecyclePort, AgentPluginLayoutPort, AgentPluginMcpProvisioningPort, PluginTrustPort, PluginAuditPort, PluginObserverPort, PluginSource, InstalledPlugin } from "../../index.js";
+import type { PluginRepoPort, PluginLifecyclePort, AgentPluginLayoutPort, AgentPluginMcpProvisioningPort, PluginTrustPort, PluginAuditPort, PluginObserverPort, PluginSource, InstalledPlugin, PluginPackage } from "../../index.js";
 import type { ObserverEvent } from "@open-marketing/contracts";
 import { pluginSchemaFingerprint } from "../../index.js";
-import { context, descriptor, plugin } from "../fixtures/plugin.js";
+import { context, descriptor, plugin, packageFixture } from "../fixtures/plugin.js";
 
 type Factory<T> = () => T | Promise<T>;
 /** Shared behavioral metadata contract; memory and atomic filesystem adapters use this suite. */
@@ -64,15 +64,29 @@ export function PluginLifecyclePortSuite(required: { create: Factory<{ port: Plu
   });
 }
 
-export function AgentPluginLayoutPortSuite(required: { create: Factory<{ port: AgentPluginLayoutPort; source: PluginSource }> }) {
+export function AgentPluginLayoutPortSuite(required: { create(required: { package?: PluginPackage }): { port: AgentPluginLayoutPort; source: PluginSource } | Promise<{ port: AgentPluginLayoutPort; source: PluginSource }> }) {
   describe("AgentPluginLayoutPort behavior", () => {
     it("accepts v1.1 and returns the exact OM namespace with inert capabilities", async () => {
-      const fixture = await required.create();
+      const fixture = await required.create({});
       expect(await fixture.port.validate({ source: fixture.source })).toEqual({ ok: true, value: descriptor });
     });
     it("refuses malformed digest pins", async () => {
-      const fixture = await required.create();
+      const fixture = await required.create({});
       expect(await fixture.port.validate({ source: { ...fixture.source, expectedDigest: "invalid" } })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+    });
+    it("rejects unsupported manifest versions in both memory and disk", async () => {
+      const fixture = await required.create({ package: packageFixture({}, { manifest: { $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json" } }) });
+      expect(await fixture.port.validate({ source: fixture.source })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+    });
+    it("unknown extensions remain inert while an invalid OM extension fails", async () => {
+      const unknown = await required.create({ package: packageFixture({}, { manifest: { extensions: { "com.example.other": { admitted: true } } } }) });
+      expect(await unknown.port.validate({ source: unknown.source })).toEqual({ ok: true, value: descriptor });
+      const invalid = await required.create({ package: packageFixture({}, { manifest: { extensions: { [descriptor.namespace]: { version: 99 } } } }) });
+      expect(await invalid.port.validate({ source: invalid.source })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+    });
+    it("invalid MCP siblings do not block valid portable package inspection", async () => {
+      const fixture = await required.create({ package: packageFixture({}, { mcp: { $schema: "https://agent-plugins.org/schemas/1.1.0/mcp.schema.json", mcpServers: { valid: { type: "stdio", command: "node" }, invalid: { type: "stdio", command: "../escape" } } } }) });
+      expect(await fixture.port.validate({ source: fixture.source })).toEqual({ ok: true, value: descriptor });
     });
   });
 }
@@ -96,6 +110,11 @@ export function AgentPluginMcpProvisioningPortSuite(required: { create: Factory<
     it("rejects unadmitted metadata without registration", async () => {
       const fixture = await required.create();
       expect(await fixture.port.provision({ context, plugin: { ...plugin, admitted: false } })).toMatchObject({ ok: false, error: { code: "forbidden" } });
+      expect(fixture.bindings()).toHaveLength(0);
+    });
+    it("requires a schema pin for admitted metadata", async () => {
+      const fixture = await required.create();
+      expect(await fixture.port.provision({ context, plugin })).toMatchObject({ ok: false, error: { code: "forbidden" } });
       expect(fixture.bindings()).toHaveLength(0);
     });
   });

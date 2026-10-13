@@ -15,10 +15,13 @@ export const auditEntrySchema = z.strictObject({
   correctionOf: idSchema.optional(),
 }).refine(value => (value.kind === "correction") === (value.correctionOf !== undefined))
   .refine(value => JSON.stringify(value).length <= 32768);
-/** Reject invalid injected IDs/clocks and malformed adapters. */
-export const auditReceiptSchema = z.strictObject({ entryId: idSchema, recordedAt: epochSchema });
-/** Bound adapter output as well as input. */
-export const auditPageSchema = z.strictObject({ items: z.array(auditEntrySchema).max(100), cursor: idSchema.nullable() });
+/** Receipts/cursors are operational identifiers; payload-shaped values cannot escape in output. */
+const operationalIdentifierSchema = idSchema.refine(value => operationalId({ value }) === value);
+/** Reject invalid injected IDs/clocks and malformed adapters before exposing a receipt. */
+export const auditReceiptSchema = z.strictObject({ entryId: operationalIdentifierSchema, recordedAt: epochSchema });
+/** Bound adapter output; a continuation must accompany at least one returned entry. */
+export const auditPageSchema = z.strictObject({ items: z.array(auditEntrySchema).max(100), cursor: operationalIdentifierSchema.nullable() })
+  .refine(value => value.cursor === null || value.items.length > 0);
 /** Queries cannot request unbounded exports. */
 export const auditQuerySchema = pageQuerySchema.extend({ operationId: idSchema.optional() });
 const contextSchema = callContextSchema.refine(value => JSON.stringify(value).length <= 8192);

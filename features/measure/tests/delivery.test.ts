@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { createFakeClock } from "@open-marketing/om-clock";
-import { createConversionDispatcher, createMemoryConversionDelivery, createMemoryConversionDeliveryState, createMemoryMeasurementGrant, createMemoryMeasurementShareability, createMemoryMeasureAudit, createSqlConversionDeliveryState } from "../index.js";
-import type { ConversionDeliveryPort, ConversionDeliveryStatePort, MeasureAuditPort } from "../index.js";
-import { consent, event, grant, serviceContext } from "./fixtures.js";
+import { createConversionDispatcher, createMemoryConversionDelivery, createMemoryConversionVerification, createMemoryConversionDeliveryState, createMemoryMeasurementGrant, createMemoryMeasurementShareability, createMemoryMeasureAudit, createSqlConversionDeliveryState } from "../index.js";
+import type { ConversionDeliveryPort, ConversionDeliveryStatePort, ConversionVerificationPort, MeasureAuditPort } from "../index.js";
+import { consent, event, grant, scope, serviceContext } from "./fixtures.js";
 import { createSqlFixture } from "./sql-fixture.js";
 
-function fixture(required: { ledger?: ConversionDeliveryStatePort; delivery?: ConversionDeliveryPort; audit?: MeasureAuditPort; runtimeMode?: "production-server" | "local-sandbox" | "read-only" }) {
+function fixture(required: { ledger?: ConversionDeliveryStatePort; verification?: ConversionVerificationPort; delivery?: ConversionDeliveryPort; audit?: MeasureAuditPort; runtimeMode?: "production-server" | "local-sandbox" | "read-only" }) {
   const clock = createFakeClock({ initial: 300 });
   const policy = createMemoryMeasurementShareability({ clock, evidence: [consent] });
   const grants = createMemoryMeasurementGrant({ grants: [grant] });
@@ -13,11 +13,29 @@ function fixture(required: { ledger?: ConversionDeliveryStatePort; delivery?: Co
   const ledger = required.ledger ?? createMemoryConversionDeliveryState({});
   const audit = required.audit ?? createMemoryMeasureAudit({});
   const input = { context: serviceContext, event, grant, deliveryId: "delivery-1" };
-  const dependencies = { clock, policy, grants, delivery, ledger, audit, runtimeMode: required.runtimeMode ?? "production-server" as const, payloadSchema: "om.conversion" };
+  const verification = required.verification ?? createMemoryConversionVerification({ events: [{ scope, event }] });
+  const dependencies = { clock, verification, policy, grants, delivery, ledger, audit, runtimeMode: required.runtimeMode ?? "production-server" as const, payloadSchema: "om.conversion" };
   return { ...dependencies, input, dispatcher: createConversionDispatcher(dependencies) };
 }
 /** Worker acceptance runs against both durable SQLite and memory claim boundaries. */
 function workerSuite(required: { createLedger: () => ConversionDeliveryStatePort }) {
+  it("persists evidence even when cancellation arrives during delivery", async () => {
+    const ledger = required.createLedger();
+    const controller = new AbortController();
+    let sends = 0;
+    const delivery: ConversionDeliveryPort = { async deliver() { sends++; controller.abort(); return { ok: true, value: { status: "delivered" } }; } };
+    const f = fixture({ ledger, delivery });
+    expect(await f.dispatcher.dispatch(f.input, { signal: controller.signal })).toEqual({ ok: true, value: { status: "delivered" } });
+    expect(await f.dispatcher.dispatch(f.input)).toEqual({ ok: true, value: { status: "delivered" } });
+    expect(sends).toBe(1);
+  });
+  it("simultaneous workers perform one send and preserve uncertainty", async () => {
+    const delivery = createMemoryConversionDelivery({ status: "unknown" });
+    const f = fixture({ ledger: required.createLedger(), delivery });
+    const outcomes = await Promise.all([f.dispatcher.dispatch(f.input), f.dispatcher.dispatch(f.input)]);
+    expect(outcomes.every(outcome => outcome.ok && outcome.value.status === "unknown")).toBe(true);
+    expect(delivery.calls({})).toBe(1);
+  });
   it("delivers without any agent/studio session and retries keep identity", async () => {
     const delivery = createMemoryConversionDelivery({});
     const f = fixture({ ledger: required.createLedger(), delivery });
@@ -52,6 +70,22 @@ function workerSuite(required: { createLedger: () => ConversionDeliveryStatePort
 describe("memory server conversion worker", () => workerSuite({ createLedger: () => createMemoryConversionDeliveryState({}) }));
 describe("SQL server conversion worker", () => workerSuite({ createLedger: () => createSqlConversionDeliveryState({ database: createSqlFixture({}).database }) }));
 describe("dispatch security", () => {
+  it("uncommitted events never acquire authority or reach egress", async () => {
+    const delivery = createMemoryConversionDelivery({});
+    const f = fixture({ delivery });
+    expect(await f.dispatcher.dispatch({ ...f.input, event: { ...event, eventId: "invented" } })).toMatchObject({ ok: false, error: { code: "forbidden" } });
+    expect(delivery.calls({})).toBe(0);
+  });
+  it("rejects tainted ledger claims without egress", async () => {
+    const delivery = createMemoryConversionDelivery({});
+    const ledger: ConversionDeliveryStatePort = {
+      async begin(input) { return { ok: true, value: { acquired: true, record: { ...input.record, identity: "wrong-payload" } } }; },
+      async append(input) { return { ok: true, value: input.record }; },
+    };
+    const f = fixture({ delivery, ledger });
+    expect(await f.dispatcher.dispatch(f.input)).toMatchObject({ ok: false, error: { code: "conflict" } });
+    expect(delivery.calls({})).toBe(0);
+  });
   it.each(["local-sandbox", "read-only"] as const)("denies production egress in %s", async runtimeMode => {
     const delivery = createMemoryConversionDelivery({});
     const f = fixture({ runtimeMode, delivery });
@@ -105,8 +139,9 @@ describe("dispatch security", () => {
     expect(JSON.stringify(records)).not.toContain(event.subjectId);
     expect(JSON.stringify(records)).not.toContain(event.identifiers.click_id);
   });
-  it("rejects a reused delivery ID with a changed event", async () => {
-    const f = fixture({});
+  it("rejects a reused delivery ID with a different committed event", async () => {
+    const verification = createMemoryConversionVerification({ events: [{ scope, event }, { scope, event: { ...event, occurredAt: 101 } }] });
+    const f = fixture({ verification });
     await f.dispatcher.dispatch(f.input);
     expect(await f.dispatcher.dispatch({ ...f.input, event: { ...event, occurredAt: 101 } })).toMatchObject({ ok: false, error: { code: "conflict" } });
   });

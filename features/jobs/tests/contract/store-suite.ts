@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { ManagedOutboxStore } from "../../index.js";
+import type { Completion, ManagedOutboxStore } from "../../index.js";
 import { context, storedJob } from "../fixtures.js";
 export function OutboxStoreSuite(required: { name: string; create: (required: { maxJobs?: number }) => { store: ManagedOutboxStore; close: () => void } }): void {
     describe(required.name + " durable outbox contract", () => {
@@ -38,6 +38,15 @@ export function OutboxStoreSuite(required: { name: string; create: (required: { 
             expect(saved?.context?.scope.workspaceId).toBe(context.scope.workspaceId);
             expect(await store.get({ tenantId: "other", id: request.id })).toBeNull();
         });
+        it("captures enqueue input before awaiting transaction admission", async () => {
+            const store = setup({});
+            const request = storedJob({ context: structuredClone(context) });
+            const pending = store.enqueue(request);
+            Object.assign(request, { payload: "mutated-after-call" });
+            request.context!.scope.workspaceId = "mutated-after-call";
+            expect(await pending).toMatchObject({ kind: "inserted", job: { payload: "private", context } });
+            expect(await store.get({ tenantId: "tenant", id: "job-a" })).toMatchObject({ payload: "private", context });
+        });
         it("claims due work deterministically once and respects scheduling/attempt limits", async () => {
             const store = setup({});
             await store.enqueue(storedJob({ id: "later", idempotencyKey: "later", availableAt: 10 }));
@@ -49,6 +58,13 @@ export function OutboxStoreSuite(required: { name: string; create: (required: { 
             expect(await store.complete({ id: "now", tenantId: "tenant", token: "token", now: 1 }, { state: "retry", availableAt: 2 })).toBe(true);
             expect(await store.claim({ ...input, now: 2, leaseToken: "last-token" })).toBeNull();
             expect(await store.claim({ ...input, now: 10, leaseToken: "later-token" })).toMatchObject({ id: "later" });
+        });
+        it("orders non-ASCII IDs identically to SQLite binary collation", async () => {
+            const store = setup({});
+            await store.enqueue(storedJob({ id: "😀", idempotencyKey: "emoji" }));
+            await store.enqueue(storedJob({ id: "\uE000", idempotencyKey: "private-use" }));
+            expect(await store.claim({ now: 0, leaseToken: "first", leaseExpiresAt: 100, maxAttempts: 3 })).toMatchObject({ id: "\uE000" });
+            expect(await store.claim({ now: 0, leaseToken: "second", leaseExpiresAt: 100, maxAttempts: 3 })).toMatchObject({ id: "😀" });
         });
         it("checks token, tenant, state and exact lease expiry for both dispatch and completion", async () => {
             const store = setup({});
@@ -102,6 +118,36 @@ export function OutboxStoreSuite(required: { name: string; create: (required: { 
             expect(await store.resolve({ tenantId: "tenant", id: "job-a", now: 101, state: "succeeded", evidenceId: "remote-readback" })).toBe(true);
             expect(await store.resolve({ tenantId: "tenant", id: "job-a", now: 101, state: "failed", evidenceId: "different-readback" })).toBe(false);
             expect(await store.get({ tenantId: "tenant", id: "job-a" })).toMatchObject({ state: "succeeded" });
+        });
+        it("rejects malformed completions without overwriting a live job", async () => {
+            const store = setup({});
+            await store.enqueue(storedJob({}));
+            await store.claim({ now: 0, leaseToken: "token", leaseExpiresAt: 100, maxAttempts: 3 });
+            const fence = { tenantId: "tenant", id: "job-a", token: "token", now: 1 };
+            const malformed = [{ state: "pending" }, { state: "succeeded", payload: "replacement" }, { state: "retry", availableAt: NaN }];
+            for (const completion of malformed) {
+                await expect(store.complete(fence, completion as unknown as Completion)).rejects.toMatchObject({ code: "invalid_input" });
+            }
+            expect(await store.get({ tenantId: "tenant", id: "job-a" })).toMatchObject({ state: "leased", payload: "private", leaseToken: "token" });
+        });
+        it("rejects an untyped reconciliation request that attempts to requeue an unknown effect", async () => {
+            const store = setup({});
+            await store.enqueue(storedJob({}));
+            await store.claim({ now: 0, leaseToken: "token", leaseExpiresAt: 100, maxAttempts: 3 });
+            await store.recoverExpired({ now: 100, limit: 1 });
+            const input = { tenantId: "tenant", id: "job-a", now: 101, state: "retry", evidenceId: "unverified" };
+            await expect(store.resolve(input as unknown as Parameters<ManagedOutboxStore["resolve"]>[0])).rejects.toMatchObject({ code: "invalid_input" });
+            expect(await store.get({ tenantId: "tenant", id: "job-a" })).toMatchObject({ state: "reconcile" });
+            expect(await store.claim({ now: 101, leaseToken: "new", leaseExpiresAt: 200, maxAttempts: 3 })).toBeNull();
+        });
+        it("rejects concurrent reuse of a live lease token without claiming another job", async () => {
+            const store = setup({});
+            await store.enqueue(storedJob({ id: "a", idempotencyKey: "a" }));
+            await store.enqueue(storedJob({ id: "b", idempotencyKey: "b" }));
+            const input = { now: 0, leaseToken: "token", leaseExpiresAt: 100, maxAttempts: 3 };
+            expect(await store.claim(input)).toMatchObject({ id: "a" });
+            await expect(store.claim(input)).rejects.toMatchObject({ code: "conflict" });
+            expect(await store.get({ tenantId: "tenant", id: "b" })).toMatchObject({ state: "pending", attempts: 0 });
         });
         it("bounds capacity and recovery/lease input before changing state", async () => {
             const store = setup({ maxJobs: 1 });

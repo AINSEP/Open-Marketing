@@ -29,6 +29,7 @@ export function createBoundOAuthClient(required: {
     async begin(input, options) {
       return boundary({ run: async () => {
         if (!connectSchema.safeParse(input).success) return failure({ code: "invalid_input" });
+        if (!Number.isSafeInteger(required.maxPending ?? 256) || (required.maxPending ?? 256) < 1 || (required.maxPending ?? 256) > 256) return failure({ code: "invalid_input" });
         if (!required.allowedReturnUris.includes(input.request.returnUri)) return failure({ code: "forbidden" });
         prune({ pending, now: required.clock.now({}) });
         if (pending.size + inFlight >= (required.maxPending ?? 256)) return failure({ code: "limit_exceeded" });
@@ -40,7 +41,9 @@ export function createBoundOAuthClient(required: {
     },
     async complete(input, options) {
       return boundary({ run: async () => {
-        if (!callbackSchema.safeParse(input.callback).success) return failure({ code: "invalid_input" });
+        const parsed = callbackSchema.safeParse(input.callback);
+        if (!parsed.success) return failure({ code: "invalid_input" });
+        input = { callback: parsed.data };
         const entry = pending.get(input.callback.transactionId);
         if (!entry) return failure({ code: "expired" });
         pending.delete(input.callback.transactionId);

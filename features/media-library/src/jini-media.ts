@@ -57,7 +57,7 @@ export function createJiniMediaAdapter(required: { scope: Scope; dependencies: J
 /** Save is immutable and requires source bytes. Evidence is not stored in Jini record rows. @complexity O(1) calls. */
 async function saveCanonical(required: { deps: JiniMediaDependencies; asset: Asset }): Promise<Outcome<Asset>> {
   const { deps, asset } = required;
-  if (asset.record.htmlAttributes && parseMediaHtmlAttributes(asset.record.htmlAttributes).error !== null) return fail({ code: 'invalid_input', message: 'Unsafe media attributes' });
+  if (asset.record.htmlAttributes && parseMediaHtmlAttributes({ text: asset.record.htmlAttributes }).error !== null) return fail({ code: 'invalid_input', message: 'Unsafe media attributes' });
   if (!await deps.blobStore.exists({ storageKey: asset.blob.storageKey })) return fail({ code: 'unavailable', message: 'Canonical source bytes are absent' });
   const previous = await deps.mediaRepo.findById({ workspaceId: asset.record.workspaceId, id: asset.record.id });
   if (previous && JSON.stringify(recordSchema.parse(previous)) !== JSON.stringify(asset.record)) return fail({ code: 'conflict', message: 'Canonical record is immutable' });

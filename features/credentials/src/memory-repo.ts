@@ -12,14 +12,14 @@ export function createMemoryCredentialRepo(required: { clock?: ClockPort; maxRec
   const limit = required.maxRecords ?? 10000;
   return {
     async get(input, options) {
-      return boundary({ run: async () => {
+      return boundary<ConnectionSummary | null>({ run: async () => {
         if (!lookupSchema.safeParse(input).success) return failure({ code: "invalid_input" });
         const record = records.get(scopeKey({ scope: input.context.scope, connectionId: input.connectionId }));
         return { ok: true, value: record ? structuredClone(record.summary) : null };
       } }, options);
     },
     async getSecret(input, options) {
-      return boundary({ run: async () => {
+      return boundary<CredentialRecord | null>({ run: async () => {
         if (!lookupSchema.safeParse(input).success) return failure({ code: "invalid_input" });
         if (input.context.principal.kind !== "service") return failure({ code: "forbidden" });
         const record = records.get(scopeKey({ scope: input.context.scope, connectionId: input.connectionId }));

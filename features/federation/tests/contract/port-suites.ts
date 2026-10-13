@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type {
   FederationConnectionRepoPort, McpTransportPort, FederationCredentialPort, FederatedToolPermissionGate,
-  FederatedCallConfirmation, ExternalMcpToolApprovalRepoPort, FederatedDispatchGatePort, FederationAuditPort, ToolRegistryPort,
+  FederatedCallConfirmation, ExternalMcpToolApprovalRepoPort, FederatedDispatchGatePort, FederationAuditPort, ToolRegistryPort, FederationObserverPort,
 } from "../../index.js";
 import { context, call, connection, descriptor, echoResult } from "../fixtures/domain.js";
 
@@ -50,6 +50,12 @@ export function McpTransportPortSuite(required: { name: string; create: () => Pr
         expect((await port.invoke({ context, call: call({}), credentialReference: "broker-reference", dispatchFence: { isCurrent: () => true } }, { signal: AbortSignal.abort() })).ok).toBe(false);
       } });
     });
+    it("denies a revoked dispatch fence before handoff", async () => {
+      await transportCase({ create: required.create, assert: async ({ port }) => {
+        const result = await port.invoke({ context, call: call({}), credentialReference: "broker-reference", dispatchFence: { isCurrent: () => false } });
+        expect(result.ok).toBe(false);
+      } });
+    });
     it.each(["tainted", "oversized", "invalid"])("rejects %s MCP results", async query => {
       await transportCase({ create: required.create, assert: async ({ port }) => {
         const result = await port.invoke({ context, call: call({ query }), credentialReference: "broker-reference", dispatchFence: { isCurrent: () => true } });
@@ -71,6 +77,20 @@ export function McpTransportPortSuite(required: { name: string; create: () => Pr
         const request = call({ operationId: "next-operation" });
         expect(await port.invoke({ context, call: request, credentialReference: "broker-reference", dispatchFence: { isCurrent: () => true } })).toEqual({ ok: true, value: echoResult({ context, call: request }) });
       } });
+    });
+  });
+}
+
+/** Diagnostics preserve operation/trace identity as independent redacted snapshots. */
+export function FederationObserverPortSuite(required: { create: () => FederationObserverPort; read: (required: { port: FederationObserverPort }) => readonly unknown[] }): void {
+  describe("FederationObserverPort", () => {
+    it("retains independent observations in order", () => {
+      const port = required.create();
+      const event = { operation: "federation.invoke", outcome: "succeeded", correlationId: "correlation", traceId: "trace", runId: "run" };
+      port.observe(event);
+      event.outcome = "unknown";
+      port.observe(event);
+      expect(required.read({ port })).toEqual([{ ...event, outcome: "succeeded" }, event]);
     });
   });
 }

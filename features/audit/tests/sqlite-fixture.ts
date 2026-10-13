@@ -51,13 +51,14 @@ async function runTransaction<T>(required: {
 }
 
 /** Scripted in-memory SQL seam double for tainted-output/failure probes, not a SQL engine emulator.
- * Query scripts are explicit and transaction rollback discards recorded work.
+ * Query scripts are explicit; writers serialize and failed callbacks discard recorded work.
  */
 export function memorySqlHarness(required: {
   respond(required: { text: string; values: unknown[] }): { rows: readonly Readonly<Record<string, unknown>>[] };
 }): { db: AuditSqlDatabase; session: AuditSqlSession; committed(required: Record<string, never>): readonly string[] } {
   const committed: string[] = [];
   let current: string[] = [];
+  let pending: Promise<unknown> = Promise.resolve();
   const session: AuditSqlSession = {
     async query(input) {
       const result = required.respond(structuredClone(input));
@@ -66,11 +67,16 @@ export function memorySqlHarness(required: {
     },
   };
   const db: AuditSqlDatabase = {
-    async transaction(input) {
-      current = [];
-      const result = await input.execute({ session });
-      committed.push(...current);
-      return result;
+    transaction(input, optional) {
+      const task = pending.then(async () => {
+        if (optional?.signal?.aborted) throw new Error("Cancelled acquisition");
+        current = [];
+        const result = await input.execute({ session });
+        committed.push(...current);
+        return result;
+      });
+      pending = task.catch(() => undefined);
+      return task;
     },
   };
   return { db, session, committed() { return [...committed]; } };
