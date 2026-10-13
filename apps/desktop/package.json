@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "main": "dist/main.js",
   "om": {
     "kind": "app",
     "composition": "src/composition/index.ts"
@@ -14,6 +15,7 @@
     }
   },
   "scripts": {
+    "start": "electron .",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.tests.json",
     "build": "node ../../development/scripts/build.mjs",
     "test": "vitest run tests"
