@@ -9,6 +9,7 @@ import { routes } from '../cli/http.js';
 import { readCard } from '../cli/approval.js';
 import { localFailure } from '../composition/local-auth.js';
 import type { HttpRequest, HttpResponse } from '../ports.js';
+import type { OwnerRunPort } from '../composition/agent.js';
 
 /** Existing owning repositories/exchange; tests inject the same public memory adapters. */
 export interface OwnerServices {
@@ -16,6 +17,7 @@ export interface OwnerServices {
     readonly safety: SafetyRepoPort;
     readonly confirmations: ConfirmationExchangePort;
     formSubjects?: FormSubjectPort;
+    runs?: OwnerRunPort;
 }
 type OwnerInput = { request: HttpRequest; context: CallContext; services: OwnerServices };
 type CampaignRow = z.infer<typeof routes.campaign.schema>;
@@ -94,7 +96,7 @@ async function snapshot(required: OwnerInput): Promise<HttpResponse> {
     const rows = campaigns.value.items.map(record => campaignRow({ record }));
     const value: z.infer<typeof routes.snapshot.schema> = {
         workspace: required.context.scope.workspaceId, mode: 'connected',
-        metrics: [{ label: 'Server', value: 'Local sandbox', detail: 'Vendor effects and agent runs are unavailable.' },
+        metrics: [{ label: 'Server', value: 'Local sandbox', detail: 'Vendor effects unavailable. Use om ask for a labeled sandbox run.' },
             { label: 'Campaigns', value: String(campaigns.value.items.length), detail: campaigns.value.cursor ? 'First 100 records; use om campaigns list for more.' : 'Recorded campaigns in this workspace.' },
             { label: 'Generation remaining', value: displayMoney({ money: allowance.value.remaining }), detail: allowance.value.timezone + '. Includes unresolved reservations.' }],
         rows: { workspaces: rows, creative: [], 'media-library': [], campaigns: rows,
@@ -163,12 +165,14 @@ export async function handleOwnerRequest(required: OwnerInput): Promise<HttpResp
         case 'GET /api/safety/approvals': return approvals(required);
         case 'GET /api/safety/allowance': return respond({ outcome: await required.services.safety.getGenerationAllowanceView({ context: required.context }), schema: routes.allowance.schema });
         case 'POST /api/safety/halt': return halt(required);
+        case 'POST /api/runs': return startRun(required);
         default: return resourceRequest(required);
     }
 }
 
 /** Keep resource matching separate from the fixed route dispatcher to bound branch complexity. */
 async function resourceRequest(required: OwnerInput): Promise<HttpResponse> {
+    if (required.request.path.startsWith('/api/runs/')) return runRequest(required);
     const match = /^\/api\/(campaigns|safety\/approvals)\/([^/]+)(\/answer)?$/.exec(required.request.path);
     if (!match) return { status: 503, body: localFailure({ message: 'Owner operation unavailable in local sandbox' }) };
     const id = resourceId({ segment: match[2] });
@@ -179,4 +183,46 @@ async function resourceRequest(required: OwnerInput): Promise<HttpResponse> {
         case 'POST safety/approvals/answer': return answer({ ...required, id: id.value });
         default: return { status: 405, body: localFailure({ code: 'invalid_input', message: 'Method unavailable for owner resource' }) };
     }
+}
+
+/** Owner prompts are bounded plain text; the server creates all IDs, scope and grants. */
+async function startRun(required: OwnerInput): Promise<HttpResponse> {
+    if (!required.services.runs) return respond({ outcome: localFailure({ message: 'Sandbox agent unavailable' }), schema: routes.ask.schema });
+    const body = await requestBody(required);
+    if (!body.ok) return respond({ outcome: body, schema: routes.ask.schema });
+    const parsed = parseBoundary({ schema: z.strictObject({ prompt: z.string().min(1).max(65536).refine(value => value.trim().length > 0 && Buffer.byteLength(value, 'utf8') <= 65536) }), input: body.value });
+    if (!parsed.ok) return respond({ outcome: parsed, schema: routes.ask.schema });
+    return respond({ outcome: await required.services.runs.start({ context: required.context, prompt: parsed.value.prompt }), schema: routes.ask.schema });
+}
+
+/** Polling uses the shared CLI read model. The fixed sandbox requests no navigation, so
+ * navigation acknowledgements are denied rather than fabricating browser completion.
+ */
+async function runRequest(required: OwnerInput): Promise<HttpResponse> {
+    const match = /^\/api\/runs\/([^/]+)\/(events|cancel|navigation)$/.exec(required.request.path);
+    if (!match || !required.services.runs) return { status: 503, body: localFailure({ message: 'Sandbox run operation unavailable' }) };
+    const id = resourceId({ segment: match[1] });
+    if (!id.ok) return { status: 400, body: id };
+    const input = { context: required.context, runId: id.value };
+    if (required.request.method === 'GET' && match[2] === 'events') {
+        return pollRun({ ...required, runs: required.services.runs, ...input });
+    }
+    if (required.request.method === 'POST' && match[2] === 'cancel') {
+        return cancelRun({ ...required, runs: required.services.runs, ...input });
+    }
+    return { status: 403, body: localFailure({ code: 'forbidden', message: 'Sandbox runtime requests no navigation' }) };
+}
+
+async function pollRun(required: OwnerInput & { runs: OwnerRunPort; runId: string }): Promise<HttpResponse> {
+    const query = parseBoundary({ schema: z.strictObject({ after: z.string().regex(/^\d{1,16}$/).default('0').transform(Number).pipe(z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)) }), input: required.request.query ?? {} });
+    if (!query.ok) return respond({ outcome: query, schema: routes.runEvents.schema });
+    return respond({ outcome: await required.runs.events({ context: required.context, runId: required.runId, after: query.value.after }), schema: routes.runEvents.schema });
+}
+
+async function cancelRun(required: OwnerInput & { runs: OwnerRunPort; runId: string }): Promise<HttpResponse> {
+    const body = await requestBody(required);
+    if (!body.ok) return respond({ outcome: body, schema: routes.cancelRun.schema });
+    const empty = parseBoundary({ schema: z.strictObject({}), input: body.value });
+    if (!empty.ok) return respond({ outcome: empty, schema: routes.cancelRun.schema });
+    return respond({ outcome: await required.runs.cancel({ context: required.context, runId: required.runId }), schema: routes.cancelRun.schema });
 }

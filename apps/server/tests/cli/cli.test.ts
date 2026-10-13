@@ -197,7 +197,7 @@ describe("strict CLI and prompt boundaries", () => {
     for (const size of [65536, 65537]) {
       const f = fixture({ responses: [success({ value: { runId: "run-8", status: "requested" } })] });
       f.settings.chunks = [new TextEncoder().encode("x".repeat(65536)), new TextEncoder().encode("x".repeat(size - 65536))];
-      const result = await runOmCli({ argv: ["ask", "--prompt-file", "-"], runtime: f.runtime });
+      const result = await runOmCli({ argv: ["ask", "--prompt-file", "-", "--json"], runtime: f.runtime });
       if (size === 65536) {
         expect(result.ok).toBe(true);
         expect(f.requests[0].body).toEqual({ prompt: "x".repeat(65536) });

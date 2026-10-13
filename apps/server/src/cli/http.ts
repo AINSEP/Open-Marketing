@@ -1,7 +1,7 @@
 /** Owner HTTP mapping shared by the server and CLI. */
 import { z } from "zod";
 import {
-  appErrorSchema, chatMessageSchema, confirmationCardSchema, epochSchema, idSchema, moneySchema, navigationTargetSchema, parseBoundary,
+  appErrorSchema, chatMessageSchema, confirmationCardSchema, epochSchema, idSchema, moneySchema, navigationTargetSchema, parseBoundary, runEventSchema,
 } from "@open-marketing/contracts";
 import type { AppError, Outcome } from "@open-marketing/contracts";
 
@@ -36,6 +36,8 @@ export const routes = {
   ]) },
   allowance: { method: "GET", path: "/api/safety/allowance", schema: allowance },
   ask: { method: "POST", path: "/api/runs", schema: z.strictObject({ runId: idSchema, status: z.enum(["requested", "pending"]), expiresAt: epochSchema.optional() }) },
+  runEvents: { method: "GET", path: "/api/runs/:id/events", schema: z.strictObject({ runId: idSchema, status: z.enum(['running', 'completed', 'cancelled', 'interrupted']), events: z.array(runEventSchema).max(128) }) },
+  cancelRun: { method: "POST", path: "/api/runs/:id/cancel", schema: z.strictObject({ runId: idSchema, status: z.enum(['requested', 'cancelled']) }) },
 } as const;
 
 /** Native fetch ABI is intentional; the launcher and fixtures wrap it here. */
@@ -95,8 +97,9 @@ interface HttpRequest<T> {
   readonly session: HttpSession;
   readonly route: { readonly method: "GET" | "POST"; readonly path: string; readonly schema: z.ZodType<T> };
   readonly id?: string;
-  readonly query?: { readonly limit: number; readonly cursor?: string };
+  readonly query?: { readonly limit: number; readonly cursor?: string } | { readonly after: number };
   readonly body?: unknown;
+  readonly signal?: AbortSignal;
 }
 
 /** Read the response incrementally, enforcing the byte cap before accumulating each chunk.
@@ -170,8 +173,9 @@ export async function requestOm<T>(required: HttpRequest<T>): Promise<Outcome<T>
   try {
     const url = new URL(route.path.replace(":id", encodeURIComponent(required.id ?? "")), session.baseUrl);
     if (required.query) {
-      const query = new URLSearchParams({ limit: String(required.query.limit) });
-      if (required.query.cursor !== undefined) query.set("cursor", required.query.cursor);
+      const query = new URLSearchParams();
+      if ('after' in required.query) query.set('after', String(required.query.after));
+      else { query.set('limit', String(required.query.limit)); if (required.query.cursor !== undefined) query.set("cursor", required.query.cursor); }
       url.search = query.toString();
     }
     const headers = {
@@ -180,7 +184,7 @@ export async function requestOm<T>(required: HttpRequest<T>): Promise<Outcome<T>
       "idempotency-key": session.correlationId,
     };
     const response = await session.runtime.fetch(url, {
-      method: route.method, headers, redirect: "error", signal: deadline.signal,
+      method: route.method, headers, redirect: "error", signal: required.signal ? AbortSignal.any([deadline.signal, required.signal]) : deadline.signal,
       body: required.body === undefined ? undefined : JSON.stringify(required.body),
     });
     const parsed = await receiveResponse({ response, schema: route.schema });

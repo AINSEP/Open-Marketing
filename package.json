@@ -17,7 +17,7 @@
     "om:check": "pnpm om:lint && pnpm om:boundaries && pnpm om:typecheck && pnpm om:gate-tests && pnpm om:metrics",
     "om:dev": "pnpm om:serve",
     "om:package": "node development/scripts/unavailable.mjs package",
-    "om:serve": "pnpm --filter @open-marketing/server... --filter @open-marketing/studio... build && node apps/server/dist/composition/serve.js"
+    "om:serve": "pnpm --filter @open-marketing/server... --filter @open-marketing/studio... --filter @open-marketing/agent... build && node apps/server/dist/composition/serve.js"
   },
   "devDependencies": {
     "@open-marketing/contracts": "workspace:*",

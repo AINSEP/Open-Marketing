@@ -2,7 +2,7 @@
 import { parseArgs } from "node:util";
 import { z } from "zod";
 import { approvalChoiceSchema, digestSchema, idSchema, pageQuerySchema, parseBoundary } from "@open-marketing/contracts";
-import type { ApprovalResponse, Outcome, PageQuery } from "@open-marketing/contracts";
+import type { ApprovalResponse, Outcome, PageQuery, RunEvent } from "@open-marketing/contracts";
 import { answerApproval, readCard } from "./approval.js";
 import type { ApprovalRuntime } from "./approval.js";
 import { createSession, failure, requestOm, routes, terminalText } from "./http.js";
@@ -16,6 +16,7 @@ import type { HttpRuntime, HttpSession } from "./http.js";
 export interface CliRuntime extends HttpRuntime, ApprovalRuntime {
   readonly stdout: { write(required: { text: string }): void };
   readonly readPrompt: (required: { path: string; signal: AbortSignal }) => AsyncIterable<Uint8Array>;
+  readonly signal?: AbortSignal;
 }
 
 const options = {
@@ -40,7 +41,7 @@ const help = [
   "om ask <prompt> | om ask --prompt-file <path|->", "All commands: --json, --help",
   "Set OM_SERVER_URL and OM_OWNER_TOKEN (owner session, not agent service credentials).",
   "Approval answers display the current card and require explicit confirmation. Answers are recorded, not executed.",
-  "Prompt files contain plain prompt text. Ask returns a run receipt without streaming or polling.",
+  "Ask polls a labeled local sandbox response. --json returns one run receipt. Ctrl-C cancels the run.",
 ].join("\n") + "\n";
 
 // Dot-only IDs would be normalized as URL path traversal even after percent encoding.
@@ -169,7 +170,7 @@ async function readPrompt(required: { runtime: CliRuntime; path: string }): Prom
 }
 
 /** Send prompt text only; server owns run IDs, grants, agent configuration, and lifecycle. */
-async function ask(required: { command: Extract<Command, { name: "ask" }>; session: HttpSession; runtime: CliRuntime }): Promise<Outcome<unknown>> {
+async function ask(required: { command: Extract<Command, { name: "ask" }>; session: HttpSession; runtime: CliRuntime }): Promise<Outcome<z.infer<typeof routes.ask.schema>>> {
   let prompt = required.command.prompt ?? "";
   if (required.command.promptFile !== undefined) {
     const read = await readPrompt({ runtime: required.runtime, path: required.command.promptFile });
@@ -179,6 +180,76 @@ async function ask(required: { command: Extract<Command, { name: "ask" }>; sessi
   if (!prompt.trim()) return failure({ code: "invalid_input", message: "Prompt must contain text" });
   if (new TextEncoder().encode(prompt).byteLength > 65536) return failure({ code: "limit_exceeded", message: "Prompt exceeds 64 KiB" });
   return requestOm({ session: required.session, route: routes.ask, body: { prompt } });
+}
+
+/** Poll spacing is an injected timer/deadline; total observation and owner interruption abort it. */
+async function waitForPoll(required: { runtime: CliRuntime; signal: AbortSignal }): Promise<void> {
+  const delay = required.runtime.deadline.create({ timeoutMs: 100 });
+  const signal = AbortSignal.any([delay.signal, required.signal]);
+  try { if (!signal.aborted) await new Promise<void>(resolve => signal.addEventListener('abort', () => resolve(), { once: true })); }
+  finally { delay.dispose({}); }
+}
+
+/** Validate a whole page's identity/ordering before emitting any text to the terminal. */
+function checkedPage(required: { page: z.infer<typeof routes.runEvents.schema>; runId: string; after: number; session: HttpSession }): Outcome<number> {
+  if (required.page.runId !== required.runId) return failure({ code: 'protocol_mismatch', message: 'Server returned a different run' });
+  let sequence = required.after;
+  for (const event of required.page.events) {
+    if (event.runId !== required.runId || event.sequence !== sequence + 1 || event.correlationId !== required.session.correlationId || event.traceId !== required.session.traceId) return failure({ code: 'protocol_mismatch', message: 'Run event identity or ordering mismatch' });
+    sequence = event.sequence;
+  }
+  if (required.page.status === 'completed' && required.page.events.at(-1)?.kind !== 'ended') return failure({ code: 'protocol_mismatch', message: 'Completed run lacks a terminal event' });
+  return { ok: true, value: sequence };
+}
+
+/** Event JSON is untrusted at this terminal sink; only bounded text is displayed and controls escape. */
+function printRunEvent(required: { runtime: CliRuntime; event: RunEvent }): void {
+  if (required.event.kind === 'delta') {
+    const payload = z.strictObject({ text: z.string().max(4096) }).safeParse(required.event.payload);
+    if (payload.success) required.runtime.stdout.write({ text: terminalText({ text: payload.data.text }) + '\n' });
+    return;
+  }
+  required.runtime.stdout.write({ text: '[Sandbox] ' + required.event.kind + '\n' });
+}
+
+/** Validate/print one complete owner page, preserving explicit cancelled/interrupted outcomes. */
+async function observeRunPage(required: { runtime: CliRuntime; session: HttpSession; runId: string; after: number; signal: AbortSignal }): Promise<Outcome<{ after: number; completed: boolean }>> {
+  const result = await requestOm({ session: required.session, route: routes.runEvents, id: required.runId, query: { after: required.after }, signal: required.signal });
+  if (required.signal.aborted) return failure({ code: 'cancelled', message: 'Sandbox observation interrupted' });
+  if (!result.ok) return result;
+  const checked = checkedPage({ ...required, page: result.value });
+  if (!checked.ok) return checked;
+  for (const event of result.value.events) printRunEvent({ runtime: required.runtime, event });
+  if (result.value.status === 'cancelled') return failure({ code: 'cancelled', message: 'Sandbox run cancelled' });
+  if (result.value.status === 'interrupted') return failure({ code: 'unavailable', message: 'Sandbox run interrupted' });
+  return { ok: true, value: { after: checked.value, completed: result.value.status === 'completed' } };
+}
+
+async function cancelObservedRun(required: { session: HttpSession; runId: string }): Promise<Outcome<void>> {
+  const cancel = await requestOm({ session: required.session, route: routes.cancelRun, id: required.runId, body: {} });
+  if (!cancel.ok || cancel.value.runId !== required.runId) return failure({ code: 'unavailable', message: 'Observation stopped; run cancellation unconfirmed' });
+  return failure({ code: 'cancelled', message: 'Sandbox observation stopped; run authority revoked' });
+}
+
+/** Observe at most 300 pages/30s; writes are never retried. Interruption/timeout revokes the
+ * server grant via the owner cancel route. JSON mode skips this path entirely.
+ * @complexity <=300 bounded GETs, <=128 events/page; no retained transcript in the CLI.
+ */
+async function followRun(required: { runtime: CliRuntime; session: HttpSession; runId: string }): Promise<Outcome<void>> {
+  const deadline = required.runtime.deadline.create({ timeoutMs: 30000 });
+  const signal = required.runtime.signal ? AbortSignal.any([deadline.signal, required.runtime.signal]) : deadline.signal;
+  let after = 0;
+  try {
+    for (let pages = 0; pages < 300 && !signal.aborted; pages++) {
+      const result = await observeRunPage({ ...required, after, signal });
+      if (signal.aborted) break;
+      if (!result.ok) return result;
+      after = result.value.after;
+      if (result.value.completed) return { ok: true, value: undefined };
+      await waitForPoll({ runtime: required.runtime, signal });
+    }
+    return cancelObservedRun(required);
+  } finally { deadline.dispose({}); }
 }
 
 /** Validate all displayed cards before emitting a page; a mixed unsafe page prints no partial data. */
@@ -233,6 +304,16 @@ function printResult(required: { runtime: CliRuntime; result: Outcome<unknown>; 
   required.runtime.stdout.write({ text: terminalText({ text: JSON.stringify(required.result.value) }) + "\n" });
 }
 
+/** Human ask output uses observation; failed start has no run authority to cancel. */
+async function runTextAsk(required: { command: Extract<Command, { name: 'ask' }>; runtime: CliRuntime; session: HttpSession }): Promise<Outcome<void>> {
+  const started = await ask(required);
+  if (!started.ok) { printResult({ ...required, result: started, json: false }); return started; }
+  required.runtime.stdout.write({ text: '[Sandbox run ' + terminalText({ text: started.value.runId }) + ']\n' });
+  const observed = await followRun({ ...required, runId: started.value.runId });
+  if (!observed.ok) printResult({ ...required, result: observed, json: false });
+  return observed;
+}
+
 /** Help needs no server session; other commands share one validated owner session. */
 async function runParsedCommand(required: { command: Command; runtime: CliRuntime; json: boolean }): Promise<Outcome<void>> {
   if (required.command.name === "help") {
@@ -242,6 +323,9 @@ async function runParsedCommand(required: { command: Command; runtime: CliRuntim
   }
   const session = createSession({ runtime: required.runtime });
   if (!session.ok) { printResult({ runtime: required.runtime, result: session, json: required.json }); return session; }
+  if (required.command.name === 'ask' && !required.json) {
+    return runTextAsk({ ...required, command: required.command, session: session.value });
+  }
   const result = await dispatch({ command: required.command, session: session.value, runtime: required.runtime });
   printResult({ runtime: required.runtime, result, json: required.json });
   if (!result.ok) return result;
@@ -253,7 +337,7 @@ async function runParsedCommand(required: { command: Command; runtime: CliRuntim
  * @returns Outcome<void>; launcher maps invalid_input to exit 2, other failures to 1, success to 0.
  * Writes one JSON Outcome when --json is present; approval cards/prompts use stderr.
  * @example await runOmCli({ argv: ["status", "--json"], runtime });
- * @complexity O(input + response bytes) time/space with fixed caps; at most two HTTP calls.
+ * @complexity O(input + response bytes) with fixed caps; ask observes <=300 bounded pages.
  */
 export async function runOmCli(required: { argv: readonly string[]; runtime: CliRuntime }): Promise<Outcome<void>> {
   let json = required.argv.includes("--json") || required.argv.includes("--json=true");

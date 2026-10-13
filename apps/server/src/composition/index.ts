@@ -5,6 +5,7 @@ import { bindForms, seedSandboxForm } from './forms.js';
 import { bindIdentity, createVisitTokens, localKey } from './identity.js';
 import { bindPrivacy } from './privacy.js';
 import { createFormWorkers } from './workers.js';
+import { createLocalAgent, createNodeAgentEffects, type AgentEffects } from './agent.js';
 import { join } from 'node:path';
 import type Database from 'better-sqlite3';
 import type { CallContext, ClockPort, IdPort, ObserverPort, Outcome } from '@open-marketing/contracts';
@@ -41,10 +42,11 @@ export interface ServerBootIo extends HttpEffects {
     readonly openSqlite: (required: { path: string }) => Database.Database;
     readonly randomToken: (required: Record<string, never>) => string;
     readonly ready: (required: { studioUrl: string }) => void;
+    readonly agentEffects?: AgentEffects;
 }
 /** Explicit owned lifecycle returned after successful boot. stop is idempotent and closes SQLite last. */
 export interface BootedServer { readonly studioUrl: string; stop(required: Record<string, never>): Promise<Outcome<void>> }
-interface BootResources { native?: Database.Database; app?: LifecyclePort; confirmations?: MemoryConfirmationExchange; workers?: ReturnType<typeof createFormWorkers>; privacy?: ReturnType<typeof bindPrivacy>; stopped?: Promise<Outcome<void>> }
+interface BootResources { native?: Database.Database; app?: LifecyclePort; confirmations?: MemoryConfirmationExchange; workers?: ReturnType<typeof createFormWorkers>; privacy?: ReturnType<typeof bindPrivacy>; agent?: ReturnType<typeof createLocalAgent>; stopped?: Promise<Outcome<void>> }
 
 /** Best-effort low-cardinality lifecycle diagnostics; no credential/token or raw exception details. */
 function observeBoot(required: { observer: ObserverPort; context: CallContext; operation: string; outcome: string }): void {
@@ -53,15 +55,19 @@ function observeBoot(required: { observer: ObserverPort; context: CallContext; o
     catch { /* Observer failure cannot change committed work or readiness. */ }
 }
 
-/** Stop transport before closing the native handle, including on partially completed startup. */
+/** Cleanup continues after an explicit/throwing port failure; no acquired service is skipped. */
+async function stopService(required: { service?: Pick<LifecyclePort, 'stop'>; message: string }): Promise<Outcome<void>> {
+    try { return required.service ? await required.service.stop({}) : { ok: true, value: undefined }; }
+    catch { return localFailure({ message: required.message }); }
+}
+
+/** Close admission, revoke/reap the agent, stop workers, and close SQLite last. */
 async function closeResources(required: { resources: BootResources }): Promise<Outcome<void>> {
-    let result: Outcome<void> = { ok: true, value: undefined };
-    try { if (required.resources.app) result = await required.resources.app.stop({}); }
-    catch { result = localFailure({ message: 'Server transport cleanup failed' }); }
-    try { if (required.resources.workers) {
-        const stopped = await required.resources.workers.stop({});
-        if (!stopped.ok) result = stopped;
-    } } catch { result = localFailure({ message: 'Worker cleanup failed' }); }
+    let result = await stopService({ service: required.resources.app, message: 'Server transport cleanup failed' });
+    const agent = await stopService({ service: required.resources.agent, message: 'Sandbox agent cleanup failed' });
+    if (!agent.ok) result = agent;
+    const workers = await stopService({ service: required.resources.workers, message: 'Worker cleanup failed' });
+    if (!workers.ok) result = workers;
     required.resources.privacy?.participants.dispose({});
     required.resources.confirmations?.reset({});
     try { if (required.resources.native?.open) required.resources.native.close(); }
@@ -78,7 +84,7 @@ function stopResources(required: { resources: BootResources }): Promise<Outcome<
  */
 async function handleBootRequest(required: {
     request: HttpRequest; auth: ReturnType<typeof createLocalAuth>; listener: NodeHttpListener;
-    fs: LocalFilesystem; studioRoot: string; context: CallContext; services: OwnerServices; ids: IdPort; publicServices: Omit<Parameters<typeof handlePublicRequest>[0], 'request' | 'context'>;
+    fs: LocalFilesystem; studioRoot: string; context: CallContext; services: OwnerServices; ids: IdPort; agent: ReturnType<typeof createLocalAgent>; clock: ClockPort; publicServices: Omit<Parameters<typeof handlePublicRequest>[0], 'request' | 'context'>;
 }): Promise<HttpResponse> {
     const origin = required.listener.origin({});
     if (!origin) return { status: 503, body: localFailure({ message: 'Server is stopping' }) };
@@ -91,13 +97,19 @@ async function handleBootRequest(required: {
             context: { ...trace, principal: { kind: 'service', serviceId: 'public-ingress' } } });
     }
     if (required.request.path === '/bootstrap') return required.auth.bootstrap({ request: required.request, origin });
+    if (required.request.path.startsWith('/api/agent/')) return handleOmRequest({ request: required.request, grants: required.agent.grants, callbacks: required.agent.callbacks, clock: required.clock });
     const authenticated = required.auth.verify({ request: required.request, origin });
     if (!authenticated.ok) return { status: authenticated.error.code === 'forbidden' ? 403 : 401, body: authenticated };
     if (required.request.path.startsWith('/api/')) {
         const context = ownerContext({ request: required.request, context: required.context, ids: required.ids });
         return handleOwnerRequest({ request: required.request, context, services: required.services });
     }
-    const asset = await serveStudioAsset({ request: required.request, fs: required.fs, studioRoot: required.studioRoot });
+    return configuredStudioAsset(required);
+}
+
+/** Same-origin API selection is presentation configuration; credentials stay in the HttpOnly cookie. */
+async function configuredStudioAsset(required: { request: HttpRequest; fs: LocalFilesystem; studioRoot: string }): Promise<HttpResponse> {
+    const asset = await serveStudioAsset(required);
     if (asset.status === 200 && asset.contentType?.startsWith('text/html')) {
         const html = Buffer.isBuffer(asset.body) ? asset.body.toString('utf8') : String(asset.body);
         return { ...asset, body: html.replace(/(<head\b[^>]*>)/i, '$1<meta name="om-server-url" content="/">') };
@@ -116,7 +128,7 @@ function ownerContext(required: { request: HttpRequest; context: CallContext; id
 
 /** Boot one explicitly owned local database: validate config, provision owner, prepare assets,
  * migrate on one checked kernel, persist workspace, bind HTTP, then publish discovery/readiness.
- * Every failed step closes acquired resources. Only the local forms worker starts here.
+ * Every failed step closes acquired resources. The forms worker and fixed sandbox child start here.
  * @example await bootServer({ env, io, clock, ids, observer });
  * @returns A loopback bootstrap URL and stop handle, or a stable typed startup failure.
  * @complexity Fixed 16-entry bounded migration batch; no unbounded work or scheduling queue.
@@ -178,13 +190,20 @@ export async function bootServer(required: {
         const publicServices = { forms, identity, visits, clock: required.clock, campaigns: services.campaigns,
             links: createSqlTrackedLink({ database: measureDb, ids: required.ids, baseUrl: 'https://sandbox.example.test/l/', allowedOrigins: ['https://sandbox.example.test'] }, { observer: required.observer }) };
         services.formSubjects = forms.subjects;
+        resources.agent = createLocalAgent({ effects: required.io.agentEffects ?? createNodeAgentEffects({ projectRoot: required.io.projectRoot, ids: required.ids }),
+            clock: required.clock, ids: required.ids, observer: required.observer, randomToken: required.io.randomToken });
+        services.runs = resources.agent.owner;
+        const agent = resources.agent;
         const bootContext = context;
         resources.app = createServerApp({ listener, handle: request => handleBootRequest({ request, auth, listener, fs: required.io.fs,
-            studioRoot: assets.value, context: bootContext, services, ids: required.ids, publicServices }) });
+            studioRoot: assets.value, context: bootContext, services, ids: required.ids, publicServices, agent, clock: required.clock }) });
         const started = await resources.app.start({});
         if (!started.ok) { await stopResources({ resources }); return started; }
         const origin = listener.origin({});
         if (!origin) { await stopResources({ resources }); return localFailure({ message: 'Local server address unavailable' }); }
+        phase = 'sandbox agent';
+        const agentStarted = await agent.start({ serverUrl: origin });
+        if (!agentStarted.ok) { await stopResources({ resources }); return agentStarted; }
         const workersStarted = resources.workers.start({});
         if (!workersStarted.ok) { await stopResources({ resources }); return workersStarted; }
         phase = 'readiness';

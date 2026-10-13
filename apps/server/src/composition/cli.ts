@@ -67,12 +67,12 @@ async function confirmOwner(required: { input: NodeJS.ReadStream; output: Writab
 }
 
 /** Bind injected Node effects once. Native fetch/streams/timer callbacks intentionally retain ABIs. */
-function createRuntime(required: { env: Readonly<Record<string, string | undefined>> }): CliRuntime {
+function createRuntime(required: { env: Readonly<Record<string, string | undefined>>; signal: AbortSignal }): CliRuntime {
     return {
-        env: required.env, fetch, ids: { next: () => randomUUID() }, clock: { now: () => Date.now() },
+        env: required.env, signal: required.signal, fetch, ids: { next: () => randomUUID() }, clock: { now: () => Date.now() },
         stdout: { write: ({ text }) => { process.stdout.write(text); } },
         stderr: { write: ({ text }) => { process.stderr.write(text); } },
-        readPrompt: input => readPrompt({ ...input, stdin: process.stdin }),
+        readPrompt: input => readPrompt({ ...input, signal: AbortSignal.any([input.signal, required.signal]), stdin: process.stdin }),
         confirm: () => confirmOwner({ input: process.stdin, output: process.stderr }),
         deadline: { create({ timeoutMs }) {
             const controller = new AbortController();
@@ -94,8 +94,13 @@ async function main(): Promise<void> {
         process.exitCode = 1;
         return;
     }
-    const result = await runOmCli({ argv, runtime: createRuntime({ env: environment.value }) });
-    if (!result.ok) process.exitCode = 1;
+    const controller = new AbortController();
+    function interrupt() { controller.abort(); }
+    process.on('SIGINT', interrupt); process.on('SIGTERM', interrupt);
+    try {
+        const result = await runOmCli({ argv, runtime: createRuntime({ env: environment.value, signal: controller.signal }) });
+        if (!result.ok) process.exitCode = 1;
+    } finally { process.off('SIGINT', interrupt); process.off('SIGTERM', interrupt); }
 }
 
 // Node 24.2's entry-point flag also works through the package's symlinked om bin.

@@ -188,8 +188,8 @@ it('authenticates before body reads, enforces Host/Origin and expiry, and leaves
         expect((await fetch(origin + '/api/runs', { method: 'POST', headers: { cookie }, body: 'bad' })).status).toBe(403);
         expect((await fetch(origin + '/api/status', { headers: { cookie, authorization: 'Basic invalid' } })).status).toBe(401);
         const effect = await fetch(origin + '/api/runs', { method: 'POST', headers: { authorization: 'Bearer ' + owner.value.token }, body: 'bad' });
-        expect(effect.status).toBe(503);
-        expect((await effect.json()).error.code).toBe('unavailable');
+        expect(effect.status).toBe(400);
+        expect((await effect.json()).error.code).toBe('invalid_input');
         fixture.advance({ milliseconds: 60000 });
         expect((await fetch(result.value.studioUrl, { redirect: 'manual' })).status).toBe(401);
         expect((await fetch(origin + '/api/status', { headers: { cookie } })).status).toBe(200);
