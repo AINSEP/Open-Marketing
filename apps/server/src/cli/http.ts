@@ -162,6 +162,17 @@ function transportFailure<T>(required: { method: "GET" | "POST"; code: AppError[
   return failure({ ...required, retryable: required.code === "unavailable" });
 }
 
+/** Fixed CLI query shapes; preserve cursor omission and encode all values through URLSearchParams. */
+function queryString(required: { query: NonNullable<HttpRequest<unknown>["query"]> }): string {
+  const query = new URLSearchParams();
+  if ('after' in required.query) query.set('after', String(required.query.after));
+  else {
+    query.set('limit', String(required.query.limit));
+    if (required.query.cursor !== undefined) query.set('cursor', required.query.cursor);
+  }
+  return query.toString();
+}
+
 /** Perform exactly one HTTP request with owner auth, tracing, and a 15-second deadline.
  * Redirects are rejected to keep the owner token on the configured origin. No retries.
  * @returns Validated server Outcome, or a typed transport/protocol/size failure.
@@ -172,12 +183,7 @@ export async function requestOm<T>(required: HttpRequest<T>): Promise<Outcome<T>
   const deadline = session.runtime.deadline.create({ timeoutMs: 15000 });
   try {
     const url = new URL(route.path.replace(":id", encodeURIComponent(required.id ?? "")), session.baseUrl);
-    if (required.query) {
-      const query = new URLSearchParams();
-      if ('after' in required.query) query.set('after', String(required.query.after));
-      else { query.set('limit', String(required.query.limit)); if (required.query.cursor !== undefined) query.set("cursor", required.query.cursor); }
-      url.search = query.toString();
-    }
+    if (required.query) url.search = queryString({ query: required.query });
     const headers = {
       authorization: "Bearer " + session.token, accept: "application/json", "content-type": "application/json",
       "x-correlation-id": session.correlationId, "x-trace-id": session.traceId,

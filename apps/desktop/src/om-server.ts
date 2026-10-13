@@ -2,15 +2,13 @@
  * OM changes: minimal readiness, explicit sandbox env, injected effects, POSIX group cleanup.
  * Imports/factories are inert; no Tovu runtime dependency.
  */
+import type { EventEmitter } from "node:events";
 import type { ChildProcess } from "node:child_process";
 import { z } from "zod";
 import type { Outcome } from "@open-marketing/contracts";
 import type { ChildSupervisorPort, ServerReady } from "./ports.js";
 
-type Child = Pick<ChildProcess, "pid" | "stdout" | "stderr" | "exitCode" | "signalCode"> & {
- /** Node event ABI; supervision never consumes the emitter's chaining return value. */
- once(event: "exit" | "error", listener: () => void): unknown;
-};
+type Child = Pick<ChildProcess, "pid" | "stdout" | "stderr" | "exitCode" | "signalCode"> & Pick<EventEmitter, "once">;
 /** Narrow Node effects supplied at the executable composition boundary.
  * schedule returns cancellation; now is monotonic milliseconds.
  */
@@ -79,7 +77,7 @@ function watchChild(required: { child: Child; effects: ServerEffects; bootTimeou
  }
 
  // Node stream and process callbacks retain the foreign ABI at this narrow wrapper.
- function readChunk(chunk: string): void {
+ function readChunk({ chunk }: { chunk: string }): void {
   if (settled) return;
   let offset = 0;
   while (offset < chunk.length) {
@@ -114,7 +112,7 @@ function watchChild(required: { child: Child; effects: ServerEffects; bootTimeou
  });
  required.child.once("error", () => publishExit({ outcome: failure({ message: "Unable to run the configured OM server" }) }));
  required.child.stdout?.setEncoding("utf8");
- required.child.stdout?.on("data", readChunk);
+ required.child.stdout?.on("data", chunk => readChunk({ chunk }));
  required.child.stderr?.resume();
  cancelTimer = required.effects.schedule({ callback: () => finish({ outcome: failure({ message: "OM server did not report readiness within the boot deadline" }) }), delayMs: required.bootTimeoutMs });
  if (exited) publishExit({ outcome: failure({ message: "OM server exited before readiness" }) });

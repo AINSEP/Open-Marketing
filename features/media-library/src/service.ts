@@ -68,23 +68,27 @@ async function importAsset(required: { deps: Dependencies; context: CallContext;
   if (!evidence.ok) return evidence;
   const existing = await deps.media.findByDigest({ context, contentDigest: request.expectedDigest }, options);
   if (!existing.ok) return existing;
-  let canonical = existing.value;
-  if (!canonical) {
-    const imported = await deps.importer.import({ context, request }, options);
-    if (!imported.ok) return imported;
-    const checked = validateImport({ asset: imported.value, context, request });
-    if (!checked.ok) return checked;
-    const saved = await deps.media.save({ context, asset: checked.value }, options);
-    if (!saved.ok) return saved;
-    canonical = saved.value;
-  }
-  const validated = validateImport({ asset: canonical, context, request });
+  const canonical = await importCanonical({ ...required, existing: existing.value });
+  if (!canonical.ok) return canonical;
+  const validated = validateImport({ asset: canonical.value, context, request });
   if (!validated.ok) return validated;
   const linked = await deps.repo.appendProvenance({ context, link: { provenance: request.provenance, assetId: validated.value.record.id } }, options);
   if (!linked.ok) return linked;
   const audit = await deps.audit.record({ context, operationId: request.operationId, assetId: validated.value.record.id }, options);
   if (!audit.ok) return audit;
   return success({ value: { ...validated.value, provenance: request.provenance } });
+}
+/** Validate a new importer result before canonical storage; failures leave provenance resumable.
+ * @complexity O(1) port calls; no retries or compensation writes.
+ */
+async function importCanonical(required: { deps: Dependencies; context: CallContext; request: AssetImportRequest; existing: Asset | null; options?: CallOptions }): Promise<Outcome<Asset>> {
+  const { deps, context, request, options } = required;
+  if (required.existing) return success({ value: required.existing });
+  const imported = await deps.importer.import({ context, request }, options);
+  if (!imported.ok) return imported;
+  const checked = validateImport({ asset: imported.value, context, request });
+  if (!checked.ok) return checked;
+  return deps.media.save({ context, asset: checked.value }, options);
 }
 /** Tainted importer output cannot bind another workspace or different content to this operation. @complexity O(1), bounded schema. */
 function validateImport(required: { asset: Asset; context: CallContext; request: AssetImportRequest }): Outcome<Asset> {

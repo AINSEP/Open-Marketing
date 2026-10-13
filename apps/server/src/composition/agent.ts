@@ -34,13 +34,13 @@ function awaitReadiness(required: { child: ChildProcess; runtime: HttpRuntime })
     return new Promise(resolve => {
         const deadline = required.runtime.deadline.create({ timeoutMs: 5000 });
         let output = '';
-        function finish(result: Outcome<{ origin: string; pid: number }>) {
+        function finish({ result }: { result: Outcome<{ origin: string; pid: number }> }) {
             deadline.dispose({}); deadline.signal.removeEventListener('abort', expired);
             required.child.stdout?.off('data', data); required.child.off('error', expired); required.child.off('exit', expired);
             resolve(result);
         }
-        function expired() { finish(failure({ code: 'unavailable', message: 'Sandbox agent did not become ready' })); }
-        function data(chunk: Buffer) {
+        function expired() { finish({ result: failure({ code: 'unavailable', message: 'Sandbox agent did not become ready' }) }); }
+        function readData({ chunk }: { chunk: Buffer }) {
             output += chunk.toString('utf8');
             if (Buffer.byteLength(output) > 8192) { expired(); return; }
             const newline = output.indexOf('\n');
@@ -52,9 +52,11 @@ function awaitReadiness(required: { child: ChildProcess; runtime: HttpRuntime })
                 if (!parsed.success || parsed.data.pid !== required.child.pid) { expired(); return; }
                 const url = new URL(parsed.data.origin);
                 if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || !url.port || url.username || url.password || url.search || url.hash || url.pathname !== '/') { expired(); return; }
-                finish({ ok: true, value: { origin: url.origin, pid: parsed.data.pid } });
+                finish({ result: { ok: true, value: { origin: url.origin, pid: parsed.data.pid } } });
             } catch { expired(); }
         }
+        // Node's data listener is retained for exact unsubscription during readiness cleanup.
+        const data: Parameters<NonNullable<ChildProcess['stdout']>['on']>[1] = chunk => readData({ chunk });
         required.child.stdout?.on('data', data);
         required.child.once('error', expired); required.child.once('exit', expired);
         deadline.signal.addEventListener('abort', expired, { once: true });
@@ -70,9 +72,9 @@ function waitForExit(required: { child: ChildProcess; runtime: HttpRuntime; time
     if (exited(required)) return Promise.resolve(true);
     return new Promise(resolve => {
         const deadline = required.runtime.deadline.create({ timeoutMs: required.timeoutMs });
-        function finish(value: boolean) { deadline.dispose({}); deadline.signal.removeEventListener('abort', expired); required.child.off('exit', stopped); resolve(value); }
-        function stopped() { finish(true); }
-        function expired() { finish(false); }
+        function finish({ value }: { value: boolean }) { deadline.dispose({}); deadline.signal.removeEventListener('abort', expired); required.child.off('exit', stopped); resolve(value); }
+        function stopped() { finish({ value: true }); }
+        function expired() { finish({ value: false }); }
         required.child.once('exit', stopped); deadline.signal.addEventListener('abort', expired, { once: true });
         if (exited(required)) stopped();
     });
@@ -118,11 +120,17 @@ export function createNodeAgentEffects(required: { projectRoot: string; ids: IdP
             let stopping: Promise<Outcome<void>> | undefined;
             return { ok: true, value: { ...ready.value, stop: () => stopping ??= stopChild({ child: owned, directory: scratch, runtime }) } };
         } catch {
-            if (child && directory) await stopChild({ child, directory, runtime });
-            else if (directory) await rm(directory, { recursive: true, force: true });
+            await cleanupLaunch({ child, directory, runtime });
             return failure({ code: 'unavailable', message: 'Sandbox agent launch failed' });
         }
     } };
+}
+
+/** Failed launches reap an owned child before removing its scratch directory. */
+async function cleanupLaunch(required: { child?: ChildProcess; directory?: string; runtime: HttpRuntime }): Promise<void> {
+    if (!required.directory) return;
+    if (required.child) { await stopChild({ child: required.child, directory: required.directory, runtime: required.runtime }); return; }
+    await rm(required.directory, { recursive: true, force: true });
 }
 
 /** Only fixed sandbox event payloads may enter owner observation. No tools/business receipts. */

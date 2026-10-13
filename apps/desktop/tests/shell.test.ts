@@ -8,8 +8,7 @@ const success: Outcome<void> = { ok: true, value: undefined };
 const unavailable: Outcome<never> = { ok: false, error: { code: "unavailable", message: "fixture failure", retryable: false } };
 
 function deferred<T>() {
- let resolve!: (value: T) => void;
- const promise = new Promise<T>(done => { resolve = done; });
+ const { promise: promise, resolve: resolve } = Promise.withResolvers<T>();
  return { promise, resolve };
 }
 

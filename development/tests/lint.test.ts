@@ -33,7 +33,8 @@ describe('OM lint conformance', () => {
   expect(config?.rules?.complexity?.[0]).toBe(0);
   expect(config?.linterOptions?.noInlineConfig).toBe(true);
  });
- it.each(['cognitive-10','nesting-3','signature-positive','foreign-callback','switch-14'])('%s passes', async name => expect((await fixture({ name })).messages).toEqual([]));
+ it('signature-positive passes', async () => expect((await fixture({ name: 'signature-positive' })).messages).toEqual([]), 30000);
+ it.each(['cognitive-10','nesting-3','foreign-callback','switch-14'])('%s passes', async name => expect((await fixture({ name })).messages).toEqual([]));
  it('guard clauses are a nesting negative control', async () => {
   const result = await fixture({ name: 'guard-clauses' }); expect(result.messages).toEqual([]);
   expect(measureSource({ source: result.source, file: 'virtual.ts' })[0].nesting).toBe(1);
@@ -86,4 +87,33 @@ it('the foreign exception only covers a callable argument and JSX cannot bypass 
 it('chained foreign callbacks resolve the whole call span', async () => {
  const results = await eslint.lintText('function check(required: { values: number[] }) { return required.values.filter(value => value > 0).map(value => value + 1).join(","); }', { filePath: 'development/fixtures/virtual.ts' });
  expect(results[0].messages).toEqual([]);
+});
+
+it.each([
+ 'import { createServer } from "node:http"; createServer((request, response) => { response.end(); });',
+ 'import type { Session } from "electron"; function register(required: { session: Session }) { required.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false)); }',
+ 'import type { SqliteClient } from "@jini-ai/db/sqlite"; function adapter(required: { native: SqliteClient }): SqliteClient { return { ...required.native, prepare: source => required.native.prepare(source) }; }',
+ 'new Promise<void>((resolve, reject) => { resolve(); });',
+ 'import type { SqliteClient } from "@jini-ai/db/sqlite"; function adapter(required: { native: SqliteClient }): SqliteClient { return { ...required.native, exec(source) { required.native.exec(source); } }; }',
+ 'import { useState } from "react"; function state() { const [value, setValue] = useState(0); setValue(current => current + 1); }',
+ 'const transport: typeof fetch = async (input, init) => fetch(input, init);',
+ 'import { vi } from "vitest"; import type { Database } from "better-sqlite3"; function adapter(required: { database: Database }) { vi.spyOn(required.database, "exec").mockImplementation(source => required.database); }',
+])('recognizes a genuine upstream callback ABI: %s', async source => {
+ const results = await eslint.lintText(source, { filePath: source.includes('electron') ? 'apps/desktop/virtual.ts' : source.includes('react') ? 'apps/studio/virtual.ts' : 'apps/server/virtual.ts' });
+ expect(results[0].messages).toEqual([]);
+});
+it.each([
+ 'const owned = { createServer(callback: (request: string, response: string) => void) {} }; owned.createServer((request, response) => {});',
+ 'interface Session { setPermissionRequestHandler(callback: (contents: string, permission: string, callback: () => void) => void): void } function register(required: { session: Session }) { required.session.setPermissionRequestHandler((contents, permission, callback) => {}); }',
+ 'interface Client { prepare(source: string): void } function adapter(required: { native: Client }): Client { return { prepare: source => required.native.prepare(source) }; }',
+ 'class Deferred { constructor(callback: (resolve: () => void, reject: (reason: string) => void) => void) {} } new Deferred((resolve, reject) => resolve());',
+ 'interface Client { exec(source: string): void } function adapter(required: { native: Client }): Client { return { exec(source) { required.native.exec(source); } }; }',
+ 'function state() { const setValue = (callback: (current: number) => number) => callback(0); setValue(current => current + 1); }',
+ 'type Fetch = (input: string, init?: {}) => Promise<void>; const transport: Fetch = async (input, init) => {};',
+ 'import { vi } from "vitest"; function adapter(required: { owned: { exec(input: string): void } }) { vi.spyOn(required.owned, "exec").mockImplementation(input => {}); }',
+])('rejects an owned lookalike of an upstream ABI: %s', async source => {
+ const results = await eslint.lintText(source, { filePath: source.includes('electron') ? 'apps/desktop/virtual.ts' : source.includes('react') ? 'apps/studio/virtual.ts' : 'apps/server/virtual.ts' });
+ const implementationType = source.includes('exec(source) {') ? 'FunctionExpression' : 'ArrowFunctionExpression';
+ const expected = source.includes('function state()') ? 2 : 1;
+ expect(results[0].messages.filter(message => message.ruleId === 'om/two-object-arguments' && message.nodeType === implementationType)).toHaveLength(expected);
 });

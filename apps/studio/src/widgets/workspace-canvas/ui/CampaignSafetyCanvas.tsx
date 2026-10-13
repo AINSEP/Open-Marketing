@@ -25,7 +25,7 @@ export function CampaignSafetyCanvas(props: { readonly model: CampaignSafetyMode
 function DraftCard(props: { readonly item: DraftView }): ReactElement {
   return <article className="canvas-card" aria-label={props.item.title}><div className="canvas-card-body">
     <span className="row-status">{props.item.status} · Review: {props.item.review}</span><h3>{props.item.title}</h3>
-    <ul className="domain-evidence">{props.item.reasons.map(renderReason)}</ul>
+    <ul className="domain-evidence">{renderReasons({ reasons: props.item.reasons })}</ul>
     {props.item.approval ? <ApprovalCard {...props.item.approval} /> : <p>Launch approval unavailable · request a ready review and fresh exact card from the server.</p>}
   </div></article>;
 }
@@ -41,8 +41,12 @@ function AllowanceCard(props: { readonly item: AllowanceView }): ReactElement {
     <p>{props.item.reset}</p><p>Revision outcome: {props.item.revision}</p>
   </section>;
 }
-// Native list-render callback ABI; no handlers or decisions in component bodies.
-function renderReason(reason: string): ReactElement { return <li key={reason}>{reason}</li>; }
+// Render scalar lists outside component bodies without defining nested callbacks.
+function renderReasons({ reasons }: { reasons: readonly string[] }): ReactElement[] {
+  const items: ReactElement[] = [];
+  for (const reason of reasons) items.push(<li key={reason}>{reason}</li>);
+  return items;
+}
 function renderDraft(item: DraftView): ReactElement { return <DraftCard key={item.id} item={item} />; }
 function renderHalt(item: CampaignSafetyModel["halts"][number]): ReactElement { return <HaltCard key={item.id} item={item} />; }
 function renderAllowance(item: AllowanceView): ReactElement { return <AllowanceCard key={item.id} item={item} />; }

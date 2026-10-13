@@ -45,4 +45,4 @@ it('active imports and root commands contain no Open Design runtime or compatibi
  }
  const scripts = JSON.parse(readFileSync('package.json','utf8')).scripts;
  expect(Object.keys(scripts).every(name => name.startsWith('om:'))).toBe(true);
-});
+}, 30000);

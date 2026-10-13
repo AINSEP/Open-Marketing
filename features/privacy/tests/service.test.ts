@@ -168,10 +168,8 @@ describe("erasure orchestration", () => {
     expect(await fixture.service.advance({ context, requestId: "request-1" })).toMatchObject({ ok: true, value: { phase: "externalRemoval" } });
   });
   it("rejects overlapping advances for different requests for the same scoped subject", async () => {
-    let release!: () => void;
-    let entered!: () => void;
-    const started = new Promise<void>(resolve => { entered = resolve; });
-    const paused = new Promise<void>(resolve => { release = resolve; });
+    const { promise: started, resolve: entered } = Promise.withResolvers<void>();
+    const { promise: paused, resolve: release } = Promise.withResolvers<void>();
     const fixture = serviceFixture({ members: [] });
     fixture.participants.register({ participant: { id: "paused", async run() { entered(); await paused; return { ok: true, value: { complete: true, removedCount: 0 } }; } } });
     await fixture.service.requestErasure({ context, subjectId: "subject" });

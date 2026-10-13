@@ -94,27 +94,27 @@ function answers(required: { fields: Record<string, string>; publication: FormPu
     if (Object.keys(required.fields).some(key => !allowed.has(key))) return localFailure({ code: 'invalid_input', message: 'Unknown form field' });
     const body: Record<string, string | boolean> = {};
     for (const field of required.publication.fields) {
-        const raw = required.fields[field.id];
-        if (field.type === 'checkbox') {
-            if (raw !== undefined && !['on', 'true', '1'].includes(raw)) return localFailure({ code: 'invalid_input', message: 'Invalid checkbox choice' });
-            body[field.id] = raw !== undefined;
-        } else if (raw !== undefined) body[field.id] = raw;
+        const answer = answerValue({ field, raw: required.fields[field.id] });
+        if (!answer.ok) return answer;
+        if (answer.value !== undefined) body[field.id] = answer.value;
     }
     if (required.fields._hp !== undefined) body._hp = required.fields._hp;
     return { ok: true, value: body };
 }
+/** Missing checkboxes are false; reject non-browser scalar choices before submission writes. */
+function answerValue(required: { field: FormPublication['fields'][number]; raw: string | undefined }): Outcome<string | boolean | undefined> {
+    if (required.field.type !== 'checkbox') return { ok: true, value: required.raw };
+    if (required.raw !== undefined && !['on', 'true', '1'].includes(required.raw)) return localFailure({ code: 'invalid_input', message: 'Invalid checkbox choice' });
+    return { ok: true, value: required.raw !== undefined };
+}
+
 /** Caller IDs are claims: a tracked link and its campaign must exist in this workspace.
  * No provider lookup is made, and arbitrary click identifiers are discarded before persistence. */
 async function landingProperties(required: PublicInput & { properties: z.infer<typeof landingSchema>['properties'] }): Promise<Outcome<Record<string, string>>> {
-    const { linkId, campaignId } = required.properties;
-    let campaign = campaignId;
-    if (linkId) {
-        if (!required.links.resolve) return localFailure({ message: 'Tracked link lookup unavailable' });
-        const link = await required.links.resolve({ context: required.context, linkId });
-        if (!link.ok) return link;
-        if (campaignId && campaignId !== link.value.campaignId) return localFailure({ code: 'forbidden', message: 'Link campaign mismatch' });
-        campaign = link.value.campaignId;
-    }
+    const { linkId } = required.properties;
+    const linked = await linkedCampaign(required);
+    if (!linked.ok) return linked;
+    const campaign = linked.value;
     if (campaign) {
         const found = await required.campaigns.get({ context: required.context, campaignId: campaign });
         if (!found.ok) return found;
@@ -122,6 +122,17 @@ async function landingProperties(required: PublicInput & { properties: z.infer<t
     }
     return { ok: true, value: { ...(linkId ? { linkId } : {}), ...(campaign ? { campaignId: campaign } : {}) } };
 }
+/** Resolve scoped tracked links before campaign lookup; a caller campaign claim must match. */
+async function linkedCampaign(required: PublicInput & { properties: z.infer<typeof landingSchema>['properties'] }): Promise<Outcome<string | undefined>> {
+    const { linkId, campaignId } = required.properties;
+    if (!linkId) return { ok: true, value: campaignId };
+    if (!required.links.resolve) return localFailure({ message: 'Tracked link lookup unavailable' });
+    const link = await required.links.resolve({ context: required.context, linkId });
+    if (!link.ok) return link;
+    if (campaignId && campaignId !== link.value.campaignId) return localFailure({ code: 'forbidden', message: 'Link campaign mismatch' });
+    return { ok: true, value: link.value.campaignId };
+}
+
 async function collect(required: PublicInput): Promise<HttpResponse> {
     const raw = required.request.readBody ? await required.request.readBody({}) : { ok: true as const, value: required.request.body };
     if (!raw.ok) return response({ result: raw });

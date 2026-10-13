@@ -3,10 +3,8 @@ import { createJobHandlerRegistry } from "../index.js";
 import type { TransportResult } from "../index.js";
 import { context, job } from "./fixtures.js";
 function pendingAttempt(required: Record<string, never>) {
-    let resolve!: (result: TransportResult) => void;
-    const result = new Promise<TransportResult>(done => { resolve = done; });
-    let entered!: () => void;
-    const started = new Promise<void>(done => { entered = done; });
+    const { promise: result, resolve: resolve } = Promise.withResolvers<TransportResult>();
+    const { promise: started, resolve: entered } = Promise.withResolvers<void>();
     const dispose = vi.fn(async () => undefined);
     const handler = { async handle() { entered(); return result; }, dispose };
     return { handler, started, dispose, resolve };

@@ -16,7 +16,7 @@ test("portable mcp entries contain transport fields only; namespace holds host m
   const manifest = JSON.parse(await readFile(new URL("../../plugin.json", import.meta.url), "utf8"));
   assert.deepEqual(Object.keys(mcp.mcpServers["google-ads"]).sort(), ["args", "command", "cwd", "type"]);
   assert.equal(mcp.mcpServers["google-ads"].command, "node");
-  assert.equal(mcp.mcpServers["google-ads"].args.some((arg: string) => arg.includes("npx")), false);
+  assert.equal((mcp.mcpServers["google-ads"].args as string[]).some(arg => arg.includes("npx")), false);
   const extension = manifest.extensions["io.github.ainsep.openmarketing"];
   assert.equal(extension.enabled, false);
   assert.equal(extension.admitted, false);

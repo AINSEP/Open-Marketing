@@ -2,14 +2,14 @@ import { runInNewContext } from "node:vm";
 import { describe, expect, it, vi } from "vitest";
 import { webEventSnippetSource } from "../index.js";
 
-type Bootstrap = (required: { now: () => number; nextId: () => string; location: { search: string }; fetch: (path: string, init: RequestInit) => Promise<unknown> }) => Promise<unknown>;
+type Bootstrap = (required: { now: () => number; nextId: () => string; location: { search: string }; fetch: typeof fetch }) => Promise<unknown>;
 function snippet(): Bootstrap {
   const result = webEventSnippetSource({ collectionPath: "/c" });
   if (!result.ok) throw new Error("Invalid source fixture");
   return runInNewContext(result.value, { URLSearchParams }) as Bootstrap;
 }
 function browser(required: { search?: string; now?: number; id?: string } = {}) {
-  return { now: () => required.now ?? 100, nextId: () => required.id ?? "browser-event", location: { search: required.search ?? "?linkId=link&campaignId=campaign&gclid=google&gbraid=bridge&wbraid=web&fbclid=meta" }, fetch: vi.fn(async () => ({ ok: true })) };
+  return { now: () => required.now ?? 100, nextId: () => required.id ?? "browser-event", location: { search: required.search ?? "?linkId=link&campaignId=campaign&gclid=google&gbraid=bridge&wbraid=web&fbclid=meta" }, fetch: vi.fn<typeof fetch>(async () => new Response()) };
 }
 describe("first-party snippet source", () => {
   it("is inert until bootstrap and posts one allowlisted landing without URL/referrer", async () => {

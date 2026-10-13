@@ -16,11 +16,11 @@ function createReply({ request }) {
   if (args.query === 'unknown') return { jsonrpc: '2.0', id: request.id, error: { code: -32603, message: 'fixture uncertainty' } };
   return { jsonrpc: '2.0', id: request.id, result: toolResult({ arguments: args, metadata: request.params?._meta }) };
 }
-function toolResult(required) {
-  switch (required.arguments.query) {
+function toolResult({ arguments: args, metadata }) {
+  switch (args.query) {
     case 'oversized': return { content: [{ type: 'text', text: 'x'.repeat(262145) }] };
     case 'invalid': return { content: [{ type: 'resource_link', uri: 'file:///secret', name: 'secret' }] };
     case 'tainted': return { content: [{ type: 'text', text: 42 }] };
-    default: return { content: [{ type: 'text', text: JSON.stringify(required) }], structuredContent: { echo: required.arguments.query }, _meta: { vendorSecret: 'must be stripped', vendorConfiguration: 'must be stripped' } };
+    default: return { content: [{ type: 'text', text: JSON.stringify({ arguments: args, metadata }) }], structuredContent: { echo: args.query }, _meta: { vendorSecret: 'must be stripped', vendorConfiguration: 'must be stripped' } };
   }
 }

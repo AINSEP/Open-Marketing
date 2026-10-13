@@ -7,7 +7,7 @@ import { destinationIdentifierHash, normalizeEmail, normalizePhoneE164 } from ".
 /** Fixed boundary bounds; all schemas are pure and strip no authority fields. */
 export const kindSchema = z.enum(["email", "phone", "external_customer_id", "fbclid", "fbc", "fbp", "gclid", "gbraid", "wbraid"]);
 export const contextSchema = z.union([callContextSchema, z.strictObject({ scope: scopeSchema, serviceId: idSchema, correlationId: idSchema, traceId: idSchema })]);
-export const timezoneSchema = z.string().min(1).max(100).refine(validTimezone);
+export const timezoneSchema = z.string().min(1).max(100).refine(value => validTimezone({ value }));
 export const inputSchema = z.strictObject({ kind: kindSchema, raw: z.string().min(1).max(2048) });
 export const subjectSchema = z.strictObject({ scope: scopeSchema, subjectId: idSchema, createdAt: epochSchema, creationOrder: epochSchema, mergedInto: idSchema.nullable(), timezone: timezoneSchema.optional(), lineage: z.array(z.strictObject({ sourceSubjectId: idSchema, targetSubjectId: idSchema, mergedAt: epochSchema })).max(1000) });
 export const identifierSchema = z.strictObject({ identifierId: idSchema, subjectId: idSchema, kind: kindSchema, normalizedValue: z.string().min(1).max(2048), normalizationVersion: z.literal("v1"), identifierDigest: digestSchema, keyVersion: idSchema });
@@ -20,8 +20,8 @@ export const mergeSchema = z.strictObject({ context: callContextSchema, sourceSu
 export const findSchema = z.strictObject({ context: callContextSchema, kind: kindSchema, identifierDigest: digestSchema });
 export const projectionSchema = z.strictObject({ context: contextSchema, subjectId: idSchema, destination: idSchema, purpose: idSchema });
 
-/** Zod refine callback ABI; ICU validates zone names without reading a clock. */
-function validTimezone(value: string): boolean {
+/** ICU validates zone names without reading a clock; Zod wraps its scalar callback. */
+function validTimezone({ value }: { value: string }): boolean {
   try { new Intl.DateTimeFormat("en", { timeZone: value }); return true; }
   catch { return false; }
 }

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { appErrorSchema, callContextSchema, idSchema, scopeSchema } from "@open-marketing/contracts";
 
 /** Canonical global identity; owner-qualified authorization remains unchanged. */
-export const workspaceIdSchema = z.uuid().transform(value => value.toLowerCase());
+export const workspaceIdSchema = z.uuid().toLowerCase();
 export const workspaceScopeSchema = scopeSchema.extend({ workspaceId: workspaceIdSchema });
 const workspaceContextSchema = callContextSchema.extend({ scope: workspaceScopeSchema });
 

@@ -89,10 +89,8 @@ describe('A1: published Jini forms + one checked SQLite kernel + real OM jobs', 
 
     it('rejects an overlapping request without letting it join the first transaction, then permits retry', async () => {
         const value = await fixture({});
-        let entered!: () => void;
-        let release!: () => void;
-        const holding = new Promise<void>(resolve => { release = resolve; });
-        const started = new Promise<void>(resolve => { entered = resolve; });
+        const { promise: holding, resolve: release } = Promise.withResolvers<void>();
+        const { promise: started, resolve: entered } = Promise.withResolvers<void>();
         const first = value.submit({ attemptId: 'first', failure: 'outcome', hold: () => { entered(); return holding; } });
         try {
             await started;

@@ -72,14 +72,19 @@ export async function provisionLocalOwner(required: {
         await required.fs.mkdir(required.stateRoot, { recursive: true, mode: 0o700 });
         await required.fs.chmod(required.stateRoot, 0o700);
         const path = join(required.stateRoot, 'owner.json');
-        try {
-            const credentials = credentialsSchema.parse({ token: required.randomToken({}), ownerId: required.ids.next({}), workspaceId: required.ids.next({}) });
-            await writePrivateFile({ fs: required.fs, path, text: JSON.stringify(credentials), exclusive: true });
-        } catch (error) {
-            if (!z.object({ code: z.literal('EEXIST') }).safeParse(error).success) throw error;
-        }
+        await createOwnerFile({ ...required, path });
         return await readLocalOwner({ fs: required.fs, stateRoot: required.stateRoot });
     } catch { return localFailure({ message: 'Could not provision private local owner credentials' }); }
+}
+
+/** Exclusive creation tolerates only an existing owner file; invalid existing authority is read separately. */
+async function createOwnerFile(required: { fs: LocalFilesystem; path: string; ids: IdPort; randomToken: (required: Record<string, never>) => string }): Promise<void> {
+    try {
+        const credentials = credentialsSchema.parse({ token: required.randomToken({}), ownerId: required.ids.next({}), workspaceId: required.ids.next({}) });
+        await writePrivateFile({ fs: required.fs, path: required.path, text: JSON.stringify(credentials), exclusive: true });
+    } catch (error) {
+        if (!z.object({ code: z.literal('EEXIST') }).safeParse(error).success) throw error;
+    }
 }
 
 /** CLI and server share this bounded credential reader; it never provisions or changes credentials.
@@ -121,7 +126,7 @@ export function parseLocalEnvironment(required: { env: Readonly<Record<string, s
         mode: z.literal('local-sandbox'),
         stateRoot: z.string().min(1).max(4096).refine(isAbsolute).refine(value => value !== '/').refine(value => !value.includes('\0')),
         host: z.literal('127.0.0.1'), port: z.string().regex(/^\d{1,5}$/).transform(Number).pipe(z.number().int().min(0).max(65535)),
-        timezone: z.string().min(1).max(64).refine(isTimeZone),
+        timezone: z.string().min(1).max(64).refine(value => isTimeZone({ value })),
     });
     const parsed = schema.safeParse({ mode: required.env.OM_MODE ?? 'local-sandbox', stateRoot: required.env.OM_STATE_ROOT,
         host: required.env.OM_HOST ?? '127.0.0.1', port: required.env.OM_PORT ?? '0', timezone: required.env.OM_TIMEZONE ?? 'UTC' });
@@ -130,7 +135,7 @@ export function parseLocalEnvironment(required: { env: Readonly<Record<string, s
 }
 
 /** Owner allowance resets at local midnight; the executable supplies the host's IANA zone. */
-function isTimeZone(value: string): boolean {
+function isTimeZone({ value }: { value: string }): boolean {
     try { new Intl.DateTimeFormat('en-US', { timeZone: value }); return true; } catch { return false; }
 }
 

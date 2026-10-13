@@ -25,12 +25,9 @@ function run(required: { id?: string; expiresAt?: number }): StartRunRequest {
 /** Deferred context is the real cancellation/expiry seam; event assertions use runtime outputs. */
 function fixture(_required: Record<string, never>) {
     let now = 1000;
-    let loadEntered!: () => void;
-    let release!: (result: Outcome<{ mode: 'local-sandbox' }>) => void;
-    let finished!: () => void;
-    const entered = new Promise<void>(resolve => { loadEntered = resolve; });
-    const done = new Promise<void>(resolve => { finished = resolve; });
-    const context = new Promise<Outcome<{ mode: 'local-sandbox' }>>(resolve => { release = resolve; });
+    const { promise: entered, resolve: loadEntered } = Promise.withResolvers<void>();
+    const { promise: done, resolve: finished } = Promise.withResolvers<void>();
+    const { promise: context, resolve: release } = Promise.withResolvers<Outcome<{ mode: 'local-sandbox' }>>();
     const published: RunEvent[] = [];
     const callbackRequests: StartRunRequest[] = [];
     const client: SandboxContextClient = {

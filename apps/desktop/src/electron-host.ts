@@ -48,11 +48,11 @@ function secureWindow(required: { window: BrowserWindow; origin: string }): void
  const contents = required.window.webContents;
  contents.setWindowOpenHandler(() => ({ action: "deny" }));
  // Electron's will-navigate/will-redirect ABI uses (event, url).
- const guard = (event: { preventDefault(): void }, url: string) => {
+ const guard = ({ event, url }: { event: { preventDefault(): void }; url: string }) => {
   if (!sameOrigin({ url, origin: required.origin })) event.preventDefault();
  };
- contents.on("will-navigate", guard);
- contents.on("will-redirect", guard);
+ contents.on("will-navigate", (event, url) => guard({ event, url }));
+ contents.on("will-redirect", (event, url) => guard({ event, url }));
  contents.on("will-frame-navigate", event => {
   if (!sameOrigin({ url: event.url, origin: required.origin })) event.preventDefault();
  });

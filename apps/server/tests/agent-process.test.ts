@@ -101,10 +101,8 @@ async function processFixture(required: { adapter: 'memory' | 'process' }) {
     } };
     const agent = createLocalAgent({ effects: { ...effects, runtime, async launch(input) { launchInput = input; const result = await effects.launch(input); if (result.ok) pid = result.value.pid; return result; } },
         clock, ids, observer: { observe() {} }, randomToken: () => randomBytes(32).toString('hex') });
-    let release!: () => void;
-    let enter!: () => void;
-    const entered = new Promise<void>(resolve => { enter = resolve; });
-    const blocked = new Promise<void>(resolve => { release = resolve; });
+    const { promise: entered, resolve: enter } = Promise.withResolvers<void>();
+    const { promise: blocked, resolve: release } = Promise.withResolvers<void>();
     const listener = createNodeHttpListener({ host: '127.0.0.1', port: 0, ids, observer: { observe() {} }, effects: createNodeBootIo({ projectRoot, studioRoot: '', ready() {} }) });
     value({ result: await listener.start({ handle: request => handleOmRequest({ request, grants: agent.grants, clock,
         callbacks: { record: agent.callbacks.record, async context(input) { enter(); await blocked; return agent.callbacks.context(input); } } }) }) });

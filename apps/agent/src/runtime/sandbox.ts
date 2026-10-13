@@ -62,11 +62,15 @@ async function execute(required: { state: SandboxRun; clock: ClockPort; ids: IdP
     const { state } = required;
     try { await performRun(required);
     } catch {
-        if (!state.terminal) {
-            try { await emit({ ...required, kind: 'error', payload: { code: 'unavailable' } }); }
-            catch { /* The retained error remains observable through authenticated control polling. */ }
-        }
+        await recordFailure(required);
     } finally { state.terminal = true; }
+}
+
+/** Retain an error for polling even when its callback publication fails. */
+async function recordFailure(required: { state: SandboxRun; ids: IdPort; client: SandboxContextClient }): Promise<void> {
+    if (required.state.terminal) return;
+    try { await emit({ ...required, kind: 'error', payload: { code: 'unavailable' } }); }
+    catch { /* The retained error remains observable through authenticated control polling. */ }
 }
 
 /** Inert, instance-owned fixture runtime with 32 retained runs and <=128 events/run.

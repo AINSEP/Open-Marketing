@@ -11,7 +11,7 @@ export async function handleControl(required: { request: HttpRequest; auth: Cont
 /** Closed route dispatch; event subscriptions are bounded and ordered by the runtime port. */
 async function routeControl(required: { request: HttpRequest; runtime: JiniRuntimePort; runtimeAvailable?: boolean }): Promise<HttpResponse> {
  const { request, runtime } = required;
- if (request.method === "GET" && request.path === "/internal/v1/health") return { status: 200, body: { ok: true, value: { protocolVersion: 1, ready: required.runtimeAvailable === true, runtime: required.runtimeAvailable ? "available" : "unavailable" } } };
+ if (request.method === "GET" && request.path === "/internal/v1/health") return healthResponse(required);
  if (request.method === "POST" && request.path === "/internal/v1/runs") {
   const parsed = parseBoundary({ schema: startRunSchema, input: request.body });
   if (!parsed.ok) return { status: 400, body: parsed };
@@ -21,6 +21,11 @@ async function routeControl(required: { request: HttpRequest; runtime: JiniRunti
  if (request.method === "GET" && /^\/internal\/v1\/runs\/[^/]+\/events$/.test(request.path)) return eventControl(required);
 
  return { status: 501, body: notImplemented({ operation: "agent.control.route" }) };
+}
+
+/** Health reports configured runtime availability without invoking the runtime. */
+function healthResponse(required: { runtimeAvailable?: boolean }): HttpResponse {
+ return { status: 200, body: { ok: true, value: { protocolVersion: 1, ready: required.runtimeAvailable === true, runtime: required.runtimeAvailable ? "available" : "unavailable" } } };
 }
 
 /** Cancellation validates route/body identity before calling runtime. */

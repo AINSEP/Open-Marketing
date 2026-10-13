@@ -10,7 +10,7 @@ export function OperationsCanvas(props: { readonly model: OperationsModel; reado
       <div className="canvas-grid">{props.model.reports.map(renderReport)}</div>
       {props.model.reports.length === 0 && <p>No report evidence supplied.</p>}
       <section className="settings-card domain-section" aria-label="Measurement grant"><h2>Measurement grant</h2><p>Status: {props.model.measurementGrant.status}</p>
-        <dl><div><dt>Events</dt><dd>{props.model.measurementGrant.events.map(renderScope)}</dd></div><div><dt>Destinations</dt><dd>{props.model.measurementGrant.destinations.map(renderScope)}</dd></div><div><dt>Purpose</dt><dd>{props.model.measurementGrant.purposes.map(renderScope)}</dd></div></dl><p>{props.model.measurementGrant.detail}</p><p className="muted">Grant editing awaits server integration.</p>
+        <dl><div><dt>Events</dt><dd>{renderScopes({ scopes: props.model.measurementGrant.events })}</dd></div><div><dt>Destinations</dt><dd>{renderScopes({ scopes: props.model.measurementGrant.destinations })}</dd></div><div><dt>Purpose</dt><dd>{renderScopes({ scopes: props.model.measurementGrant.purposes })}</dd></div></dl><p>{props.model.measurementGrant.detail}</p><p className="muted">Grant editing awaits server integration.</p>
       </section>
     </>}
     {props.target === "connections" && <>
@@ -33,7 +33,7 @@ export function OperationsCanvas(props: { readonly model: OperationsModel; reado
 function ReportCard(props: { readonly item: ReportView }): ReactElement {
   return <article className="canvas-card" aria-label={props.item.title}><div className="canvas-card-body"><span className="row-status">{props.item.sourceText}</span><h3>{props.item.title}</h3><p>{props.item.period}</p>
     <dl className="domain-facts"><div><dt>CAC</dt><dd>{props.item.cacText}</dd></div></dl>{props.item.cacReason && <p>{props.item.cacReason}</p>}
-    <details open><summary>Freshness, gaps and restatement</summary><p>{props.item.freshness}</p><ul className="domain-evidence">{props.item.gaps.map(renderGap)}</ul><p>{props.item.restatementText}</p><code>{props.item.id}</code>{props.item.restates && <a href="#activity">Inspect restatement activity</a>}</details>
+    <details open><summary>Freshness, gaps and restatement</summary><p>{props.item.freshness}</p><ul className="domain-evidence">{renderGaps({ gaps: props.item.gaps })}</ul><p>{props.item.restatementText}</p><code>{props.item.id}</code>{props.item.restates && <a href="#activity">Inspect restatement activity</a>}</details>
   </div></article>;
 }
 function ConnectionCard(props: { readonly item: OperationsModel["connections"][number] }): ReactElement {
@@ -48,8 +48,16 @@ function ActivityCard(props: { readonly item: OperationsModel["activity"][number
   </div></article>;
 }
 // Standard map callbacks are markup wrappers; no domain state is inferred here.
-function renderGap(gap: string): ReactElement { return <li key={gap}>{gap}</li>; }
-function renderScope(scope: string): ReactElement { return <span className="domain-scope" key={scope}>{scope}</span>; }
+function renderGaps({ gaps }: { gaps: readonly string[] }): ReactElement[] {
+  const items: ReactElement[] = [];
+  for (const gap of gaps) items.push(<li key={gap}>{gap}</li>);
+  return items;
+}
+function renderScopes({ scopes }: { scopes: readonly string[] }): ReactElement[] {
+  const items: ReactElement[] = [];
+  for (const scope of scopes) items.push(<span className="domain-scope" key={scope}>{scope}</span>);
+  return items;
+}
 function renderReport(item: ReportView): ReactElement { return <ReportCard key={item.id} item={item} />; }
 function renderConnection(item: OperationsModel["connections"][number]): ReactElement { return <ConnectionCard key={item.id} item={item} />; }
 function renderPlugin(item: OperationsModel["plugins"][number]): ReactElement { return <PluginCard key={item.id} item={item} />; }

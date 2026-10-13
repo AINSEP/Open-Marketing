@@ -88,8 +88,7 @@ export function createJobHandlerRegistry(required: { maxHandlers?: number; maxAc
 /** Track the whole attempt, including rejection, so unregister never disposes a handler mid-effect. @complexity O(1) plus handler work. */
 async function dispatchBinding(required: { binding: Binding; input: { context: CallContext; job: JobRequest }; optional?: CallOptions }): Promise<Outcome<ProcessResult>> {
     const operationId = required.input.job.operationId;
-    let release!: () => void;
-    const active = new Promise<void>(resolve => { release = resolve; });
+    const { promise: active, resolve: release } = Promise.withResolvers<void>();
     required.binding.active.add(active);
     try {
         const result = parseTransportResult({ value: await required.binding.handler.handle(required.input, required.optional) });

@@ -200,8 +200,7 @@ export function AuditSqlPortSuite(required: {
     it("serializes concurrent transaction callbacks until the first completes", async () => {
       const fixture = required.create({});
       const started: string[] = [];
-      let release = (): void => {};
-      const barrier = new Promise<void>(resolve => { release = resolve; });
+      const { promise: barrier, resolve: release } = Promise.withResolvers<void>();
       const first = fixture.db.transaction({ context: context(), execute: async () => { started.push("first"); await barrier; return 1; } });
       const second = fixture.db.transaction({ context: context(), execute: async () => { started.push("second"); return 2; } });
       try {

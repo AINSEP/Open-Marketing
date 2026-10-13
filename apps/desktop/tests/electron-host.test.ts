@@ -1,30 +1,31 @@
 import { EventEmitter } from "node:events";
-import type { BrowserWindow, BrowserWindowConstructorOptions, Session } from "electron";
+import type { BrowserWindow, BrowserWindowConstructorOptions, Session, WebContents } from "electron";
 import { expect, it, vi } from "vitest";
 import { createElectronHost } from "../src/electron-host.js";
 
 const success = { ok: true, value: undefined };
 const opening = { studioUrl: "http://127.0.0.1:43210/studio", webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false } } as const;
-type RequestGuard = (details: { url: string }, callback: (result: { cancel: boolean }) => void) => void;
-type HeaderGuard = (details: { responseHeaders?: Record<string, string[]> }, callback: (result: { responseHeaders: Record<string, string[]> }) => void) => void;
-type PermissionGuard = (contents: unknown, permission: string, callback: (allowed: boolean) => void) => void;
+// Reuse Electron's published callbacks; the fake boundary supplies only fields these guards read.
+type RequestGuard = NonNullable<Parameters<Session["webRequest"]["onBeforeRequest"]>[0]>;
+type HeaderGuard = NonNullable<Parameters<Session["webRequest"]["onHeadersReceived"]>[0]>;
+type PermissionGuard = NonNullable<Parameters<Session["setPermissionRequestHandler"]>[0]>;
 
 /** Only this fake boundary casts the Electron objects; tests drive registered callbacks. */
 function fixture(input: { partition?: string; load?: Promise<void> } = {}) {
  const calls: string[] = [];
  const session = {
-  setPermissionRequestHandler: vi.fn<(handler: PermissionGuard) => void>(),
-  setPermissionCheckHandler: vi.fn<(handler: () => boolean) => void>(),
+  setPermissionRequestHandler: vi.fn<Session["setPermissionRequestHandler"]>(),
+  setPermissionCheckHandler: vi.fn<Session["setPermissionCheckHandler"]>(),
   webRequest: {
-   onBeforeRequest: vi.fn<(handler: RequestGuard) => void>(),
-   onHeadersReceived: vi.fn<(handler: HeaderGuard) => void>(),
+   onBeforeRequest: vi.fn<Session["webRequest"]["onBeforeRequest"]>(),
+   onHeadersReceived: vi.fn<Session["webRequest"]["onHeadersReceived"]>(),
   },
  };
- const contents = Object.assign(new EventEmitter(), { setWindowOpenHandler: vi.fn<(handler: () => { action: string }) => void>() });
+ const contents = Object.assign(new EventEmitter(), { setWindowOpenHandler: vi.fn<WebContents["setWindowOpenHandler"]>() });
  let destroyed = false;
  const window = {
   webContents: contents,
-  loadURL: vi.fn(async (_url: string) => {
+  loadURL: vi.fn<BrowserWindow["loadURL"]>(async () => {
    calls.push("load");
    expect(session.webRequest.onBeforeRequest).toHaveBeenCalledOnce();
    expect(session.webRequest.onHeadersReceived).toHaveBeenCalledOnce();
@@ -63,11 +64,11 @@ it("is inert and applies secure preferences and session guards before loading", 
 it("denies popup and permission requests including permission checks", async () => {
  const adapter = fixture();
  await adapter.host.open(opening);
- expect(adapter.contents.setWindowOpenHandler.mock.calls[0][0]()).toEqual({ action: "deny" });
+ expect(adapter.contents.setWindowOpenHandler.mock.calls[0][0]({} as Parameters<Parameters<WebContents["setWindowOpenHandler"]>[0]>[0])).toEqual({ action: "deny" });
  const permission = vi.fn();
- adapter.session.setPermissionRequestHandler.mock.calls[0][0]({}, "notifications", permission);
+ adapter.session.setPermissionRequestHandler.mock.calls[0][0]!({} as Parameters<PermissionGuard>[0], "notifications", permission, {} as Parameters<PermissionGuard>[3]);
  expect(permission).toHaveBeenCalledExactlyOnceWith(false);
- expect(adapter.session.setPermissionCheckHandler.mock.calls[0][0]()).toBe(false);
+ expect(adapter.session.setPermissionCheckHandler.mock.calls[0][0]!(null, "notifications", "", {} as Parameters<NonNullable<Parameters<Session["setPermissionCheckHandler"]>[0]>>[3])).toBe(false);
 });
 
 it.each([
@@ -83,7 +84,7 @@ it.each([
  const adapter = fixture();
  await adapter.host.open(opening);
  const callback = vi.fn();
- adapter.session.webRequest.onBeforeRequest.mock.calls[0][0]({ url }, callback);
+ adapter.session.webRequest.onBeforeRequest.mock.calls[0][0]!({ url } as Parameters<RequestGuard>[0], callback);
  expect(callback).toHaveBeenCalledExactlyOnceWith({ cancel: denied });
  for (const event of ["will-navigate", "will-redirect", "will-frame-navigate"]) {
   const preventDefault = vi.fn();
@@ -96,9 +97,9 @@ it("replaces conflicting CSP headers while preserving unrelated headers", async 
  const adapter = fixture();
  await adapter.host.open(opening);
  const callback = vi.fn();
- adapter.session.webRequest.onHeadersReceived.mock.calls[0][0]({ responseHeaders: {
+ adapter.session.webRequest.onHeadersReceived.mock.calls[0][0]!({ responseHeaders: {
   "content-security-policy": ["script-src *"], "Content-Security-Policy": ["default-src *"], "Content-Type": ["text/html"],
- } }, callback);
+ } } as unknown as Parameters<HeaderGuard>[0], callback);
  const headers = callback.mock.calls[0][0].responseHeaders;
  expect(headers["Content-Type"]).toEqual(["text/html"]);
  expect(headers).not.toHaveProperty("content-security-policy");
@@ -131,8 +132,7 @@ it("cleanup errors after a failed load remain typed outcomes", async () => {
 });
 
 it("close during load destroys the window and prevents a later show", async () => {
- let finish!: () => void;
- const load = new Promise<void>(resolve => { finish = resolve; });
+ const { promise: load, resolve: finish } = Promise.withResolvers<void>();
  const adapter = fixture({ load });
  const pending = adapter.host.open(opening);
  expect(await adapter.host.close({})).toEqual(success);

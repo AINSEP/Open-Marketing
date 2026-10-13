@@ -30,12 +30,17 @@ async function sandboxRequest(required: { request: HttpRequest; callbacks: Sandb
   return { status: result.ok ? 200 : 403, body: result };
  }
  if (required.request.method === 'POST' && required.request.path === prefix + '/events' && required.grant.capabilities.includes('events')) {
+  return sandboxEvents(required);
+ }
+ return { status: 403, body: { ok: false, error: { code: 'forbidden', message: 'Sandbox run capability unavailable', retryable: false } } };
+}
+
+/** Event payload parsing stays lazy and follows exact route/capability admission. */
+async function sandboxEvents(required: { request: HttpRequest; callbacks: SandboxCallbacks; grant: RunGrantMetadata }): Promise<HttpResponse> {
   const body = required.request.readBody ? await required.request.readBody({}) : { ok: true as const, value: required.request.body };
   if (!body.ok) return { status: 400, body };
   const event = parseBoundary({ schema: runEventSchema, input: body.value });
   if (!event.ok) return { status: 400, body: event };
   const result = await required.callbacks.record({ grant: required.grant, event: event.value });
   return { status: result.ok ? 200 : 409, body: result };
- }
- return { status: 403, body: { ok: false, error: { code: 'forbidden', message: 'Sandbox run capability unavailable', retryable: false } } };
 }

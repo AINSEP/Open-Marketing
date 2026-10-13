@@ -41,7 +41,7 @@ export async function restHarness(): Promise<Harness> {
 export async function stdioHarness(): Promise<Harness> {
   const entry = new URL("../bin/mcp-server.mjs", import.meta.url);
   const child = spawn(process.execPath, [entry.pathname, "--fixture"], { stdio: ["pipe", "pipe", "pipe"], env: { PATH: process.env.PATH ?? "" } });
-  const pending = new Map<number, (value: unknown) => void>();
+  const pending = new Map<number, ReturnType<typeof Promise.withResolvers<unknown>>["resolve"]>();
   let next = 0;
   const lines = createInterface({ input: child.stdout });
   lines.on("line", line => {
@@ -54,7 +54,8 @@ export async function stdioHarness(): Promise<Harness> {
   async function rpc(required: { method: string; params: unknown }): Promise<unknown> {
     next += 1;
     const requestId = next;
-    const response = new Promise<unknown>(resolve => pending.set(requestId, resolve));
+    const { promise: response, resolve } = Promise.withResolvers<unknown>();
+    pending.set(requestId, resolve);
     child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: requestId, ...required }) + "\n");
     return response;
   }

@@ -18,12 +18,11 @@ export function createSignatureAnalyzer({ root }) {
  return { forSource({ filename, source }) {
   let analysis;
   return { foreignCallback({ node }) {
+   if (!['FunctionExpression', 'ArrowFunctionExpression'].includes(node.type)) return false;
    analysis ??= programFor({ filename, source });
-   const call = nodeAt({ source: analysis.file, start: node.parent.range[0], end: node.parent.range[1], predicate: ts.isCallExpression });
-   if (call) return foreignCallArgument({ analysis, call, start: node.range[0] });
-   const assignment = nodeAt({ source: analysis.file, start: node.parent.range[0], end: node.parent.range[1], predicate: ts.isBinaryExpression });
-   const symbol = assignment && analysis.program.getTypeChecker().getSymbolAtLocation(assignment.left);
-   return Boolean(Array.from(symbol?.declarations ?? []).some(declaration => foreignDeclaration({ declaration })));
+   const parameter = parameterAt({ source: analysis.file, start: node.params[0].range[0] });
+   if (!parameter) return false;
+   return upstreamImplementation({ analysis, implementation: parameter.parent });
   }, objectParameter({ parameter }) {
    analysis ??= programFor({ filename, source });
    const node = parameter.type === 'AssignmentPattern' ? parameter.left : parameter;
@@ -33,28 +32,34 @@ export function createSignatureAnalyzer({ root }) {
   } };
  } };
 }
-function foreignCallArgument({ analysis, call, start }) {
+/** Only a contextual callable declared upstream retains its positional ABI.
+ * Owned aliases and lookalike methods cannot borrow an upstream registration name.
+ * @complexity O(s) signatures; declaration provenance is checked without executing code.
+ */
+function upstreamImplementation({ analysis, implementation }) {
  const checker = analysis.program.getTypeChecker();
- if (!foreignDeclaration({ declaration: checker.getResolvedSignature(call)?.declaration })) return false;
- const callback = Array.from(call.arguments).find(argument => argument.getStart(analysis.file) === start);
- const contextual = callback && checker.getContextualType(callback);
- return Boolean(contextual && callableType({ type: contextual }));
+ let contextual = checker.getContextualType(implementation);
+ if (ts.isMethodDeclaration(implementation)) {
+  const owner = checker.getContextualType(implementation.parent);
+  const property = owner && checker.getPropertyOfType(owner, implementation.name.text);
+  contextual = property && checker.getTypeOfSymbolAtLocation(property, implementation);
+ }
+ return Boolean(contextual && upstreamCallable({ type: contextual }));
 }
-function callableType({ type }) {
- if (type.isUnion()) return Array.from(type.types).some(item => callableType({ type: item }));
- return type.getCallSignatures().length > 0;
+/** @param {{ type: import('typescript').Type }} required */
+function upstreamCallable({ type }) {
+ if (type.isUnion()) {
+  const callables = type.types.filter(item => item.getCallSignatures().length > 0);
+  return callables.length > 0 && callables.every(item => upstreamCallable({ type: item }));
+ }
+ // Generic upstream wrappers (for example a spy) retain the wrapped function's ownership.
+ const callableArguments = (type.aliasTypeArguments ?? []).filter(argument => argument.getCallSignatures().length > 0);
+ if (!callableArguments.every(argument => upstreamCallable({ type: argument }))) return false;
+ const signatures = type.getCallSignatures();
+ return signatures.length > 0 && signatures.every(signature => foreignDeclaration({ declaration: signature.declaration }));
 }
 function foreignDeclaration({ declaration }) {
  return Boolean(declaration && /\/node_modules\//.test(declaration.getSourceFile().fileName));
-}
-function nodeAt({ source, start, end, predicate }) {
- let found;
- function visit({ node }) {
-  if (predicate(node) && node.getStart(source) === start && node.end === end) found = node;
-  if (!found) ts.forEachChild(node, child => visit({ node: child }));
- }
- if (source) visit({ node: source });
- return found;
 }
 /** Contextual method parameters and imported/indexed aliases are resolved by TypeScript. */
 function parameterAt({ source, start }) {
