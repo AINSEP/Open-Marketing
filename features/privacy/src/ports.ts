@@ -1,11 +1,12 @@
 import type { CallContext, CallOptions, Outcome } from "@open-marketing/contracts";
-import type { ErasurePhase, ErasureRequest } from "./types.js";
+import type { ErasurePhase, ErasureRequest, RetainedSuppressionDigest } from "./types.js";
 
 /** Owner removes external copies, local PII and hashed transmission payloads idempotently by request/phase.
  * @example participant.run({ context, requestId, subjectId, phase: "purgeLocal" }) */
 export interface ErasureParticipantPort {
   readonly id: string;
-  run(required: { context: CallContext; requestId: string; subjectId: string; phase: ErasurePhase }, optional?: CallOptions): Promise<Outcome<{ readonly complete: boolean; readonly removedCount: number }>>;
+  /** Suppression owners supply tombstones during plan and fail if they cannot obtain them. */
+  run(required: { context: CallContext; requestId: string; subjectId: string; phase: ErasurePhase }, optional?: CallOptions): Promise<Outcome<{ readonly complete: boolean; readonly removedCount: number; readonly retainedSuppression?: readonly RetainedSuppressionDigest[] }>>;
 }
 /** Instance-owned, bounded participants (<=100); duplicate IDs conflict, dispose releases registrations.
  * Composition registers contacts/forms/web-events/measure now and later owners without editing privacy.
