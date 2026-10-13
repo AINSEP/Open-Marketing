@@ -9,6 +9,9 @@ export interface ContactRepoPort {
   upsert(required: { context: CallContext; subject: Subject; identifiers: readonly Identifier[] }, optional?: CallOptions): Promise<Outcome<Subject>>;
   merge(required: { context: CallContext; sourceSubjectId: string; targetSubjectId: string; mergedAt: number }, optional?: CallOptions): Promise<Outcome<Subject>>;
   identifiersFor(required: { context: CallContext | ServiceContext; subjectId: string }, optional?: CallOptions): Promise<Outcome<readonly Identifier[]>>;
+  /** Purge canonical addresses/clicks/timezone; keep stable digests and block revival.
+   * @example repo.purgeIdentifiers({ context, subjectId }) */
+  purgeIdentifiers(required: { context: CallContext; subjectId: string }, optional?: CallOptions): Promise<Outcome<{ purged: number }>>;
 }
 /** Caller adapts current policy consent/suppression/erasure. Digests remain queryable after address erasure.
  * Missing authority denies. No policy implementation import is permitted here.
