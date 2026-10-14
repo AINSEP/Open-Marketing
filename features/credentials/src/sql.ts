@@ -1,5 +1,6 @@
 import { z } from "zod";
-import type { ClockPort, IdPort, Outcome } from "@open-marketing/contracts";
+import { callContextSchema, idSchema, pageQuerySchema } from "@open-marketing/contracts";
+import type { CallContext, CallOptions, ClockPort, IdPort, Outcome, Page, PageQuery } from "@open-marketing/contracts";
 import type { CredentialAuditPort, CredentialRepoPort } from "./ports.js";
 import type { ConnectionSummary, CredentialRecord } from "./types.js";
 import { boundary, failure, lookupSchema, recordSchema, sameScope, storeSchema, summarySchema } from "./rules.js";
@@ -14,6 +15,44 @@ const identityWhere = "owner_id = $1 AND workspace_id = $2 AND connection_id = $
 const summaryColumns = "owner_id, workspace_id, connection_id, plugin_id, status";
 const dbSummarySchema = z.object({ owner_id: z.string(), workspace_id: z.string(), connection_id: z.string(), plugin_id: z.string(), status: z.enum(["connected", "revoked", "reconnect_required"]) });
 const dbRecordSchema = dbSummarySchema.extend({ version: z.union([z.number(), z.bigint()]), ciphertext: z.string(), aad_digest: z.string() });
+const listQuerySchema = pageQuerySchema.extend({ pluginId: idSchema.optional(), status: summarySchema.shape.status.optional() });
+
+/** Bounded keyset list containing only connection summaries. Owner and trusted server callers
+ * may list their scope; agent principals are denied. Optional filters support host key lookup.
+ * @example await listCredentialConnections({ context, query: { limit: 25 }, db });
+ * @complexity One indexed scope query; O(n) result time/space, n <=101 including lookahead.
+ */
+export async function listCredentialConnections(required: {
+  context: CallContext; query: PageQuery & { pluginId?: string; status?: ConnectionSummary["status"] }; db: CredentialSqlPort;
+}, optional?: CallOptions): Promise<Outcome<Page<ConnectionSummary>>> {
+  return boundary({ run: async () => {
+    const parsed = z.strictObject({ context: callContextSchema, query: listQuerySchema }).safeParse({ context: required.context, query: required.query });
+    if (!parsed.success) return failure({ code: "invalid_input" });
+    const { context, query } = parsed.data;
+    if (context.principal.kind === "agent") return failure({ code: "forbidden" });
+    if (context.principal.kind === "owner" && context.principal.ownerId !== context.scope.ownerId) return failure({ code: "forbidden" });
+    const result = await required.db.query({ text: `SELECT ${summaryColumns} FROM om_credential_connection
+      WHERE owner_id = $1 AND workspace_id = $2 AND ($3 IS NULL OR connection_id > $3)
+      AND ($4 IS NULL OR plugin_id = $4) AND ($5 IS NULL OR status = $5)
+      ORDER BY connection_id LIMIT $6`,
+      values: [context.scope.ownerId, context.scope.workspaceId, query.cursor ?? null, query.pluginId ?? null, query.status ?? null, query.limit + 1] });
+    return connectionPage({ rows: result.rows, context, limit: query.limit });
+  } }, optional);
+}
+
+/** Fail the entire page on malformed/foreign-scope rows; never return partial storage results. @complexity O(n), n <=101. */
+function connectionPage(required: { rows: unknown[]; context: CallContext; limit: number }): Outcome<Page<ConnectionSummary>> {
+  if (required.rows.length > required.limit + 1) return failure({ code: "protocol_mismatch" });
+  const items: ConnectionSummary[] = [];
+  for (const row of required.rows) {
+    const parsed = parseSummary({ row });
+    if (!parsed.ok) return parsed;
+    if (!sameScope({ left: parsed.value.scope, right: required.context.scope })) return failure({ code: "protocol_mismatch" });
+    items.push(parsed.value);
+  }
+  const more = items.length > required.limit;
+  return { ok: true, value: { items: items.slice(0, required.limit), cursor: more ? items[required.limit - 1].connectionId : null } };
+}
 
 /** Persistent repo with atomic version CAS and terminal local revocation. SQL is portable
  * between SQLite and PostgreSQL. No schema changes/queries happen during construction.

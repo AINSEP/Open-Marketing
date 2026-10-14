@@ -1,6 +1,11 @@
 /** Sole server resource composition. Imports and factories are inert; boot is explicitly effectful. */
 import { createSqlMeasureRepo, createSqlTrackedLink, type MeasureSqlDatabase } from '@open-marketing/measure';
 import { handlePublicRequest } from '../inbound/public.js';
+import { createAesGcmSecretSealer, createCredentialBroker, createCredentialKeyring, createCredentialService,
+    createMemoryCredentialLock, createSqlCredentialAudit, createSqlCredentialRepo } from '@open-marketing/credentials';
+import type { KeyringConfiguration } from '@open-marketing/credentials';
+import { createIntegrations, type Integrations } from '../integrations.js';
+import { handleIntegrationRequest } from '../inbound/integrations.js';
 import { bindForms, seedSandboxForm } from './forms.js';
 import { bindIdentity, createVisitTokens, localKey } from './identity.js';
 import { bindPrivacy } from './privacy.js';
@@ -43,6 +48,7 @@ export interface ServerBootIo extends HttpEffects {
     readonly randomToken: (required: Record<string, never>) => string;
     readonly ready: (required: { studioUrl: string }) => void;
     readonly agentEffects?: AgentEffects;
+    readonly loadCredentialMaster?: (required: { configuration: KeyringConfiguration; masterHex?: string }) => Promise<Outcome<Uint8Array>>;
 }
 /** Explicit owned lifecycle returned after successful boot. stop is idempotent and closes SQLite last. */
 export interface BootedServer { readonly studioUrl: string; stop(required: Record<string, never>): Promise<Outcome<void>> }
@@ -84,7 +90,7 @@ function stopResources(required: { resources: BootResources }): Promise<Outcome<
  */
 async function handleBootRequest(required: {
     request: HttpRequest; auth: ReturnType<typeof createLocalAuth>; listener: NodeHttpListener;
-    fs: LocalFilesystem; studioRoot: string; context: CallContext; services: OwnerServices; ids: IdPort; agent: ReturnType<typeof createLocalAgent>; clock: ClockPort; publicServices: Omit<Parameters<typeof handlePublicRequest>[0], 'request' | 'context'>;
+    fs: LocalFilesystem; studioRoot: string; context: CallContext; services: OwnerServices; integrations: Integrations; ids: IdPort; agent: ReturnType<typeof createLocalAgent>; clock: ClockPort; publicServices: Omit<Parameters<typeof handlePublicRequest>[0], 'request' | 'context'>;
 }): Promise<HttpResponse> {
     const origin = required.listener.origin({});
     if (!origin) return { status: 503, body: localFailure({ message: 'Server is stopping' }) };
@@ -102,9 +108,17 @@ async function handleBootRequest(required: {
     if (!authenticated.ok) return { status: authenticated.error.code === 'forbidden' ? 403 : 401, body: authenticated };
     if (required.request.path.startsWith('/api/')) {
         const context = ownerContext({ request: required.request, context: required.context, ids: required.ids });
-        return handleOwnerRequest({ request: required.request, context, services: required.services });
+        return handleOwnerApi({ request: required.request, context, services: required.services, integrations: required.integrations });
     }
     return configuredStudioAsset(required);
+}
+
+/** Dispatch only after boot authentication, retaining the existing owner routes unchanged. */
+function handleOwnerApi(required: {
+    request: HttpRequest; context: CallContext; services: OwnerServices; integrations: Integrations;
+}): Promise<HttpResponse> {
+    if (required.request.path.startsWith('/api/addons/v1/integrations')) return handleIntegrationRequest(required);
+    return handleOwnerRequest(required);
 }
 
 /** Same-origin API selection is presentation configuration; credentials stay in the HttpOnly cookie. */
@@ -170,6 +184,8 @@ export async function bootServer(required: {
             query: <Row extends Record<string, unknown>>(input: { text: string; values?: unknown[] }) =>
                 database.unit.transaction({ work: ({ session }) => session.query<Row>(input) }),
         };
+        const integrations = bindServerIntegrations({ db: campaignDb, clock: required.clock, ids: required.ids,
+            observer: required.observer, io: required.io, stateRoot: config.value.stateRoot, masterHex: required.env.OM_CREDENTIAL_KEY });
         const services: OwnerServices = {
             campaigns: createSqlCampaignRepo({ db: campaignDb }, { observer: required.observer }),
             safety: createSqlSafetyRepo({ db: safetyDb, clock: required.clock, ids: required.ids, ownerTimezone: config.value.timezone, observer: required.observer }),
@@ -196,7 +212,7 @@ export async function bootServer(required: {
         const agent = resources.agent;
         const bootContext = context;
         resources.app = createServerApp({ listener, handle: request => handleBootRequest({ request, auth, listener, fs: required.io.fs,
-            studioRoot: assets.value, context: bootContext, services, ids: required.ids, publicServices, agent, clock: required.clock }) });
+            studioRoot: assets.value, context: bootContext, services, integrations, ids: required.ids, publicServices, agent, clock: required.clock }) });
         const started = await resources.app.start({});
         if (!started.ok) { await stopResources({ resources }); return started; }
         const origin = listener.origin({});
@@ -217,4 +233,35 @@ export async function bootServer(required: {
         if (context) observeBoot({ ...required, context, operation: 'server.boot', outcome: 'failed' });
         return localFailure({ message: `Local server startup failed during ${phase}` });
     }
+}
+
+/** Sole composition binding for credential storage, crypto, locks and operations on the owned SQLite handle.
+ * OAuth entry points stay unavailable in this paste-token run. Key reads are lazy and injected;
+ * importing/constructing integrations opens no file, listener, database or vendor connection.
+ * @example const integrations = bindServerIntegrations({ db, clock, ids, observer, io, stateRoot });
+ * @complexity O(1) construction; bounded repository/crypto work belongs to the supplied adapters.
+ */
+export function bindServerIntegrations(required: {
+    db: CampaignSqlPort; clock: ClockPort; ids: IdPort; observer: ObserverPort; io: ServerBootIo; stateRoot: string; masterHex?: string;
+}): Integrations {
+    const configuration: KeyringConfiguration = { hkdfSalt: 'io.github.ainsep.openmarketing.credentials.v1',
+        envVarName: 'OM_CREDENTIAL_KEY', keyFilePath: join(required.stateRoot, 'credentials.key') };
+    const keyring = createCredentialKeyring({ loadMaster: async input => {
+        if (!required.io.loadCredentialMaster) return localFailure({ message: 'Credential key loader unavailable' });
+        return required.io.loadCredentialMaster({ ...input, masterHex: required.masterHex });
+    } });
+    const sealer = createAesGcmSecretSealer({ keyring, configuration, randomBytes: ({ size }) => {
+        const hex = z.string().regex(/^[a-f0-9]{64}$/).parse(required.io.randomToken({}));
+        return new Uint8Array(Buffer.from(hex, 'hex').subarray(0, size));
+    } });
+    const locks = createMemoryCredentialLock({});
+    const repo = createSqlCredentialRepo({ db: required.db, clock: required.clock });
+    const audit = createSqlCredentialAudit({ db: required.db, ids: required.ids, clock: required.clock });
+    const broker = createCredentialBroker({ repo, sealer, locks, audit });
+    const service = createCredentialService({ repo, sealer, keyring, locks, audit, clock: required.clock,
+        oauth: {
+            async begin() { return localFailure({ code: 'not_implemented', message: 'OAuth sign-in deferred' }); },
+            async complete() { return localFailure({ code: 'not_implemented', message: 'OAuth sign-in deferred' }); },
+        } });
+    return createIntegrations({ repo, sealer, locks, audit, broker, service, db: required.db, observer: required.observer });
 }

@@ -2,13 +2,16 @@
 /** Explicit Node executable. Importing this module does not open files, databases or listeners. */
 import Database from 'better-sqlite3';
 import * as fs from 'node:fs/promises';
+import { constants } from 'node:fs';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import type { ClockPort, ObserverPort } from '@open-marketing/contracts';
+import type { ClockPort, ObserverPort, Outcome } from '@open-marketing/contracts';
+import type { KeyringConfiguration } from '@open-marketing/credentials';
+import { z } from 'zod';
 import { bootServer, type BootedServer, type ServerBootIo } from './index.js';
-import { localStateRoot } from './local-auth.js';
+import { localFailure, localStateRoot, readLocalFile, type LocalFilesystem } from './local-auth.js';
 
 /** Bind standard Node effects for boot and its real temporary-file integration test.
  * Paths are supplied by composition, independent of cwd; no resource is opened by this factory.
@@ -17,7 +20,63 @@ import { localStateRoot } from './local-auth.js';
 export function createNodeBootIo(required: { projectRoot: string; studioRoot: string; ready: ServerBootIo['ready'] }): ServerBootIo {
     return { ...required, fs, createServer, openSqlite: ({ path }) => new Database(path),
         randomToken: () => randomBytes(32).toString('hex'),
+        loadCredentialMaster: input => loadCredentialMaster({ ...input, fs, randomToken: () => randomBytes(32).toString('hex') }),
         schedule: ({ callback, delayMs }) => { const timer = setTimeout(callback, delayMs); return () => clearTimeout(timer); } };
+}
+
+/** Explicit host key loading: a configured 32-byte hex master or a private per-state-root key file.
+ * A missing file is created exclusively with 0600; malformed/insecure existing files fail closed.
+ * No key is read or provisioned before a credential operation. Keys/errors never reach logs.
+ * @example await loadCredentialMaster({ configuration, fs, randomToken });
+ * @complexity O(1), <=65 file bytes and at most one exclusive creation; no retained key cache.
+ */
+export async function loadCredentialMaster(required: {
+    configuration: KeyringConfiguration; masterHex?: string; fs: LocalFilesystem;
+    randomToken: (required: Record<string, never>) => string;
+}): Promise<Outcome<Uint8Array>> {
+    try {
+        if (required.masterHex !== undefined) return parseMaster({ hex: required.masterHex });
+        const existing = await readMasterIfPresent(required);
+        if (existing) return existing;
+        await createMaster(required);
+        return await readMaster(required);
+    } catch { return localFailure({ message: 'Credential encryption key unavailable or invalid' }); }
+}
+
+/** A missing key file yields undefined so the caller provisions one; other errors propagate. */
+async function readMasterIfPresent(required: { fs: LocalFilesystem; configuration: KeyringConfiguration }): Promise<Outcome<Uint8Array> | undefined> {
+    try { return await readMaster(required); }
+    catch (error) {
+        if (!z.object({ code: z.literal('ENOENT') }).safeParse(error).success) throw error;
+        return undefined;
+    }
+}
+
+/** Exact hex validation produces fixed-size key bytes; invalid material is never echoed. */
+function parseMaster(required: { hex: string }): Outcome<Uint8Array> {
+    const parsed = z.string().regex(/^[a-f0-9]{64}$/).safeParse(required.hex);
+    if (!parsed.success) return localFailure({ code: 'invalid_input', message: 'Invalid credential encryption key' });
+    return { ok: true, value: new Uint8Array(Buffer.from(parsed.data, 'hex')) };
+}
+
+/** Bound private-file read rejects symlinks/permissions without altering existing key material. */
+async function readMaster(required: { fs: LocalFilesystem; configuration: KeyringConfiguration }): Promise<Outcome<Uint8Array>> {
+    const bytes = await readLocalFile({ fs: required.fs, path: required.configuration.keyFilePath, maxBytes: 64, private: true });
+    return parseMaster({ hex: bytes.toString('utf8') });
+}
+
+/** Concurrent provisioning keeps the winner's bytes; errors other than EEXIST propagate. */
+async function createMaster(required: { fs: LocalFilesystem; configuration: KeyringConfiguration; randomToken: (required: Record<string, never>) => string }): Promise<void> {
+    const hex = required.randomToken({});
+    const parsed = parseMaster({ hex });
+    if (!parsed.ok) throw new RangeError('Invalid injected key entropy');
+    try {
+        const file = await required.fs.open(required.configuration.keyFilePath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+        try { await file.chmod(0o600); await file.writeFile(hex, 'utf8'); }
+        finally { await file.close(); }
+    } catch (error) {
+        if (!z.object({ code: z.literal('EEXIST') }).safeParse(error).success) throw error;
+    }
 }
 
 /** Own process lifetime, installing signals before boot so shutdown during startup still cleans up.
