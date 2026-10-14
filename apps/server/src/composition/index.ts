@@ -28,6 +28,7 @@ import { bindIdentity, createVisitTokens, localKey } from './identity.js';
 import { bindPrivacy } from './privacy.js';
 import { createFormWorkers } from './workers.js';
 import { createLocalAgent, createNodeAgentEffects, type AgentEffects } from './agent.js';
+import { createFrontendSessions, type FrontendSessions } from '../inbound/frontend.js';
 import { join } from 'node:path';
 import type Database from 'better-sqlite3';
 import type { CallContext, ClockPort, IdPort, ObserverPort, Outcome } from '@open-marketing/contracts';
@@ -74,7 +75,7 @@ export interface ServerBootIo extends HttpEffects {
 }
 /** Explicit owned lifecycle returned after successful boot. stop is idempotent and closes SQLite last. */
 export interface BootedServer { readonly studioUrl: string; stop(required: Record<string, never>): Promise<Outcome<void>> }
-interface BootResources { tools?: OmTools; addons?: ReturnType<typeof bindBootAddons>; native?: Database.Database; app?: LifecyclePort; confirmations?: MemoryConfirmationExchange; workers?: ReturnType<typeof createFormWorkers>; privacy?: ReturnType<typeof bindPrivacy>; agent?: ReturnType<typeof createLocalAgent>; stopped?: Promise<Outcome<void>> }
+interface BootResources { frontend?: FrontendSessions; tools?: OmTools; addons?: ReturnType<typeof bindBootAddons>; native?: Database.Database; app?: LifecyclePort; confirmations?: MemoryConfirmationExchange; workers?: ReturnType<typeof createFormWorkers>; privacy?: ReturnType<typeof bindPrivacy>; agent?: ReturnType<typeof createLocalAgent>; stopped?: Promise<Outcome<void>> }
 
 /** Best-effort low-cardinality lifecycle diagnostics; no credential/token or raw exception details. */
 function observeBoot(required: { observer: ObserverPort; context: CallContext; operation: string; outcome: string }): void {
@@ -91,6 +92,7 @@ async function stopService(required: { service?: Pick<LifecyclePort, 'stop'>; me
 
 /** Close admission, revoke/reap the agent, stop workers, and close SQLite last. */
 async function closeResources(required: { resources: BootResources }): Promise<Outcome<void>> {
+    required.resources.frontend?.dispose({});
     let result = await stopService({ service: required.resources.app, message: 'Server transport cleanup failed' });
     const agent = await stopService({ service: required.resources.agent, message: 'Sandbox agent cleanup failed' });
     required.resources.tools?.dispose({});
@@ -271,9 +273,14 @@ export async function bootServer(required: {
         if (!interrupted.ok) throw new Error('Assistant recovery unavailable');
         services.conversations = conversations;
         const model = { credentials: bindModelCredentials({ integrations, persistence }), upstream: required.io.modelUpstream ?? createModelUpstream({ fetch }) };
+        resources.frontend = createFrontendSessions({ clock: required.clock, ids: required.ids, schedule: required.io.schedule, randomToken: required.io.randomToken,
+            authorize: input => input.context.principal.kind === 'owner' ? scopedOwnerAuthority({ context: input.context, expected: context! })
+                : resources.agent?.authorize(input) ?? localFailure({ message: 'Agent authority unavailable' }),
+            disconnected: input => resources.tools?.cancel(input) });
+        services.ui = { runtime: { clock: required.clock, ids: required.ids }, frontend: resources.frontend.frontend, sessions: resources.frontend };
         resources.agent = createLocalAgent({ effects: required.io.agentEffects ?? createNodeAgentEffects({ projectRoot: required.io.projectRoot, ids: required.ids }),
             clock: required.clock, ids: required.ids, observer: required.observer, randomToken: required.io.randomToken, persistence,
-            onRevoked: input => resources.tools?.cancel(input) });
+            frontend: resources.frontend, onRevoked: input => { resources.tools?.cancel(input); resources.frontend?.endRun(input); } });
         services.runs = resources.agent.owner;
         resources.tools = createOmTools({ clock: required.clock, observer: required.observer, confirmations: resources.confirmations,
             authorize: input => input.context.principal.kind === 'owner'

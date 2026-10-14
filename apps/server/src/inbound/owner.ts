@@ -4,6 +4,11 @@ import type { Addons } from '../addons.js';
 import type { Integrations } from '../integrations.js';
 /** Owner HTTP translation. Authentication/scope are supplied by the local server dispatcher. */
 import { z } from 'zod';
+import type { UiFrontendPort } from '../ui-tools.js';
+import type { FrontendSessions } from './frontend.js';
+import type { AssistantRunRequest } from '@open-marketing/contracts';
+import { surfaceAcknowledgementSchema } from '@open-marketing/contracts';
+import type { ClockPort, IdPort } from '@open-marketing/contracts';
 import { assistantRunRequestSchema, assistantSettingsSchema, approvalResponseSchema, idSchema, pageQuerySchema, parseBoundary, toolCallSchema, toolDescriptorSchema, toolOperationSchema, toolResultSchema, toolSearchSchema } from '@open-marketing/contracts';
 import type { CallContext, Money, Outcome, PageQuery } from '@open-marketing/contracts';
 import type { FormSubjectPort } from '@open-marketing/forms';
@@ -19,11 +24,14 @@ import type { OmTools } from '../om-tool-types.js';
 
 /** Existing owning repositories/exchange; tests inject the same public memory adapters. */
 export interface OwnerServices {
+    ui?: { runtime: { clock: ClockPort; ids: IdPort }; frontend?: UiFrontendPort; sessions?: FrontendSessions };
     readonly campaigns: CampaignRepoPort;
     readonly safety: SafetyRepoPort;
     readonly confirmations: ConfirmationExchangePort;
     formSubjects?: FormSubjectPort;
-    runs?: OwnerRunPort;
+    runs?: Omit<OwnerRunPort, 'start'> & {
+        start(required: Parameters<OwnerRunPort['start']>[0], optional?: Omit<AssistantRunRequest, 'prompt'>): ReturnType<OwnerRunPort['start']>;
+    };
     conversations?: Conversations;
     addons?: Addons;
     handleChartRequest?: (required: { request: HttpRequest; context: CallContext }) => Promise<HttpResponse>;
@@ -172,6 +180,8 @@ async function halt(required: OwnerInput): Promise<HttpResponse> {
  * @complexity O(path length) routing, fixed route set; each operation has bounded reads/body.
  */
 export async function handleOwnerRequest(required: OwnerInput): Promise<HttpResponse> {
+    if (required.request.path.startsWith('/api/frontend-sessions/')) return required.services.ui?.sessions
+        ? required.services.ui.sessions.handle(required) : { status: 503, body: localFailure({ message: 'Frontend transport unavailable' }) };
     if (required.request.path === '/api/tools' || required.request.path.startsWith('/api/tools/')) return ownerToolRequest(required);
     if (required.request.path.startsWith('/api/addons/v1/')) return addonOwnerRequest(required);
     switch (required.request.method + ' ' + required.request.path) {
@@ -195,13 +205,26 @@ async function ownerToolRequest(required: OwnerInput): Promise<HttpResponse> {
     const tools = required.services.tools;
     if (!tools) return { status: 503, body: localFailure({ message: 'OM tool catalog unavailable' }) };
     if (required.request.method === 'GET' && required.request.path === '/api/tools') return ownerToolList({ ...required, tools });
-    if (required.request.method === 'POST' && required.request.path === '/api/tools/call') {
-        const body = await requestBody(required);
-        const parsed = body.ok ? parseBoundary({ schema: toolCallSchema, input: body.value }) : body;
-        if (!parsed.ok) return { status: 400, body: parsed };
-        return respond({ outcome: await tools.dispatch({ context: required.context, call: parsed.value, signal: required.request.signal }), schema: toolResultSchema });
-    }
+    if (required.request.method === 'POST' && required.request.path === '/api/tools/call') return ownerToolCall({ ...required, tools });
     return ownerToolResource({ ...required, tools });
+}
+/** Direct catalog calls and surface-button calls share one dispatcher. */
+async function ownerToolCall(required: OwnerInput & { tools: OmTools }): Promise<HttpResponse> {
+    const body = await requestBody(required);
+    if (body.ok && typeof body.value === 'object' && body.value !== null && 'call' in body.value)
+        return surfaceToolCall({ ...required, body: body.value });
+    const parsed = body.ok ? parseBoundary({ schema: toolCallSchema, input: body.value }) : body;
+    if (!parsed.ok) return { status: 400, body: parsed };
+    return respond({ outcome: await required.tools.dispatch({ context: required.context, call: parsed.value, signal: required.request.signal }), schema: toolResultSchema });
+}
+/** Surface buttons reuse the catalog and its one policy, with server-derived run ownership. */
+async function surfaceToolCall(required: OwnerInput & { tools: OmTools; body: unknown }): Promise<HttpResponse> {
+    const parsed = parseBoundary({ schema: z.strictObject({ call: toolCallSchema, runId: idSchema, frontendSessionId: idSchema }), input: required.body });
+    if (!parsed.ok) return { status: 400, body: parsed };
+    const context = required.services.ui?.sessions?.actionContext({ context: required.context, ...parsed.value });
+    if (!context) return { status: 503, body: localFailure({ message: 'Frontend action transport unavailable' }) };
+    if (!context.ok) return respond({ outcome: context, schema: toolResultSchema });
+    return respond({ outcome: await required.tools.dispatch({ context: context.value, call: parsed.value.call, signal: required.request.signal }), schema: toolResultSchema });
 }
 async function ownerToolList(required: OwnerInput & { tools: OmTools }): Promise<HttpResponse> {
     const parsed = parseBoundary({ schema: z.strictObject({ query: z.string().max(1024).optional(), limit: z.string().regex(/^\d{1,3}$/).default('25').transform(Number) }).pipe(toolSearchSchema), input: required.request.query ?? {} });
@@ -219,6 +242,7 @@ async function ownerToolResource(required: OwnerInput & { tools: OmTools }): Pro
 
 /** Keep resource matching separate from the fixed route dispatcher to bound branch complexity. */
 async function resourceRequest(required: OwnerInput): Promise<HttpResponse> {
+    if (/^\/api\/runs\/[^/]+\/surfaces$/.test(required.request.path)) return surfaceAcknowledgement(required);
     if (required.request.path.startsWith('/api/runs/')) return runRequest(required);
     if (required.request.path.startsWith('/api/conversations/')) return conversationRead(required);
     const match = /^\/api\/(campaigns|safety\/approvals)\/([^/]+)(\/answer)?$/.exec(required.request.path);
@@ -240,7 +264,7 @@ async function startRun(required: OwnerInput): Promise<HttpResponse> {
     if (!body.ok) return respond({ outcome: body, schema: routes.ask.schema });
     const parsed = parseBoundary({ schema: assistantRunRequestSchema.refine(value => value.prompt.trim().length > 0 && Buffer.byteLength(value.prompt, 'utf8') <= 65536), input: body.value });
     if (!parsed.ok) return respond({ outcome: parsed, schema: routes.ask.schema });
-    return respond({ outcome: await required.services.runs.start({ context: required.context, prompt: parsed.value.prompt }, { conversationId: parsed.value.conversationId, frontendSessionId: parsed.value.frontendSessionId }), schema: routes.ask.schema });
+    return respond({ outcome: await required.services.runs.start({ context: required.context, prompt: parsed.value.prompt }, { conversationId: parsed.value.conversationId, frontendSessionId: parsed.value.frontendSessionId, frontendBindToken: parsed.value.frontendBindToken }), schema: routes.ask.schema });
 }
 
 /** Polling uses the shared CLI read model. The fixed sandbox requests no navigation, so
@@ -321,4 +345,20 @@ async function addonOwnerRequest(required: OwnerInput): Promise<HttpResponse> {
     }
     if (required.services.addons) return handleAddonRequest({ ...required, addons: required.services.addons });
     return { status: 503, body: localFailure({ message: 'Add-ons unavailable on this server' }) };
+}
+
+/** Browser evidence is authenticated by owner ingress; transport rechecks session/run/invocation.
+ * No acknowledgement route dispatches a business effect or grants authority.
+ */
+async function surfaceAcknowledgement(required: OwnerInput): Promise<HttpResponse> {
+    if (required.request.method !== 'POST' || !required.services.ui?.frontend)
+        return { status: 503, body: localFailure({ message: 'Frontend surface transport unavailable' }) };
+    const body = await requestBody(required);
+    const parsed = body.ok ? parseBoundary({ schema: surfaceAcknowledgementSchema, input: body.value }) : body;
+    if (!parsed.ok) return { status: 400, body: parsed };
+    if (required.request.path !== '/api/runs/' + encodeURIComponent(parsed.value.runId) + '/surfaces')
+        return { status: 400, body: localFailure({ code: 'invalid_input', message: 'Surface acknowledgement run mismatch' }) };
+    const result = await required.services.ui.frontend.acknowledge({ context: required.context, result: parsed.value });
+    return respond({ outcome: result.ok ? { ok: true, value: { status: 'recorded' as const } } : result,
+        schema: z.strictObject({ status: z.literal('recorded') }) });
 }

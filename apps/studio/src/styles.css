@@ -819,3 +819,17 @@ button:hover:enabled { background:var(--om-surface) }
 @media(prefers-reduced-motion:reduce) {
   * { scroll-behavior:auto!important }
 }
+
+/* Page-driver highlight: Jini removes the class on agent-highlight-fade end (3s fallback). */
+.agent-highlight {
+  outline:var(--om-focus-width) solid var(--om-focus);
+  outline-offset:2px;
+  animation:agent-highlight-fade 1.2s var(--om-motion-easing) forwards;
+}
+@keyframes agent-highlight-fade {
+  from { background-color:var(--om-accent-soft) }
+  to { background-color:transparent; outline-color:transparent }
+}
+@media(prefers-reduced-motion:reduce) {
+  .agent-highlight { animation:none }
+}

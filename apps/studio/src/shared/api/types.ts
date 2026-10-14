@@ -1,3 +1,4 @@
+import type { A2uiSurfacePayload, SurfaceAcknowledgement, ToolCall, ToolResult } from '@open-marketing/contracts';
 import type { AssistantSettings, AssistantSettingsStatus, Conversation, ConversationList, ConversationSummary, ToolRequestedPayload, ToolResultPayload, ApprovalPayload, CancellationReceipt, ChatMessage, ConfirmationCard, NavigationResult, Outcome, ApprovalResponse, RunEvent, NavigationAction, Money, ClockPort, IdPort } from "@open-marketing/contracts";
 
 /** Small read model for j19–j21 to replace with domain canvases. */
@@ -81,7 +82,7 @@ export interface StudioSnapshot {
 }
 /** A run receipt carries lifecycle metadata, never a vendor or bearer credential. */
 export interface StudioRun { readonly runId: string; readonly status: "requested" | "pending"; readonly expiresAt: number; readonly conversationId?: string; readonly mode?: "sandbox" | "model" }
-export type StudioPayload =
+export type StudioPayload = A2uiSurfacePayload
   | { readonly type: "message"; readonly message: ChatMessage }
   | { readonly type: "confirmation"; readonly card: ConfirmationCard }
   | { readonly type: "navigation"; readonly action: NavigationAction }
@@ -90,6 +91,10 @@ export type StudioPayload =
   | ToolRequestedPayload | ToolResultPayload | ApprovalPayload;
 /** Fixture and future HTTP adapters implement this boundary. Writes are never implicitly retried. */
 export interface StudioApiPort {
+  tool?(required: { call: ToolCall; signal?: AbortSignal; runId?: string; frontendSessionId?: string }): Promise<Outcome<ToolResult>>;
+  approvalCard?(required: { cardId: string; signal?: AbortSignal }): Promise<Outcome<ConfirmationCard>>;
+  acknowledgeSurface?(required: { result: SurfaceAcknowledgement }): Promise<Outcome<{ status: 'recorded' }>>;
+
   /** Owner upload/connection forms use this surface; plaintext never enters chat. */
   readonly addons?: {
     list(required: { query: import('@open-marketing/contracts').AddonListRequest; signal?: AbortSignal }): Promise<Outcome<import('@open-marketing/contracts').AddonList>>;
@@ -106,7 +111,7 @@ export interface StudioApiPort {
   settings?(required: { signal?: AbortSignal }): Promise<Outcome<AssistantSettingsStatus>>;
   setSettings?(required: { settings: AssistantSettings; signal?: AbortSignal }): Promise<Outcome<AssistantSettingsStatus>>;
   snapshot(required: { signal?: AbortSignal }): Promise<Outcome<StudioSnapshot>>;
-  start(required: { message: ChatMessage; signal: AbortSignal; conversationId?: string }): Promise<Outcome<StudioRun>>;
+  start(required: { message: ChatMessage; signal: AbortSignal; conversationId?: string; frontendSessionId?: string; frontendBindToken?: string }): Promise<Outcome<StudioRun>>;
   events(required: { runId: string; after: number; signal: AbortSignal }): AsyncIterable<Outcome<RunEvent>>;
   cancel(required: { runId: string; reason: "owner" | "expired" }): Promise<Outcome<CancellationReceipt>>;
   approve(required: { response: ApprovalResponse; signal?: AbortSignal }): Promise<Outcome<{ status: "recorded" }>>;

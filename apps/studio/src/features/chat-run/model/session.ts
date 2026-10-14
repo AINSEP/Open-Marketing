@@ -1,10 +1,12 @@
-import { assistantSettingsStatusSchema, conversationListSchema, conversationSchema, chatMessageSchema, idSchema, epochSchema, parseBoundary } from "@open-marketing/contracts";
+import type { A2uiSurfacePayload } from '@open-marketing/contracts';
+import { a2uiSurfacePayloadSchema, confirmationCardSchema, assistantSettingsStatusSchema, conversationListSchema, conversationSchema, chatMessageSchema, idSchema, epochSchema, parseBoundary } from "@open-marketing/contracts";
 import type { AssistantSettingsStatus, ConversationSummary, ChatMessage, ConfirmationCard, NavigationAction, NavigationResult, Outcome } from "@open-marketing/contracts";
 import type { StudioApiPort, StudioPayload, StudioRun } from "../../../shared/api/index.js";
 import { parseStudioEvent, parseStudioSnapshot, isSafeUiValue } from "../../../shared/api/index.js";
 import type { StudioRuntime } from "../../../shared/api/index.js";
 
 export interface ChatState {
+  readonly surfaces: readonly A2uiSurfacePayload[];
   readonly messages: readonly ChatMessage[];
   readonly cards: readonly ConfirmationCard[];
   readonly status: "idle" | "starting" | "running" | "cancelling" | "cancelled" | "expired" | "complete" | "unavailable";
@@ -17,6 +19,11 @@ export interface ChatState {
   readonly tools: readonly { operationId: string; name: string; status: 'running' | 'completed' | 'pending' | 'cancelled' }[];
 }
 export interface ChatSession {
+  currentRun(): { runId: string; expiresAt: number; frontendSessionId?: string } | null;
+  receiveSurface(required: { input: unknown }): void;
+  receiveFrontendBinding(required: { runId: string; expiresAt: number; frontendSessionId: string }): void;
+  voidFrontendRun(required: { runId: string; status: 'cancelled' | 'interrupted' }): void;
+  addSurfaceApproval(required: { runId: string; card: ConfirmationCard }): void;
   getSnapshot(): ChatState;
   subscribe(required: { listener: () => void }): () => void;
   hydrate(required: { input: unknown }): void;
@@ -28,8 +35,8 @@ export interface ChatSession {
   cancel(): Promise<void>;
   dispose(): void;
 }
-interface ActiveRun { readonly receipt: StudioRun; readonly controller: AbortController; readonly timer: unknown; sequence: number; count: number; bytes: number; correlationId?: string; traceId?: string; readonly cardIds: Set<string>; readonly seen: Map<string, string> }
-interface Dependencies { api: StudioApiPort; runtime: StudioRuntime; navigate: (required: { action: NavigationAction }) => Promise<NavigationResult> }
+interface ActiveRun { readonly frontendSessionId?: string; readonly receipt: StudioRun; readonly controller: AbortController; readonly timer: unknown; sequence: number; count: number; bytes: number; correlationId?: string; traceId?: string; readonly cardIds: Set<string>; readonly seen: Map<string, string> }
+interface Dependencies { frontendSessionId?: () => string | undefined; frontendBindToken?: () => string | undefined; api: StudioApiPort; runtime: StudioRuntime; navigate: (required: { action: NavigationAction }) => Promise<NavigationResult> }
 function isActive(required: { status: ChatState["status"] }): boolean { return ["starting", "running", "cancelling"].includes(required.status); }
 function validReceipt(receipt: StudioRun): boolean { return isSafeUiValue({ value: receipt, maxCharacters: 4096 }) && idSchema.safeParse(receipt.runId).success && epochSchema.safeParse(receipt.expiresAt).success && ["requested", "pending"].includes(receipt.status); }
 /** Append/replace a full shared ChatMessage, bounded to the latest 200 messages. */
@@ -44,8 +51,10 @@ function mergeMessage(required: { messages: readonly ChatMessage[]; message: Cha
  * @complexity O(messages + cards) per update, bounded to 200/50; 8,192 unique events/2 MiB per run.
  */
 export function createChatSession(required: Dependencies): ChatSession {
-  let state: ChatState = { messages: [], cards: [], status: "idle", notice: "Agent runtime is not connected.", navigation: null, conversationId: null, conversations: [], settings: null, mode: null, tools: [] };
+  let state: ChatState = { surfaces: [], messages: [], cards: [], status: "idle", notice: "Agent runtime is not connected.", navigation: null, conversationId: null, conversations: [], settings: null, mode: null, tools: [] };
   let active: ActiveRun | null = null;
+  let frontendRun: { runId: string; expiresAt: number; frontendSessionId: string } | null = null;
+  const frontendCardIds = new Set<string>();
   let pendingController: AbortController | null = null;
   let pendingTimer: unknown = null;
   let disposed = false;
@@ -69,8 +78,10 @@ export function createChatSession(required: Dependencies): ChatSession {
   };
   const stop = async (input: { reason: "owner" | "expired" }): Promise<void> => {
     clearPending();
-    const runId = active?.receipt.runId;
-    const cards = state.cards.filter(card => !active?.cardIds.has(card.cardId));
+    const runId = active?.receipt.runId ?? frontendRun?.runId;
+    frontendRun = null;
+    const cards = state.cards.filter(card => !active?.cardIds.has(card.cardId) && !frontendCardIds.has(card.cardId));
+    frontendCardIds.clear();
     update({ cards, tools: state.tools.map(tool => tool.status === 'running' || tool.status === 'pending' ? { ...tool, status: 'cancelled' } : tool) });
     clearRun();
     update({ status: input.reason === "expired" ? "expired" : "cancelling", notice: input.reason === "expired" ? "Run expired. External outcomes remain unconfirmed." : "Observation stopped. Requesting server cancellation…" });
@@ -80,9 +91,16 @@ export function createChatSession(required: Dependencies): ChatSession {
     if (!result.ok) { update({ status: "unavailable", notice: "Observation stopped; server cancellation could not be confirmed." }); return; }
     update({ status: result.value.status === "cancelled" ? "cancelled" : "cancelling", notice: result.value.status === "cancelled" ? "Server acknowledged cancellation. External outcomes may still need reconciliation." : "Cancellation requested; remote completion is unconfirmed." });
   };
+  const applySurface = (input: { payload: Extract<StudioPayload, { type: 'a2ui' }>; run: ActiveRun }): void => {
+    const payload = input.payload;
+    if (payload.runId !== input.run.receipt.runId || payload.frontendSessionId !== input.run.frontendSessionId)
+      throw new Error('Surface run/frontend mismatch');
+    update({ surfaces: [...state.surfaces.filter(surface => surface.surfaceId !== payload.surfaceId), payload].slice(-20) });
+  };
   const applyPayload = async (input: { payload: StudioPayload; run: ActiveRun }): Promise<void> => {
     const payload = input.payload;
     switch (payload.type) {
+      case 'a2ui': applySurface({ payload, run: input.run }); return;
       case "message": update({ messages: mergeMessage({ messages: state.messages, message: payload.message }) }); return;
       case "confirmation": input.run.cardIds.add(payload.card.cardId); update({ cards: [...state.cards.filter(card => card.cardId !== payload.card.cardId), payload.card].slice(-50) }); return;
       case "text_delta": {
@@ -146,6 +164,32 @@ export function createChatSession(required: Dependencies): ChatSession {
     if (config.ok) update({ settings: config.value });
   }
   return {
+    currentRun() { if (disposed) return null; return active ? { runId: active.receipt.runId, expiresAt: active.receipt.expiresAt, frontendSessionId: active.frontendSessionId } : state.status === 'starting' ? frontendRun : null; },
+    receiveFrontendBinding(input) {
+      if (disposed || state.status !== 'starting' || input.frontendSessionId !== required.frontendSessionId?.() || !idSchema.safeParse(input.runId).success || !epochSchema.safeParse(input.expiresAt).success || input.expiresAt <= required.runtime.clock.now({})) return;
+      frontendRun = input;
+    },
+    voidFrontendRun(input) {
+      if (input.runId !== (active?.receipt.runId ?? frontendRun?.runId)) return;
+      const cards = state.cards.filter(card => !active?.cardIds.has(card.cardId) && !frontendCardIds.has(card.cardId));
+      clearPending(); clearRun(); frontendRun = null; frontendCardIds.clear();
+      update({ cards, status: input.status === 'cancelled' ? 'cancelled' : 'unavailable', notice: 'Server voided browser actions for this run. External outcomes may need reconciliation.',
+        tools: state.tools.map(tool => tool.status === 'running' || tool.status === 'pending' ? { ...tool, status: 'cancelled' } : tool) });
+    },
+    receiveSurface(input) {
+      const parsed = a2uiSurfacePayloadSchema.safeParse(input.input);
+      const runId = active?.receipt.runId ?? (state.status === 'starting' ? frontendRun?.runId : undefined);
+      const frontendSessionId = active?.frontendSessionId ?? frontendRun?.frontendSessionId;
+      if (!parsed.success || !runId || parsed.data.runId !== runId || parsed.data.frontendSessionId !== frontendSessionId) return;
+      update({ surfaces: [...state.surfaces.filter(surface => surface.surfaceId !== parsed.data.surfaceId), parsed.data].slice(-20) });
+    },
+    addSurfaceApproval(input) {
+      const parsed = confirmationCardSchema.safeParse(input.card);
+      if (!parsed.success || ['cancelled', 'cancelling', 'expired', 'unavailable'].includes(state.status) || !state.surfaces.some(surface => surface.runId === input.runId)) return;
+      if (active?.receipt.runId === input.runId) active.cardIds.add(parsed.data.cardId);
+      if (state.status === 'starting' && frontendRun?.runId === input.runId) frontendCardIds.add(parsed.data.cardId);
+      update({ cards: [...state.cards.filter(card => card.cardId !== parsed.data.cardId), parsed.data].slice(-50) });
+    },
     getSnapshot() { return state; },
     refresh,
     async selectConversation(input) {
@@ -155,13 +199,13 @@ export function createChatSession(required: Dependencies): ChatSession {
       if (controller.signal.aborted || disposed) return;
       const parsed = result.ok ? parseBoundary({ schema: conversationSchema, input: result.value }) : result;
       if (!parsed.ok || !isSafeUiValue({ value: parsed.ok ? parsed.value : null, maxCharacters: 262144 }) || parsed.value.conversation.conversationId !== input.conversationId) { update({ notice: 'Conversation could not be safely loaded.' }); return; }
-      update({ conversationId: input.conversationId, messages: parsed.value.messages, cards: [], tools: [], status: 'idle', mode: null,
+      update({ conversationId: input.conversationId, surfaces: [], messages: parsed.value.messages, cards: [], tools: [], status: 'idle', mode: null,
         notice: parsed.value.cursor ? 'Saved conversation. Showing the first 100 messages.' : 'Saved conversation.' });
     },
     async newConversation() {
       if (disposed || isActive({ status: state.status })) return;
       historyController?.abort();
-      update({ conversationId: null, messages: [], cards: [], tools: [], status: 'idle', mode: null, notice: 'New conversation.' });
+      update({ conversationId: null, surfaces: [], messages: [], cards: [], tools: [], status: 'idle', mode: null, notice: 'New conversation.' });
     },
     async selectModel(input) {
       if (disposed || isActive({ status: state.status }) || !required.api.setSettings) return;
@@ -184,6 +228,8 @@ export function createChatSession(required: Dependencies): ChatSession {
       if (disposed || isActive({ status: state.status })) return;
       const message = prepareMessage({ text: input.text, id: required.runtime.ids.next({}) });
       if (!message.ok) { update({ notice: message.error.message }); return; }
+      frontendRun = null;
+      frontendCardIds.clear();
       update({ messages: mergeMessage({ messages: state.messages, message: message.value }), tools: [], status: "starting", notice: "Requesting a run…" });
       const controller = required.runtime.abort(); pendingController = controller;
       const startDeadline = required.runtime.timers.schedule({ delayMs: 15000, callback: () => {
@@ -191,14 +237,17 @@ export function createChatSession(required: Dependencies): ChatSession {
         clearPending(); update({ status: "unavailable", notice: "Run start timed out. Server outcome is unconfirmed." });
       } });
       pendingTimer = startDeadline;
-      const result = await required.api.start({ message: message.value, signal: controller.signal, conversationId: state.conversationId ?? undefined });
+      const frontendSessionId = required.frontendSessionId?.();
+      const frontendBindToken = required.frontendBindToken?.();
+      const result = await required.api.start({ message: message.value, signal: controller.signal, conversationId: state.conversationId ?? undefined, frontendSessionId, frontendBindToken });
       required.runtime.timers.cancel({ handle: startDeadline });
       if (disposed || controller.signal.aborted) return;
       pendingController = null; pendingTimer = null;
       if (!result.ok || !validReceipt(result.value)) { update({ status: "unavailable", notice: "Run could not be started." }); return; }
+      if (!matchingFrontendReceipt({ binding: frontendRun, receipt: result.value })) { update({ status: 'unavailable', notice: 'Frontend run binding disagrees with the server receipt.' }); return; }
       if (result.value.expiresAt <= required.runtime.clock.now({})) { update({ status: "expired", notice: "Server run receipt already expired." }); return; }
       const timer = required.runtime.timers.schedule({ delayMs: result.value.expiresAt - required.runtime.clock.now({}), callback: () => { void stop({ reason: "expired" }); } });
-      active = { receipt: result.value, controller, timer, sequence: 0, count: 0, bytes: 0, cardIds: new Set(), seen: new Map() };
+      active = { frontendSessionId, receipt: result.value, controller, timer, sequence: 0, count: 0, bytes: 0, cardIds: new Set(frontendCardIds), seen: new Map() };
       update({ status: "running", conversationId: result.value.conversationId ?? state.conversationId, mode: result.value.mode ?? null, notice: result.value.mode === 'sandbox' ? "Sandbox response · no model or vendor calls." : "Receiving a response…" });
       try { await consume({ run: active }); }
       catch { clearRun(); update({ status: 'unavailable', notice: 'Run stream interrupted. Saved work remains on the server.', cards: [] }); }
@@ -207,8 +256,12 @@ export function createChatSession(required: Dependencies): ChatSession {
       if (disposed || state.status === "cancelling") return;
       await stop({ reason: "owner" });
     },
-    dispose() { historyController?.abort(); clearPending(); clearRun(); disposed = true; listeners.clear(); },
+    dispose() { historyController?.abort(); clearPending(); clearRun(); frontendRun = null; frontendCardIds.clear(); disposed = true; listeners.clear(); },
   };
+}
+/** A bind frame can arrive while start awaits I/O; headless starts have no binding to compare. */
+function matchingFrontendReceipt(required: { binding: { runId: string } | null; receipt: StudioRun }): boolean {
+  return required.binding === null || required.binding.runId === required.receipt.runId;
 }
 /** Only a byte-identical known event is a replay; new identities must be contiguous and scoped. */
 function eventCursor(required: { event: import('@open-marketing/contracts').RunEvent; run: ActiveRun; signature: string }): Outcome<'new' | 'duplicate'> {

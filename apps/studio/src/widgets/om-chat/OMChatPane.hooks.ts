@@ -1,3 +1,6 @@
+import type { A2uiSurfaceProps } from './A2uiSurface.hooks.js';
+import { useStudioChartProviders } from '../../features/chart-providers/index.js';
+import type { StudioChartHost, ChartProviderRegistry } from '../../features/chart-providers/index.js';
 import { usePortSnapshot } from "../../shared/ui/index.js";
 import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent, FormEvent, KeyboardEvent, RefObject } from "react";
@@ -7,9 +10,10 @@ import type { StudioRuntime } from "../../shared/api/index.js";
 
 import type { ApprovalCardProps } from "../../features/approve/index.js";
 
-export interface OMChatPaneProps { readonly session: ChatSession; readonly api: StudioApiPort; readonly runtime: StudioRuntime; readonly sample: boolean; readonly available: boolean; readonly open: boolean; readonly toggle: () => void }
+export interface OMChatPaneProps { readonly charts?: { host: StudioChartHost; revision: number | string }; readonly session: ChatSession; readonly api: StudioApiPort; readonly runtime: StudioRuntime; readonly sample: boolean; readonly available: boolean; readonly open: boolean; readonly toggle: () => void }
 /** Named public model keeps shared JSON types behind their published aliases. */
 export interface OMChatPaneModel {
+  readonly surfaces: readonly A2uiSurfaceProps[];
   readonly state: ChatState;
   readonly draft: string;
   readonly change: (event: ChangeEvent<HTMLTextAreaElement>) => void;
@@ -31,7 +35,7 @@ export interface OMChatPaneModel {
   readonly tools: readonly { id: string; text: string }[];
 }
 /** Panel focus is local: Escape closes it, restores the FAB, and does not cancel a remote run. */
-export function useOMChatPane(required: OMChatPaneProps): OMChatPaneModel {
+export function useOMChatPane(required: OMChatPaneProps & { providers?: ChartProviderRegistry }): OMChatPaneModel {
   const state = usePortSnapshot(required.session);
   const [draft, setDraft] = useState("");
   const panelRef = useRef<HTMLElement>(null);
@@ -65,10 +69,15 @@ export function useOMChatPane(required: OMChatPaneProps): OMChatPaneModel {
   };
   const cancel = (): void => { void required.session.cancel(); };
   const busy = ["starting", "running", "cancelling"].includes(state.status);
-  return { state, draft, change, submit, keyDown, cancel, busy, panelRef, buttonRef, cards: state.cards.map(card => ({ card, api: required.api, runtime: required.runtime, sample: required.sample })), sendDisabled: !required.available || busy || !draft.trim(), navigationText: navigationText({ state }), conversationChanged, modelChanged, newChat,
+  return { surfaces: state.surfaces.map(surface => ({ surface, api: required.api, runtime: required.runtime, streaming: busy, succeeded: state.status === 'complete', providers: required.providers, onPendingApproval: required.session.addSurfaceApproval })), state, draft, change, submit, keyDown, cancel, busy, panelRef, buttonRef, cards: state.cards.map(card => ({ card, api: required.api, runtime: required.runtime, sample: required.sample })), sendDisabled: !required.available || busy || !draft.trim(), navigationText: navigationText({ state }), conversationChanged, modelChanged, newChat,
     selectedModel: state.settings?.settings.mode === 'model' ? state.settings.settings.model : 'sandbox', modeText: assistantMode({ state, sample: required.sample }),
     conversations: state.conversations.map(conversation => ({ id: conversation.conversationId, title: conversation.title })),
     tools: state.tools.map(tool => ({ id: tool.operationId, text: tool.name + ' · ' + tool.status })) };
+}
+/** One provider inventory snapshot for the entire chat, including all A2UI surfaces. */
+export function usePluginOMChatPane(required: OMChatPaneProps & { charts: NonNullable<OMChatPaneProps['charts']> }): OMChatPaneModel {
+  const snapshot = useStudioChartProviders(required.charts);
+  return useOMChatPane({ ...required, providers: snapshot.providers });
 }
 function navigationText(required: { state: ReturnType<ChatSession["getSnapshot"]> }): string {
   const result = required.state.navigation;

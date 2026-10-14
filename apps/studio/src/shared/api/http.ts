@@ -1,3 +1,4 @@
+import { confirmationCardSchema, surfaceAcknowledgementSchema, toolCallSchema, toolResultSchema } from '@open-marketing/contracts';
 /** Cookie-authenticated owner transport. Server state is validated before reaching presentation. */
 import { z } from 'zod';
 import { addonListRequestSchema, addonListSchema, addonSummarySchema, addonUninstallReceiptSchema, installAddonSchema, setAddonEnabledSchema, uninstallAddonSchema, integrationListSchema, integrationSummarySchema, connectIntegrationTokenSchema, disconnectIntegrationSchema, pageQuerySchema } from '@open-marketing/contracts';
@@ -139,6 +140,21 @@ async function request<T>(required: {
 export function createHttpStudioApi(required: Dependencies): StudioApiPort {
     const origin = baseOrigin(required);
     return {
+        async tool(input) {
+            const call = parseBoundary({ schema: toolCallSchema, input: input.call });
+            if (!call.ok) return call;
+            const body = input.runId || input.frontendSessionId ? { call: call.value, runId: input.runId, frontendSessionId: input.frontendSessionId } : call.value;
+            return request({ dependencies: required, origin, path: '/api/tools/call', method: 'POST', body, signal: input.signal,
+                parse: value => parseBoundary({ schema: toolResultSchema, input: value.input }) });
+        },
+        approvalCard: input => request({ dependencies: required, origin, path: '/api/safety/approvals/' + encodeURIComponent(input.cardId), method: 'GET', signal: input.signal,
+            parse: value => parseBoundary({ schema: confirmationCardSchema, input: value.input }) }),
+        async acknowledgeSurface(input) {
+            const result = parseBoundary({ schema: surfaceAcknowledgementSchema, input: input.result });
+            if (!result.ok) return result;
+            return request({ dependencies: required, origin, path: '/api/runs/' + encodeURIComponent(result.value.runId) + '/surfaces', method: 'POST', body: result.value,
+                parse: value => parseBoundary({ schema: recordedSchema, input: value.input }) });
+        },
         addons: {
             list: input => addonRead({ dependencies: required, origin, path: '/api/addons/v1/packages', schema: addonListSchema, querySchema: addonListRequestSchema, ...input }),
             integrations: input => addonRead({ dependencies: required, origin, path: '/api/addons/v1/integrations', schema: integrationListSchema, querySchema: pageQuerySchema, ...input }),
@@ -156,7 +172,7 @@ export function createHttpStudioApi(required: Dependencies): StudioApiPort {
                 method: 'POST', body: response.value, signal: input.signal, parse: value => parseBoundary({ schema: recordedSchema, input: value.input }) });
         },
         async start(input) {
-            const parsed = parseBoundary({ schema: assistantRunRequestSchema, input: { prompt: input.message.text, conversationId: input.conversationId } });
+            const parsed = parseBoundary({ schema: assistantRunRequestSchema, input: { prompt: input.message.text, conversationId: input.conversationId, frontendSessionId: input.frontendSessionId, frontendBindToken: input.frontendBindToken } });
             if (!parsed.ok) return parsed;
             return request({ dependencies: required, origin, path: '/api/runs', method: 'POST', body: parsed.value, signal: input.signal,
                 parse: value => parseBoundary({ schema: runReceiptSchema, input: value.input }) });

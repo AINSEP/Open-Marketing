@@ -1,4 +1,4 @@
-import type { Outcome, NavigationTarget } from "@open-marketing/contracts";
+import type { Outcome, NavigationTarget, ObserverPort } from "@open-marketing/contracts";
 import { navigationTargetSchema } from "@open-marketing/contracts";
 import type { BrowserRoutePort } from "../../features/navigate/index.js";
 import type { StudioRuntime, TimerPort } from "../../shared/api/index.js";
@@ -39,5 +39,32 @@ export function browserRoutes(required: { host: Window }): BrowserRoutePort {
       catch { return { ok: false, error: { code: "unavailable", message: "Browser route update failed", retryable: false } }; }
     },
     listen(input) { required.host.addEventListener("hashchange", input.listener); return () => required.host.removeEventListener("hashchange", input.listener); },
+  };
+}
+
+/** Jini's foreign request ABI is confined here. Bound response writes get one 15s deadline,
+ * same-origin cookies and tracing; an interrupted write is never automatically retried.
+ * @complexity One HTTP call; no retained queues or credentials.
+ */
+export function browserFrontendRequest(required: { fetch: typeof fetch; runtime: StudioRuntime; observer: ObserverPort }):
+  (input: { url: string; init: RequestInit; timeoutMs: number }) => Promise<Response> {
+  return async input => {
+    const controller = required.runtime.abort();
+    const abort = () => controller.abort();
+    input.init.signal?.addEventListener('abort', abort, { once: true });
+    if (input.init.signal?.aborted) abort();
+    const handle = required.runtime.timers.schedule({ delayMs: Math.min(input.timeoutMs, 15000), callback: abort });
+    const correlationId = required.runtime.ids.next({}); const traceId = required.runtime.ids.next({});
+    let outcome = 'unavailable';
+    try {
+      const headers = new Headers(input.init.headers); headers.set('x-correlation-id', correlationId); headers.set('x-trace-id', traceId);
+      const response = await required.fetch(input.url, { ...input.init, headers, signal: controller.signal, credentials: 'same-origin', redirect: 'error' });
+      if (controller.signal.aborted) throw new Error('Frontend response interrupted');
+      outcome = String(response.status); return response;
+    } finally {
+      required.runtime.timers.cancel({ handle }); input.init.signal?.removeEventListener('abort', abort);
+      try { required.observer.observe({ operation: 'studio.frontend.response', outcome, correlationId, traceId }); }
+      catch { /* Diagnostics cannot change response delivery. */ }
+    }
   };
 }

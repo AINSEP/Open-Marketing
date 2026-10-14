@@ -1,5 +1,6 @@
 /** One OM catalog and dispatcher. SDK/HTTP adapters share these exact operations. */
 import { z } from 'zod';
+import { buildUiToolDefinitions } from './ui-tools.js';
 import { assistantSettingsSchema, boundedJsonSchema, callContextSchema, generationAllowanceSettingsSchema, idSchema, pageQuerySchema, timeWindowSchema, digestSchema, moneySchema,
     parseBoundary, toolCallSchema, toolDescriptorSchema, toolSearchSchema, addonToolEffectsSchema, addonListRequestSchema, installAddonSchema, setAddonEnabledSchema, uninstallAddonSchema, disconnectIntegrationSchema } from '@open-marketing/contracts';
 import type { ApprovalResponse, CallContext, ClockPort, ConfirmationCard, Outcome, ToolCall, ToolDescriptor, ToolOperation, ToolResult } from '@open-marketing/contracts';
@@ -30,21 +31,9 @@ import { creativeToolInputSchema } from './om-tool-types.js';
 import type { GenerationStatus } from '@open-marketing/creative';
 import type { OmTools, CreativeToolBinding } from './om-tool-types.js';
 export type { OmTools } from './om-tool-types.js';
+import type { OmToolDefinition, OmToolPolicy } from './om-tool-types.js';
+export type { OmToolDefinition, OmToolPolicy } from './om-tool-types.js';
 
-export type OmToolPolicy = 'read' | 'write' | 'destructive' | 'spend' | 'generation' | 'internal';
-export interface OmToolDefinition extends ToolDescriptor {
-    readonly revision: string;
-    readonly policy: OmToolPolicy;
-    readonly capability: string;
-    readonly ownerRoute?: keyof typeof routes;
-    /** Only server bindings provide verified financial requests; plugin metadata cannot do so. */
-    readonly safety?: SafetyService;
-    prepareEffect?(required: { context: CallContext; call: ToolCall }): Promise<Outcome<EffectRequest>>;
-    readonly unavailableReason?: string;
-    readonly ownerOnly?: true;
-    parse(required: { input: unknown }): Outcome<unknown>;
-    invoke(required: { context: CallContext; input: unknown; signal?: AbortSignal; authorization?: FrozenDispatchRequest; permit?: DispatchPermit }): Promise<Outcome<unknown>>;
-}
 type Dependencies = { definitions(required: { context: CallContext }): Promise<Outcome<readonly OmToolDefinition[]>>;
     confirmations: MemoryConfirmationExchange; clock: ClockPort; observer: ObserverPort;
     authorize(required: { context: CallContext }): Outcome<void> };
@@ -452,7 +441,8 @@ export const discoveryTools: readonly ToolDescriptor[] = [
  */
 export async function buildOmToolDefinitions(required: { context: CallContext; services: OwnerServices & OmFeatureServices; addons?: AddonToolDependencies }): Promise<Outcome<readonly OmToolDefinition[]>> {
     const definitions: OmToolDefinition[] = readBindings.map(binding => ownerDefinition({ ...required, binding }));
-    definitions.push(ownerSettingsDefinition(required), ...coreDefinitions(required), ...featureDefinitions(required));
+    definitions.push(ownerSettingsDefinition(required), ...coreDefinitions(required), ...featureDefinitions(required),
+        ...buildUiToolDefinitions({ runtime: required.services.ui?.runtime ?? null, frontend: required.services.ui?.frontend }));
     if (!required.addons) return { ok: true, value: definitions };
     const loaded = await loadAddonToolSources({ context: required.context, dependencies: required.addons });
     if (!loaded.ok) return redactAddonOutcome({ outcome: loaded });

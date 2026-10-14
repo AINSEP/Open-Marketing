@@ -114,3 +114,24 @@ it("caps surface components across messages and preserves the Jini v1.0 envelope
  expect(a2uiSurfacePayloadSchema.safeParse({ ...surface, version: "v0.9" }).success).toBe(false);
  expect(a2uiSurfacePayloadSchema.safeParse({ ...surface, messages: ["x".repeat(40000), "x".repeat(40000)] }).success).toBe(false);
 });
+
+it("carries the current frontend bind token additively without putting it in events", () => {
+ const scope = { ownerId: "owner", workspaceId: "workspace" };
+ const request: StartRunRequest = {
+  protocolVersion: 1, context: { scope, principal: { kind: "owner", ownerId: "owner" }, correlationId: "c", traceId: "t" },
+  agentInstanceId: "agent", conversationId: "chat", runId: "run", prompt: "Hello",
+  grant: { grantId: "g", agentInstanceId: "agent", scope, conversationId: "chat", runId: "run", capabilities: [], expiresAt: 100,
+   revoked: false, protocolVersion: 1, authenticationEpoch: 1 },
+ };
+ expect(assistantRunRequestSchema.parse({ prompt: "Hello" })).toEqual({ prompt: "Hello" });
+ expect(startRunSchema.parse(request)).toEqual(request);
+ const binding = { frontendSessionId: "studio", frontendBindToken: "fixture-current-attachment" };
+ expect(assistantRunRequestSchema.parse({ prompt: "Hello", ...binding }).frontendBindToken).toBe(binding.frontendBindToken);
+ expect(startRunSchema.parse({ ...request, ...binding }).frontendBindToken).toBe(binding.frontendBindToken);
+ for (const frontendBindToken of ["", "x".repeat(8193)]) {
+  expect(assistantRunRequestSchema.safeParse({ prompt: "Hello", frontendBindToken }).success).toBe(false);
+  expect(startRunSchema.safeParse({ ...request, frontendBindToken }).success).toBe(false);
+ }
+ expect(runEventSchema.safeParse({ protocolVersion: 1, eventId: "e", runId: "run", sequence: 1, kind: "started", payload: {},
+  correlationId: "c", traceId: "t", frontendBindToken: binding.frontendBindToken }).success).toBe(false);
+});

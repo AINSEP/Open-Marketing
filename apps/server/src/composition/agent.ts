@@ -13,6 +13,8 @@ import type { AssistantRuns } from '../runs.js';
 import type { OwnerRunPort } from '../ports.js';
 import { toolRequestedPayloadSchema, toolResultPayloadSchema, approvalPayloadSchema } from '@open-marketing/contracts';
 import type { RunGrantVerifierPort, SandboxCallbacks } from '../inbound/om.js';
+import type { FrontendSessions } from '../inbound/frontend.js';
+import type { AssistantRunRequest } from '@open-marketing/contracts';
 
 type RunPage = z.infer<typeof routes.runEvents.schema>;
 type RunStatus = RunPage['status'];
@@ -218,7 +220,7 @@ function releaseFinishedRun(required: { runs: Map<string, LocalRun>; tokens: Map
  * @example const agent = createLocalAgent({ effects, clock, ids, observer, randomToken });
  * @complexity <=32 live projections, <=8,192 events/2 MiB per run; reconciliation reads <=128 events.
  */
-export function createLocalAgent(required: { effects: AgentEffects; clock: ClockPort; ids: IdPort; observer: ObserverPort; randomToken(required: Record<string, never>): string; persistence?: AssistantRuns; onRevoked?(required: { context: CallContext; runId: string }): void }) {
+export function createLocalAgent(required: { effects: AgentEffects; clock: ClockPort; ids: IdPort; observer: ObserverPort; randomToken(required: Record<string, never>): string; persistence?: AssistantRuns; frontend?: FrontendSessions; onRevoked?(required: { context: CallContext; runId: string; status: Exclude<RunStatus, 'running'> }): void }) {
     const runs = new Map<string, LocalRun>();
     const tokens = new Map<string, LocalRun>();
     const instanceId = required.ids.next({});
@@ -232,7 +234,7 @@ export function createLocalAgent(required: { effects: AgentEffects; clock: Clock
     /** Local terminal evidence; grants revoke before any subsequent callback can be admitted. */
     async function terminate(input: { run: LocalRun; status: 'cancelled' | 'interrupted' }): Promise<Outcome<void>> {
         input.run.grant.revoked = true;
-        required.onRevoked?.({ context: input.run.context, runId: input.run.grant.runId });
+        required.onRevoked?.({ context: input.run.context, runId: input.run.grant.runId, status: input.status });
         return queueRun({ run: input.run, work: async () => {
             if (input.run.status !== 'running') return { ok: true, value: undefined };
             const event: RunEvent = { protocolVersion: 1, eventId: required.ids.next({}), runId: input.run.grant.runId,
@@ -281,7 +283,7 @@ export function createLocalAgent(required: { effects: AgentEffects; clock: Clock
             if (!persisted.ok) return persisted;
         }
         commitEvent({ run, event });
-        if (run.grant.revoked) required.onRevoked?.({ context: run.context, runId: run.grant.runId });
+        if (run.status !== 'running') required.onRevoked?.({ context: run.context, runId: run.grant.runId, status: run.status });
         observe({ ...required, context: run.context, operation: 'server.agent.event', outcome: event.kind });
         return { ok: true, value: { recorded: true } };
     }
@@ -314,18 +316,20 @@ export function createLocalAgent(required: { effects: AgentEffects; clock: Clock
     }
 
     /** Control acceptance happens only after Jini has committed the question and assistant stub. */
-    async function begin(input: { context: CallContext; prompt: string; runId: string; conversationId: string; mode: 'sandbox' | 'model'; expiresAt: number; frontendSessionId?: string }): ReturnType<OwnerRunPort['start']> {
+    async function begin(input: { context: CallContext; prompt: string; runId: string; conversationId: string; mode: 'sandbox' | 'model'; expiresAt: number; frontendSessionId?: string; frontendBindToken?: string }): ReturnType<OwnerRunPort['start']> {
         const grant: RunGrantMetadata = { protocolVersion: 1, grantId: required.ids.next({}), agentInstanceId: instanceId,
             scope: structuredClone(input.context.scope), conversationId: input.conversationId, runId: input.runId,
             capabilities: input.mode === 'model' ? ['context', 'events', 'model', 'tools'] : ['context', 'events'],
             expiresAt: input.expiresAt, authenticationEpoch: required.clock.now({}), revoked: false };
         const context: CallContext = { ...structuredClone(input.context), runId: input.runId, principal: { kind: 'agent', agentInstanceId: instanceId, runId: input.runId } };
+        const bound = required.frontend?.bindRun({ ...input, context });
+        if (bound && !bound.ok) return bound;
         const bearer = createHmac('sha256', grantKey).update(grant.grantId).digest('hex');
         const run: LocalRun = { context, grant, status: 'running', events: [], mode: input.mode, bytes: 0, writes: Promise.resolve() };
         runs.set(input.runId, run); tokens.set('Bearer ' + bearer, run);
         const started = await client!.start({ protocolVersion: 1, context, agentInstanceId: instanceId,
             conversationId: input.conversationId, runId: input.runId, grant, prompt: input.prompt,
-            ...(input.mode === 'model' ? { runBearer: bearer, deadlineAt: grant.expiresAt } : {}), frontendSessionId: input.frontendSessionId });
+            ...(input.mode === 'model' ? { runBearer: bearer, deadlineAt: grant.expiresAt } : {}), frontendSessionId: input.frontendSessionId, frontendBindToken: input.frontendBindToken });
         if (!started.ok || started.value.runId !== input.runId) {
             await terminate({ run, status: 'interrupted' });
             return failure({ code: 'unavailable', message: 'Agent start failed; no automatic retry' });
@@ -336,13 +340,13 @@ export function createLocalAgent(required: { effects: AgentEffects; clock: Clock
     }
 
     const owner: OwnerRunPort = {
-        async start({ context, prompt }, options = {}) {
+        async start({ context, prompt }, options: Omit<AssistantRunRequest, 'prompt'> = {}) {
             if (!available || !client) return failure({ code: 'unavailable', message: 'OM agent unavailable' });
             const capacity = releaseFinishedRun({ runs, tokens });
             if (!capacity.ok) return capacity;
             if (required.persistence) return required.persistence.start({ context, prompt, conversationId: options.conversationId,
-                launch: input => begin({ ...input, context, prompt, frontendSessionId: options.frontendSessionId }) });
-            return begin({ context, prompt, mode: 'sandbox', runId: required.ids.next({}), conversationId: options.conversationId ?? required.ids.next({}), expiresAt: required.clock.now({}) + 300000 });
+                launch: input => begin({ ...input, context, prompt, frontendSessionId: options.frontendSessionId, frontendBindToken: options.frontendBindToken }) });
+            return begin({ context, prompt, ...options, mode: 'sandbox', runId: required.ids.next({}), conversationId: options.conversationId ?? required.ids.next({}), expiresAt: required.clock.now({}) + 300000 });
         },
         async events(input) {
             const result = ownerRun(input);

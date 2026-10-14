@@ -8,9 +8,10 @@ import type { NavigationController } from "../../features/navigate/index.js";
 import { parseStudioSnapshot } from "../../shared/api/index.js";
 import type { StudioApiPort, StudioSnapshot } from "../../shared/api/index.js";
 import type { StudioRuntime } from "../../shared/api/index.js";
+import type { StudioChartHost } from '../../features/chart-providers/index.js';
 import { NAVIGATION, ADDON_NAVIGATION, ROUTES, isAddonTarget } from "../../shared/navigation/index.js";
 
-export interface ShellProps { readonly api: StudioApiPort; readonly runtime: StudioRuntime; readonly navigation: NavigationController; readonly session: ChatSession; readonly appearance?: AppearanceHost }
+export interface ShellProps { readonly api: StudioApiPort; readonly runtime: StudioRuntime; readonly navigation: NavigationController; readonly session: ChatSession; readonly appearance?: AppearanceHost; readonly charts?: { host: StudioChartHost; revision: number } }
 export interface NavLink { readonly target: StudioNavigationTarget; readonly label: string; readonly glyph: string; readonly active: boolean; readonly onClick?: (event: MouseEvent<HTMLAnchorElement>) => void }
 /** App owns shared routing and boot data; widgets receive only downward ports and state. */
 export function useShell(required: ShellProps) {

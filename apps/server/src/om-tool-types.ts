@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { idSchema, epochSchema } from '@open-marketing/contracts';
 import type { CreativeService } from '@open-marketing/creative';
 import type { DispatchPermit, EffectRequest, FrozenDispatchRequest, SafetyService } from '@open-marketing/safety';
+import type { routes } from './cli/http.js';
 import type { ApprovalResponse, CallContext, ConfirmationCard, Outcome, ToolCall, ToolDescriptor, ToolOperation, ToolResult } from '@open-marketing/contracts';
 
 /** Leaf dispatcher contract shared by owner ingress and the catalog implementation.
@@ -31,4 +32,18 @@ export interface CreativeToolBinding {
     prepareEffect(required: { context: CallContext; call: ToolCall }): Promise<Outcome<EffectRequest>>;
     dispatchQueued(required: { context: CallContext; generationId: string; operationId: string; argumentsDigest: string }): Promise<Outcome<unknown>>;
     generate(required: { context: CallContext; input: CreativeToolInput; authorization: FrozenDispatchRequest; permit: DispatchPermit }): Promise<Outcome<unknown>>;
+}
+export type OmToolPolicy = 'read' | 'write' | 'destructive' | 'spend' | 'generation' | 'internal';
+export interface OmToolDefinition extends ToolDescriptor {
+    readonly revision: string;
+    readonly policy: OmToolPolicy;
+    readonly capability: string;
+    readonly ownerRoute?: keyof typeof routes;
+    /** Only server bindings provide verified financial requests; plugin metadata cannot do so. */
+    readonly safety?: SafetyService;
+    prepareEffect?(required: { context: CallContext; call: ToolCall }): Promise<Outcome<EffectRequest>>;
+    readonly unavailableReason?: string;
+    readonly ownerOnly?: true;
+    parse(required: { input: unknown }): Outcome<unknown>;
+    invoke(required: { context: CallContext; input: unknown; signal?: AbortSignal; authorization?: FrozenDispatchRequest; permit?: DispatchPermit }): Promise<Outcome<unknown>>;
 }

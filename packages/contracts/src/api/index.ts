@@ -54,7 +54,8 @@ export const assistantSettingsSchema = z.strictObject({ mode: z.enum(["sandbox",
 export type AssistantSettings = z.infer<typeof assistantSettingsSchema>;
 export const assistantSettingsStatusSchema = z.strictObject({ settings: assistantSettingsSchema, ready: z.boolean(), status: z.enum(["sandbox", "ready", "reconnect_required", "disconnected", "unavailable"]) });
 export type AssistantSettingsStatus = z.infer<typeof assistantSettingsStatusSchema>;
-export const assistantRunRequestSchema = z.strictObject({ prompt: z.string().min(1).max(65536), conversationId: idSchema.optional(), frontendSessionId: idSchema.optional() });
+/** Read the current Jini attachment token at send time; it is never stored in chat history. */
+export const assistantRunRequestSchema = z.strictObject({ prompt: z.string().min(1).max(65536), conversationId: idSchema.optional(), frontendSessionId: idSchema.optional(), frontendBindToken: z.string().min(1).max(8192).optional() });
 export type AssistantRunRequest = z.infer<typeof assistantRunRequestSchema>;
 
 /** Owner-scoped history DTOs; scope is bound by the authenticated server, never supplied here. */

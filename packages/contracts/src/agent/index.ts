@@ -10,7 +10,7 @@ export interface RunGrantCredential { readonly kind: "run-grant"; readonly beare
 /** Sent only over authenticated service control. Model runtimes require runBearer; sandbox callers may omit it.
  * The run-scoped bearer authenticates OM requests, never the vendor; it must not enter events/history.
  */
-export const startRunSchema = z.strictObject({ protocolVersion: z.literal(1), context: callContextSchema, agentInstanceId: idSchema, conversationId: idSchema, runId: idSchema, grant: runGrantMetadataSchema, prompt: z.string().min(1).max(65536), runBearer: z.string().min(1).max(8192).optional(), frontendSessionId: idSchema.optional(), deadlineAt: epochSchema.optional() });
+export const startRunSchema = z.strictObject({ protocolVersion: z.literal(1), context: callContextSchema, agentInstanceId: idSchema, conversationId: idSchema, runId: idSchema, grant: runGrantMetadataSchema, prompt: z.string().min(1).max(65536), runBearer: z.string().min(1).max(8192).optional(), frontendSessionId: idSchema.optional(), frontendBindToken: z.string().min(1).max(8192).optional(), deadlineAt: epochSchema.optional() });
 export type StartRunRequest = z.infer<typeof startRunSchema>;
 export const cancelRunSchema = z.strictObject({ protocolVersion: z.literal(1), runId: idSchema, reason: z.enum(["owner", "expired", "revoked", "shutdown"]) });
 export type CancelRunRequest = z.infer<typeof cancelRunSchema>;

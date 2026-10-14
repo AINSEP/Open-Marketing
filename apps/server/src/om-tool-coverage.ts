@@ -68,8 +68,10 @@ const capabilities = [
     ['Higgsfield generation (not connected)', null, 'write', 'generation', 'I-2', 'Bind verified quote and safety.withDispatch; normal write within allowance, exact spend otherwise'],
     ['Organic Instagram (not connected)', null, 'write', 'write', 'I-2', 'Bind installed Meta organic adapter'],
     ['Executable external MCP descriptors', null, 'write', 'write', 'I-2', 'D2 sources load contribution descriptions; executable federation descriptors/invocation are not exported through that seam'],
-    ['Page navigation/find/highlight/scroll/click/fill/select', null, 'write', 'write', 'A5', 'Approved page-actions binding belongs to the next assistant run'],
-    ['Component search/describe/render/charts', null, 'write', 'write', 'A5', 'Approved Jini A2UI/chart binding belongs to the next assistant run'],
+    ['Page control', 'page.navigate', 'write', 'write', 'A5', 'Bind authenticated frontend-session transport in composition'],
+    ['Component discovery', 'search_components', 'read', 'read', 'A5', 'Published Jini component catalog'],
+    ['Component description', 'describe_component', 'read', 'read', 'A5', 'Published Jini props schemas'],
+    ['A2UI render/charts', 'render', 'write', 'write', 'A5', 'Bind authenticated frontend-session transport in composition'],
 ] as const;
 const internal = ['Session/context resolution', 'Canonical policy gates', 'Audit append', 'Destination identifiers', 'Verified form/tracking ingress',
     'Privacy advance worker', 'Outbox enqueue/claim/process/resolve/retry', 'Media cost observation', 'Creative dispatch/poll/recover', 'Campaign dispatch',
@@ -88,6 +90,10 @@ export function generateOmToolCoverage(required: { definitions: readonly OmToolD
         access: tool.name === 'execute_tool' ? 'write' as const : 'read' as const, policy: tool.name === 'execute_tool' ? 'write' as const : 'read' as const,
         http: '/api/agent/v1/mcp', studio: 'chat model transport', cli: 'om tools list/show/call', mcp: tool.name, status: 'connected' as const })));
     rows.push(...ownerRouteRows({ ownerRoutes }));
+    rows.push(...['/api/frontend-sessions/stream', '/api/frontend-sessions/:sessionId/responses', '/api/runs/:runId/surfaces'].map(http => ({
+        capability: 'Authenticated owner frontend transport', tool: null, access: 'write' as const, policy: 'owner' as const,
+        http, studio: 'Jini browser session bridge', cli: 'browser transport only', mcp: 'not an agent tool', status: 'internal' as const,
+    })));
     for (const [capability, tool, access, policy, needs, reason] of capabilities) {
         if (tool && names.has(tool)) continue;
         rows.push({ capability, tool: null, access, policy, http: null, studio: 'NEEDS', cli: 'NEEDS', mcp: 'NEEDS', status: 'NEEDS', needs, reason });
@@ -122,7 +128,7 @@ function catalogRow(required: { tool: OmToolDefinition }): ToolCoverageRow {
     return { capability: tool.capability, tool: tool.name, access: tool.policy === 'read' ? 'read' : 'write', policy: tool.policy,
         http: tool.ownerRoute ? routes[tool.ownerRoute].path : '/api/tools/call', studio: 'chat via execute_tool',
         cli: 'om tools list/show/call', mcp: 'execute_tool', status: reason ? 'NEEDS' : 'connected',
-        ...(reason ? { needs: 'I-2', reason } : {}) };
+        ...(reason ? { needs: tool.name.startsWith('page.') || tool.name === 'render' ? 'A5_FRONTEND_COMPOSITION' : 'I-2', reason } : {}) };
 }
 /** No financial availability is inferred from effects without both current public safety seams. */
 function unavailableFinancialReason(required: { tool: OmToolDefinition }): string | undefined {

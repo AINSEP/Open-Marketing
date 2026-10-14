@@ -1,3 +1,4 @@
+import { a2uiSurfacePayloadSchema } from '@open-marketing/contracts';
 import { z } from "zod";
 import { toolRequestedPayloadSchema, toolResultPayloadSchema, approvalPayloadSchema, chatMessageSchema, confirmationCardSchema, navigationActionSchema, navigationTargetSchema, studioNavigationTargetSchema, moneySchema, runEventSchema, parseBoundary } from "@open-marketing/contracts";
 import type { Outcome, RunEvent } from "@open-marketing/contracts";
@@ -67,7 +68,7 @@ const payloadSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("navigation"), action: navigationActionSchema }),
   z.strictObject({ type: z.literal("status"), text: z.string().max(1024) }),
   z.strictObject({ type: z.literal("text_delta"), text: z.string().max(65536) }),
-  toolRequestedPayloadSchema, toolResultPayloadSchema, approvalPayloadSchema,
+  toolRequestedPayloadSchema, toolResultPayloadSchema, approvalPayloadSchema, a2uiSurfacePayloadSchema,
 ]);
 const secretKey = /^(authorization|password|secret|client[_-]?secret|access[_-]?token|refresh[_-]?token|api[_-]?key|bearer|credentials?)$/i;
 const secretText = /\bBearer\s+\S+|\bsk-[a-zA-Z0-9_-]{12,}|-----BEGIN .*PRIVATE KEY-----/;

@@ -16,6 +16,7 @@ import type { OmFeatureServices, OmToolDefinition } from '../src/om-tools.js';
 import { generateOmToolCoverage, ownerRouteDisposition } from '../src/om-tool-coverage.js';
 import { routes } from '../src/cli/http.js';
 import { handleOwnerRequest } from '../src/inbound/owner.js';
+import { createFrontendSessions } from '../src/inbound/frontend.js';
 import type { OwnerServices } from '../src/inbound/owner.js';
 import { handleOmRequest } from '../src/inbound/om.js';
 import { bootServer } from '../src/composition/index.js';
@@ -588,3 +589,276 @@ it('typed backend effects cannot be disguised by combining them with read/write/
         } finally { f.tools.dispose({}); }
     }
 });
+
+// A5: same dispatcher and real Jini wire/props validation, no browser/vendor I/O.
+import { buildUiToolDefinitions, prepareUiSurface, checkedSurfaceAcknowledgement } from '../src/ui-tools.js';
+import type { UiFrontendPort } from '../src/ui-tools.js';
+
+const uiComponents: ToolCall['input'][] = [{ id: 'root', component: 'Column', children: ['text'] }, { id: 'text', component: 'Text', text: 'Fixture' }];
+function uiFixture(required: { acknowledge?: 'rendered' | 'sent'; foreignRun?: boolean } = {}) {
+    const base = fixture({}); const delivered: unknown[] = [];
+    const frontend: UiFrontendPort = {
+        async acknowledge() { return { ok: true, value: undefined }; },
+        async page(input) { delivered.push(input); return { ok: true, value: { clicked: true } }; },
+        async render(input) {
+            delivered.push(input);
+            return { ok: true, value: { status: required.acknowledge ?? 'rendered', surfaceId: input.surfaceId,
+                invocationId: 'invocation', runId: required.foreignRun ? 'foreign' : input.context.runId!, frontendSessionId: 'frontend' } };
+        },
+    };
+    base.tools.dispose({});
+    const definitions = buildUiToolDefinitions({ runtime: base, frontend });
+    const tools = createOmTools({ ...base, confirmations: base.services.confirmations as ReturnType<typeof createMemoryConfirmationExchange>,
+        authorize: () => ({ ok: true, value: undefined }), async definitions() { return { ok: true, value: definitions }; } });
+    return { ...base, frontend, definitions, tools, delivered };
+}
+it('discovers charts and describes published Zod 3 props as plain JSON through the existing SDK', async () => {
+    const f = uiFixture();
+    const search = await f.tools.dispatch({ context: agent, call: { name: 'search_components', input: { query: 'chart' }, operationId: 'search-chart' } });
+    expect(search).toMatchObject({ ok: true, value: { status: 'completed', output: expect.arrayContaining([expect.objectContaining({ id: 'recharts.bar-chart' })]) } });
+    const describe = await f.tools.dispatch({ context: agent, call: { name: 'describe_component', input: { id: 'recharts.bar-chart' }, operationId: 'describe-chart' } });
+    expect(describe).toMatchObject({ ok: true, value: { output: { propsSchema: { type: 'object', required: expect.arrayContaining(['data', 'categoryKey', 'valueKey']) } } } });
+    expect(f.delivered).toEqual([]); f.tools.dispose({});
+});
+it('renders only after the one owner approval and returns the real browser acknowledgement', async () => {
+    const f = uiFixture(); const call = { name: 'render', input: { components: uiComponents }, operationId: 'surface-operation' };
+    expect(await f.tools.dispatch({ context: agent, call })).toMatchObject({ ok: true, value: { status: 'pending' } });
+    expect(f.delivered).toEqual([]);
+    const card = value({ result: await f.tools.card({ context: owner, operationId: call.operationId }) })!;
+    expect(await f.tools.answer({ context: owner, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } })).toEqual({ ok: true, value: undefined });
+    expect(await f.tools.operation({ context: agent, operationId: call.operationId })).toMatchObject({ ok: true, value: { status: 'completed', output: { status: 'rendered', runId: 'run' } } });
+    await f.tools.dispatch({ context: agent, call }); expect(f.delivered).toHaveLength(1); f.tools.dispose({});
+});
+it('keeps missing browser transport explicit in coverage and never creates a page approval', async () => {
+    const f = fixture({}); const definitions = buildUiToolDefinitions({ runtime: null });
+    const tools = createOmTools({ ...f, confirmations: f.services.confirmations as ReturnType<typeof createMemoryConfirmationExchange>, authorize: () => ({ ok: true, value: undefined }),
+        async definitions() { return { ok: true, value: definitions }; } });
+    const result = await tools.dispatch({ context: agent, call: { name: 'page.click', input: { handle: 'save' }, operationId: 'page' } });
+    expect(result).toMatchObject({ ok: false, error: { code: 'not_implemented' } });
+    expect(generateOmToolCoverage({ definitions }).find(row => row.tool === 'page.click')).toMatchObject({ status: 'NEEDS', needs: 'A5_FRONTEND_COMPOSITION' });
+    expect(value({ result: await f.services.confirmations.list({ context: owner, query: { limit: 100 } }) }).items).toEqual([]);
+    tools.dispose({}); f.tools.dispose({});
+});
+for (const [name, components] of [
+    ['unknown component', [{ id: 'root', component: 'Unregistered' }]],
+    ['invalid Text props', [{ id: 'root', component: 'Text', text: 123 }]],
+    ['missing root', [{ id: 'text', component: 'Text', text: 'fixture' }]],
+    ['missing child', [{ id: 'root', component: 'Column', children: ['absent'] }]],
+    ['cycle', [{ id: 'root', component: 'Column', children: ['root'] }]],
+    ['duplicate ID', [{ id: 'root', component: 'Text', text: 'one' }, { id: 'root', component: 'Text', text: 'two' }]],
+    ['aggregate expansion', [{ id: 'root', component: 'Column', children: Array(100).fill('text') }, { id: 'text', component: 'Text', text: 'fixture' }]],
+] as const) it('rejects A2UI ' + name + ' before frontend delivery', () => {
+    const f = fixture({});
+    expect(prepareUiSurface({ ...f, surfaceId: 'surface', input: { components } })).toMatchObject({ ok: false });
+    f.tools.dispose({});
+});
+it('accepts neutral chart wire IDs without a chart npm dependency', () => {
+    const f = fixture({});
+    expect(prepareUiSurface({ ...f, surfaceId: 'surface', input: { components: [{ id: 'root', component: 'recharts.bar-chart', data: [{ name: 'A', count: 2 }], categoryKey: 'name', valueKey: 'count' }] } })).toMatchObject({ ok: true });
+    f.tools.dispose({});
+});
+it('never turns sent or foreign acknowledgements into rendered', async () => {
+    const input = { status: 'sent', surfaceId: 'surface', invocationId: 'invocation', runId: 'run', frontendSessionId: 'frontend' };
+    expect(checkedSurfaceAcknowledgement({ input, surfaceId: 'surface', runId: 'run' })).toEqual({ ok: true, value: input });
+    expect(checkedSurfaceAcknowledgement({ input, surfaceId: 'surface', runId: 'foreign' })).toMatchObject({ ok: false });
+    expect(checkedSurfaceAcknowledgement({ input: {}, surfaceId: 'surface', runId: 'run' })).toMatchObject({ ok: false });
+});
+it('authenticates acknowledgement identity before passing it to the frontend host', async () => {
+    const f = uiFixture(); f.services.ui = { runtime: f, frontend: f.frontend };
+    const response = await handleOwnerRequest({ context: owner, services: f.services,
+        request: { method: 'POST', path: '/api/runs/run/surfaces', body: { status: 'rendered', surfaceId: 'surface', invocationId: 'invocation', runId: 'foreign', frontendSessionId: 'frontend' } } });
+    expect(response.status).toBe(400); expect(f.delivered).toEqual([]); f.tools.dispose({});
+});
+
+/** Shared relay cases exercise its direct port and the actual owner HTTP translation. */
+async function frontendFixture(required: { throughHttp: boolean }) {
+    const f = fixture({}); let live = true; let timerId = 0;
+    const timers = new Map<number, { delayMs: number; callback(): void }>();
+    const relay = createFrontendSessions({ clock: f.clock, ids: f.ids, randomToken: () => 'fixture-bind-' + f.ids.next(),
+        schedule(input) { const id = ++timerId; timers.set(id, input); return () => { timers.delete(id); }; },
+        authorize: input => live || input.context.principal.kind === 'owner' ? { ok: true, value: undefined }
+            : { ok: false, error: { code: 'expired', message: 'Fixture run revoked', retryable: false } },
+        disconnected: input => f.tools.cancel(input) });
+    f.services.ui = { runtime: { clock: f.clock, ids: f.ids }, frontend: relay.frontend, sessions: relay };
+    const request = (input: { method: 'GET' | 'POST'; path: string; body?: unknown; query?: Record<string, string>; context?: CallContext; signal?: AbortSignal }) => {
+        const args = { request: input, context: input.context ?? owner, services: f.services };
+        return required.throughHttp ? handleOwnerRequest(args) : relay.handle(args);
+    };
+    const disconnect = new AbortController();
+    const attached = await request({ method: 'GET', path: '/api/frontend-sessions/stream', query: { capabilities: 'page.find_elements,page.navigate,page.click' }, signal: disconnect.signal });
+    const stream = attached.stream!.chunks[Symbol.asyncIterator]();
+    const next = async () => {
+        const chunk = await stream.next();
+        if (chunk.done) throw new Error('Fixture stream closed');
+        return JSON.parse(new TextDecoder().decode(chunk.value).slice(6).trim()) as { sessionId: string; bindToken: string; invocationId: string; runId: string; frontendSessionId: string; type: string };
+    };
+    const attachment = await next();
+    const bind = (input: { token?: string; context?: CallContext; runId?: string } = {}) => relay.bindRun({ context: input.context ?? agent,
+        runId: input.runId ?? 'run', expiresAt: 301000, frontendSessionId: attachment.sessionId, frontendBindToken: input.token ?? attachment.bindToken });
+    const bound = bind(); if (!bound.ok) throw new Error(bound.error.message); await next();
+    return { ...f, relay, request, next, attachment, bind, timers, disconnect,
+        revoke() { live = false; f.revoke(); relay.endRun({ context: owner, runId: 'run', status: 'cancelled' }); },
+        dispose() { relay.dispose({}); f.tools.dispose({}); },
+    };
+}
+for (const throughHttp of [false, true]) describe('bound frontend relay / ' + (throughHttp ? 'owner-http' : 'direct-port'), () => {
+    it('binds by current token and returns the observed browser output exactly once', async () => {
+        const f = await frontendFixture({ throughHttp });
+        try {
+            const result = f.relay.frontend.page({ context: agent, name: 'page.find_elements', input: {} });
+            const invocation = await f.next(); expect(invocation).toMatchObject({ type: 'invocation', runId: 'run', frontendSessionId: f.attachment.sessionId, capabilityId: 'page.find_elements' });
+            const body = { invocationId: invocation.invocationId, ok: true, output: { elements: [{ handle: 'appearance-mode', label: 'Appearance' }] } };
+            const path = '/api/frontend-sessions/' + f.attachment.sessionId + '/responses';
+            expect((await f.request({ method: 'POST', path, body })).status).toBe(200);
+            expect(await result).toEqual({ ok: true, value: body.output });
+            expect((await f.request({ method: 'POST', path, body })).status).toBe(403);
+        } finally { f.dispose(); }
+        expect(f.timers.size).toBe(0);
+    });
+    it('rejects cross-owner and cross-session responses without settling the right invocation', async () => {
+        const f = await frontendFixture({ throughHttp });
+        try {
+            const result = f.relay.frontend.page({ context: agent, name: 'page.navigate', input: { page: 'settings' } });
+            const invocation = await f.next();
+            const body = { invocationId: invocation.invocationId, ok: true, output: { navigated: 'settings' } };
+            const path = '/api/frontend-sessions/' + f.attachment.sessionId + '/responses';
+            expect((await f.request({ method: 'POST', path, body, context: { ...owner, scope: { ...owner.scope, ownerId: 'foreign' } } })).status).toBe(403);
+            expect((await f.request({ method: 'POST', path: '/api/frontend-sessions/foreign/responses', body })).status).toBe(403);
+            expect((await f.request({ method: 'POST', path, body })).status).toBe(200);
+            expect(await result).toEqual({ ok: true, value: body.output });
+        } finally { f.dispose(); }
+    });
+    it('requires matching rendered evidence and does not complete on sent alone', async () => {
+        const f = await frontendFixture({ throughHttp });
+        try {
+            let settled = false;
+            const result = f.relay.frontend.render({ context: agent, surfaceId: 'surface', messages: [{ version: 'v1.0', createSurface: { surfaceId: 'surface', catalogId: 'fixture', dataModel: {} } }] });
+            void result.then(() => { settled = true; });
+            const surface = await f.next(); expect(surface.type).toBe('a2ui');
+            const identity = { surfaceId: 'surface', invocationId: surface.invocationId, runId: 'run', frontendSessionId: f.attachment.sessionId };
+            expect(await f.relay.frontend.acknowledge({ context: owner, result: { ...identity, runId: 'foreign', status: 'rendered' } })).toMatchObject({ ok: false });
+            expect(await f.relay.frontend.acknowledge({ context: owner, result: { ...identity, status: 'sent' } })).toMatchObject({ ok: true });
+            await Promise.resolve(); expect(settled).toBe(false);
+            expect(await f.relay.frontend.acknowledge({ context: owner, result: { ...identity, status: 'rendered' } })).toMatchObject({ ok: true });
+            expect(await result).toEqual({ ok: true, value: { ...identity, status: 'rendered' } });
+        } finally { f.dispose(); }
+    });
+    it('cancellation voids page calls and cards and denies late browser acknowledgements', async () => {
+        const f = await frontendFixture({ throughHttp });
+        try {
+            await f.tools.dispatch({ context: agent, call: f.call });
+            const card = value({ result: await f.tools.card({ context: owner, operationId: f.call.operationId }) }); expect(card).not.toBeNull();
+            const result = f.relay.frontend.page({ context: agent, name: 'page.click', input: { handle: 'appearance-mode' } });
+            const invocation = await f.next(); f.revoke();
+            expect(await result).toMatchObject({ ok: false, error: { code: 'cancelled' } });
+            expect((await f.request({ method: 'POST', path: '/api/frontend-sessions/' + f.attachment.sessionId + '/responses',
+                body: { invocationId: invocation.invocationId, ok: true, output: {} } })).status).toBe(403);
+            expect(await f.tools.card({ context: owner, operationId: f.call.operationId })).toEqual({ ok: true, value: null });
+            expect(await f.tools.answer({ context: owner, response: { cardId: card!.cardId, operationId: card!.operationId, argumentsDigest: card!.argumentsDigest, choice: 'allow' } })).toMatchObject({ ok: false });
+            expect(f.effects).toEqual([]);
+        } finally { f.dispose(); }
+    });
+    it('disconnect invalidates the attachment token and revokes its pending cards', async () => {
+        const f = await frontendFixture({ throughHttp });
+        try {
+            await f.tools.dispatch({ context: agent, call: f.call });
+            const result = f.relay.frontend.page({ context: agent, name: 'page.navigate', input: { page: 'settings' } }); await f.next();
+            f.disconnect.abort(); expect(await result).toMatchObject({ ok: false, error: { code: 'cancelled' } });
+            expect(f.bind()).toMatchObject({ ok: false });
+            expect(await f.tools.card({ context: owner, operationId: f.call.operationId })).toEqual({ ok: true, value: null });
+            expect(f.effects).toEqual([]); expect(f.timers.size).toBe(0);
+        } finally { f.dispose(); }
+    });
+    it('refuses stale tokens, foreign owners, unclaimed capabilities and oversized replies', async () => {
+        const f = await frontendFixture({ throughHttp });
+        try {
+            expect(f.bind({ token: 'old-token', runId: 'other' })).toMatchObject({ ok: false });
+            expect(f.bind({ runId: 'other', context: { ...agent, scope: { ...agent.scope, workspaceId: 'foreign' } } })).toMatchObject({ ok: false });
+            expect(await f.relay.frontend.page({ context: agent, name: 'page.fill', input: { handle: 'appearance-mode', text: 'dark' } })).toMatchObject({ ok: false });
+            const result = f.relay.frontend.page({ context: agent, name: 'page.navigate', input: { page: 'settings' } }); const invocation = await f.next();
+            expect((await f.request({ method: 'POST', path: '/api/frontend-sessions/' + f.attachment.sessionId + '/responses',
+                body: { invocationId: invocation.invocationId, ok: true, output: 'x'.repeat(65536) } })).status).toBe(400);
+            const deadline = [...f.timers.values()].find(timer => timer.delayMs === 15000)!; deadline.callback();
+            expect(await result).toMatchObject({ ok: false, error: { code: 'expired' } });
+        } finally { f.dispose(); }
+    });
+});
+
+it('surface tool calls use the existing exact card, and cancellation prevents its effect', async () => {
+    const f = await frontendFixture({ throughHttp: true });
+    try {
+        const request = { method: 'POST' as const, path: '/api/tools/call', body: { call: f.call, runId: 'run', frontendSessionId: f.attachment.sessionId } };
+        const dispatched = await handleOwnerRequest({ services: f.services, context: owner, request });
+        expect(dispatched.body).toMatchObject({ ok: true, value: { status: 'pending' } }); expect(f.effects).toEqual([]);
+        const card = value({ result: await f.tools.card({ context: owner, operationId: f.call.operationId }) });
+        f.revoke();
+        expect(await f.tools.answer({ context: owner, response: { cardId: card!.cardId, operationId: card!.operationId, argumentsDigest: card!.argumentsDigest, choice: 'allow' } })).toMatchObject({ ok: false });
+        expect(f.effects).toEqual([]);
+        const foreign = await handleOwnerRequest({ services: f.services, context: owner, request: { ...request,
+            body: { call: { ...f.call, operationId: 'other' }, runId: 'run', frontendSessionId: 'foreign' } } });
+        expect(foreign.status).toBe(403);
+    } finally { f.dispose(); }
+});
+
+it('authenticates the real frontend stream and carries its binding through a sandbox run', async () => {
+    const directory = await fs.mkdtemp(join(tmpdir(), 'om-a5b-'));
+    const studioRoot = join(directory, 'studio'); const stateRoot = join(directory, 'state');
+    await fs.mkdir(studioRoot); await fs.writeFile(join(studioRoot, 'index.html'), '<!doctype html><title>Frontend fixture</title>');
+    const projectRoot = fileURLToPath(new URL('../../../', import.meta.url));
+    const args = { env: { OM_STATE_ROOT: stateRoot }, io: createNodeBootIo({ projectRoot, studioRoot, ready() {} }),
+        clock: { now: () => Date.now() }, ids: { next: () => randomUUID() }, observer: { observe() {} } };
+    let server: Awaited<ReturnType<typeof bootServer>> | undefined;
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    try {
+        server = await bootServer(args); const booted = value({ result: server }); const origin = new URL(booted.studioUrl).origin;
+        const path = '/api/frontend-sessions/stream?capabilities=page.navigate';
+        expect((await fetch(origin + path)).status).toBe(401);
+        const bootstrap = await fetch(booted.studioUrl, { redirect: 'manual' }); const cookie = bootstrap.headers.get('set-cookie')!.split(';')[0];
+        const headers = { cookie, origin, 'content-type': 'application/json' };
+        const stream = await fetch(origin + path, { headers }); expect(stream.status).toBe(200); expect(stream.headers.get('content-type')).toContain('text/event-stream');
+        reader = stream.body!.getReader(); const buffered = { text: '' };
+        const attachment = await readFrontendSseFrame({ reader, buffered }) as { sessionId: string; bindToken: string };
+        const body = { prompt: 'Sandbox fixture only', frontendSessionId: attachment.sessionId, frontendBindToken: attachment.bindToken };
+        const run = await fetch(origin + '/api/runs', { method: 'POST', headers, body: JSON.stringify(body) });
+        expect(run.status).toBe(200); const receipt = await run.json() as { value: { runId: string } };
+        expect(receipt.value.runId).toBeTruthy();
+        const binding = await readFrontendSseFrame({ reader, buffered }) as { runId: string; type: string };
+        expect(binding).toMatchObject({ type: 'bound', runId: receipt.value.runId });
+        expect(JSON.stringify(receipt)).not.toContain(attachment.bindToken);
+        const events = await (await fetch(origin + '/api/runs/' + receipt.value.runId + '/events?after=0', { headers })).text();
+        expect(events).not.toContain(attachment.bindToken);
+        const foreign = await fetch(origin + '/api/runs', { method: 'POST', headers,
+            body: JSON.stringify({ ...body, frontendBindToken: 'stale-fixture-token' }) });
+        expect(foreign.status).toBe(403);
+    } finally {
+        await reader?.cancel(); if (server?.ok) await server.value.stop({}); await removeStateRoot({ path: stateRoot }); await fs.rm(directory, { recursive: true, force: true });
+    }
+});
+
+it('removes queued page invocations when a run is cancelled before the browser pulls them', async () => {
+    const f = await frontendFixture({ throughHttp: true });
+    try {
+        const first = f.relay.frontend.page({ context: agent, name: 'page.click', input: { handle: 'appearance-mode' } });
+        const second = f.relay.frontend.page({ context: agent, name: 'page.navigate', input: { page: 'settings' } });
+        f.revoke();
+        expect(await first).toMatchObject({ ok: false, error: { code: 'cancelled' } });
+        expect(await second).toMatchObject({ ok: false, error: { code: 'cancelled' } });
+        expect(await f.next()).toMatchObject({ type: 'voided', runId: 'run', frontendSessionId: f.attachment.sessionId });
+    } finally { f.dispose(); }
+});
+
+/** Fixture parser handles split/coalesced SSE packets and ignores heartbeat comments. */
+async function readFrontendSseFrame(required: { reader: ReadableStreamDefaultReader<Uint8Array>; buffered: { text: string } }): Promise<unknown> {
+    while (true) {
+        const end = required.buffered.text.indexOf('\n\n');
+        if (end >= 0) {
+            const frame = required.buffered.text.slice(0, end); required.buffered.text = required.buffered.text.slice(end + 2);
+            if (frame.startsWith('data: ')) return JSON.parse(frame.slice(6)) as unknown;
+            continue;
+        }
+        const chunk = await required.reader.read();
+        if (chunk.done) throw new Error('Frontend stream ended before the fixture frame');
+        required.buffered.text += new TextDecoder().decode(chunk.value);
+        if (required.buffered.text.length > 131072) throw new Error('Fixture SSE bound exceeded');
+    }
+}
