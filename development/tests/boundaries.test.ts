@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { graphCycles, edgeViolations, importSpecifiers, checkBoundaries } from '../scripts/boundaries.mjs';
+import { graphCycles, edgeViolations, importSpecifiers, checkBoundaries, nonliteralImportAllowed } from '../scripts/boundaries.mjs';
 import { workspacePackages } from '../scripts/workspace.mjs';
 import ts from 'typescript';
 const packages = [
@@ -15,6 +15,10 @@ describe('boundary conformance', () => {
  it('cycle through unchanged source fails', () => expect(graphCycles({ edges: [{ from: 'changed', to: 'unchanged' },{ from: 'unchanged', to: 'changed' }] }).length).toBeGreaterThan(0));
  it('acyclic high fanout passes', () => expect(graphCycles({ edges: Array.from({ length: 100 }, (_, index) => ({ from: 'root', to: String(index) })) })).toEqual([]));
  it.each(['@open-marketing/policy/src/gates','../../features/policy/index.ts','@alias/policy'])('feature spelling %s fails', specifier => expect(edgeViolations({ from: 'apps/server/src/composition/index.ts', to: 'features/policy/index.ts', specifier, packages })).toContain('feature-public-name'));
+ it('only the server executable boundary may load plugin code by computed URL', () => {
+  expect(nonliteralImportAllowed({ file: 'apps/server/src/composition/serve.ts' })).toBe(true);
+  for (const file of ['apps/server/src/composition/index.ts', 'apps/server/src/composition/addons.ts', 'features/jobs/src/service.ts', 'apps/agent/src/composition/serve.ts']) expect(nonliteralImportAllowed({ file })).toBe(false);
+ });
  it('type-only spellings and require/dynamic/reexport are captured', () => { for (const source of ['import type { A } from "bad";', 'export { A } from "bad";', 'require("bad");', 'import("bad");', 'type A = import("bad").A;']) expect(importSpecifiers({ source, file: 'test.ts' })[0].specifier).toBe('bad'); });
  it('default feature edges fail and pure policy exception is narrow', () => { expect(edgeViolations({ from: 'features/jobs/src/service.ts', to: 'features/policy/index.ts', specifier: '@open-marketing/policy', packages })).toContain('feature-to-feature'); expect(edgeViolations({ from: 'features/safety/src/service.ts', to: 'features/policy/index.ts', specifier: '@open-marketing/policy', packages })).toEqual([]); });
  it('policy service, wildcard and memory adapter imports cannot use the pure-gate exception', () => {

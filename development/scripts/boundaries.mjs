@@ -118,11 +118,21 @@ function dependencyDeclarationViolations({ pkg, name, version, packages }) {
  if (version.startsWith('workspace:') && !Array.from(packages).some(item => item.name === name)) return [`${pkg.name}: missing workspace ${name}`];
  return [];
 }
+/** Uploaded plugins are unrestricted (owner, 2026-10-13), so their code must be loaded by computed URL.
+ * Only the server executable boundary, which already owns process effects, may do that; it injects the loader.
+ */
+const pluginLoaderFiles = new Set(['apps/server/src/composition/serve.ts']);
+export function nonliteralImportAllowed({ file }) {
+ return pluginLoaderFiles.has(file);
+}
+function nonliteralFailures({ file }) {
+ return nonliteralImportAllowed({ file }) ? [] : [`${file}: nonliteral-module-import`];
+}
 /** Original specifiers are resolved independently of the graph analyzer. */
 function fileEdges({ file, root, packages }) {
  const failures = []; const edges = [];
  for (const entry of importSpecifiers({ source: readFileSync(resolve(root, file), 'utf8'), file })) {
-  if (!entry.specifier) { failures.push(`${file}: nonliteral-module-import`); continue; }
+  if (!entry.specifier) { failures.push(...nonliteralFailures({ file })); continue; }
   const absolute = resolveImport({ source: entry.specifier, file, packages, root });
   const target = absolute ? relative(root, absolute).replaceAll('\\', '/') : entry.specifier;
   failures.push(...edgeViolations({ from: file, to: target, specifier: entry.specifier, kind: entry.kind, names: entry.names, packages }).map(reason => `${file} -> ${entry.specifier}: ${reason}`));

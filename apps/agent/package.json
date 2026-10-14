@@ -21,6 +21,7 @@
   "dependencies": {
     "@jini-ai/agent-runtime": "0.4.9",
     "@jini-ai/core": "0.4.5",
+    "@jini-ai/platform": "0.5.6",
     "@jini-ai/protocol": "0.4.4",
     "@open-marketing/contracts": "workspace:*",
     "@open-marketing/om-clock": "workspace:*",
