@@ -3,6 +3,20 @@ import { resolve, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
 import { sourceFiles, workspacePackages } from './workspace.mjs';
 import { sourceDigest } from './source-digest.mjs';
+/** Only versioned plugin client JS bundles may leave first-party lint scope, after integrity.
+ * Every matching bundle must have its exact bytes in the package integrity map.
+ * @returns Whether this is a built client asset and any corruption/provenance failure.
+ */
+export function pluginClientIntegrity({ root, file }) {
+ const match = /^(content\/plugins\/[^/]+\/[^/]+)\/(client\/(?:[^/]+\/)*[^/]+\.(?:js|mjs|cjs))$/.exec(file);
+ if (!match) return { excluded: false, failures: [] };
+ try {
+  const manifest = JSON.parse(readFileSync(resolve(root, match[1], 'jini.plugin.json'), 'utf8'));
+  const digest = 'sha256-' + createHash('sha256').update(readFileSync(resolve(root, file))).digest('hex');
+  if (manifest.integrity?.[match[2]] === digest) return { excluded: true, failures: [] };
+ } catch { /* Missing/unreadable provenance is a gate failure, never an exemption. */ }
+ return { excluded: false, failures: [`${file}: missing or corrupt plugin client integrity`] };
+}
 /** Require generated JS exclusions to carry an integrity receipt, with source-map provenance. */
 export function outputIntegrity({ root = process.cwd() } = {}) {
  const files = sourceFiles({ root, includeOutput: true }).filter(file => file.split('/').some(part => ['dist','coverage'].includes(part)));

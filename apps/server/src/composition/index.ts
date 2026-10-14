@@ -237,6 +237,7 @@ export async function bootServer(required: {
         };
         resources.addons = bindBootAddons({ ...required, context, db: campaignDb, stateRoot: config.value.stateRoot, integrations });
         services.addons = resources.addons?.addons;
+        services.handleChartRequest = resources.addons?.handleChartRequest;
         const visits = createVisitTokens({ key: localKey({ ownerToken: credentials.value.token, domain: 'visits' }), clock: required.clock, ids: required.ids });
         const digestKey = localKey({ ownerToken: credentials.value.token, domain: 'contacts' });
         const identity = bindIdentity({ unit: database.unit, clock: required.clock, ids: required.ids, observer: required.observer, digestKey, tokens: visits.tokens });

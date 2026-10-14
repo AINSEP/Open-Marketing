@@ -1,0 +1,36 @@
+{
+  "id": "charts-recharts",
+  "name": "Recharts",
+  "extensions": {
+    "io.github.ainsep.openmarketing": {
+      "id": "openmarketing/charts-recharts"
+    }
+  },
+  "version": "0.1.0",
+  "sdkRange": "^1.0.0",
+  "engine": 1,
+  "tier": "tier-3",
+  "capabilities": [],
+  "hooks": [],
+  "fields": [],
+  "browserProviders": [
+    {
+      "id": "plugin.recharts",
+      "kind": "chart",
+      "contractVersion": 1,
+      "kinds": [
+        "bar",
+        "line",
+        "pie"
+      ],
+      "javascript": "client/provider.js",
+      "stylesheet": "client/styles.css"
+    }
+  ],
+  "integrity": {
+    "client/provider.js": "sha256-29d351dee2b2c4239f2e1d9891495b9e533fb4fec3767027146fdbc109135f3d",
+    "client/styles.css": "sha256-10b23726f82dbd89b9970e9ecfa3722a0d1a53fdd57b9505b081c6879b66700b",
+    "server/index.mjs": "sha256-8b150b05c97bd91c5fa0015b7cdc88add7435e1b08ea7665ded2960b13c5ba85",
+    "NOTICE": "sha256-985e05c64ec1519e8ea9da942ac26bdca04e046f3677ce5b236d58d46e2de59e"
+  }
+}

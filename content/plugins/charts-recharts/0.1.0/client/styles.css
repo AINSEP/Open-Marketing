@@ -1,0 +1,129 @@
+/* Open Marketing adaptation (2026-10-14): use the studio's light/dark tokens.
+   Original layout: Jini charts-recharts 0.1.0. See NOTICE. */
+.jini-chart[data-chart-provider="plugin.recharts"] {
+  --jini-chart-default-1: var(--om-accent-text);
+  --jini-chart-default-2: var(--om-warning);
+  --jini-chart-default-3: var(--om-danger);
+  --jini-chart-default-4: var(--om-text-muted);
+  --jini-chart-default-5: var(--om-border-control);
+  --jini-chart-default-6: var(--om-text);
+  --jini-chart-surface: var(--om-surface);
+  --jini-chart-text: var(--om-text);
+  --jini-chart-axis: var(--om-text-muted);
+  --jini-chart-grid: var(--om-border);
+}
+
+/* src/styles.css */
+.jini-chart[data-chart-provider="plugin.recharts"] {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  color: var(--om-text);
+  font-family: var(--om-font-body);
+  font-size: 0.75rem;
+}
+.jini-chart[data-chart-provider="plugin.recharts"] .jini-chart-caption {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.jini-chart[data-chart-provider="plugin.recharts"] .recharts-surface:focus-visible {
+  outline: 2px solid var(--jini-chart-1, var(--jini-chart-default-1));
+  outline-offset: 3px;
+  border-radius: var(--om-radius-sm);
+}
+.jini-chart[data-chart-provider="plugin.recharts"] .jini-chart-tooltip {
+  min-width: 9rem;
+  max-width: min(22rem, 80vw);
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--om-border);
+  border-radius: var(--om-radius-sm);
+  background: var(--om-surface);
+  color: var(--om-text);
+  box-shadow: var(--om-shadow-card);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+.jini-chart[data-chart-provider="plugin.recharts"] .jini-chart-tooltip-label {
+  margin-bottom: 0.375rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.jini-chart[data-chart-provider="plugin.recharts"] .jini-chart-tooltip-items {
+  display: grid;
+  gap: 0.375rem;
+}
+.jini-chart[data-chart-provider="plugin.recharts"] .jini-chart-tooltip-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.jini-chart[data-chart-provider="plugin.recharts"] .jini-chart-swatch {
+  display: inline-block;
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 2px;
+}
+.jini-chart[data-chart-provider="plugin.recharts"] .jini-chart-tooltip-name {
+  flex: 1;
+  color: var(--om-text-muted);
+  overflow-wrap: anywhere;
+}
+.jini-chart[data-chart-provider="plugin.recharts"] .jini-chart-tooltip-value,
+.jini-chart[data-chart-provider="plugin.recharts"] .jini-chart-legend-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.jini-chart[data-chart-provider="plugin.recharts"] .jini-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem 1rem;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--om-text-muted);
+  line-height: 1.5;
+}
+.jini-chart[data-chart-provider="plugin.recharts"] .jini-chart-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.jini-chart[data-chart-provider="plugin.recharts"] .jini-chart-legend-item > span:not(.jini-chart-swatch) {
+  min-width: 0;
+}
+.jini-chart[data-chart-provider="plugin.recharts"] .jini-chart-legend-value {
+  color: var(--om-text);
+}
+.jini-chart[data-chart-provider="plugin.recharts"] .jini-chart-total {
+  fill: var(--om-text);
+  font-size: 1.75rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.04em;
+  pointer-events: none;
+}
+.jini-chart[data-chart-provider="plugin.recharts"] .jini-chart-total-label {
+  fill: var(--om-text-muted);
+  font-size: 0.75rem;
+  font-weight: 400;
+  letter-spacing: normal;
+}
+@media (prefers-reduced-motion: reduce) {
+  .jini-chart[data-chart-provider="plugin.recharts"] *,
+  .jini-chart[data-chart-provider="plugin.recharts"] *::before,
+  .jini-chart[data-chart-provider="plugin.recharts"] *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

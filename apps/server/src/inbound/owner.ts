@@ -26,6 +26,7 @@ export interface OwnerServices {
     runs?: OwnerRunPort;
     conversations?: Conversations;
     addons?: Addons;
+    handleChartRequest?: (required: { request: HttpRequest; context: CallContext }) => Promise<HttpResponse>;
     integrations?: Integrations;
     tools?: OmTools;
 }
@@ -314,6 +315,9 @@ async function assistantSettingsWrite(required: OwnerInput): Promise<HttpRespons
 async function addonOwnerRequest(required: OwnerInput): Promise<HttpResponse> {
     if (required.request.path.startsWith('/api/addons/v1/integrations') && required.services.integrations) {
         return handleIntegrationRequest({ ...required, integrations: required.services.integrations });
+    }
+    if (required.request.path === '/api/addons/v1/chart-providers' || required.request.path.startsWith('/api/addons/v1/chart-assets/')) {
+        return required.services.handleChartRequest?.(required) ?? { status: 503, body: localFailure({ message: 'Chart providers unavailable' }) };
     }
     if (required.services.addons) return handleAddonRequest({ ...required, addons: required.services.addons });
     return { status: 503, body: localFailure({ message: 'Add-ons unavailable on this server' }) };

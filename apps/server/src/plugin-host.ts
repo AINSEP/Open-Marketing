@@ -1,27 +1,29 @@
 /** Thin executable host: published Jini installation, discovery, claims, loader and contributions. */
 import { createPluginContributionCapture, PluginConflictError, pluginCapabilitySet, resolvePluginConflicts,
-    setPluginEnabled, uninstallPlugin } from '@jini-ai/plugins/host';
+    setPluginEnabled, uninstallPlugin, validateBrowserProviders } from '@jini-ai/plugins/host';
 import type { CapabilityScopedSdkCoreDeps, ManifestHostPorts, PluginActivationRepoPort,
-    PluginContributionRegistry, PluginDiscoveryRecord, PluginManifest, PluginSdk, PluginTierPolicy } from '@jini-ai/plugins/host';
-import { discoverPlugins, installSitePlugin, loadPlugin, previewSitePluginInstall, siteEntryPath } from '@jini-ai/plugins/host/node';
+    PluginContributionRegistry, PluginDiscoveryRecord, PluginManifest, PluginSdk, PluginTierPolicy, AdmittedBrowserProvider } from '@jini-ai/plugins/host';
+import { discoverPlugins, installSitePlugin, loadPlugin, previewSitePluginInstall, siteEntryPath, verifyPluginSnapshotIntegrity } from '@jini-ai/plugins/host/node';
 import type { VerifyDigestPort } from '@jini-ai/plugins/host';
 import type { CallContext } from '@open-marketing/contracts';
 import type { AddonPackageAdapter } from './addons.js';
 import { addonToolEffectsSchema } from '@open-marketing/contracts';
 import { dirname } from 'node:path';
-import type { AddonFiles } from './addon-upload.js';
+import type { ChartAssets } from './inbound/chart-assets.js';
 
 export interface ExecutablePluginHostDependencies {
     host: ManifestHostPorts; installDir: string; activations: PluginActivationRepoPort;
     registry: PluginContributionRegistry; tierPolicy: PluginTierPolicy; clock: { nowMs(): number };
     verifyDigest: VerifyDigestPort;
+    browserProviders: Pick<ChartAssets, 'replace' | 'remove'>;
+    snapshotVerified(required: { entryPath: string; manifest: PluginManifest }): Promise<{ entryPath: string; files: ReadonlyMap<string, Uint8Array> }>;
     importVerified(required: { entryPath: string; manifest: PluginManifest }): Promise<unknown>;
     removeBytes(required: { pluginId: string }): Promise<void>;
     coreDeps: Omit<CapabilityScopedSdkCoreDeps, 'contributions'>;
 }
 
 /** Installation never imports code. Enable uses fresh discovery and Jini's shared claim owner.
- * Browser-provider approval is supplied in D4; D2 leaves Jini's loader unchanged.
+ * Browser assets and server code use the same verified snapshot.
  * @example const packages = createExecutablePluginHost({ host, installDir, activations, registry, ...effects });
  * @complexity Bounded package bytes plus Jini's claim checks; arbitrary plugin setup is owner-unrestricted.
  */
@@ -50,13 +52,14 @@ export function createExecutablePluginHost(required: ExecutablePluginHostDepende
             const record = discovery.find(row => row.id === input.addon.id);
             if (input.enabled) await assertClaims({ record, context: input.context, discovery });
             // Unregister immediately, even when persistence or Jini's disable callback fails.
-            if (!input.enabled) required.registry.detach({ pluginId: input.addon.id });
+            if (!input.enabled) detach({ pluginId: input.addon.id });
             await setPluginEnabled({ input: { workspaceId: input.context.scope.workspaceId, pluginId: input.addon.id, enabled: input.enabled },
                 deps: { clock: required.clock, repo: required.activations, discovery,
                     onEnabled: async () => { await enable({ record: record! }); },
-                    onDisabled: pluginId => required.registry.detach({ pluginId }) } });
+                    onDisabled: pluginId => detach({ pluginId }) } });
         },
         async remove(input) {
+            detach({ pluginId: input.addon.id });
             await uninstallPlugin({ input: { pluginId: input.addon.id, workspaceId: input.context.scope.workspaceId,
                 at: new Date(required.clock.nowMs()).toISOString(), actor: { principalId: principalId({ context: input.context }) } },
                 deps: { repo: required.activations, discovery: await discover(), remove: async ({ id }) => {
@@ -77,6 +80,12 @@ export function createExecutablePluginHost(required: ExecutablePluginHostDepende
         },
     };
 
+    /** Disable/failure closes both server contributions and browser asset discovery. */
+    function detach(input: { pluginId: string }): void {
+        required.browserProviders.remove(input);
+        required.registry.detach(input);
+    }
+
     async function assertClaims(input: { record?: PluginDiscoveryRecord; context: CallContext; discovery: readonly PluginDiscoveryRecord[] }): Promise<void> {
         if (!input.record?.manifest) throw new Error('Invalid plugin');
         const found = resolvePluginConflicts({ ...required.host, workspaceId: input.context.scope.workspaceId, discovery: input.discovery,
@@ -88,6 +97,7 @@ export function createExecutablePluginHost(required: ExecutablePluginHostDepende
     /** Loader owns integrity -> SDK range -> import -> setup; capture/registry own cleanup. */
     async function enable(input: { record: PluginDiscoveryRecord }): Promise<void> {
         const manifest = input.record.manifest!;
+        detach({ pluginId: input.record.id });
         const capture = createPluginContributionCapture({ manifest });
         let sdk: PluginSdk | undefined;
         const binding = { ...required.host.pluginSdkBinding, buildSdk(value: { sdk: PluginSdk }) {
@@ -95,14 +105,21 @@ export function createExecutablePluginHost(required: ExecutablePluginHostDepende
         } };
         const entryPath = siteEntryPath({ installDir: required.installDir, id: input.record.id, version: input.record.version });
         try {
-            const result = await loadPlugin({ record: input.record, manifest, entryPath, pluginSdkBinding: binding,
+            const snapshot = await required.snapshotVerified({ entryPath, manifest });
+            const providers = retainOmChartProviders({ pluginId: input.record.id, manifest, files: snapshot.files });
+            // Owner decisions 10/11: enabled bundled/uploads share OM's integrity-only browser
+            // admission. Omit declarations ONLY from Jini's loader view to skip its built-in gate;
+            // stored manifests, source identity, integrity, SDK and server execution checks stay intact.
+            const { browserProviders: _browserProviders, ...serverManifest } = manifest;
+            const result = await loadPlugin({ record: input.record, manifest: serverManifest, entryPath: snapshot.entryPath, pluginSdkBinding: binding,
                 verifyDigest: required.verifyDigest, tierPolicy: required.tierPolicy,
-                importModule: async () => ({ exported: await required.importVerified({ entryPath, manifest }) }),
+                importModule: async () => ({ exported: await required.importVerified({ entryPath: snapshot.entryPath, manifest }) }),
                 coreDeps: { ...required.coreDeps, contributions: capture } });
             if (!result.loaded) throw new Error('Plugin load failed');
             if (sdk) required.registry.replace({ contributions: capture.seal({ sdk }) });
+            required.browserProviders.replace({ pluginId: input.record.id, providers });
         } catch {
-            required.registry.detach({ pluginId: input.record.id });
+            detach({ pluginId: input.record.id });
             throw new Error('Plugin enable failed');
         }
     }
@@ -124,3 +141,22 @@ function principalId(required: { context: CallContext }): string {
 
 /** Importer helper input: Jini snapshots the exact module graph in server composition. */
 export function executablePackageRoot(required: { entryPath: string }): string { return dirname(dirname(required.entryPath)); }
+
+/** Retain only declared chart assets from the enabled plugin's complete verified snapshot.
+ * Jini owns declaration validation and package integrity; reads return copies of retained bytes.
+ * @example retainOmChartProviders({ pluginId, manifest, files });
+ * @throws Invalid declarations or incomplete/corrupt package bytes; publishes nothing on failure.
+ * @complexity O(package bytes + declared assets); snapshot/install caps bound package size.
+ */
+export function retainOmChartProviders(required: { pluginId: string; manifest: PluginManifest; files: ReadonlyMap<string, Uint8Array> }): readonly AdmittedBrowserProvider[] {
+    const { manifest, files } = required;
+    if (validateBrowserProviders({ browserProviders: manifest.browserProviders, integrity: manifest.integrity }).length) throw new Error('Invalid chart declarations');
+    verifyPluginSnapshotIntegrity({ files, integrity: manifest.integrity });
+    return (manifest.browserProviders ?? []).map(declaration => ({ pluginId: required.pluginId, version: manifest.version,
+        declaration: { ...declaration, kinds: [...declaration.kinds] },
+        assets: [declaration.javascript, ...(declaration.stylesheet ? [declaration.stylesheet] : [])].map(path => {
+            const bytes = Uint8Array.from(files.get(path)!);
+            return { path, digest: manifest.integrity[path], contentType: path.endsWith('.css') ? 'text/css' as const : 'text/javascript' as const,
+                readBytes: () => bytes.slice() };
+        }) }));
+}

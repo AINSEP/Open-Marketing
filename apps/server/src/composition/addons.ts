@@ -13,17 +13,19 @@ import { createNodeSkillFilesystem, createSkillInstaller, createSkillLayout, cre
 import type { SkillZipSdkPort, YamlReaderPort } from '@jini-ai/agentic/skills/install';
 import { createPluginContributionRegistry } from '@jini-ai/plugins/host';
 import type { DefinedPlugin, ManifestHostPorts, PluginActivationRepoPort, PluginTierPolicy } from '@jini-ai/plugins/host';
-import { snapshotPluginModuleGraph } from '@jini-ai/plugins/host/node';
+import { snapshotPluginModuleGraph, snapshotSitePluginPackage } from '@jini-ai/plugins/host/node';
 import type { AddonSummary, CallContext, ClockPort, IdPort, ObserverPort, Outcome } from '@open-marketing/contracts';
 import type { CredentialSqlPort } from '@open-marketing/credentials';
 import { addonSummarySchema, boundedJsonSchema } from '@open-marketing/contracts';
-import { createAddons, createSqlAddonRepository, addonBoundary } from '../addons.js';
+import { createAddons, createSqlAddonRepository, addonBoundary, addonFailure } from '../addons.js';
 import type { AddonDescription, AddonPackageAdapter, PreparedAddon } from '../addons.js';
 import { addonAgentArchiveReader, decodeAddonUpload } from '../addon-upload.js';
 import type { AddonFiles } from '../addon-upload.js';
 import { createExecutablePluginHost, executablePackageRoot } from '../plugin-host.js';
 import { createExternalMcpStore } from '../external-mcp.js';
 import type { ExternalMcpSessions } from '../external-mcp.js';
+import { createChartAssets, handleChartAssetRequest } from '../inbound/chart-assets.js';
+import type { HttpRequest } from '../ports.js';
 
 /** Native effects are created ONLY here; tests inject temporary roots/readers/clock/ids.
  * YAML and executable module loading are supplied by composition; no new dependency is installed.
@@ -54,6 +56,7 @@ export function bindServerAddons(required: { context: CallContext; db: Credentia
     const root = join(required.stateRoot, 'addons', scopeId);
     const repo = createSqlAddonRepository({ db: required.db });
     const registry = createPluginContributionRegistry({});
+    const charts = createChartAssets({});
     const externalMcp = createExternalMcpStore(required);
     const layout = createAgentPluginLayout({ root: join(root, 'agent-plugins') });
     const world = layout.forWorkspace({ workspaceId: scopeId });
@@ -91,11 +94,16 @@ export function bindServerAddons(required: { context: CallContext; db: Credentia
     const activations = activationRepository({ db: required.db, context: required.context });
     const packages = {
         plugin: createExecutablePluginHost({ host: executableHostPorts({}), installDir: join(root, 'plugins'), activations, registry,
+            browserProviders: charts,
             tierPolicy: executableTierPolicy({}), clock: required.effects.clock,
             coreDeps: { getCurrentEntry: () => ({ workspaceId: scopeId, ext: {} }),
                 writeExtField() { throw new Error('No content operation is active'); }, attachFilter() { throw new Error('No content hooks are mounted'); } },
             verifyDigest: async ({ absoluteFilePath }) => 'sha256-' + createHash('sha256').update(await required.effects.filesystem.readFile(absoluteFilePath)).digest('hex'),
-            importVerified: async input => required.effects.importModule({ entryPath: await snapshotPluginModuleGraph({ pluginRoot: executablePackageRoot(input), manifest: input.manifest }) }),
+            snapshotVerified: async input => {
+                const entryPath = await snapshotPluginModuleGraph({ pluginRoot: executablePackageRoot(input), manifest: input.manifest });
+                return { entryPath, files: await snapshotSitePluginPackage({ sourceDir: executablePackageRoot({ entryPath }) }) };
+            },
+            importVerified: input => required.effects.importModule({ entryPath: input.entryPath }),
             removeBytes: async ({ pluginId }) => { await required.effects.filesystem.rm(join(root, 'plugins', pluginId), { recursive: true, force: true }); } }),
         'agent-plugin': agentAdapter(),
         skill: skillAdapter(),
@@ -105,8 +113,15 @@ export function bindServerAddons(required: { context: CallContext; db: Credentia
         save: async (input: Parameters<typeof repo.save>[0]) => { assertScope(input); await repo.save(input); },
         remove: async (input: Parameters<typeof repo.remove>[0]) => { assertScope(input); await repo.remove(input); } };
     const addons = createAddons({ repo: scopedRepo, packages, archiveReader: required.effects.archiveReader, observer: required.observer });
-    return { addons, externalMcp, registry,
+    return { addons, externalMcp, registry, charts,
+        // Coordinator selects this only after the existing owner cookie/origin authentication.
+        async handleChartRequest(input: { request: HttpRequest; context: CallContext }) {
+            try { assertScope(input); }
+            catch { return { status: 403, body: addonFailure({ code: 'forbidden' }) }; }
+            return handleChartAssetRequest({ ...input, charts, observer: required.observer });
+        },
         start: () => addonBoundary({ context: required.context, dependencies: required, operation: 'addons.start', run: async () => {
+            await seedChartPlugin();
             await seedBundledAgentPlugins({ lifecycle, layout, workspaceId: scopeId, effects: required.effects,
                 sourceRoot: join(required.projectRoot, 'content', 'agent-plugins') });
             const installed = await lifecycle.listInstalledPlugins({ workspaceRoot: world.root });
@@ -116,10 +131,29 @@ export function bindServerAddons(required: { context: CallContext; db: Credentia
             return { ok: true, value: undefined };
         } }),
         dispose: () => addonBoundary({ context: required.context, dependencies: required, operation: 'addons.dispose', run: async () => {
+            charts.dispose({});
             for (const contributions of registry.list({})) registry.detach({ pluginId: contributions.pluginId });
             return externalMcp.dispose({ context: required.context });
         } }),
     };
+
+    /** Seed the artifact disabled through the ordinary installer. Existing operator packages win.
+     * There is no source/trust relabeling; enabling remains subject to the published Jini loader.
+     * @complexity <=5 files/32 MiB, using the same no-follow reader and upload caps as Agent Plugins.
+     */
+    async function seedChartPlugin(): Promise<void> {
+        const previous = await repo.list({ context: required.context });
+        if (previous.some(row => row.kind === 'plugin' && row.id === 'charts-recharts')) return;
+        const sourceDir = join(required.projectRoot, 'content', 'plugins', 'charts-recharts', '0.1.0');
+        const entries = await bundledSourceEntries({ effects: required.effects, path: sourceDir });
+        if (!entries.length) return;
+        const scan: BundledScan = { files: new Map(), bytes: 0, entries: 0 };
+        for (const path of ['jini.plugin.json', 'client/provider.js', 'client/styles.css', 'server/index.mjs', 'NOTICE']) {
+            await readBundledPath({ effects: required.effects, sourceDir, path, scan });
+        }
+        checked({ result: await addons.install({ context: required.context, request: { kind: 'plugin', upload: { kind: 'files',
+            files: [...scan.files].map(([path, content]) => ({ path, base64: Buffer.from(content).toString('base64') })) } } }) });
+    }
 
     function assertScope(input: { context: CallContext }): void {
         if (scopeKey(input) !== scopeId) throw new Error('Add-on scope mismatch');
