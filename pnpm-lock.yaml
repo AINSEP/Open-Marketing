@@ -117,37 +117,37 @@ importers:
     dependencies:
       '@jini-ai/agent-plugins':
         specifier: 0.4.6
-        version: 0.4.6(@jini-ai/core@0.4.5(express@5.2.1))(@jini-ai/platform@0.5.6(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(yauzl@3.4.0)
+        version: 0.4.6(@jini-ai/core@0.4.5)(@jini-ai/platform@0.5.6(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(yauzl@3.4.0)
       '@jini-ai/agentic':
         specifier: 0.4.4
-        version: 0.4.4(@jini-ai/core@0.4.5(express@5.2.1))(@jini-ai/protocol@0.4.4)
+        version: 0.4.4(@jini-ai/core@0.4.5)(@jini-ai/protocol@0.4.4)
       '@jini-ai/chat':
         specifier: 0.6.2
-        version: 0.6.2(85d7be54ac6bac349228234e2679b173)
+        version: 0.6.2(e07c34995dd2c119a571b43ce543743d)
       '@jini-ai/cms':
         specifier: 0.5.6
-        version: 0.5.6(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(kysely@0.29.6)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(express@5.2.1)(kysely@0.29.6)(parse5@7.3.0)
+        version: 0.5.6(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(kysely@0.29.6)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(kysely@0.29.6)(parse5@7.3.0)
       '@jini-ai/core':
         specifier: 0.4.5
         version: 0.4.5(express@5.2.1)
       '@jini-ai/db':
         specifier: 0.3.2
-        version: 0.3.2(better-sqlite3@13.0.3)(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(kysely@0.29.6)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0)
+        version: 0.3.2(better-sqlite3@13.0.3)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(kysely@0.29.6)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0)
       '@jini-ai/diagnostics':
         specifier: 0.5.2
-        version: 0.5.2(express@5.2.1)
+        version: 0.5.2
       '@jini-ai/platform':
         specifier: 0.5.6
         version: 0.5.6(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0)
       '@jini-ai/plugins':
         specifier: 0.5.1
-        version: 0.5.1(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(kysely@0.29.6)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(@jini-ai/platform@0.5.6(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(express@5.2.1)(kysely@0.29.6)(semver@7.8.5)
+        version: 0.5.1(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(kysely@0.29.6)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(@jini-ai/platform@0.5.6(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(kysely@0.29.6)(semver@7.8.5)
       '@jini-ai/protocol':
         specifier: 0.4.4
         version: 0.4.4
       '@jini-ai/ui':
         specifier: 0.5.2
-        version: 0.5.2(4cde447fa0267067cf3ee4224737bfc0)
+        version: 0.5.2(35236f77469e8cc743b7399d393c5dfe)
       '@modelcontextprotocol/sdk':
         specifier: 1.32.1
         version: 1.32.1(zod@4.1.13)
@@ -222,13 +222,13 @@ importers:
     dependencies:
       '@jini-ai/agentic':
         specifier: 0.4.4
-        version: 0.4.4(@jini-ai/core@0.4.5(express@5.2.1))(@jini-ai/protocol@0.4.4)
+        version: 0.4.4(@jini-ai/core@0.4.5)(@jini-ai/protocol@0.4.4)
       '@jini-ai/chat':
         specifier: 0.6.2
-        version: 0.6.2(ab9eb4045ea1fcefcfba777bcb6521b7)
+        version: 0.6.2(8ba14a637336198bf8e026361dff1159)
       '@jini-ai/ui':
         specifier: 0.5.2
-        version: 0.5.2(03786175639ccbce7750a47fa2ccb260)
+        version: 0.5.2(a9b51daa787a0db5213d6db716595844)
       '@mcp-ui/client':
         specifier: 7.1.1
         version: 7.1.1(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
@@ -265,6 +265,9 @@ importers:
       clsx:
         specifier: 2.1.1
         version: 2.1.1
+      micromark-extension-gfm:
+        specifier: 3.0.0
+        version: 3.0.0
       react:
         specifier: 19.2.0
         version: 19.2.0
@@ -391,7 +394,7 @@ importers:
     dependencies:
       '@jini-ai/oauth':
         specifier: 0.2.2
-        version: 0.2.2(express@5.2.1)
+        version: 0.2.2
       '@jini-ai/platform':
         specifier: 0.5.6
         version: 0.5.6(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0)
@@ -422,7 +425,7 @@ importers:
     dependencies:
       '@jini-ai/mcp':
         specifier: 0.4.3
-        version: 0.4.3(@jini-ai/platform@0.5.6(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(@modelcontextprotocol/sdk@1.32.1(zod@4.1.13))
+        version: 0.4.3(@jini-ai/platform@0.5.6(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(@modelcontextprotocol/sdk@1.32.1(zod@4.1.13))(express@5.2.1)
       '@modelcontextprotocol/sdk':
         specifier: 1.32.1
         version: 1.32.1(zod@4.1.13)
@@ -469,7 +472,7 @@ importers:
     devDependencies:
       '@jini-ai/db':
         specifier: 0.3.2
-        version: 0.3.2(better-sqlite3@13.0.3)(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(kysely@0.29.6)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0)
+        version: 0.3.2(better-sqlite3@13.0.3)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(kysely@0.29.6)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0)
       '@types/better-sqlite3':
         specifier: 9.6.0
         version: 9.6.0
@@ -3033,6 +3036,27 @@ packages:
   micromark-core-commonmark@2.0.4:
     resolution: {integrity: sha512-wxEeE8v8XVvOrxn1TZj74qYhAtTQsSqufHVS3uNVyT1MupXxhyaHk8/9xDNPh9BmL77QNDgWTkZ3RsYHB2ry7w==}
 
+  micromark-extension-gfm-autolink-literal@2.1.0:
+    resolution: {integrity: sha512-oOg7knzhicgQ3t4QCjCWgTmfNhvQbDDnJeVu9v81r7NltNCVmhPy1fJRX27pISafdjL+SVc4d3l48Gb6pbRypw==}
+
+  micromark-extension-gfm-footnote@2.1.0:
+    resolution: {integrity: sha512-/yPhxI1ntnDNsiHtzLKYnE3vf9JZ6cAisqVDauhp4CEHxlb4uoOTxOCJ+9s51bIB8U1N1FJ1RXOKTIlD5B/gqw==}
+
+  micromark-extension-gfm-strikethrough@2.1.0:
+    resolution: {integrity: sha512-ADVjpOOkjz1hhkZLlBiYA9cR2Anf8F4HqZUO6e5eDcPQd0Txw5fxLzzxnEkSkfnD0wziSGiv7sYhk/ktvbf1uw==}
+
+  micromark-extension-gfm-table@2.1.2:
+    resolution: {integrity: sha512-pRzm4kDTu0MjlmBkxmS9yYhw60nncfcEwu9NNdPFSQEFXS95ZKyIIyTSHu/o3ReBUrLKYEq+7YaXCRn/bPB4MA==}
+
+  micromark-extension-gfm-tagfilter@2.0.0:
+    resolution: {integrity: sha512-xHlTOmuCSotIA8TW1mDIM6X2O1SiX5P9IuDtqGonFhEK0qgRI4yeC6vMxEV2dgyr2TiD+2PQ10o+cOhdVAcwfg==}
+
+  micromark-extension-gfm-task-list-item@2.1.0:
+    resolution: {integrity: sha512-qIBZhqxqI6fjLDYFTBIa4eivDMnP+OZqsNwmQ3xNLE4Cxwc+zfQEfbs6tzAo2Hjq+bh6q5F+Z8/cksrLFYWQQw==}
+
+  micromark-extension-gfm@3.0.0:
+    resolution: {integrity: sha512-vsKArQsicm7t0z2GugkCKtZehqUm31oeGBV/KVSorWSy8ZlNAv7ytjFhvaryUiCUJYqs+NoE6AFhpQvBTM6Q4w==}
+
   micromark-factory-destination@2.0.1:
     resolution: {integrity: sha512-Xe6rDdJlkmbFRExpTOmRj9N3MaWmbAgdpSrBQvCFqhezUn4AHqJHbaEnfbVYYiexVSs//tqOdY/DxhjdCiJnIA==}
 
@@ -4205,35 +4229,23 @@ snapshots:
     dependencies:
       '@jini-ai/core': 0.4.5(express@5.2.1)
     optionalDependencies:
-      '@jini-ai/platform': 0.5.6(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0)
+      '@jini-ai/platform': 0.5.6(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0)
       yauzl: 3.4.0
 
-  '@jini-ai/agent-plugins@0.4.6(@jini-ai/core@0.4.5(express@5.2.1))(@jini-ai/platform@0.5.6(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(yauzl@3.4.0)':
+  '@jini-ai/agent-plugins@0.4.6(@jini-ai/core@0.4.5)(@jini-ai/platform@0.5.6(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(yauzl@3.4.0)':
     dependencies:
       '@jini-ai/core': 0.4.5(express@5.2.1)
     optionalDependencies:
-      '@jini-ai/platform': 0.5.6(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0)
+      '@jini-ai/platform': 0.5.6(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0)
       yauzl: 3.4.0
-
-  '@jini-ai/agent-runtime@0.4.9(@jini-ai/integrations@0.4.2(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(kysely@0.29.6)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(@jini-ai/platform@0.5.6(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(better-sqlite3@13.0.3)(express@5.2.1))(@jini-ai/platform@0.5.6(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(@jini-ai/protocol@0.4.4)(express@5.2.1)':
-    dependencies:
-      '@jini-ai/core': 0.4.5(express@5.2.1)
-      '@jini-ai/oauth': 0.2.2(express@5.2.1)
-    optionalDependencies:
-      '@jini-ai/integrations': 0.4.2(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(kysely@0.29.6)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(@jini-ai/platform@0.5.6(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(better-sqlite3@13.0.3)(express@5.2.1)
-      '@jini-ai/platform': 0.5.6(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0)
-      '@jini-ai/protocol': 0.4.4
-    transitivePeerDependencies:
-      - express
-    optional: true
 
   '@jini-ai/agent-runtime@0.4.9(@jini-ai/integrations@0.4.2(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(kysely@0.29.6)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(@jini-ai/platform@0.5.6(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(better-sqlite3@13.0.3))(@jini-ai/platform@0.5.6(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(@jini-ai/protocol@0.4.4)':
     dependencies:
       '@jini-ai/core': 0.4.5(express@5.2.1)
-      '@jini-ai/oauth': 0.2.2(express@5.2.1)
+      '@jini-ai/oauth': 0.2.2
     optionalDependencies:
       '@jini-ai/integrations': 0.4.2(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(kysely@0.29.6)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(@jini-ai/platform@0.5.6(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(better-sqlite3@13.0.3)
-      '@jini-ai/platform': 0.5.6(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0)
+      '@jini-ai/platform': 0.5.6(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0)
       '@jini-ai/protocol': 0.4.4
     transitivePeerDependencies:
       - express
@@ -4241,7 +4253,7 @@ snapshots:
   '@jini-ai/agent-runtime@0.4.9(@jini-ai/integrations@0.4.2(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(kysely@0.29.6)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@8.0.1)(undici@7.30.0))(@jini-ai/platform@0.5.6(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@8.0.1)(undici@7.30.0))(better-sqlite3@13.0.3))(@jini-ai/platform@0.5.6(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@8.0.1)(undici@7.30.0))(@jini-ai/protocol@0.4.4)':
     dependencies:
       '@jini-ai/core': 0.4.5(express@5.2.1)
-      '@jini-ai/oauth': 0.2.2(express@5.2.1)
+      '@jini-ai/oauth': 0.2.2
     optionalDependencies:
       '@jini-ai/integrations': 0.4.2(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(kysely@0.29.6)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@8.0.1)(undici@7.30.0))(@jini-ai/platform@0.5.6(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@8.0.1)(undici@7.30.0))(better-sqlite3@13.0.3)
       '@jini-ai/platform': 0.5.6(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@8.0.1)(undici@7.30.0)
@@ -4250,48 +4262,24 @@ snapshots:
       - express
     optional: true
 
-  '@jini-ai/agentic@0.4.4(@jini-ai/core@0.4.5(express@5.2.1))(@jini-ai/protocol@0.4.4)':
+  '@jini-ai/agentic@0.4.4(@jini-ai/core@0.4.5)(@jini-ai/protocol@0.4.4)':
     dependencies:
       zod: 3.25.76
     optionalDependencies:
       '@jini-ai/core': 0.4.5(express@5.2.1)
       '@jini-ai/protocol': 0.4.4
 
-  '@jini-ai/chat@0.6.2(85d7be54ac6bac349228234e2679b173)':
-    dependencies:
-      '@jini-ai/core': 0.4.5(express@5.2.1)
-      zod: 3.25.76
-    optionalDependencies:
-      '@jini-ai/agent-runtime': 0.4.9(@jini-ai/integrations@0.4.2(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(kysely@0.29.6)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(@jini-ai/platform@0.5.6(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(better-sqlite3@13.0.3)(express@5.2.1))(@jini-ai/platform@0.5.6(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(@jini-ai/protocol@0.4.4)(express@5.2.1)
-      '@jini-ai/agentic': 0.4.4(@jini-ai/core@0.4.5(express@5.2.1))(@jini-ai/protocol@0.4.4)
-      '@jini-ai/db': 0.3.2(better-sqlite3@13.0.3)(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(kysely@0.29.6)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0)
-      '@jini-ai/diagnostics': 0.5.2(express@5.2.1)
-      '@jini-ai/protocol': 0.4.4
-      '@jini-ai/ui': 0.5.2(4cde447fa0267067cf3ee4224737bfc0)
-      '@mcp-ui/client': 7.1.1(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
-      '@radix-ui/react-checkbox': 1.4.1(@types/react-dom@19.2.3(@types/react@19.2.6))(@types/react@19.2.6)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
-      '@radix-ui/react-label': 2.1.17(@types/react-dom@19.2.3(@types/react@19.2.6))(@types/react@19.2.6)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
-      '@radix-ui/react-radio-group': 1.5.1(@types/react-dom@19.2.3(@types/react@19.2.6))(@types/react@19.2.6)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
-      '@radix-ui/react-select': 2.4.1(@types/react-dom@19.2.3(@types/react@19.2.6))(@types/react@19.2.6)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
-      '@radix-ui/react-slot': 1.5.0(@types/react@19.2.6)(react@19.2.0)
-      better-sqlite3: 13.0.3
-      kysely: 0.29.6
-      react: 19.2.0
-      react-dom: 19.2.0(react@19.2.0)
-    transitivePeerDependencies:
-      - express
-
-  '@jini-ai/chat@0.6.2(ab9eb4045ea1fcefcfba777bcb6521b7)':
+  '@jini-ai/chat@0.6.2(8ba14a637336198bf8e026361dff1159)':
     dependencies:
       '@jini-ai/core': 0.4.5(express@5.2.1)
       zod: 3.25.76
     optionalDependencies:
       '@jini-ai/agent-runtime': 0.4.9(@jini-ai/integrations@0.4.2(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(kysely@0.29.6)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@8.0.1)(undici@7.30.0))(@jini-ai/platform@0.5.6(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@8.0.1)(undici@7.30.0))(better-sqlite3@13.0.3))(@jini-ai/platform@0.5.6(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@8.0.1)(undici@7.30.0))(@jini-ai/protocol@0.4.4)
-      '@jini-ai/agentic': 0.4.4(@jini-ai/core@0.4.5(express@5.2.1))(@jini-ai/protocol@0.4.4)
+      '@jini-ai/agentic': 0.4.4(@jini-ai/core@0.4.5)(@jini-ai/protocol@0.4.4)
       '@jini-ai/db': 0.3.2(better-sqlite3@13.0.3)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(kysely@0.29.6)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@8.0.1)(undici@7.30.0)
-      '@jini-ai/diagnostics': 0.5.2(express@5.2.1)
+      '@jini-ai/diagnostics': 0.5.2
       '@jini-ai/protocol': 0.4.4
-      '@jini-ai/ui': 0.5.2(03786175639ccbce7750a47fa2ccb260)
+      '@jini-ai/ui': 0.5.2(a9b51daa787a0db5213d6db716595844)
       '@mcp-ui/client': 7.1.1(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       '@radix-ui/react-checkbox': 1.4.1(@types/react-dom@19.2.3(@types/react@19.2.6))(@types/react@19.2.6)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       '@radix-ui/react-label': 2.1.17(@types/react-dom@19.2.3(@types/react@19.2.6))(@types/react@19.2.6)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
@@ -4305,14 +4293,29 @@ snapshots:
     transitivePeerDependencies:
       - express
 
-  '@jini-ai/cms@0.5.6(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(kysely@0.29.6)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(express@5.2.1)(kysely@0.29.6)(parse5@7.3.0)':
+  '@jini-ai/chat@0.6.2(e07c34995dd2c119a571b43ce543743d)':
     dependencies:
       '@jini-ai/core': 0.4.5(express@5.2.1)
+      zod: 3.25.76
     optionalDependencies:
-      '@jini-ai/db': 0.3.2(better-sqlite3@13.0.3)(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(kysely@0.29.6)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0)
-      express: 5.2.1
+      '@jini-ai/agent-runtime': 0.4.9(@jini-ai/integrations@0.4.2(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(kysely@0.29.6)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(@jini-ai/platform@0.5.6(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(better-sqlite3@13.0.3))(@jini-ai/platform@0.5.6(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(@jini-ai/protocol@0.4.4)
+      '@jini-ai/agentic': 0.4.4(@jini-ai/core@0.4.5)(@jini-ai/protocol@0.4.4)
+      '@jini-ai/db': 0.3.2(better-sqlite3@13.0.3)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(kysely@0.29.6)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0)
+      '@jini-ai/diagnostics': 0.5.2
+      '@jini-ai/protocol': 0.4.4
+      '@jini-ai/ui': 0.5.2(35236f77469e8cc743b7399d393c5dfe)
+      '@mcp-ui/client': 7.1.1(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+      '@radix-ui/react-checkbox': 1.4.1(@types/react-dom@19.2.3(@types/react@19.2.6))(@types/react@19.2.6)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+      '@radix-ui/react-label': 2.1.17(@types/react-dom@19.2.3(@types/react@19.2.6))(@types/react@19.2.6)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+      '@radix-ui/react-radio-group': 1.5.1(@types/react-dom@19.2.3(@types/react@19.2.6))(@types/react@19.2.6)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+      '@radix-ui/react-select': 2.4.1(@types/react-dom@19.2.3(@types/react@19.2.6))(@types/react@19.2.6)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+      '@radix-ui/react-slot': 1.5.0(@types/react@19.2.6)(react@19.2.0)
+      better-sqlite3: 13.0.3
       kysely: 0.29.6
-      parse5: 7.3.0
+      react: 19.2.0
+      react-dom: 19.2.0(react@19.2.0)
+    transitivePeerDependencies:
+      - express
 
   '@jini-ai/cms@0.5.6(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(kysely@0.29.6)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(kysely@0.29.6)(parse5@7.3.0)':
     dependencies:
@@ -4326,26 +4329,10 @@ snapshots:
     optionalDependencies:
       express: 5.2.1
 
-  '@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(kysely@0.29.6)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0)':
-    dependencies:
-      '@jini-ai/core': 0.4.5(express@5.2.1)
-      '@jini-ai/platform': 0.5.6(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0)
-    optionalDependencies:
-      better-sqlite3: 13.0.3
-      kysely: 0.29.6
-    transitivePeerDependencies:
-      - express
-      - hast-util-from-parse5
-      - hast-util-to-mdast
-      - mdast-util-gfm-table
-      - mdast-util-to-markdown
-      - parse5
-      - undici
-
   '@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(kysely@0.29.6)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0)':
     dependencies:
       '@jini-ai/core': 0.4.5(express@5.2.1)
-      '@jini-ai/platform': 0.5.6(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0)
+      '@jini-ai/platform': 0.5.6(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0)
     optionalDependencies:
       better-sqlite3: 13.0.3
       kysely: 0.29.6
@@ -4357,7 +4344,6 @@ snapshots:
       - mdast-util-to-markdown
       - parse5
       - undici
-    optional: true
 
   '@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(kysely@0.29.6)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@8.0.1)(undici@7.30.0)':
     dependencies:
@@ -4382,29 +4368,18 @@ snapshots:
     transitivePeerDependencies:
       - express
 
-  '@jini-ai/diagnostics@0.5.2(express@5.2.1)':
+  '@jini-ai/diagnostics@0.5.2':
     dependencies:
       '@jini-ai/core': 0.4.5(express@5.2.1)
     transitivePeerDependencies:
       - express
-
-  '@jini-ai/integrations@0.4.2(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(kysely@0.29.6)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(@jini-ai/platform@0.5.6(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(better-sqlite3@13.0.3)(express@5.2.1)':
-    dependencies:
-      '@jini-ai/core': 0.4.5(express@5.2.1)
-    optionalDependencies:
-      '@jini-ai/db': 0.3.2(better-sqlite3@13.0.3)(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(kysely@0.29.6)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0)
-      '@jini-ai/platform': 0.5.6(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0)
-      better-sqlite3: 13.0.3
-    transitivePeerDependencies:
-      - express
-    optional: true
 
   '@jini-ai/integrations@0.4.2(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(kysely@0.29.6)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(@jini-ai/platform@0.5.6(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(better-sqlite3@13.0.3)':
     dependencies:
       '@jini-ai/core': 0.4.5(express@5.2.1)
     optionalDependencies:
       '@jini-ai/db': 0.3.2(better-sqlite3@13.0.3)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(kysely@0.29.6)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0)
-      '@jini-ai/platform': 0.5.6(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0)
+      '@jini-ai/platform': 0.5.6(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0)
       better-sqlite3: 13.0.3
     transitivePeerDependencies:
       - express
@@ -4420,7 +4395,7 @@ snapshots:
       - express
     optional: true
 
-  '@jini-ai/mcp@0.4.3(@jini-ai/platform@0.5.6(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(@modelcontextprotocol/sdk@1.32.1(zod@4.1.13))':
+  '@jini-ai/mcp@0.4.3(@jini-ai/platform@0.5.6(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(@modelcontextprotocol/sdk@1.32.1(zod@4.1.13))(express@5.2.1)':
     dependencies:
       '@jini-ai/core': 0.4.5(express@5.2.1)
     optionalDependencies:
@@ -4429,13 +4404,26 @@ snapshots:
     transitivePeerDependencies:
       - express
 
-  '@jini-ai/oauth@0.2.2(express@5.2.1)':
+  '@jini-ai/oauth@0.2.2':
     dependencies:
       '@jini-ai/core': 0.4.5(express@5.2.1)
     transitivePeerDependencies:
       - express
 
   '@jini-ai/platform@0.5.6(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0)':
+    dependencies:
+      '@jini-ai/core': 0.4.5(express@5.2.1)
+    optionalDependencies:
+      hast-util-from-parse5: 8.0.3
+      hast-util-to-mdast: 10.1.2
+      mdast-util-gfm-table: 2.0.0
+      mdast-util-to-markdown: 2.1.2
+      parse5: 7.3.0
+      undici: 7.30.0
+    transitivePeerDependencies:
+      - express
+
+  '@jini-ai/platform@0.5.6(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0)':
     dependencies:
       '@jini-ai/core': 0.4.5(express@5.2.1)
     optionalDependencies:
@@ -4462,12 +4450,12 @@ snapshots:
       - express
     optional: true
 
-  '@jini-ai/plugins@0.5.1(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(kysely@0.29.6)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(@jini-ai/platform@0.5.6(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(express@5.2.1)(kysely@0.29.6)(semver@7.8.5)':
+  '@jini-ai/plugins@0.5.1(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(kysely@0.29.6)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(@jini-ai/platform@0.5.6(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(kysely@0.29.6)(semver@7.8.5)':
     dependencies:
       '@jini-ai/core': 0.4.5(express@5.2.1)
     optionalDependencies:
-      '@jini-ai/db': 0.3.2(better-sqlite3@13.0.3)(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(kysely@0.29.6)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0)
-      '@jini-ai/platform': 0.5.6(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0)
+      '@jini-ai/db': 0.3.2(better-sqlite3@13.0.3)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(kysely@0.29.6)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0)
+      '@jini-ai/platform': 0.5.6(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0)
       kysely: 0.29.6
       semver: 7.8.5
     transitivePeerDependencies:
@@ -4477,12 +4465,37 @@ snapshots:
     dependencies:
       zod: 3.25.76
 
-  '@jini-ai/ui@0.5.2(03786175639ccbce7750a47fa2ccb260)':
+  '@jini-ai/ui@0.5.2(35236f77469e8cc743b7399d393c5dfe)':
     dependencies:
       '@jini-ai/core': 0.4.5(express@5.2.1)
       zod: 3.25.76
     optionalDependencies:
-      '@jini-ai/agentic': 0.4.4(@jini-ai/core@0.4.5(express@5.2.1))(@jini-ai/protocol@0.4.4)
+      '@jini-ai/agentic': 0.4.4(@jini-ai/core@0.4.5)(@jini-ai/protocol@0.4.4)
+      '@jini-ai/integrations': 0.4.2(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(kysely@0.29.6)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(@jini-ai/platform@0.5.6(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(better-sqlite3@13.0.3)
+      '@jini-ai/platform': 0.5.6(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0)
+      '@mcp-ui/client': 7.1.1(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+      '@radix-ui/react-checkbox': 1.4.1(@types/react-dom@19.2.3(@types/react@19.2.6))(@types/react@19.2.6)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+      '@radix-ui/react-label': 2.1.17(@types/react-dom@19.2.3(@types/react@19.2.6))(@types/react@19.2.6)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+      '@radix-ui/react-radio-group': 1.5.1(@types/react-dom@19.2.3(@types/react@19.2.6))(@types/react@19.2.6)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+      '@radix-ui/react-select': 2.4.1(@types/react-dom@19.2.3(@types/react@19.2.6))(@types/react@19.2.6)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+      '@radix-ui/react-slot': 1.5.0(@types/react@19.2.6)(react@19.2.0)
+      class-variance-authority: 0.7.1
+      clsx: 2.1.1
+      micromark: 4.0.3
+      micromark-extension-gfm: 3.0.0
+      parse5: 7.3.0
+      react: 19.2.0
+      react-dom: 19.2.0(react@19.2.0)
+      tailwind-merge: 2.6.1
+    transitivePeerDependencies:
+      - express
+
+  '@jini-ai/ui@0.5.2(a9b51daa787a0db5213d6db716595844)':
+    dependencies:
+      '@jini-ai/core': 0.4.5(express@5.2.1)
+      zod: 3.25.76
+    optionalDependencies:
+      '@jini-ai/agentic': 0.4.4(@jini-ai/core@0.4.5)(@jini-ai/protocol@0.4.4)
       '@jini-ai/integrations': 0.4.2(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(kysely@0.29.6)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@8.0.1)(undici@7.30.0))(@jini-ai/platform@0.5.6(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@8.0.1)(undici@7.30.0))(better-sqlite3@13.0.3)
       '@jini-ai/platform': 0.5.6(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@8.0.1)(undici@7.30.0)
       '@mcp-ui/client': 7.1.1(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
@@ -4494,31 +4507,8 @@ snapshots:
       class-variance-authority: 0.7.1
       clsx: 2.1.1
       micromark: 4.0.3
+      micromark-extension-gfm: 3.0.0
       parse5: 8.0.1
-      react: 19.2.0
-      react-dom: 19.2.0(react@19.2.0)
-      tailwind-merge: 2.6.1
-    transitivePeerDependencies:
-      - express
-
-  '@jini-ai/ui@0.5.2(4cde447fa0267067cf3ee4224737bfc0)':
-    dependencies:
-      '@jini-ai/core': 0.4.5(express@5.2.1)
-      zod: 3.25.76
-    optionalDependencies:
-      '@jini-ai/agentic': 0.4.4(@jini-ai/core@0.4.5(express@5.2.1))(@jini-ai/protocol@0.4.4)
-      '@jini-ai/integrations': 0.4.2(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(kysely@0.29.6)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(@jini-ai/platform@0.5.6(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(better-sqlite3@13.0.3)(express@5.2.1)
-      '@jini-ai/platform': 0.5.6(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0)
-      '@mcp-ui/client': 7.1.1(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
-      '@radix-ui/react-checkbox': 1.4.1(@types/react-dom@19.2.3(@types/react@19.2.6))(@types/react@19.2.6)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
-      '@radix-ui/react-label': 2.1.17(@types/react-dom@19.2.3(@types/react@19.2.6))(@types/react@19.2.6)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
-      '@radix-ui/react-radio-group': 1.5.1(@types/react-dom@19.2.3(@types/react@19.2.6))(@types/react@19.2.6)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
-      '@radix-ui/react-select': 2.4.1(@types/react-dom@19.2.3(@types/react@19.2.6))(@types/react@19.2.6)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
-      '@radix-ui/react-slot': 1.5.0(@types/react@19.2.6)(react@19.2.0)
-      class-variance-authority: 0.7.1
-      clsx: 2.1.1
-      micromark: 4.0.3
-      parse5: 7.3.0
       react: 19.2.0
       react-dom: 19.2.0(react@19.2.0)
       tailwind-merge: 2.6.1
@@ -5367,8 +5357,7 @@ snapshots:
   character-entities-legacy@3.0.0:
     optional: true
 
-  character-entities@2.0.2:
-    optional: true
+  character-entities@2.0.2: {}
 
   check-error@2.1.3: {}
 
@@ -5444,7 +5433,6 @@ snapshots:
   decode-named-character-reference@1.3.0:
     dependencies:
       character-entities: 2.0.2
-    optional: true
 
   decompress-response@6.0.0:
     dependencies:
@@ -5505,7 +5493,6 @@ snapshots:
   devlop@1.1.0:
     dependencies:
       dequal: 2.0.3
-    optional: true
 
   dom-accessibility-api@0.5.16: {}
 
@@ -6375,14 +6362,70 @@ snapshots:
       micromark-util-subtokenize: 2.1.0
       micromark-util-symbol: 2.0.1
       micromark-util-types: 2.0.3
-    optional: true
+
+  micromark-extension-gfm-autolink-literal@2.1.0:
+    dependencies:
+      micromark-util-character: 2.1.1
+      micromark-util-sanitize-uri: 2.0.1
+      micromark-util-symbol: 2.0.1
+      micromark-util-types: 2.0.3
+
+  micromark-extension-gfm-footnote@2.1.0:
+    dependencies:
+      devlop: 1.1.0
+      micromark-core-commonmark: 2.0.4
+      micromark-factory-space: 2.1.0
+      micromark-util-character: 2.1.1
+      micromark-util-normalize-identifier: 2.0.1
+      micromark-util-sanitize-uri: 2.0.1
+      micromark-util-symbol: 2.0.1
+      micromark-util-types: 2.0.3
+
+  micromark-extension-gfm-strikethrough@2.1.0:
+    dependencies:
+      devlop: 1.1.0
+      micromark-util-chunked: 2.0.1
+      micromark-util-classify-character: 2.0.1
+      micromark-util-resolve-all: 2.0.1
+      micromark-util-symbol: 2.0.1
+      micromark-util-types: 2.0.3
+
+  micromark-extension-gfm-table@2.1.2:
+    dependencies:
+      devlop: 1.1.0
+      micromark-factory-space: 2.1.0
+      micromark-util-character: 2.1.1
+      micromark-util-symbol: 2.0.1
+      micromark-util-types: 2.0.3
+
+  micromark-extension-gfm-tagfilter@2.0.0:
+    dependencies:
+      micromark-util-types: 2.0.3
+
+  micromark-extension-gfm-task-list-item@2.1.0:
+    dependencies:
+      devlop: 1.1.0
+      micromark-factory-space: 2.1.0
+      micromark-util-character: 2.1.1
+      micromark-util-symbol: 2.0.1
+      micromark-util-types: 2.0.3
+
+  micromark-extension-gfm@3.0.0:
+    dependencies:
+      micromark-extension-gfm-autolink-literal: 2.1.0
+      micromark-extension-gfm-footnote: 2.1.0
+      micromark-extension-gfm-strikethrough: 2.1.0
+      micromark-extension-gfm-table: 2.1.2
+      micromark-extension-gfm-tagfilter: 2.0.0
+      micromark-extension-gfm-task-list-item: 2.1.0
+      micromark-util-combine-extensions: 2.0.1
+      micromark-util-types: 2.0.3
 
   micromark-factory-destination@2.0.1:
     dependencies:
       micromark-util-character: 2.1.1
       micromark-util-symbol: 2.0.1
       micromark-util-types: 2.0.3
-    optional: true
 
   micromark-factory-label@2.0.1:
     dependencies:
@@ -6390,13 +6433,11 @@ snapshots:
       micromark-util-character: 2.1.1
       micromark-util-symbol: 2.0.1
       micromark-util-types: 2.0.3
-    optional: true
 
   micromark-factory-space@2.1.0:
     dependencies:
       micromark-util-character: 2.1.1
       micromark-util-types: 2.0.3
-    optional: true
 
   micromark-factory-title@2.0.1:
     dependencies:
@@ -6404,7 +6445,6 @@ snapshots:
       micromark-util-character: 2.1.1
       micromark-util-symbol: 2.0.1
       micromark-util-types: 2.0.3
-    optional: true
 
   micromark-factory-whitespace@2.0.1:
     dependencies:
@@ -6412,31 +6452,26 @@ snapshots:
       micromark-util-character: 2.1.1
       micromark-util-symbol: 2.0.1
       micromark-util-types: 2.0.3
-    optional: true
 
   micromark-util-character@2.1.1:
     dependencies:
       micromark-util-symbol: 2.0.1
       micromark-util-types: 2.0.3
-    optional: true
 
   micromark-util-chunked@2.0.1:
     dependencies:
       micromark-util-symbol: 2.0.1
-    optional: true
 
   micromark-util-classify-character@2.0.1:
     dependencies:
       micromark-util-character: 2.1.1
       micromark-util-symbol: 2.0.1
       micromark-util-types: 2.0.3
-    optional: true
 
   micromark-util-combine-extensions@2.0.1:
     dependencies:
       micromark-util-chunked: 2.0.1
       micromark-util-types: 2.0.3
-    optional: true
 
   micromark-util-decode-numeric-character-reference@2.0.2:
     dependencies:
@@ -6454,30 +6489,24 @@ snapshots:
   micromark-util-edit-map@1.0.0:
     dependencies:
       micromark-util-types: 2.0.3
-    optional: true
 
-  micromark-util-encode@2.0.1:
-    optional: true
+  micromark-util-encode@2.0.1: {}
 
-  micromark-util-html-tag-name@2.0.1:
-    optional: true
+  micromark-util-html-tag-name@2.0.1: {}
 
   micromark-util-normalize-identifier@2.0.1:
     dependencies:
       micromark-util-symbol: 2.0.1
-    optional: true
 
   micromark-util-resolve-all@2.0.1:
     dependencies:
       micromark-util-types: 2.0.3
-    optional: true
 
   micromark-util-sanitize-uri@2.0.1:
     dependencies:
       micromark-util-character: 2.1.1
       micromark-util-encode: 2.0.1
       micromark-util-symbol: 2.0.1
-    optional: true
 
   micromark-util-subtokenize@2.1.0:
     dependencies:
@@ -6485,13 +6514,10 @@ snapshots:
       micromark-util-chunked: 2.0.1
       micromark-util-symbol: 2.0.1
       micromark-util-types: 2.0.3
-    optional: true
 
-  micromark-util-symbol@2.0.1:
-    optional: true
+  micromark-util-symbol@2.0.1: {}
 
-  micromark-util-types@2.0.3:
-    optional: true
+  micromark-util-types@2.0.3: {}
 
   micromark@4.0.3:
     dependencies:

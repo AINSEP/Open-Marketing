@@ -119,9 +119,10 @@ function dependencyDeclarationViolations({ pkg, name, version, packages }) {
  return [];
 }
 /** Uploaded plugins are unrestricted (owner, 2026-10-13), so their code must be loaded by computed URL.
- * Only the server executable boundary, which already owns process effects, may do that; it injects the loader.
+ * Only the two executable boundaries may do that and inject the loader: the server's serve.ts (plugin code)
+ * and studio's main.ts (enabled chart-provider bundles in the browser).
  */
-const pluginLoaderFiles = new Set(['apps/server/src/composition/serve.ts']);
+const pluginLoaderFiles = new Set(['apps/server/src/composition/serve.ts', 'apps/studio/src/main.ts']);
 export function nonliteralImportAllowed({ file }) {
  return pluginLoaderFiles.has(file);
 }
