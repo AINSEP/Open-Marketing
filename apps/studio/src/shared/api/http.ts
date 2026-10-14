@@ -1,5 +1,6 @@
 /** Cookie-authenticated owner transport. Server state is validated before reaching presentation. */
 import { z } from 'zod';
+import { addonListRequestSchema, addonListSchema, addonSummarySchema, addonUninstallReceiptSchema, installAddonSchema, setAddonEnabledSchema, uninstallAddonSchema, integrationListSchema, integrationSummarySchema, connectIntegrationTokenSchema, disconnectIntegrationSchema, pageQuerySchema } from '@open-marketing/contracts';
 import { assistantRunRequestSchema, assistantSettingsSchema, assistantSettingsStatusSchema, conversationListSchema, conversationSchema, conversationSummarySchema, appErrorSchema, approvalResponseSchema, epochSchema, idSchema, runEventSchema, parseBoundary } from '@open-marketing/contracts';
 import type { AppError, ObserverPort, Outcome } from '@open-marketing/contracts';
 import type { StudioApiPort, StudioRuntime } from './types.js';
@@ -138,6 +139,15 @@ async function request<T>(required: {
 export function createHttpStudioApi(required: Dependencies): StudioApiPort {
     const origin = baseOrigin(required);
     return {
+        addons: {
+            list: input => addonRead({ dependencies: required, origin, path: '/api/addons/v1/packages', schema: addonListSchema, querySchema: addonListRequestSchema, ...input }),
+            integrations: input => addonRead({ dependencies: required, origin, path: '/api/addons/v1/integrations', schema: integrationListSchema, querySchema: pageQuerySchema, ...input }),
+            install: input => addonWrite({ dependencies: required, origin, path: '/api/addons/v1/install', schema: addonSummarySchema, inputSchema: installAddonSchema, ...input }),
+            setEnabled: input => addonWrite({ dependencies: required, origin, path: '/api/addons/v1/set-enabled', schema: addonSummarySchema, inputSchema: setAddonEnabledSchema, ...input }),
+            uninstall: input => addonWrite({ dependencies: required, origin, path: '/api/addons/v1/uninstall', schema: addonUninstallReceiptSchema, inputSchema: uninstallAddonSchema, ...input }),
+            connect: input => addonWrite({ dependencies: required, origin, path: '/api/addons/v1/integrations/token', schema: integrationSummarySchema, inputSchema: connectIntegrationTokenSchema, ...input }),
+            disconnect: input => addonWrite({ dependencies: required, origin, path: '/api/addons/v1/integrations/disconnect', schema: integrationSummarySchema, inputSchema: disconnectIntegrationSchema, ...input }),
+        },
         snapshot: input => request({ dependencies: required, origin, path: '/api/studio/snapshot', method: 'GET', signal: input.signal, parse: parseStudioSnapshot }),
         async approve(input) {
             const response = parseBoundary({ schema: approvalResponseSchema, input: input.response });
@@ -225,4 +235,19 @@ async function waitForRunPage(required: PollInput): Promise<Outcome<void>> {
   if (!required.signal.aborted) return failure({ code: 'unavailable', message: 'Run polling interrupted' });
  }
  return { ok: true, value: undefined };
+}
+
+/** Add-on reads validate query and response using I-0; one bounded request, no retry. */
+async function addonRead<T>(required: { dependencies: Dependencies; origin: Outcome<string>; path: string; schema: z.ZodType<T>; querySchema: z.ZodType; query: unknown; signal?: AbortSignal }): Promise<Outcome<T>> {
+    const query = parseBoundary({ schema: required.querySchema, input: required.query });
+    if (!query.ok) return query;
+    const search = new URLSearchParams();
+    for (const [key, value] of Object.entries(query.value as Record<string, unknown>)) if (value !== undefined) search.set(key, String(value));
+    return request({ ...required, path: required.path + '?' + search, method: 'GET', parse: input => parseBoundary({ schema: required.schema, input: input.input }) });
+}
+/** Owner mutations are validated before dispatch; plaintext is never copied into diagnostics. */
+async function addonWrite<T>(required: { dependencies: Dependencies; origin: Outcome<string>; path: string; schema: z.ZodType<T>; inputSchema: z.ZodType; request: unknown; signal?: AbortSignal }): Promise<Outcome<T>> {
+    const body = parseBoundary({ schema: required.inputSchema, input: required.request });
+    if (!body.ok) return failure({ code: 'invalid_input', message: 'Invalid add-on request' });
+    return request({ ...required, method: 'POST', body: body.value, parse: input => parseBoundary({ schema: required.schema, input: input.input }) });
 }

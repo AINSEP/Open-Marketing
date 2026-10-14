@@ -4,6 +4,7 @@ import Database from 'better-sqlite3';
 import * as fs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
+import { removeStateRoot } from './state-root.js';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import type { CallContext, Outcome, ObserverEvent } from '@open-marketing/contracts';
@@ -174,5 +175,5 @@ it('real boot serves studio HTTP configuration, keeps read-only allowance free o
         origin = new URL(server.studioUrl).origin;
         expect(await (await fetch(origin + '/api/safety/halt', { method: 'POST', headers, body: JSON.stringify({ accountId: 'local-account' }) })).json()).toEqual({ ok: true, value: { accountId: 'local-account', status: 'pending' } });
         expect(handles[1].prepare('SELECT COUNT(*) AS count FROM safety_journal').get()).toEqual({ count: 1 });
-    } finally { await server.stop({}); await fs.rm(directory, { recursive: true, force: true }); }
+    } finally { await server.stop({}); await removeStateRoot({ path: directory }); }
 });

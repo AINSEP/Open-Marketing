@@ -4,6 +4,7 @@ import Database from 'better-sqlite3';
 import * as fs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
+import { removeStateRoot } from './state-root.js';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
@@ -101,7 +102,7 @@ async function fixture(_input: Record<string, never>) {
         const links = createSqlTrackedLink({ database: measureDb, ids, baseUrl: 'https://sandbox.example.test/l/', allowedOrigins: ['https://sandbox.example.test'] });
         return { forms, identity, visits, database, campaigns, links, privacy: bindPrivacy({ unit: database.unit, identity, subjects: forms.subjects, measure, clock, ids, observer }) };
     }
-    try { await start(); } catch (error) { if (native?.open) native.close(); await fs.rm(directory, { recursive: true, force: true }); throw error; }
+    try { await start(); } catch (error) { if (native?.open) native.close(); await removeStateRoot({ path: directory }); throw error; }
     return {
         context, clock, events, adapters: () => composed,
         get native() { return native; }, get origin() { return origin; },
@@ -114,7 +115,7 @@ async function fixture(_input: Record<string, never>) {
         },
         advance(input: { ms: number }) { now += input.ms; },
         async restart() { await stop(); await start(); },
-        async close() { await stop(); await fs.rm(directory, { recursive: true, force: true }); },
+        async close() { await stop(); await removeStateRoot({ path: directory }); },
     };
 }
 type Fixture = Awaited<ReturnType<typeof fixture>>;
@@ -297,5 +298,5 @@ it('the actual boot root seeds the public form and starts/stops its acceptance w
         expect(await observed.json()).toMatchObject({ ok: true, value: { rows: { activity: [expect.objectContaining({ title: 'Sandbox lead accepted' })] } } });
         expect(await server.stop({})).toEqual({ ok: true, value: undefined });
         expect(next).toBeUndefined();
-    } finally { await server?.stop({}); await fs.rm(directory, { recursive: true, force: true }); }
+    } finally { await server?.stop({}); await removeStateRoot({ path: directory }); }
 });

@@ -36,6 +36,7 @@
     "@open-marketing/contacts": "workspace:*",
     "@open-marketing/contracts": "workspace:*",
     "@open-marketing/credentials": "workspace:*",
+    "@open-marketing/federation": "workspace:*",
     "@open-marketing/forms": "workspace:*",
     "@open-marketing/jobs": "workspace:*",
     "@open-marketing/measure": "workspace:*",

@@ -3,6 +3,7 @@ import { expect, it, describe } from 'vitest';
 import { randomBytes, randomUUID, createHmac } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { removeStateRoot } from './state-root.js';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import type { CallContext, ClockPort, Outcome, RunEvent, StartRunRequest } from '@open-marketing/contracts';
@@ -243,5 +244,5 @@ it('boot wires a real child, HTTP owner routes and om ask prompt-file polling; J
         expect((await fetch(origin + '/api/runs/' + receipt.value.runId + '/events?after=-1', { headers })).status).toBe(400);
         expect((await fetch(origin + '/api/runs/' + receipt.value.runId + '/navigation', { method: 'POST', headers, body: '{}' })).status).toBe(403);
         expect((await fetch(origin + '/api/agent/v1/mcp', { method: 'POST', headers, body: '{}' })).status).toBe(401);
-    } finally { if (result.ok) await result.value.stop({}); await fs.rm(directory, { recursive: true, force: true }); }
+    } finally { if (result.ok) await result.value.stop({}); await removeStateRoot({ path: directory }); }
 });

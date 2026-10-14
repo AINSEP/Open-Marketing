@@ -1,3 +1,4 @@
+import { addonListSchema, addonSummarySchema, addonUninstallReceiptSchema, integrationListSchema, integrationSummarySchema } from '@open-marketing/contracts';
 /** Owner HTTP mapping shared by the server and CLI. */
 import { z } from "zod";
 import {
@@ -23,6 +24,13 @@ const studioSnapshot = z.strictObject({
  * App-local read models stay outside the pure shared contracts package.
  */
 export const routes = {
+  addons: { method: 'GET', path: '/api/addons/v1/packages', schema: addonListSchema },
+  addonInstall: { method: 'POST', path: '/api/addons/v1/install', schema: addonSummarySchema },
+  addonSetEnabled: { method: 'POST', path: '/api/addons/v1/set-enabled', schema: addonSummarySchema },
+  addonUninstall: { method: 'POST', path: '/api/addons/v1/uninstall', schema: addonUninstallReceiptSchema },
+  integrations: { method: 'GET', path: '/api/addons/v1/integrations', schema: integrationListSchema },
+  integrationConnect: { method: 'POST', path: '/api/addons/v1/integrations/token', schema: integrationSummarySchema },
+  integrationDisconnect: { method: 'POST', path: '/api/addons/v1/integrations/disconnect', schema: integrationSummarySchema },
   status: { method: "GET", path: "/api/status", schema: z.strictObject({ ready: z.boolean(), mode: z.enum(["production", "local", "unavailable"]) }) },
   snapshot: { method: "GET", path: "/api/studio/snapshot", schema: studioSnapshot },
   campaigns: { method: "GET", path: "/api/campaigns", schema: campaignsPage },
@@ -102,7 +110,7 @@ interface HttpRequest<T> {
   readonly session: HttpSession;
   readonly route: { readonly method: "GET" | "POST"; readonly path: string; readonly schema: z.ZodType<T> };
   readonly id?: string;
-  readonly query?: { readonly limit: number; readonly cursor?: string } | { readonly after: number };
+  readonly query?: { readonly limit: number; readonly cursor?: string; readonly kind?: string } | { readonly after: number };
   readonly body?: unknown;
   readonly signal?: AbortSignal;
 }
@@ -173,6 +181,7 @@ function queryString(required: { query: NonNullable<HttpRequest<unknown>["query"
   if ('after' in required.query) query.set('after', String(required.query.after));
   else {
     query.set('limit', String(required.query.limit));
+    if (required.query.kind !== undefined) query.set('kind', required.query.kind);
     if (required.query.cursor !== undefined) query.set('cursor', required.query.cursor);
   }
   return query.toString();

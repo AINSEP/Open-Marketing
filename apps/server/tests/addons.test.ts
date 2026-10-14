@@ -3,9 +3,10 @@ import { readFileSync } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
+import { removeStateRoot } from './state-root.js';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import type { AddonKind, AddonSummary, AddonUpload, CallContext, Outcome, ObserverPort } from '@open-marketing/contracts';
 import type { CredentialSqlPort } from '@open-marketing/credentials';
 import { bindServerAddons, createNodeAddonEffects } from '../src/composition/addons.js';
@@ -74,15 +75,9 @@ export async function fixture(_required: Record<string, never>) {
         yamlReader: { read({ yaml }: { yaml: string }) { return JSON.parse(yaml); } }, sessions };
     const binding = bindServerAddons(dependencies);
     return { root, native, db, dependencies, binding, events, sessionEvents,
-        async dispose() { await binding.dispose(); native.close(); await unfreeze({ path: root }); await fs.rm(root, { recursive: true, force: true }); } };
+        async dispose() { await binding.dispose(); native.close(); await removeStateRoot({ path: root }); } };
 }
 
-async function unfreeze(required: { path: string }): Promise<void> {
-    await fs.chmod(required.path, 0o700);
-    for (const entry of await fs.readdir(required.path, { withFileTypes: true })) {
-        if (entry.isDirectory()) await unfreeze({ path: join(required.path, entry.name) });
-    }
-}
 
 for (const kind of ['plugin', 'agent-plugin', 'skill'] as const) {
     it('installs ' + kind + ' disabled, reinstalls after disable, and removes its source', async () => {
@@ -186,6 +181,142 @@ it('seeds bundled agent plugins disabled and preserves an operator disable acros
         expect(value({ result: await f.binding.addons.list({ context, query: { limit: 100 } }) }).items[0].enabled).toBe(false);
         expect(f.sessionEvents.some(event => event.startsWith('reload:'))).toBe(false);
     } finally { await f.dispose(); }
+});
+
+/** Write only temporary package fixtures; referenced paths remain literal manifest data. */
+async function writeBundledFixture(required: { root: string; files: Record<string, string | Uint8Array> }): Promise<string> {
+    const source = join(required.root, 'content/agent-plugins/fixture-agent');
+    for (const [path, content] of Object.entries(required.files)) {
+        await fs.mkdir(join(source, path, '..'), { recursive: true });
+        await fs.writeFile(join(source, path), content);
+    }
+    return source;
+}
+
+/** Discover the actual published snapshot rather than relying on a test-owned layout formula. */
+async function bundledSnapshot(required: { root: string }): Promise<string> {
+    const addonsRoot = join(required.root, 'addons');
+    const path = (await fs.readdir(addonsRoot, { recursive: true })).find(path => path.endsWith('/plugin.json'));
+    if (!path) throw new Error('Fixture snapshot missing');
+    return join(addonsRoot, path, '..');
+}
+
+it('seeds portable content and declared bindings, excluding dependency and build trees', async () => {
+    const f = await fixture({});
+    try {
+        const files = agentFiles({});
+        const manifest = JSON.parse(files['plugin.json']);
+        manifest.extensions['io.github.ainsep.openmarketing'].capabilities = {
+            'fixture-read': { binding: './io.github.ainsep.openmarketing/bindings/read.json' },
+        };
+        const bindingPath = 'io.github.ainsep.openmarketing/bindings/read.json';
+        const binaryPath = 'skills/fixture-skill/references/asset.bin';
+        const source = await writeBundledFixture({ root: f.root, files: { ...files, 'plugin.json': JSON.stringify(manifest),
+            [bindingPath]: '{"effects":["read"]}', [binaryPath]: Uint8Array.from([0, 255, 1]),
+            LICENSE: 'Fixture license', NOTICE: 'Fixture notice', 'package.json': '{}',
+            'io.github.ainsep.openmarketing/src/index.ts': 'development-only',
+            'io.github.ainsep.openmarketing/undeclared.json': '{}',
+        } });
+        const artifacts = ['node_modules', 'dist', 'build', '.git', '.cache', '.turbo', '.vite', 'coverage'];
+        for (const directory of artifacts) {
+            for (const prefix of ['', 'skills/fixture-skill/']) {
+                // A copied marker would make the upload ambiguous; a walked link would fail closed.
+                await fs.mkdir(join(source, prefix, directory), { recursive: true });
+                await fs.writeFile(join(source, prefix, directory, 'plugin.json'), '{}');
+                await fs.symlink('/outside-fixture', join(source, prefix, directory, 'link'));
+            }
+        }
+        await fs.writeFile(join(source, 'skills/fixture-skill/build.tsbuildinfo'), 'cache');
+        value({ result: await f.binding.start() });
+        const snapshot = await bundledSnapshot({ root: f.root });
+        expect((await fs.readdir(snapshot, { recursive: true })).sort()).toEqual([
+            'LICENSE', 'NOTICE', 'plugin.json', 'mcp.json', 'skills', 'skills/fixture-skill', 'skills/fixture-skill/SKILL.md',
+            'skills/fixture-skill/references', binaryPath, 'io.github.ainsep.openmarketing',
+            'io.github.ainsep.openmarketing/bindings', bindingPath,
+        ].sort());
+        expect(await fs.readFile(join(snapshot, binaryPath))).toEqual(Buffer.from([0, 255, 1]));
+        expect(await fs.readFile(join(snapshot, bindingPath), 'utf8')).toBe('{"effects":["read"]}');
+        expect((await fs.stat(snapshot)).mode & 0o222).toBe(0);
+        const addon = value({ result: await f.binding.addons.list({ context, query: { limit: 100 } }) }).items[0];
+        expect(addon).toMatchObject({ id: 'fixture-agent', enabled: false });
+        value({ result: await f.binding.addons.setEnabled({ context, request: { kind: 'agent-plugin', id: addon.id, enabled: true } }) });
+        expect(value({ result: await f.binding.addons.describe({ context, kind: 'agent-plugin', id: addon.id, revision: addon.revision }) }).effects).toContain('read');
+    } finally { await f.dispose(); }
+});
+
+it('skips extraction on unchanged restart and snapshots only changed package content', async () => {
+    const f = await fixture({});
+    // Instrument the injected copy, preserving the native overloads and all real filesystem effects.
+    const filesystem = { ...f.dependencies.effects.filesystem };
+    const mkdtemp = vi.spyOn(filesystem, 'mkdtemp');
+    const dependencies = { ...f.dependencies, effects: { ...f.dependencies.effects,
+        filesystem } };
+    try {
+        const source = await writeBundledFixture({ root: f.root, files: { ...agentFiles({}), 'node_modules/ignored.txt': 'first' } });
+        value({ result: await bindServerAddons(dependencies).start() });
+        expect(mkdtemp).toHaveBeenCalled();
+        const first = value({ result: await f.binding.addons.list({ context, query: { limit: 100 } }) }).items[0];
+        const snapshot = await bundledSnapshot({ root: f.root });
+        mkdtemp.mockClear();
+        await fs.writeFile(join(source, 'node_modules/ignored.txt'), 'changed development artifact');
+        value({ result: await bindServerAddons(dependencies).start() });
+        expect(mkdtemp).not.toHaveBeenCalled();
+        expect(value({ result: await f.binding.addons.list({ context, query: { limit: 100 } }) }).items[0]).toEqual(first);
+        expect(await bundledSnapshot({ root: f.root })).toBe(snapshot);
+        expect(await fs.readFile(join(snapshot, 'skills/fixture-skill/SKILL.md'), 'utf8')).toBe(markdown);
+        await fs.writeFile(join(source, 'skills/fixture-skill/SKILL.md'), markdown + '\nUpdated fixture.');
+        value({ result: await bindServerAddons(dependencies).start() });
+        expect(mkdtemp).toHaveBeenCalled();
+        const updated = value({ result: await f.binding.addons.list({ context, query: { limit: 100 } }) }).items[0];
+        expect(updated.revision).not.toBe(first.revision);
+        expect(updated.enabled).toBe(false);
+        expect(await fs.readFile(join(snapshot, '..', updated.revision, 'skills/fixture-skill/SKILL.md'), 'utf8')).toBe(markdown + '\nUpdated fixture.');
+    } finally { mkdtemp.mockRestore(); await f.dispose(); }
+});
+
+it('recreates a missing digest snapshot while keeping the same catalog revision', async () => {
+    const f = await fixture({});
+    try {
+        await writeBundledFixture({ root: f.root, files: agentFiles({}) });
+        value({ result: await f.binding.start() });
+        const first = value({ result: await f.binding.addons.list({ context, query: { limit: 100 } }) }).items[0];
+        const snapshot = await bundledSnapshot({ root: f.root });
+        await removeStateRoot({ path: snapshot });
+        value({ result: await bindServerAddons(f.dependencies).start() });
+        expect(value({ result: await f.binding.addons.list({ context, query: { limit: 100 } }) }).items[0]).toEqual(first);
+        expect(await fs.readFile(join(snapshot, 'skills/fixture-skill/SKILL.md'), 'utf8')).toBe(markdown);
+    } finally { await f.dispose(); }
+});
+
+it.each(['../outside.json', './node_modules/binding.json', './dist/binding.json', './.git/binding.json', './missing.json'])('fails boot on invalid or missing declared binding %s', async binding => {
+    const f = await fixture({});
+    try {
+        const files = agentFiles({});
+        const manifest = JSON.parse(files['plugin.json']);
+        manifest.extensions['io.github.ainsep.openmarketing'].capabilities = { 'fixture-read': { binding } };
+        await writeBundledFixture({ root: f.root, files: { ...files, 'plugin.json': JSON.stringify(manifest) } });
+        expect(await f.binding.start()).toMatchObject({ ok: false });
+        expect(value({ result: await f.binding.addons.list({ context, query: { limit: 100 } }) }).items).toEqual([]);
+    } finally { await f.dispose(); }
+});
+
+it('removes frozen state and leaves symlink targets untouched, including repeated cleanup', async () => {
+    const root = await fs.mkdtemp(join(tmpdir(), 'om-frozen-cleanup-'));
+    const state = join(root, 'state');
+    const outside = join(root, 'outside');
+    try {
+        await fs.mkdir(join(state, 'snapshot'), { recursive: true });
+        await fs.mkdir(outside);
+        await fs.writeFile(join(state, 'snapshot/plugin.json'), '{}', { mode: 0o444 });
+        await fs.writeFile(join(outside, 'keep.txt'), 'untouched');
+        await fs.symlink(outside, join(state, 'external'));
+        for (const path of [state, join(state, 'snapshot'), outside]) await fs.chmod(path, 0o555);
+        await removeStateRoot({ path: state });
+        await expect(fs.stat(state)).rejects.toMatchObject({ code: 'ENOENT' });
+        expect(await fs.readFile(join(outside, 'keep.txt'), 'utf8')).toBe('untouched');
+        expect((await fs.stat(outside)).mode & 0o222).toBe(0);
+        await expect(removeStateRoot({ path: state })).resolves.toBeUndefined();
+    } finally { await removeStateRoot({ path: root }); }
 });
 
 it('rejects wrong-kind and ambiguous root uploads before any package publication', async () => {

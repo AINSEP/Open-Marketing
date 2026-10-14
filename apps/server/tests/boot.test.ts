@@ -5,6 +5,7 @@ import Database from 'better-sqlite3';
 import * as fs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
+import { removeStateRoot } from './state-root.js';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import type { ClockPort, ObserverEvent } from '@open-marketing/contracts';
@@ -47,7 +48,7 @@ async function createFixture(_required: Record<string, never>) {
         async close() {
             for (const server of servers) await server.stop({});
             for (const handle of handles) if (handle.open) handle.close();
-            await fs.rm(directory, { recursive: true, force: true });
+            await removeStateRoot({ path: directory });
         },
     };
 }

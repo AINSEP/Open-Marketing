@@ -90,6 +90,16 @@ export type StudioPayload =
   | ToolRequestedPayload | ToolResultPayload | ApprovalPayload;
 /** Fixture and future HTTP adapters implement this boundary. Writes are never implicitly retried. */
 export interface StudioApiPort {
+  /** Owner upload/connection forms use this surface; plaintext never enters chat. */
+  readonly addons?: {
+    list(required: { query: import('@open-marketing/contracts').AddonListRequest; signal?: AbortSignal }): Promise<Outcome<import('@open-marketing/contracts').AddonList>>;
+    install(required: { request: import('@open-marketing/contracts').InstallAddon; signal?: AbortSignal }): Promise<Outcome<import('@open-marketing/contracts').AddonSummary>>;
+    setEnabled(required: { request: import('@open-marketing/contracts').SetAddonEnabled; signal?: AbortSignal }): Promise<Outcome<import('@open-marketing/contracts').AddonSummary>>;
+    uninstall(required: { request: import('@open-marketing/contracts').UninstallAddon; signal?: AbortSignal }): Promise<Outcome<import('@open-marketing/contracts').AddonUninstallReceipt>>;
+    integrations(required: { query: { limit: number; cursor?: string }; signal?: AbortSignal }): Promise<Outcome<import('@open-marketing/contracts').IntegrationList>>;
+    connect(required: { request: import('@open-marketing/contracts').ConnectIntegrationToken; signal?: AbortSignal }): Promise<Outcome<import('@open-marketing/contracts').IntegrationSummary>>;
+    disconnect(required: { request: import('@open-marketing/contracts').DisconnectIntegration; signal?: AbortSignal }): Promise<Outcome<import('@open-marketing/contracts').IntegrationSummary>>;
+  };
   conversations?(required: { signal?: AbortSignal; cursor?: string }): Promise<Outcome<ConversationList>>;
   conversation?(required: { conversationId: string; signal?: AbortSignal; cursor?: string }): Promise<Outcome<Conversation>>;
   createConversation?(required: { signal?: AbortSignal }): Promise<Outcome<ConversationSummary>>;

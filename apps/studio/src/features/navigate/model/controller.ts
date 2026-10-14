@@ -1,5 +1,5 @@
-import { navigationActionSchema, navigationTargetSchema, parseBoundary } from "@open-marketing/contracts";
-import type { NavigationResult, NavigationTarget, Outcome } from "@open-marketing/contracts";
+import { navigationActionSchema, navigationTargetSchema, studioNavigationTargetSchema, parseBoundary } from "@open-marketing/contracts";
+import type { NavigationResult, NavigationTarget, StudioNavigationTarget, Outcome } from "@open-marketing/contracts";
 import type { TimerPort } from "../../../shared/api/index.js";
 
 /** Browser route writes are separate from React's rendered-route acknowledgement. */
@@ -9,11 +9,11 @@ export interface BrowserRoutePort {
   listen(required: { listener: () => void }): () => void;
 }
 export interface NavigationController {
-  getSnapshot(): NavigationTarget;
+  getSnapshot(): StudioNavigationTarget;
   subscribe(required: { listener: () => void }): () => void;
   select(required: { target: NavigationTarget }): void;
   apply(required: { input: unknown }): Promise<NavigationResult>;
-  rendered(required: { target: NavigationTarget }): void;
+  rendered(required: { target: StudioNavigationTarget }): void;
   dispose(): void;
 }
 interface Pending { target: NavigationTarget; actionId: string; handle: unknown; finish: (input: { result: NavigationResult }) => void }
@@ -26,8 +26,8 @@ function failed(required: { actionId: string; code: "unavailable" | "invalid_inp
  * @complexity O(1) per action; at most 100 retained results and one pending action.
  */
 export function createNavigationController(required: { browser: BrowserRoutePort | null; timers: TimerPort; timeoutMs: number }): NavigationController {
-  const initial = navigationTargetSchema.safeParse(required.browser?.read({}));
-  let target: NavigationTarget = initial.success ? initial.data : "workspaces";
+  const initial = studioNavigationTargetSchema.safeParse(required.browser?.read({}));
+  let target: StudioNavigationTarget = initial.success ? initial.data : "workspaces";
   let pending: Pending | null = null;
   let disposed = false;
   const listeners = new Set<() => void>();
@@ -49,7 +49,7 @@ export function createNavigationController(required: { browser: BrowserRoutePort
     publish();
   };
   const unlisten = required.browser?.listen({ listener: () => {
-    const parsed = navigationTargetSchema.safeParse(required.browser?.read({}));
+    const parsed = studioNavigationTargetSchema.safeParse(required.browser?.read({}));
     if (parsed.success) { target = parsed.data; publish(); }
   } });
   const begin = (input: { actionId: string; target: NavigationTarget }): Promise<NavigationResult> => {
@@ -83,7 +83,7 @@ export function createNavigationController(required: { browser: BrowserRoutePort
       return result;
     },
     rendered(input) {
-      if (pending?.target === input.target && target === input.target) finish({ result: { status: "completed", actionId: pending.actionId, target } });
+      if (pending?.target === input.target && target === input.target) finish({ result: { status: "completed", actionId: pending.actionId, target: pending.target } });
     },
     dispose() {
       disposed = true;

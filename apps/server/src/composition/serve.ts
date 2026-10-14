@@ -1,4 +1,8 @@
 #!/usr/bin/env node
+import { parseDocument } from 'yaml';
+import { createNodeAddonEffects } from './addons.js';
+import { createNodeFederationEffects } from './addon-federation-node.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 /** Explicit Node executable. Importing this module does not open files, databases or listeners. */
 import Database from 'better-sqlite3';
 import * as fs from 'node:fs/promises';
@@ -21,6 +25,9 @@ import { localFailure, localStateRoot, readLocalFile, type LocalFilesystem } fro
 export function createNodeBootIo(required: { projectRoot: string; studioRoot: string; ready: ServerBootIo['ready'] }): ServerBootIo {
     return { ...required, fs, createServer, openSqlite: ({ path }) => new Database(path),
         randomToken: () => randomBytes(32).toString('hex'),
+        addonEffects: input => createNodeAddonEffects({ ...input, loadModule: loadAddonModule }),
+        addonYaml: { read: readAddonYaml },
+        addonFederation: createNodeFederationEffects({ fetch, stdio: input => new StdioClientTransport(input) }),
         loadCredentialMaster: input => loadCredentialMaster({ ...input, fs, randomToken: () => randomBytes(32).toString('hex') }),
         schedule: ({ callback, delayMs }) => { const timer = setTimeout(callback, delayMs); return () => clearTimeout(timer); } };
 }
@@ -122,4 +129,16 @@ async function main(): Promise<void> {
 // Node 24.2's entry-point flag also works through the package's symlinked om bin.
 if (import.meta.main) {
     void main().catch(() => { process.stderr.write('Local server executable failed\n'); process.exitCode = 1; });
+}
+
+/** Safe bounded skill frontmatter parser. No custom tags, duplicate keys, or alias expansion.
+ * @example readAddonYaml({ yaml: 'name: sample\ndescription: Sample skill' });
+ * @throws On oversized/invalid YAML; the add-on boundary returns a redacted typed failure.
+ * @complexity O(b) parsing, b<=64 KiB; aliases are refused during conversion.
+ */
+export function readAddonYaml(required: { yaml: string }): unknown {
+    if (Buffer.byteLength(required.yaml, 'utf8') > 65536) throw new RangeError('Skill YAML exceeds 64 KiB');
+    const document = parseDocument(required.yaml, { schema: 'core', uniqueKeys: true, strict: true, resolveKnownTags: false });
+    if (document.errors.length || document.warnings.length) throw new Error('Invalid skill YAML');
+    return document.toJS({ maxAliasCount: 0 }) as unknown;
 }

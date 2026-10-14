@@ -1,3 +1,5 @@
+import { addonListRequestSchema, addonSummarySchema, installAddonSchema, setAddonEnabledSchema, uninstallAddonSchema, connectIntegrationTokenSchema, disconnectIntegrationSchema, pageQuerySchema } from '@open-marketing/contracts';
+import type { AddonSummary, IntegrationSummary } from '@open-marketing/contracts';
 import { approvalResponseSchema, cancelRunSchema, chatMessageSchema, navigationResultSchema, navigationTargetSchema, parseBoundary } from "@open-marketing/contracts";
 import type { Outcome, RunEvent, NavigationResult, ConfirmationCard, ApprovalResponse } from "@open-marketing/contracts";
 import type { StudioApiPort, StudioRun, StudioPayload } from "./types.js";
@@ -28,6 +30,7 @@ export function createSampleStudioApi(required: { runtime: StudioRuntime }): Stu
   const runs = new Map<string, SampleRun>();
   const acknowledgements: NavigationResult[] = [];
   return {
+    addons: sampleAddons({ runtime: required.runtime }),
     async conversations() { return unavailable(); },
     async conversation() { return unavailable(); },
     async createConversation() { return unavailable(); },
@@ -84,4 +87,85 @@ export function createSampleStudioApi(required: { runtime: StudioRuntime }): Stu
 /** Fixture-side acknowledgement checks identity, digest, expiry and the offered choices. */
 function matchesCard(required: { card: ConfirmationCard; response: ApprovalResponse; now: number }): boolean {
   return required.card.operationId === required.response.operationId && required.card.argumentsDigest === required.response.argumentsDigest && required.card.expiresAt > required.now && required.card.allowedChoices.includes(required.response.choice);
+}
+
+/** Concrete per-instance fixture with disabled installs and secret-free account summaries.
+ * @example createSampleStudioApi({ runtime }).addons
+ * @complexity <=100 packages/connections; no network, filesystem, or retained tokens.
+ */
+function sampleAddons(required: { runtime: StudioRuntime }): NonNullable<StudioApiPort['addons']> {
+  const packages: AddonSummary[] = [];
+  const connections = new Map<string, IntegrationSummary>();
+  const invalid = (): Outcome<never> => ({ ok: false, error: { code: 'invalid_input', message: 'Invalid sample add-on request', retryable: false } });
+  return {
+    async list(input) {
+      const parsed = addonListRequestSchema.safeParse(input.query);
+      if (!parsed.success) return invalid();
+      return samplePage({ items: packages.filter(row => !parsed.data.kind || row.kind === parsed.data.kind), query: parsed.data });
+    },
+    async install(input) {
+      const parsed = installAddonSchema.safeParse(input.request);
+      if (!parsed.success || packages.length >= 100) return invalid();
+      const kind = sampleKind({ request: parsed.data });
+      if (!kind) return invalid();
+      const id = required.runtime.ids.next({});
+      const row = addonSummarySchema.parse({ id, kind, name: 'Uploaded sample ' + kind, description: 'Preview fixture; no code executed', version: '1', revision: id, enabled: false });
+      packages.push(row);
+      return { ok: true, value: { ...row } };
+    },
+    async setEnabled(input) {
+      const parsed = setAddonEnabledSchema.safeParse(input.request);
+      if (!parsed.success) return invalid();
+      const index = packages.findIndex(row => row.id === parsed.data.id && row.kind === parsed.data.kind);
+      if (index < 0) return unavailable();
+      packages[index] = { ...packages[index], enabled: parsed.data.enabled };
+      return { ok: true, value: { ...packages[index] } };
+    },
+    async uninstall(input) {
+      const parsed = uninstallAddonSchema.safeParse(input.request);
+      if (!parsed.success) return invalid();
+      const index = packages.findIndex(row => row.id === parsed.data.id && row.kind === parsed.data.kind);
+      if (index < 0) return unavailable();
+      packages.splice(index, 1);
+      return { ok: true, value: { ...parsed.data, removed: true } };
+    },
+    async integrations(input) {
+      const query = pageQuerySchema.safeParse(input.query);
+      if (!query.success) return invalid();
+      return samplePage({ items: [...connections.values()], query: query.data });
+    },
+    async connect(input) {
+      const parsed = connectIntegrationTokenSchema.safeParse(input.request);
+      if (!parsed.success || connections.size >= 100) return invalid();
+      if (connections.has(parsed.data.connectionId)) return { ok: false, error: { code: 'conflict', message: 'Use a new connection ID', retryable: false } };
+      const row: IntegrationSummary = { connectionId: parsed.data.connectionId, pluginId: parsed.data.pluginId, status: 'saved' };
+      connections.set(row.connectionId, row);
+      return { ok: true, value: { ...row } };
+    },
+    async disconnect(input) {
+      const parsed = disconnectIntegrationSchema.safeParse(input.request);
+      if (!parsed.success) return invalid();
+      const row = connections.get(parsed.data.connectionId);
+      if (!row) return unavailable();
+      const disconnected: IntegrationSummary = { ...row, status: 'disconnected' };
+      connections.set(row.connectionId, disconnected);
+      return { ok: true, value: { ...disconnected } };
+    },
+  };
+}
+/** Fixture pagination uses the same opaque index cursor on HTTP and memory; <=100 rows. */
+function samplePage<T>(required: { items: T[]; query: { limit: number; cursor?: string } }): Outcome<{ items: T[]; cursor: string | null }> {
+  const offset = required.query.cursor === undefined ? 0 : Number(required.query.cursor);
+  if (!Number.isSafeInteger(offset) || offset < 0) return unavailable();
+  const end = offset + required.query.limit;
+  return { ok: true, value: { items: required.items.slice(offset, end).map(row => ({ ...row })), cursor: end < required.items.length ? String(end) : null } };
+}
+/** Sample upload detection is presentation-only; production delegates validation to Jini. */
+function sampleKind(required: { request: import('@open-marketing/contracts').InstallAddon }) {
+  if (required.request.kind) return required.request.kind;
+  if (required.request.upload.kind !== 'files') return null;
+  const names = required.request.upload.files.map(file => file.path.split('/').at(-1));
+  if (names.includes('jini.plugin.json')) return 'plugin' as const;
+  if (names.includes('plugin.json')) return 'agent-plugin' as const;
+  return names.includes('SKILL.md') ? 'skill' as const : null;
 }

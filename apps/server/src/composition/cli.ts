@@ -9,6 +9,7 @@ import type { Readable, Writable } from 'node:stream';
 import type { Outcome } from '@open-marketing/contracts';
 import { runOmCli, type CliRuntime } from '../cli/index.js';
 import { terminalText } from '../cli/http.js';
+import { createFolderReader } from '../cli/folder.js';
 import { localFailure, localStateRoot, readLocalEndpoint, readLocalOwner, type LocalFilesystem } from './local-auth.js';
 
 /** Prefer explicit configuration; otherwise discover the local server/token from the same root.
@@ -73,6 +74,7 @@ function createRuntime(required: { env: Readonly<Record<string, string | undefin
         stdout: { write: ({ text }) => { process.stdout.write(text); } },
         stderr: { write: ({ text }) => { process.stderr.write(text); } },
         readPrompt: input => readPrompt({ ...input, signal: AbortSignal.any([input.signal, required.signal]), stdin: process.stdin }),
+        addonFiles: createFolderReader({ fs }),
         confirm: () => confirmOwner({ input: process.stdin, output: process.stderr }),
         deadline: { create({ timeoutMs }) {
             const controller = new AbortController();

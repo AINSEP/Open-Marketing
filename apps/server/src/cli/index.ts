@@ -1,23 +1,14 @@
+import { runAddonCli } from './addons.js';
+import type { CliRuntime } from './types.js';
+export type { CliRuntime } from './types.js';
 /** Inert owner CLI: terminal commands use HTTP, never features, DB, or vendor configuration. */
 import { parseArgs } from "node:util";
 import { z } from "zod";
 import { approvalChoiceSchema, digestSchema, idSchema, pageQuerySchema, parseBoundary } from "@open-marketing/contracts";
 import type { ApprovalResponse, Outcome, PageQuery, RunEvent } from "@open-marketing/contracts";
 import { answerApproval, readCard } from "./approval.js";
-import type { ApprovalRuntime } from "./approval.js";
 import { createSession, failure, requestOm, routes, terminalText } from "./http.js";
-import type { HttpRuntime, HttpSession } from "./http.js";
-
-/** Inject once in the Node launcher; tests supply an in-memory runtime.
- * readPrompt yields bounded chunks from a file, or stdin for path "-", honoring the signal.
- * confirm resolves true only after explicit terminal confirmation; noninteractive resolves false.
- * Output methods are synchronous sinks. Modules construct no processes, timers, or services.
- */
-export interface CliRuntime extends HttpRuntime, ApprovalRuntime {
-  readonly stdout: { write(required: { text: string }): void };
-  readonly readPrompt: (required: { path: string; signal: AbortSignal }) => AsyncIterable<Uint8Array>;
-  readonly signal?: AbortSignal;
-}
+import type { HttpSession } from "./http.js";
 
 const options = {
   json: { type: "boolean" }, help: { type: "boolean" }, limit: { type: "string" },
@@ -39,6 +30,7 @@ const help = [
   "om approvals answer <card-id> --choice <allow|allow_chat|always_allow|cancel> [--confirm-digest <digest>]",
   "om ads halt --account <id>", "om settings generation show",
   "om ask <prompt> [--conversation <id>] | om ask --prompt-file <path|-> [--conversation <id>]", "All commands: --json, --help",
+  "om addons list|install|enable|disable|uninstall --help", "om integrations list|connect|disconnect --help",
   "Set OM_SERVER_URL and OM_OWNER_TOKEN (owner session, not agent service credentials).",
   "Approval answers display the current card and require explicit confirmation. Answers are recorded, not executed.",
   "Ask polls the selected server assistant mode. --json returns one run receipt. Ctrl-C cancels the run.",
@@ -341,6 +333,7 @@ async function runParsedCommand(required: { command: Command; runtime: CliRuntim
  * @complexity O(input + response bytes) with fixed caps; ask observes <=300 bounded pages.
  */
 export async function runOmCli(required: { argv: readonly string[]; runtime: CliRuntime }): Promise<Outcome<void>> {
+  if (required.argv[0] === 'addons' || required.argv[0] === 'integrations') return runAddonCli(required);
   let json = required.argv.includes("--json") || required.argv.includes("--json=true");
   try {
     const parsed = parseCommand({ argv: required.argv });

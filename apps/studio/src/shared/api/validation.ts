@@ -1,9 +1,13 @@
 import { z } from "zod";
-import { toolRequestedPayloadSchema, toolResultPayloadSchema, approvalPayloadSchema, chatMessageSchema, confirmationCardSchema, navigationActionSchema, navigationTargetSchema, moneySchema, runEventSchema, parseBoundary } from "@open-marketing/contracts";
+import { toolRequestedPayloadSchema, toolResultPayloadSchema, approvalPayloadSchema, chatMessageSchema, confirmationCardSchema, navigationActionSchema, navigationTargetSchema, studioNavigationTargetSchema, moneySchema, runEventSchema, parseBoundary } from "@open-marketing/contracts";
 import type { Outcome, RunEvent } from "@open-marketing/contracts";
 import type { StudioPayload, StudioSnapshot } from "./types.js";
 
 const row = z.strictObject({ id: z.string().min(1).max(256), title: z.string().max(200), detail: z.string().max(1024), status: z.string().max(100) });
+// Legacy rows remain required; add-on rows are optional and unknown route keys still fail.
+const snapshotRows = z.record(z.string(), z.array(row).max(100))
+  .refine(rows => Object.keys(rows).every(target => studioNavigationTargetSchema.safeParse(target).success))
+  .refine(rows => navigationTargetSchema.options.every(target => target in rows));
 const displayId = z.string().min(1).max(256);
 const title = z.string().min(1).max(200);
 const detail = z.string().max(1024);
@@ -54,7 +58,7 @@ const operationsSchema = z.strictObject({
 const snapshotSchema = z.strictObject({
   workspace: z.string().max(100), mode: z.enum(["sample", "connected", "unavailable"]),
   metrics: z.array(z.strictObject({ label: z.string().max(100), value: z.string().max(100), detail: z.string().max(200) })).max(12),
-  rows: z.record(navigationTargetSchema, z.array(row).max(100)), messages: z.array(chatMessageSchema).max(200), cards: z.array(confirmationCardSchema).max(50),
+  rows: snapshotRows, messages: z.array(chatMessageSchema).max(200), cards: z.array(confirmationCardSchema).max(50),
   allowance: z.strictObject({ daily: moneySchema, remaining: moneySchema, timezone: z.string().max(100) }),
   pages: z.strictObject({ creative: creativeSchema, campaigns: campaignsSchema, operations: operationsSchema }).optional(),
 });

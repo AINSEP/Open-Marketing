@@ -2,16 +2,16 @@ import { useAppearance, usePortSnapshot } from "../../shared/ui/index.js";
 import type { AppearanceHost } from "../../shared/ui/index.js";
 import { useEffect, useRef, useState } from "react";
 import type { MouseEvent } from "react";
-import type { NavigationTarget } from "@open-marketing/contracts";
+import type { NavigationTarget, StudioNavigationTarget, AddonNavigationTarget } from "@open-marketing/contracts";
 import type { ChatSession } from "../../features/chat-run/index.js";
 import type { NavigationController } from "../../features/navigate/index.js";
 import { parseStudioSnapshot } from "../../shared/api/index.js";
 import type { StudioApiPort, StudioSnapshot } from "../../shared/api/index.js";
 import type { StudioRuntime } from "../../shared/api/index.js";
-import { NAVIGATION, ROUTES } from "../../shared/navigation/index.js";
+import { NAVIGATION, ADDON_NAVIGATION, ROUTES, isAddonTarget } from "../../shared/navigation/index.js";
 
 export interface ShellProps { readonly api: StudioApiPort; readonly runtime: StudioRuntime; readonly navigation: NavigationController; readonly session: ChatSession; readonly appearance?: AppearanceHost }
-export interface NavLink { readonly target: NavigationTarget; readonly label: string; readonly glyph: string; readonly active: boolean; readonly onClick: (event: MouseEvent<HTMLAnchorElement>) => void }
+export interface NavLink { readonly target: StudioNavigationTarget; readonly label: string; readonly glyph: string; readonly active: boolean; readonly onClick?: (event: MouseEvent<HTMLAnchorElement>) => void }
 /** App owns shared routing and boot data; widgets receive only downward ports and state. */
 export function useShell(required: ShellProps) {
   const appearance = useAppearance(required.appearance ?? { root: null, storage: null });
@@ -47,7 +47,12 @@ export function useShell(required: ShellProps) {
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault(); required.navigation.select({ target: route });
   } }));
-  return { target, snapshot, error, chatOpen, toggleChat, openChat, headingRef, links, appearance, page: ROUTES[target], workspace: workspaceLabel({ value: snapshot?.workspace }), connection: connectionLabels({ snapshot, error }), chatAvailable: snapshot !== null && snapshot.mode !== "unavailable", mode: snapshot?.mode ?? "unavailable" };
+  // Native hash links reach the controller's validated read/listen path; legacy writes stay compatible.
+  const addonLinks: readonly NavLink[] = ADDON_NAVIGATION.map(route => ({ target: route, ...ROUTES[route], active: route === target }));
+  const route = { target };
+  const addonTarget: AddonNavigationTarget | null = isAddonTarget(route) ? route.target : null;
+  const canvasTarget: NavigationTarget | null = isAddonTarget(route) ? null : route.target as NavigationTarget;
+  return { target, addonTarget, canvasTarget, snapshot, error, chatOpen, toggleChat, openChat, headingRef, links, addonLinks, appearance, page: ROUTES[target], workspace: workspaceLabel({ value: snapshot?.workspace }), connection: connectionLabels({ snapshot, error }), chatAvailable: snapshot !== null && snapshot.mode !== "unavailable", mode: snapshot?.mode ?? "unavailable" };
 }
 
 function workspaceLabel(required: { value?: string }): string {

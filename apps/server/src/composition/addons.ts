@@ -1,14 +1,15 @@
 /** Independent add-on composition; boot integration is sequenced by the Coordinator. */
 import * as fs from 'node:fs/promises';
+import type { Dirent } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
 import { createAgentPluginLayout, createAgentPluginLifecycle, parseAgentPluginManifest } from '@jini-ai/agent-plugins/lifecycle';
-import type { AgentPluginLifecycleRequired, InstalledAgentPlugin } from '@jini-ai/agent-plugins/lifecycle';
+import type { AgentPluginLayout, AgentPluginLifecycleRequired, InstalledAgentPlugin } from '@jini-ai/agent-plugins/lifecycle';
 import { createNodeAgentPluginEffects } from '@jini-ai/agent-plugins/lifecycle/node';
-import { createNodeSkillFilesystem, createSkillInstaller, createSkillLayout, createYauzlSkillArchiveReader, validateSkillMarkdown } from '@jini-ai/agentic/skills/install';
+import { createNodeSkillFilesystem, createSkillInstaller, createSkillLayout, createYauzlSkillArchiveReader, validateSkillMarkdown, validateSkillPath } from '@jini-ai/agentic/skills/install';
 import type { SkillZipSdkPort, YamlReaderPort } from '@jini-ai/agentic/skills/install';
 import { createPluginContributionRegistry } from '@jini-ai/plugins/host';
 import type { DefinedPlugin, ManifestHostPorts, PluginActivationRepoPort, PluginTierPolicy } from '@jini-ai/plugins/host';
@@ -18,7 +19,7 @@ import type { CredentialSqlPort } from '@open-marketing/credentials';
 import { addonSummarySchema, boundedJsonSchema } from '@open-marketing/contracts';
 import { createAddons, createSqlAddonRepository, addonBoundary } from '../addons.js';
 import type { AddonDescription, AddonPackageAdapter, PreparedAddon } from '../addons.js';
-import { addonAgentArchiveReader } from '../addon-upload.js';
+import { addonAgentArchiveReader, decodeAddonUpload } from '../addon-upload.js';
 import type { AddonFiles } from '../addon-upload.js';
 import { createExecutablePluginHost, executablePackageRoot } from '../plugin-host.js';
 import { createExternalMcpStore } from '../external-mcp.js';
@@ -106,8 +107,8 @@ export function bindServerAddons(required: { context: CallContext; db: Credentia
     const addons = createAddons({ repo: scopedRepo, packages, archiveReader: required.effects.archiveReader, observer: required.observer });
     return { addons, externalMcp, registry,
         start: () => addonBoundary({ context: required.context, dependencies: required, operation: 'addons.start', run: async () => {
-            const seeded = await lifecycle.seedBundledAgentPlugins({ layout, workspaceId: scopeId, sourceRoot: join(required.projectRoot, 'content', 'agent-plugins') });
-            if (seeded.outcomes.some(row => row.status === 'failed') || seeded.ledgerFailure) throw new Error('Bundled plugin seed failed');
+            await seedBundledAgentPlugins({ lifecycle, layout, workspaceId: scopeId, effects: required.effects,
+                sourceRoot: join(required.projectRoot, 'content', 'agent-plugins') });
             const installed = await lifecycle.listInstalledPlugins({ workspaceRoot: world.root });
             const activation = await lifecycle.readAgentPluginActivations({ workspaceRoot: world.root });
             for (const plugin of installed) await seedSummary({ plugin, enabled: activation.plugins[plugin.pluginId]?.enabled === true });
@@ -235,6 +236,127 @@ export function bindServerAddons(required: { context: CallContext; db: Credentia
             await packages[input.addon.kind].setEnabled({ context: required.context, addon: input.addon, enabled: false });
             throw new Error('Add-on restore failed');
         }
+    }
+}
+
+type AgentPluginLifecycle = ReturnType<typeof createAgentPluginLifecycle>;
+type BundledScan = { files: Map<string, Uint8Array>; bytes: number; entries: number };
+const bundledExtensionSchema = z.object({ capabilities: z.union([
+    z.array(z.unknown()), z.record(z.string(), z.object({ binding: z.string().optional() }).passthrough()),
+]).optional() }).passthrough();
+const bundledArtifacts = new Set(['node_modules', 'dist', 'build', '.git', '.cache', '.turbo', '.vite', 'coverage']);
+
+/** Removable host workaround for Jini 0.4.6's whole-tree packing and extraction-before-dedup.
+ * Retains Jini migration, activation and digest-ledger ownership. An unchanged snapshot is indexed
+ * before the installer is called, so restart performs no staging extraction or snapshot copying.
+ * Errors reach addons.start's typed boundary; disabled-by-default and operator choices are preserved.
+ * @complexity O(selected source bytes + files log files), <=1000 packages, <=32 MiB/package.
+ */
+async function seedBundledAgentPlugins(required: { lifecycle: AgentPluginLifecycle; layout: AgentPluginLayout;
+    workspaceId: string; sourceRoot: string; effects: AddonEffects }): Promise<void> {
+    const world = required.layout.forWorkspace({ workspaceId: required.workspaceId });
+    const migration = await required.lifecycle.migratePluginLayout({ workspaceId: required.workspaceId });
+    if (!migration.complete) throw new Error('Bundled plugin layout migration incomplete');
+    await required.lifecycle.assertAgentPluginActivationsWritable({ workspaceRoot: world.root });
+    const entries = await bundledSourceEntries({ effects: required.effects, path: required.sourceRoot });
+    if (entries.length > 1000) throw new RangeError('Bundled plugin catalog cap');
+    const seeded: { pluginId: string; archiveDigest: string }[] = [];
+    for (const entry of entries.filter(entry => entry.isDirectory() && !isBundledArtifact({ name: entry.name }))) {
+        const source = await readBundledPackage({ effects: required.effects, sourceDir: join(required.sourceRoot, entry.name) });
+        if (!source) continue;
+        const archive = Buffer.from(source.revision, 'hex');
+        const archiveDigest = createHash('sha256').update(archive).digest('hex');
+        const packagesDir = world.pluginPackagesDir({ pluginId: source.pluginId });
+        const packageRoot = await required.lifecycle.assertContainedOnDisk({ packageRoot: world.root,
+            entryPath: relative(world.root, join(packagesDir, archiveDigest)) });
+        if (await required.lifecycle.isInstalledDigestPresent({ packagesDir, archiveDigest })) {
+            await required.lifecycle.indexInstalledRoot({ packageRoot, archiveDigest });
+        } else {
+            await required.lifecycle.installAgentPlugin({ archive, expectedSha256: archiveDigest,
+                archiveReader: addonAgentArchiveReader(source), layout: required.layout, workspaceId: required.workspaceId });
+        }
+        await required.lifecycle.recordBundledAgentPluginIfAbsent({ workspaceRoot: world.root, pluginId: source.pluginId }, { enabled: false });
+        seeded.push({ pluginId: source.pluginId, archiveDigest });
+    }
+    await required.lifecycle.recordBundledAgentPluginDigests({ workspaceRoot: world.root, seeded });
+}
+
+/** Builds a bounded upload from portable package content, excluding development source/output.
+ * Agent Plugins declare skills by layout and extra capability files by manifest bindings.
+ * LICENSE/NOTICE accompany redistributed package bytes. The existing upload decoder owns hashing.
+ */
+async function readBundledPackage(required: { effects: AddonEffects; sourceDir: string }) {
+    const sourceDir = await required.effects.filesystem.realpath(required.sourceDir);
+    const entries = await required.effects.filesystem.readdir(sourceDir, { withFileTypes: true });
+    if (!entries.some(entry => entry.name === 'plugin.json')) return undefined;
+    const bytes = await required.effects.skillFilesystem.readFile({ path: join(sourceDir, 'plugin.json'), maxBytes: 65536 });
+    const manifest = parseAgentPluginManifest({ value: boundedJsonSchema.parse(JSON.parse(Buffer.from(bytes).toString('utf8'))) },
+        { identityNamespace: 'io.github.ainsep.openmarketing' });
+    if (!manifest.ok) throw new Error('Invalid bundled plugin manifest');
+    const paths = new Set(entries.filter(entry => ['plugin.json', 'mcp.json', 'skills', 'LICENSE', 'NOTICE'].includes(entry.name)).map(entry => entry.name));
+    for (const path of bundledBindings({ value: manifest.manifest.extensions?.['io.github.ainsep.openmarketing'] })) paths.add(path);
+    const scan: BundledScan = { files: new Map(), bytes: 0, entries: 0 };
+    for (const path of paths) await readBundledPath({ ...required, sourceDir, path, scan });
+    const decoded = checked({ result: await decodeAddonUpload({ archiveReader: required.effects.archiveReader, upload: { kind: 'files',
+        files: [...scan.files].map(([path, content]) => ({ path, base64: Buffer.from(content).toString('base64') })) } }) });
+    return { ...decoded, pluginId: manifest.manifest.name };
+}
+
+/** Only validated, package-relative binding paths are copied; caches cannot be declared back in. */
+function bundledBindings(required: { value: unknown }): string[] {
+    const extension = bundledExtensionSchema.parse(required.value ?? {});
+    if (!extension.capabilities || Array.isArray(extension.capabilities)) return [];
+    const paths: string[] = [];
+    for (const capability of Object.values(extension.capabilities)) {
+        if (!capability.binding) continue;
+        const path = capability.binding.replace(/^\.\//, '');
+        validateSkillPath({ filePath: path });
+        if (path.split('/').some(name => isBundledArtifact({ name }))) throw new Error('Bundled binding points to build/dependency artifacts');
+        paths.push(path);
+    }
+    return paths;
+}
+
+/** Read selected files with Jini's no-follow bounded reader; skip caches inside skill trees.
+ * Links and special files fail closed. Directory depth, entries, files and retained bytes are capped.
+ */
+async function readBundledPath(required: { effects: AddonEffects; sourceDir: string; path: string; scan: BundledScan }): Promise<void> {
+    validateSkillPath({ filePath: required.path });
+    if (++required.scan.entries > 8192 || required.path.split('/').length > 16) throw new RangeError('Bundled plugin traversal cap');
+    const path = join(required.sourceDir, required.path);
+    if (await required.effects.filesystem.realpath(path) !== path) throw new Error('Bundled plugin link refused');
+    const stat = await required.effects.skillFilesystem.lstat({ path });
+    if (stat.kind === 'directory') {
+        await readBundledDirectory(required);
+        return;
+    }
+    if (stat.kind !== 'file') throw new Error('Bundled plugin special file refused');
+    if (required.scan.files.has(required.path)) return;
+    if (required.scan.files.size >= 2048) throw new RangeError('Bundled plugin file cap');
+    const bytes = await required.effects.skillFilesystem.readFile({ path, maxBytes: Math.min(16777216, 33554432 - required.scan.bytes) });
+    required.scan.bytes += bytes.byteLength;
+    required.scan.files.set(required.path, bytes);
+}
+
+/** Filter before traversal so dependency/build trees are never read or copied. */
+async function readBundledDirectory(required: { effects: AddonEffects; sourceDir: string; path: string; scan: BundledScan }): Promise<void> {
+    const entries = await required.effects.filesystem.readdir(join(required.sourceDir, required.path), { withFileTypes: true });
+    if (entries.length + required.scan.entries > 8192) throw new RangeError('Bundled plugin entry cap');
+    for (const entry of entries) {
+        if (!isBundledArtifact({ name: entry.name })) await readBundledPath({ ...required, path: required.path + '/' + entry.name });
+    }
+}
+
+function isBundledArtifact(required: { name: string }): boolean {
+    return bundledArtifacts.has(required.name) || required.name.endsWith('.tsbuildinfo');
+}
+
+/** No bundled directory is a legitimate build; other read failures remain explicit boot failures. */
+async function bundledSourceEntries(required: { effects: AddonEffects; path: string }): Promise<Dirent[]> {
+    try { return await required.effects.filesystem.readdir(required.path, { withFileTypes: true }); }
+    catch (error) {
+        if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') return [];
+        throw error;
     }
 }
 

@@ -1,3 +1,8 @@
+import { bindServerAddons, type AddonEffects } from './addons.js';
+import type { YamlReaderPort } from '@jini-ai/agentic/skills/install';
+import type { ExternalMcpSessions } from '../external-mcp.js';
+import { bindAddonFederationSessions } from './addon-federation.js';
+import type { AddonFederationEffects } from './addon-federation.js';
 /** Sole server resource composition. Imports and factories are inert; boot is explicitly effectful. */
 import { createSqliteChatStore } from '@jini-ai/chat/store/sqlite';
 import { createChatRunLedger, createDurableRunStore } from '@jini-ai/chat/store/runtime';
@@ -54,12 +59,16 @@ export interface ServerBootIo extends HttpEffects {
     readonly randomToken: (required: Record<string, never>) => string;
     readonly ready: (required: { studioUrl: string }) => void;
     readonly agentEffects?: AgentEffects;
+    readonly addonEffects?: (required: { clock: ClockPort; ids: IdPort }) => AddonEffects;
+    readonly addonYaml?: YamlReaderPort;
+    readonly addonSessions?: ExternalMcpSessions;
+    readonly addonFederation?: AddonFederationEffects;
     readonly modelUpstream?: ModelUpstream;
     readonly loadCredentialMaster?: (required: { configuration: KeyringConfiguration; masterHex?: string }) => Promise<Outcome<Uint8Array>>;
 }
 /** Explicit owned lifecycle returned after successful boot. stop is idempotent and closes SQLite last. */
 export interface BootedServer { readonly studioUrl: string; stop(required: Record<string, never>): Promise<Outcome<void>> }
-interface BootResources { native?: Database.Database; app?: LifecyclePort; confirmations?: MemoryConfirmationExchange; workers?: ReturnType<typeof createFormWorkers>; privacy?: ReturnType<typeof bindPrivacy>; agent?: ReturnType<typeof createLocalAgent>; stopped?: Promise<Outcome<void>> }
+interface BootResources { addons?: ReturnType<typeof bindBootAddons>; native?: Database.Database; app?: LifecyclePort; confirmations?: MemoryConfirmationExchange; workers?: ReturnType<typeof createFormWorkers>; privacy?: ReturnType<typeof bindPrivacy>; agent?: ReturnType<typeof createLocalAgent>; stopped?: Promise<Outcome<void>> }
 
 /** Best-effort low-cardinality lifecycle diagnostics; no credential/token or raw exception details. */
 function observeBoot(required: { observer: ObserverPort; context: CallContext; operation: string; outcome: string }): void {
@@ -81,6 +90,10 @@ async function closeResources(required: { resources: BootResources }): Promise<O
     if (!agent.ok) result = agent;
     const workers = await stopService({ service: required.resources.workers, message: 'Worker cleanup failed' });
     if (!workers.ok) result = workers;
+    try {
+        const addons = await required.resources.addons?.dispose();
+        if (addons && !addons.ok) result = addons;
+    } catch { result = localFailure({ message: 'Add-on cleanup failed' }); }
     required.resources.privacy?.participants.dispose({});
     required.resources.confirmations?.reset({});
     try { if (required.resources.native?.open) required.resources.native.close(); }
@@ -204,8 +217,10 @@ export async function bootServer(required: {
         const services: OwnerServices = {
             campaigns: createSqlCampaignRepo({ db: campaignDb }, { observer: required.observer }),
             safety: createSqlSafetyRepo({ db: safetyDb, clock: required.clock, ids: required.ids, ownerTimezone: config.value.timezone, observer: required.observer }),
-            confirmations: resources.confirmations,
+            confirmations: resources.confirmations, integrations,
         };
+        resources.addons = bindBootAddons({ ...required, context, db: campaignDb, stateRoot: config.value.stateRoot, integrations });
+        services.addons = resources.addons?.addons;
         const visits = createVisitTokens({ key: localKey({ ownerToken: credentials.value.token, domain: 'visits' }), clock: required.clock, ids: required.ids });
         const digestKey = localKey({ ownerToken: credentials.value.token, domain: 'contacts' });
         const identity = bindIdentity({ unit: database.unit, clock: required.clock, ids: required.ids, observer: required.observer, digestKey, tokens: visits.tokens });
@@ -246,6 +261,9 @@ export async function bootServer(required: {
         phase = 'sandbox agent';
         const agentStarted = await agent.start({ serverUrl: origin });
         if (!agentStarted.ok) { await stopResources({ resources }); return agentStarted; }
+        phase = 'add-ons';
+        const addonsStarted = await startBootAddons({ resources });
+        if (!addonsStarted.ok) { await stopResources({ resources }); return addonsStarted; }
         const workersStarted = resources.workers.start({});
         if (!workersStarted.ok) { await stopResources({ resources }); return workersStarted; }
         phase = 'readiness';
@@ -257,6 +275,11 @@ export async function bootServer(required: {
     } catch {
         return failedBoot({ resources, context, observer: required.observer, phase });
     }
+}
+
+/** Add-ons are optional when the boot IO supplies no add-on effects. */
+async function startBootAddons(required: { resources: BootResources }): Promise<Outcome<unknown>> {
+    return (await required.resources.addons?.start()) ?? { ok: true, value: undefined };
 }
 
 /** Failed startup releases acquired resources before reporting its phase; diagnostics are optional. */
@@ -320,4 +343,23 @@ function createModelUpstream(required: { fetch: typeof fetch }): ModelUpstream {
  return { send: input => required.fetch(input.url, { method: 'POST', headers: input.headers, body: input.body, signal: input.signal, redirect: input.redirect }),
   deadline({ timeoutMs }) { const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), timeoutMs);
    return { signal: controller.signal, dispose: () => clearTimeout(timer) }; } };
+}
+
+/** Hosts without native federation I/O fail explicitly; no fake session activation. */
+function unavailableAddonSessions(): ExternalMcpSessions {
+    return { async reload() { throw new Error('Federation binding unavailable'); }, async close() { /* No session was acquired. */ } };
+}
+
+/** Bind D2 only when executable composition supplies native effects and safe YAML.
+ * Test/server shell hosts without these adapters retain explicit unavailable owner routes.
+ * @complexity O(1) construction; start/dispose remain owned by bootResources.
+ */
+function bindBootAddons(required: { io: ServerBootIo; context: CallContext; db: CampaignSqlPort; stateRoot: string; clock: ClockPort; ids: IdPort; observer: ObserverPort; integrations: Integrations }): (ReturnType<typeof bindServerAddons> & { federation?: ReturnType<typeof bindAddonFederationSessions> }) | undefined {
+    if (!required.io.addonEffects || !required.io.addonYaml) return undefined;
+    const federation = !required.io.addonSessions && required.io.addonFederation
+        ? bindAddonFederationSessions({ context: required.context, effects: required.io.addonFederation, integrations: required.integrations, observer: required.observer }) : undefined;
+    const binding = bindServerAddons({ ...required, projectRoot: required.io.projectRoot,
+        effects: required.io.addonEffects({ clock: required.clock, ids: required.ids }), yamlReader: required.io.addonYaml,
+        sessions: required.io.addonSessions ?? federation ?? unavailableAddonSessions() });
+    return { ...binding, federation };
 }

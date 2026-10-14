@@ -2,9 +2,10 @@
 import { describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
-import { readFile, mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { readFile, mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import * as fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { removeStateRoot } from './state-root.js';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createSqliteChatStore } from '@jini-ai/chat/store/sqlite';
@@ -189,5 +190,5 @@ it('composes an agent Jini turn through the REAL server broker and a fixture ups
   expect(JSON.stringify(page)).not.toContain('sealed-fixture-key');
   const saved = await (await fetch(origin + '/api/conversations/' + receipt.value.conversationId + '?limit=100', { headers })).json();
   expect(saved.value.messages.at(-1).text).toBe('Composed fixture answer.');
- } finally { if (boot.ok) await boot.value.stop({}); await rm(directory, { recursive: true, force: true }); }
+ } finally { if (boot.ok) await boot.value.stop({}); await removeStateRoot({ path: directory }); }
 });

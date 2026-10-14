@@ -1,3 +1,7 @@
+import { handleAddonRequest } from './addons.js';
+import { handleIntegrationRequest } from './integrations.js';
+import type { Addons } from '../addons.js';
+import type { Integrations } from '../integrations.js';
 /** Owner HTTP translation. Authentication/scope are supplied by the local server dispatcher. */
 import { z } from 'zod';
 import { assistantRunRequestSchema, assistantSettingsSchema, approvalResponseSchema, idSchema, pageQuerySchema, parseBoundary } from '@open-marketing/contracts';
@@ -20,6 +24,8 @@ export interface OwnerServices {
     formSubjects?: FormSubjectPort;
     runs?: OwnerRunPort;
     conversations?: Conversations;
+    addons?: Addons;
+    integrations?: Integrations;
 }
 type OwnerInput = { request: HttpRequest; context: CallContext; services: OwnerServices };
 type CampaignRow = z.infer<typeof routes.campaign.schema>;
@@ -160,6 +166,7 @@ async function halt(required: OwnerInput): Promise<HttpResponse> {
  * @complexity O(path length) routing, fixed route set; each operation has bounded reads/body.
  */
 export async function handleOwnerRequest(required: OwnerInput): Promise<HttpResponse> {
+    if (required.request.path.startsWith('/api/addons/v1/')) return addonOwnerRequest(required);
     switch (required.request.method + ' ' + required.request.path) {
         case 'GET /api/status': return respond({ outcome: { ok: true, value: { ready: true, mode: 'local' as const } }, schema: routes.status.schema });
         case 'GET /api/studio/snapshot': return snapshot(required);
@@ -268,4 +275,13 @@ async function assistantSettingsWrite(required: OwnerInput): Promise<HttpRespons
  if (!parsed.ok) return respond({ outcome: parsed, schema: routes.setAssistantSettings.schema });
  const outcome = required.services.conversations ? await required.services.conversations.setSettings({ context: required.context, settings: parsed.value }) : localFailure({ message: 'Assistant settings unavailable' });
  return respond({ outcome, schema: routes.setAssistantSettings.schema });
+}
+
+/** Authenticated add-on management uses D1/D2's owner boundaries and existing services. */
+async function addonOwnerRequest(required: OwnerInput): Promise<HttpResponse> {
+    if (required.request.path.startsWith('/api/addons/v1/integrations') && required.services.integrations) {
+        return handleIntegrationRequest({ ...required, integrations: required.services.integrations });
+    }
+    if (required.services.addons) return handleAddonRequest({ ...required, addons: required.services.addons });
+    return { status: 503, body: localFailure({ message: 'Add-ons unavailable on this server' }) };
 }
