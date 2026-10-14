@@ -2,12 +2,13 @@ import type { ChatMessage, ConfirmationCard } from "@open-marketing/contracts";
 import { ApprovalCard } from "../../features/approve/index.js";
 import { useOMChatPane } from "./OMChatPane.hooks.js";
 import type { OMChatPaneProps } from "./OMChatPane.hooks.js";
+import { ChatFab } from "./ChatFab.js";
 
 /** Preserved global FAB and docked conversation; no old UI or daemon dependency. */
 export function OMChatPane(props: OMChatPaneProps) {
   const chat = useOMChatPane(props);
   return <>
-    <button className="chat-fab" type="button" ref={chat.buttonRef} aria-label="Assistant" aria-expanded={props.open} aria-controls="om-chat" onClick={props.toggle}><span aria-hidden="true">✦</span><span>Assistant</span></button>
+    <ChatFab buttonRef={chat.buttonRef} open={props.open} toggle={props.toggle} />
     <aside id="om-chat" className="chat-panel" hidden={!props.open} aria-label="Assistant" tabIndex={-1} ref={chat.panelRef} onKeyDown={chat.keyDown}>
       <header className="chat-header"><div><span className="eyebrow">Your thinking partner</span><h2>Open Marketing assistant</h2></div><button type="button" className="icon-button" aria-label="Close assistant" onClick={props.toggle}>×</button></header>
       <p className="chat-mode">{props.sample ? "Sample conversation · no vendor calls" : props.available ? "Server conversation" : "Agent runtime is not connected."}</p>

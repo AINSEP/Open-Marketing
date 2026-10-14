@@ -3,6 +3,12 @@ import { navigationTargetSchema } from "@open-marketing/contracts";
 import type { BrowserRoutePort } from "../../features/navigate/index.js";
 import type { StudioRuntime, TimerPort } from "../../shared/api/index.js";
 
+/** Access may itself throw in restricted browser contexts; appearance then uses System. */
+export function browserStorage(required: { host: Window }): Storage | null {
+  try { return required.host.localStorage; }
+  catch { return null; }
+}
+
 /** Host adapter receives browser objects explicitly. No module import touches them. */
 export function browserRuntime(required: { host: Window; now: () => number; nextId: () => string }): StudioRuntime {
   const timers = browserTimers({ host: required.host });

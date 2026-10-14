@@ -1,0 +1,69 @@
+/* Modernist: register this complete theme once in styles.css. light-dark() follows
+   native color-scheme; Settings only overrides that scheme on the root element. */
+:root {
+  color-scheme: light dark;
+  --om-bg: light-dark(#FFFFFF, #0C0E0D);
+  --om-sidebar: light-dark(#F7F9F7, #101310);
+  --om-surface: light-dark(#FFFFFF, #171A18);
+  --om-surface-raised: light-dark(#F2F5F3, #202420);
+  --om-input: light-dark(#FFFFFF, #101310);
+  --om-glass: light-dark(#FFFFFFED, #171A18ED);
+  --om-text: light-dark(#141A16, #F5F7F5);
+  --om-text-muted: light-dark(#59635D, #A8B1AA);
+  --om-border: light-dark(#DCE3DD, #343A35);
+  --om-border-control: light-dark(#738078, #758279);
+  /* Near-black labels on this fill: 8.87:1. The light-mode edge is required
+     because the bright fill alone has only 2.16:1 contrast against white. */
+  --om-accent: #00C896;
+  --om-accent-hover: #00B884;
+  --om-accent-ink: #07110B;
+  --om-accent-text: light-dark(#007A52, #00C896);
+  --om-focus: var(--om-accent-text);
+  --om-accent-border: var(--om-accent-text);
+  --om-accent-soft: light-dark(#E5F7EF, #12382D);
+  --om-success: var(--om-accent-text);
+  --om-success-bg: var(--om-accent-soft);
+  --om-warning: light-dark(#805700, #E8BD61);
+  --om-warning-bg: light-dark(#FFF6E3, #302819);
+  --om-danger: light-dark(#B42332, #FF8585);
+  --om-danger-bg: light-dark(#FFF0F1, #32191D);
+  --om-shadow-color: light-dark(#0C0E0D0D, #00000040);
+  --om-shadow-card: 0 8px 24px var(--om-shadow-color);
+  --om-shadow-float: 0 12px 40px var(--om-shadow-color);
+  --om-blur: 12px;
+  --om-radius-sm: 8px;
+  --om-radius-md: 12px;
+  --om-radius-lg: 20px;
+  --om-radius-pill: 9999px;
+  --om-radius-circle: 50%;
+  --om-space-1: 4px;
+  --om-space-2: 8px;
+  --om-space-3: 12px;
+  --om-space-4: 16px;
+  --om-space-5: 24px;
+  --om-space-6: 32px;
+  --om-space-7: 48px;
+  --om-space-8: 64px;
+  --om-font-body: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --om-font-mono: ui-monospace, SFMono-Regular, Consolas, monospace;
+  --om-font-xs: .75rem;
+  --om-font-sm: .875rem;
+  --om-font-base: 1rem;
+  --om-font-lg: 1.25rem;
+  --om-font-xl: 2rem;
+  --om-font-display: 2.5rem;
+  --om-weight-normal: 400;
+  --om-weight-medium: 500;
+  --om-weight-strong: 600;
+  --om-weight-heading: 700;
+  --om-leading-heading: 1.2;
+  --om-leading-body: 1.5;
+  --om-tracking-heading: -.03em;
+  --om-tracking-label: .12em;
+  --om-focus-width: 3px;
+  --om-motion-duration: 140ms;
+  --om-motion-easing: ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root { --om-motion-duration: 0s; }
+}

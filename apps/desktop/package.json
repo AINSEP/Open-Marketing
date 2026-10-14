@@ -21,9 +21,10 @@
     "test": "vitest run tests"
   },
   "dependencies": {
+    "@jini-ai/desktop-host": "0.4.2",
     "@open-marketing/contracts": "workspace:*",
     "@open-marketing/om-clock": "workspace:*",
-    "zod": "4.1.13",
-    "electron": "39.2.3"
+    "electron": "39.2.3",
+    "zod": "4.1.13"
   }
 }

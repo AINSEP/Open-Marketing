@@ -1,5 +1,5 @@
 /** Secure Electron adapter; the real Electron module is loaded only by main.ts. */
-import type { BrowserWindow, BrowserWindowConstructorOptions, Session } from "electron";
+import type { BrowserWindow, BrowserWindowConstructorOptions, Rectangle, Session } from "electron";
 import { z } from "zod";
 import type { Outcome } from "@open-marketing/contracts";
 import type { ElectronHostPort } from "./ports.js";
@@ -19,6 +19,16 @@ const studioUrlSchema = z.url().max(2048).refine(value => {
  return url.protocol === "http:" && url.hostname === "127.0.0.1" && Number(url.port) > 0;
 });
 const csp = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+
+/** Center a 1360×900 default within the primary work area, including its origin.
+ * Jini's restore helper only checks saved overlap; it does not cap or center in a work area.
+ * @returns Complete initial bounds, capped to fit smaller displays without saved positions.
+ */
+export function initialWindowBounds(required: { workArea: Rectangle }): Rectangle {
+ const width = Math.min(1360, required.workArea.width);
+ const height = Math.min(900, required.workArea.height);
+ return { width, height, x: required.workArea.x + Math.floor((required.workArea.width - width) / 2), y: required.workArea.y + Math.floor((required.workArea.height - height) / 2) };
+}
 
 /** Reject malformed URLs, credentials, and lookalike hosts before Electron uses them. */
 function sameOrigin(required: { url: string; origin: string }): boolean {
@@ -58,7 +68,7 @@ function secureWindow(required: { window: BrowserWindow; origin: string }): void
  });
 }
 
-/** One isolated, nonpersistent session and window per app instance, with no preload/IPC.
+/** One caller-selected session and window per app instance, with no preload/IPC.
  * Close destroys an in-flight load. Load failures destroy the window and return safe errors.
  * @example host.open({ studioUrl, webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false } });
  * @complexity O(1) state, excluding Electron I/O and response header copying.

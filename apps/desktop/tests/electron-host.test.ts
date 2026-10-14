@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import type { BrowserWindow, BrowserWindowConstructorOptions, Session, WebContents } from "electron";
 import { expect, it, vi } from "vitest";
-import { createElectronHost } from "../src/electron-host.js";
+import { createElectronHost, initialWindowBounds } from "../src/electron-host.js";
 
 const success = { ok: true, value: undefined };
 const opening = { studioUrl: "http://127.0.0.1:43210/studio", webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false } } as const;
@@ -152,4 +152,27 @@ it("uses distinct injected nonpersistent partitions and windows for two instance
  await first.host.close({});
  expect(second.window.destroy).not.toHaveBeenCalled();
  await second.host.close({});
+});
+
+it.each([
+ [{ x: 0, y: 0, width: 1920, height: 1080 }, { x: 280, y: 90, width: 1360, height: 900 }],
+ [{ x: 0, y: 24, width: 1280, height: 776 }, { x: 0, y: 24, width: 1280, height: 776 }],
+ [{ x: 1920, y: 40, width: 1600, height: 1000 }, { x: 2040, y: 90, width: 1360, height: 900 }],
+ [{ x: -1600, y: -100, width: 1600, height: 1000 }, { x: -1480, y: -50, width: 1360, height: 900 }],
+])("centers and caps initial geometry inside the primary work area %j", (workArea, expected) => {
+ const bounds = initialWindowBounds({ workArea });
+ expect(bounds).toEqual(expected);
+ expect(bounds.x).toBeGreaterThanOrEqual(workArea.x);
+ expect(bounds.y).toBeGreaterThanOrEqual(workArea.y);
+ expect(bounds.x + bounds.width).toBeLessThanOrEqual(workArea.x + workArea.width);
+ expect(bounds.y + bounds.height).toBeLessThanOrEqual(workArea.y + workArea.height);
+});
+
+it("uses an injected persistent partition without changing session guards", async () => {
+ const adapter = fixture({ partition: "persist:om-desktop" });
+ expect(await adapter.host.open(opening)).toEqual(success);
+ expect(adapter.createSession).toHaveBeenCalledExactlyOnceWith({ partition: "persist:om-desktop" });
+ expect(adapter.session.setPermissionRequestHandler).toHaveBeenCalledOnce();
+ expect(adapter.session.webRequest.onBeforeRequest).toHaveBeenCalledOnce();
+ await adapter.host.close({});
 });

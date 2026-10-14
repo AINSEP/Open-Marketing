@@ -83,6 +83,9 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@jini-ai/desktop-host':
+        specifier: 0.4.2
+        version: 0.4.2
       '@open-marketing/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -100,10 +103,10 @@ importers:
     dependencies:
       '@jini-ai/cms':
         specifier: 0.5.6
-        version: 0.5.6(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(express@5.2.1)(kysely@0.29.6))(express@5.2.1)(kysely@0.29.6)(parse5@7.3.0)
+        version: 0.5.6(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6))(kysely@0.29.6)(parse5@7.3.0)
       '@jini-ai/db':
         specifier: 0.3.2
-        version: 0.3.2(better-sqlite3@13.0.3)(express@5.2.1)(kysely@0.29.6)
+        version: 0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6)
       '@modelcontextprotocol/sdk':
         specifier: 1.24.0
         version: 1.24.0(zod@4.1.13)
@@ -327,7 +330,7 @@ importers:
     dependencies:
       '@jini-ai/mcp':
         specifier: 0.4.3
-        version: 0.4.3(@jini-ai/platform@0.5.3)(@modelcontextprotocol/sdk@1.24.0(zod@4.1.13))
+        version: 0.4.3(@jini-ai/platform@0.5.3(express@5.2.1))(@modelcontextprotocol/sdk@1.24.0(zod@4.1.13))(express@5.2.1)
       '@modelcontextprotocol/sdk':
         specifier: 1.24.0
         version: 1.24.0(zod@4.1.13)
@@ -361,7 +364,7 @@ importers:
     dependencies:
       '@jini-ai/cms':
         specifier: 0.5.6
-        version: 0.5.6(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(express@5.2.1)(kysely@0.29.6))(express@5.2.1)(kysely@0.29.6)(parse5@7.3.0)
+        version: 0.5.6(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6))(kysely@0.29.6)(parse5@7.3.0)
       '@open-marketing/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -374,7 +377,7 @@ importers:
     devDependencies:
       '@jini-ai/db':
         specifier: 0.3.2
-        version: 0.3.2(better-sqlite3@13.0.3)(express@5.2.1)(kysely@0.29.6)
+        version: 0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6)
       '@types/better-sqlite3':
         specifier: 9.6.0
         version: 9.6.0
@@ -442,7 +445,7 @@ importers:
     dependencies:
       '@jini-ai/cms':
         specifier: 0.5.6
-        version: 0.5.6(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(express@5.2.1)(kysely@0.29.6))(express@5.2.1)(kysely@0.29.6)(parse5@7.3.0)
+        version: 0.5.6(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6))(kysely@0.29.6)(parse5@7.3.0)
       '@open-marketing/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -1003,6 +1006,9 @@ packages:
         optional: true
       pg:
         optional: true
+
+  '@jini-ai/desktop-host@0.4.2':
+    resolution: {integrity: sha512-CDgPctkjHYJwDWO9oRc1ls5zggpX1Nziu3FmZ5W5n5DFoXfhE8aF0WtAmjISEl/jfH6Dw7uEdxuB+Zec/xnxPw==}
 
   '@jini-ai/integrations@0.4.2':
     resolution: {integrity: sha512-dHr7m5OXadKTpcrAb7bSReLrkGcWixNQVz4bI5zuwexRyqUdVeC8h1K/3yBFpJ6LewDlHRMFLj1tRAezUdWc4A==}
@@ -3417,12 +3423,11 @@ snapshots:
     optionalDependencies:
       '@jini-ai/platform': 0.5.3(express@5.2.1)
 
-  '@jini-ai/cms@0.5.6(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(express@5.2.1)(kysely@0.29.6))(express@5.2.1)(kysely@0.29.6)(parse5@7.3.0)':
+  '@jini-ai/cms@0.5.6(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6))(kysely@0.29.6)(parse5@7.3.0)':
     dependencies:
       '@jini-ai/core': 0.4.3(express@5.2.1)
     optionalDependencies:
-      '@jini-ai/db': 0.3.2(better-sqlite3@13.0.3)(express@5.2.1)(kysely@0.29.6)
-      express: 5.2.1
+      '@jini-ai/db': 0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6)
       kysely: 0.29.6
       parse5: 7.3.0
 
@@ -3430,7 +3435,7 @@ snapshots:
     optionalDependencies:
       express: 5.2.1
 
-  '@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(express@5.2.1)(kysely@0.29.6)':
+  '@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6)':
     dependencies:
       '@jini-ai/core': 0.4.3(express@5.2.1)
       '@jini-ai/platform': 0.5.3(express@5.2.1)
@@ -3441,17 +3446,23 @@ snapshots:
       - express
       - supports-color
 
+  '@jini-ai/desktop-host@0.4.2':
+    dependencies:
+      '@jini-ai/core': 0.4.3(express@5.2.1)
+    transitivePeerDependencies:
+      - express
+
   '@jini-ai/integrations@0.4.2(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6))(@jini-ai/platform@0.5.3)(better-sqlite3@13.0.3)':
     dependencies:
       '@jini-ai/core': 0.4.3(express@5.2.1)
     optionalDependencies:
-      '@jini-ai/db': 0.3.2(better-sqlite3@13.0.3)(express@5.2.1)(kysely@0.29.6)
+      '@jini-ai/db': 0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6)
       '@jini-ai/platform': 0.5.3(express@5.2.1)
       better-sqlite3: 13.0.3
     transitivePeerDependencies:
       - express
 
-  '@jini-ai/mcp@0.4.3(@jini-ai/platform@0.5.3)(@modelcontextprotocol/sdk@1.24.0(zod@4.1.13))':
+  '@jini-ai/mcp@0.4.3(@jini-ai/platform@0.5.3(express@5.2.1))(@modelcontextprotocol/sdk@1.24.0(zod@4.1.13))(express@5.2.1)':
     dependencies:
       '@jini-ai/core': 0.4.3(express@5.2.1)
     optionalDependencies:
