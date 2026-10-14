@@ -10,6 +10,8 @@ export interface HttpRequest {
  readonly headers?: Readonly<Record<string, string | undefined>>;
  readonly query?: Readonly<Record<string, string>>;
  readonly body?: unknown;
+ /** Aborted on client disconnect or listener shutdown. */
+ readonly signal?: AbortSignal;
  readonly readBody?: (required: Record<string, never>) => Promise<Outcome<unknown>>;
 }
 /** JSON by default; contentType selects HTML/text/bytes. Headers never contain tainted values. */
@@ -18,6 +20,8 @@ export interface HttpResponse {
  readonly body: unknown;
  readonly contentType?: string;
  readonly headers?: Readonly<Record<string, string>>;
+ /** Lazy bytes; the listener owns cancellation, including before iteration begins. */
+ readonly stream?: { readonly chunks: AsyncIterable<Uint8Array>; cancel(required: Record<string, never>): Promise<void> };
 }
 export interface HttpListenerPort { start(required: { handle: (required: HttpRequest) => Promise<HttpResponse> }): Promise<Outcome<void>>; stop(required: Record<string, never>): Promise<Outcome<void>> }
 export interface JiniRuntimePort {

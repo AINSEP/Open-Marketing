@@ -17,7 +17,7 @@ export interface NodeHttpListener extends HttpListenerPort { origin(required: Re
 /** Parse method/path/unique query/headers without consuming the body. Native callbacks implement
  * Node's positional ABI; tests exercise them through loopback HTTP. @complexity O(h+u), <=16 KiB headers/4096 URL chars.
  */
-function requestMetadata(required: { incoming: IncomingMessage }): Outcome<HttpRequest> {
+function requestMetadata(required: { incoming: IncomingMessage; signal: AbortSignal }): Outcome<HttpRequest> {
     const incoming = required.incoming;
     if (incoming.method !== 'GET' && incoming.method !== 'POST') return localFailure({ code: 'invalid_input', message: 'Only GET and POST are supported' });
     if (!incoming.url || incoming.url.length > 4096 || !incoming.url.startsWith('/') || incoming.url.startsWith('//')) {
@@ -34,15 +34,21 @@ function requestMetadata(required: { incoming: IncomingMessage }): Outcome<HttpR
         }
         let body: Promise<Outcome<unknown>> | undefined;
         return { ok: true, value: { method: incoming.method, path: url.pathname, query, headers,
-            authorization: headers.authorization, readBody: () => body ??= readJsonBody({ incoming }) } };
+            authorization: headers.authorization, signal: required.signal,
+            readBody: () => body ??= readJsonBody({ incoming, maxBytes: bodyLimit({ path: url.pathname }) }) } };
     } catch { return localFailure({ code: 'invalid_input', message: 'Invalid request URL' }); }
 }
 
-/** Lazy JSON/form edge; handlers call only after authentication. Never buffers beyond 128 KiB.
+/** The model route needs room for bounded tool-result feedback; all other routes keep 128 KiB. */
+function bodyLimit(required: { path: string }): number {
+    return required.path === '/api/agent/v1/model/anthropic/v1/messages' ? 262144 : 131072;
+}
+
+/** Lazy JSON/form edge; handlers call only after authentication.
  * @returns Unknown JSON for the route schema, or an input/size failure; no automatic retries.
- * @complexity O(b) time/space, b <=128 KiB. Node requestTimeout bounds body delivery.
+ * @complexity O(b) time/space, b <= the route's byte limit. Node requestTimeout bounds delivery.
  */
-async function readJsonBody(required: { incoming: IncomingMessage }): Promise<Outcome<unknown>> {
+async function readJsonBody(required: { incoming: IncomingMessage; maxBytes: number }): Promise<Outcome<unknown>> {
     const contentType = required.incoming.headers['content-type']?.split(';')[0].trim();
     const isForm = contentType === 'application/x-www-form-urlencoded';
     if (contentType !== 'application/json' && !isForm) {
@@ -51,10 +57,12 @@ async function readJsonBody(required: { incoming: IncomingMessage }): Promise<Ou
     const chunks: Buffer[] = [];
     let bytes = 0;
     try {
-        for await (const chunk of required.incoming) {
+        // An over-limit response closes the connection after sending its typed error.
+        // Returning from the default iterator would destroy the socket before that reply.
+        for await (const chunk of required.incoming.iterator({ destroyOnReturn: false })) {
             const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
             bytes += buffer.byteLength;
-            if (bytes > 131072) return localFailure({ code: 'limit_exceeded', message: 'Request body exceeds 128 KiB' });
+            if (bytes > required.maxBytes) return localFailure({ code: 'limit_exceeded', message: 'Request body exceeds route limit' });
             chunks.push(buffer);
         }
         const text = new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks));
@@ -73,13 +81,45 @@ function parseFormBody(required: { text: string }): Outcome<unknown> {
 }
 
 /** Serialize trusted route outcomes. Error replies close unconsumed request bodies; no CORS grants. */
-function sendResponse(required: { outgoing: ServerResponse; response: HttpResponse }): void {
+async function sendResponse(required: { outgoing: ServerResponse; response: HttpResponse }): Promise<void> {
     const { outgoing, response } = required;
     outgoing.writeHead(response.status, { 'content-type': response.contentType ?? 'application/json; charset=utf-8',
         'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer',
         ...(response.status >= 400 ? { connection: 'close' } : {}), ...response.headers });
+    if (response.stream) { await sendStream({ outgoing, stream: response.stream }); return; }
     if (response.contentType) { outgoing.end(response.body); return; }
     outgoing.end(JSON.stringify(response.body));
+}
+
+/** Consume one chunk at a time; stop pulling while the socket applies backpressure.
+ * Closing a socket destroys the stream and cancels its upstream even before the first pull.
+ * @complexity O(b) time and one chunk of extra space, without accumulating a response.
+ */
+async function sendStream(required: { outgoing: ServerResponse; stream: NonNullable<HttpResponse['stream']> }): Promise<void> {
+    try {
+        for await (const chunk of required.stream.chunks) {
+            if (required.outgoing.destroyed) break;
+            if (!required.outgoing.write(chunk)) await waitForDrain({ outgoing: required.outgoing });
+            if (required.outgoing.destroyed) break;
+        }
+        if (!required.outgoing.destroyed) required.outgoing.end();
+    } finally { await required.stream.cancel({}); }
+}
+
+/** Narrow wrapper around Node's event ABI; close/error also release backpressure waits. */
+function waitForDrain(required: { outgoing: ServerResponse }): Promise<void> {
+    return new Promise(resolveDrain => {
+        function finished() {
+            required.outgoing.off('drain', finished);
+            required.outgoing.off('close', finished);
+            required.outgoing.off('error', finished);
+            resolveDrain();
+        }
+        required.outgoing.once('drain', finished);
+        required.outgoing.once('close', finished);
+        required.outgoing.once('error', finished);
+        if (required.outgoing.destroyed) finished();
+    });
 }
 
 /** Exact Host check defends loopback from DNS rebinding; any supplied Origin must match.
@@ -110,23 +150,32 @@ async function dispatchRequest(required: {
     handle: (required: HttpRequest) => Promise<HttpResponse>; observer: ObserverPort; ids: IdPort;
 }): Promise<void> {
     let outcome = 'unavailable';
+    const controller = new AbortController();
+    function disconnected() { controller.abort(); }
+    required.incoming.once('aborted', disconnected);
+    required.outgoing.once('close', disconnected);
     try {
-        const request = requestMetadata({ incoming: required.incoming });
-        if (!request.ok) { outcome = '400'; sendResponse({ outgoing: required.outgoing, response: { status: 400, body: request } }); return; }
+        const request = requestMetadata({ incoming: required.incoming, signal: controller.signal });
+        if (!request.ok) { outcome = '400'; await sendResponse({ outgoing: required.outgoing, response: { status: 400, body: request } }); return; }
         const origin = required.listener.origin({});
         if (!origin || !trustedOrigin({ request: request.value, origin })) {
             outcome = '403';
-            sendResponse({ outgoing: required.outgoing, response: { status: 403, body: localFailure({ code: 'forbidden', message: 'Request must use the local server origin' }) } });
+            await sendResponse({ outgoing: required.outgoing, response: { status: 403, body: localFailure({ code: 'forbidden', message: 'Request must use the local server origin' }) } });
             return;
         }
         const response = await required.handle(request.value);
         outcome = String(response.status);
-        sendResponse({ outgoing: required.outgoing, response });
+        await sendResponse({ outgoing: required.outgoing, response });
     } catch {
         outcome = 'unavailable';
-        if (!required.outgoing.headersSent) sendResponse({ outgoing: required.outgoing, response: { status: 503, body: localFailure({ message: 'HTTP request unavailable' }) } });
+        if (!required.outgoing.headersSent) await sendResponse({ outgoing: required.outgoing, response: { status: 503, body: localFailure({ message: 'HTTP request unavailable' }) } });
         else required.outgoing.destroy();
-    } finally { observeRequest({ ...required, outcome }); }
+    } finally {
+        controller.abort();
+        required.incoming.off('aborted', disconnected);
+        required.outgoing.off('close', disconnected);
+        observeRequest({ ...required, outcome });
+    }
 }
 
 /** Bind with cleanup on error. This function wraps Node's error/listening callback ABI. */

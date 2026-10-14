@@ -1,0 +1,213 @@
+/** Written-only A1 proof: ONE fixture suite for memory and loopback broker transport. */
+import { createServer } from 'node:http';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import { describe, expect, it, vi } from 'vitest';
+import { providerTurnAdapters } from '@jini-ai/agent-runtime/providers/tool-turn';
+import type { ProviderTurnAdapters } from '@jini-ai/agent-runtime/providers/tool-turn';
+import type { Outcome, RunEvent, StartRunRequest } from '@open-marketing/contracts';
+import { createModelRuntime, type ModelClient } from '../src/runtime/model.js';
+
+const bearer = 'run-fixture-'.padEnd(64, 'x');
+const providerKey = 'sealed-fixture-provider-key';
+
+function value<T>(required: { result: Outcome<T> }): T {
+    if (!required.result.ok) throw new Error(required.result.error.message);
+    return required.result.value;
+}
+
+function run(required: { id?: string }): StartRunRequest {
+    const runId = required.id ?? 'run';
+    return { protocolVersion: 1, agentInstanceId: 'agent', conversationId: 'conversation', runId, runBearer: bearer, prompt: 'Find my campaign',
+        context: { scope: { ownerId: 'owner', workspaceId: 'workspace' }, principal: { kind: 'agent', agentInstanceId: 'agent', runId }, runId, correlationId: 'correlation', traceId: 'trace' },
+        grant: { protocolVersion: 1, grantId: 'grant', agentInstanceId: 'agent', conversationId: 'conversation', runId,
+            scope: { ownerId: 'owner', workspaceId: 'workspace' }, capabilities: ['context', 'events', 'model'], expiresAt: 10000, authenticationEpoch: 1000, revoked: false } };
+}
+
+function frame(required: { data: Record<string, unknown> }): string {
+    return 'event: ' + required.data.type + '\ndata: ' + JSON.stringify(required.data) + '\n\n';
+}
+
+/** Real Anthropic wire frames parsed by the published Jini adapter, never a mocked model loop. */
+function responseText(required: { tool: boolean }): string {
+    const frames: Record<string, unknown>[] = [
+        { type: 'message_start', message: { id: 'message', role: 'assistant', content: [], usage: { input_tokens: 1 } } },
+        { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+        { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: required.tool ? 'Checking. ' : 'Campaign is paused.' } },
+        { type: 'content_block_stop', index: 0 },
+    ];
+    if (required.tool) frames.push(
+        { type: 'content_block_start', index: 1, content_block: { type: 'tool_use', id: 'provider-call', name: 'om_campaigns_get', input: {} } },
+        { type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '{"campaignId":"campaign"}' } },
+        { type: 'content_block_stop', index: 1 },
+    );
+    frames.push({ type: 'message_delta', delta: { stop_reason: required.tool ? 'tool_use' : 'end_turn' }, usage: { output_tokens: 1 } }, { type: 'message_stop' });
+    return frames.map(data => frame({ data })).join('');
+}
+
+/** Jini consumes an async-iterable body; read the web stream through its reader instead of casting. */
+async function* chunksOf(required: { stream: ReadableStream<Uint8Array> }): AsyncGenerator<Uint8Array> {
+    const reader = required.stream.getReader();
+    for (let next = await reader.read(); !next.done; next = await reader.read()) yield next.value;
+}
+
+function pinned(required: { response: Response }) {
+    const { response } = required;
+    return { ok: response.ok, status: response.status, text: () => response.text(), body: response.body ? chunksOf({ stream: response.body }) : null };
+}
+
+interface GatewayRequest { url: string; headers: Headers; body: string; signal: AbortSignal }
+
+/** Local gateway double only. Server tests independently exercise the real broker; app
+ * implementation imports cannot cross the agent/server boundary, including in tests.
+ */
+async function gatewayRequest(required: { incoming: IncomingMessage; outgoing: ServerResponse; respond(input: GatewayRequest): Promise<Response> }): Promise<void> {
+    const controller = new AbortController();
+    required.outgoing.once('close', () => controller.abort());
+    try {
+        const chunks: Buffer[] = [];
+        for await (const chunk of required.incoming) chunks.push(Buffer.from(chunk));
+        const response = await required.respond({ url: required.incoming.url!, headers: new Headers({ 'x-api-key': String(required.incoming.headers['x-api-key']) }),
+            body: Buffer.concat(chunks).toString('utf8'), signal: controller.signal });
+        required.outgoing.writeHead(response.status, { 'content-type': response.headers.get('content-type')! });
+        required.outgoing.end(Buffer.from(await response.arrayBuffer()));
+    } catch { required.outgoing.destroy(); }
+}
+
+/** Jini -> OM-shaped gateway fixture, with actual tool-result feedback and abort propagation. */
+async function fixture(required: { transport: 'memory' | 'http'; blocked?: boolean; pending?: boolean }) {
+    const controller = new AbortController();
+    const upstreamRequests: { url: string; headers: Readonly<Record<string, string>>; body: string; signal: AbortSignal }[] = [];
+    const agentRequests: { url: string; apiKey: string; body: string }[] = [];
+    const published: RunEvent[] = [];
+    const executions: unknown[] = [];
+    const clock = { now: () => 1000 };
+    let nextId = 0;
+    const ids = { next: () => 'id-' + ++nextId };
+    async function respond(request: GatewayRequest): Promise<Response> {
+        if (request.headers.get('x-api-key') !== bearer) return Response.json({ ok: false }, { status: 403 });
+        const input = { url: 'https://api.anthropic.com/v1/messages', headers: { 'x-api-key': providerKey }, body: request.body, signal: request.signal };
+        upstreamRequests.push(input);
+        if (required.blocked) return new Promise<Response>((_resolve, reject) => input.signal.addEventListener('abort', () => reject(new Error('fixture interrupted')), { once: true }));
+        return new Response(responseText({ tool: upstreamRequests.length === 1 }), { headers: { 'content-type': 'text/event-stream' } });
+    }
+    const server = createServer((incoming, outgoing) => { void gatewayRequest({ incoming, outgoing, respond }); });
+    if (required.transport === 'http') await new Promise<void>(resolveListening => server.listen(0, '127.0.0.1', resolveListening));
+    const address = server.address();
+    const port = address && typeof address !== 'string' ? address.port : 32000;
+    const brokerBaseUrl = 'http://127.0.0.1:' + port + '/api/agent/v1/model/anthropic';
+    const adapters: ProviderTurnAdapters = { ...providerTurnAdapters, anthropic: (input, options) => providerTurnAdapters.anthropic(input, { ...options,
+        extraHeaders: { 'x-correlation-id': 'correlation', 'x-trace-id': 'trace' },
+        async fetchImpl({ url, init }) {
+            agentRequests.push({ url, apiKey: new Headers(init.headers).get('x-api-key')!, body: String(init.body) });
+            if (required.transport === 'http') return pinned({ response: await fetch(url, init) });
+            return pinned({ response: await respond({ url, headers: new Headers(init.headers), body: String(init.body), signal: init.signal! }) });
+        },
+    }) };
+    const client: ModelClient = { brokerBaseUrl, system: 'Use OM tools.',
+        tools: [{ name: 'om_campaigns_get', description: 'Read campaign', effects: ['read'], inputSchema: { type: 'object', properties: { campaignId: { type: 'string' } } } }],
+        deadline: () => ({ signal: controller.signal, dispose() {} }),
+        async load() { return { ok: true, value: { settings: { mode: 'model', model: 'claude-sonnet-5-5', connectionId: 'connection' }, messages: [] } }; },
+        async publish({ event }) { published.push(event); return { ok: true, value: undefined }; },
+        async executeTool({ call }) { executions.push(call); return { ok: true, value: required.pending ? { status: 'pending', operationId: call.operationId } : { status: 'completed', output: { campaignId: 'campaign', state: 'paused' } } }; },
+    };
+    const runtime = createModelRuntime({ clock, ids, client, adapters });
+    async function events() { return value({ result: await runtime.events({ runId: 'run', after: 0, limit: 100 }) }); }
+    return { runtime, client, adapters, published, upstreamRequests, agentRequests, executions, events, controller,
+        async dispose() {
+            controller.abort(); await runtime.dispose({});
+            server.closeAllConnections();
+            if (server.listening) await new Promise<void>(resolveClosed => server.close(() => resolveClosed()));
+        } };
+}
+
+for (const transport of ['memory', 'http'] as const) describe('model runtime / ' + transport, () => {
+    it('streams a real Jini turn and feeds the actual tool result into request two', async () => {
+        const f = await fixture({ transport });
+        try {
+            expect(await f.runtime.startRun(run({}))).toEqual({ ok: true, value: { runId: 'run', status: 'pending' } });
+            await vi.waitFor(async () => expect((await f.events()).at(-1)?.kind).toBe('ended'));
+            expect(f.agentRequests).toHaveLength(2);
+            expect(f.upstreamRequests).toHaveLength(2);
+            expect(f.agentRequests.every(request => request.apiKey === bearer && request.url.endsWith('/api/agent/v1/model/anthropic/v1/messages'))).toBe(true);
+            const second = JSON.parse(f.upstreamRequests[1].body);
+            expect(second.messages.at(-1)).toEqual({ role: 'user', content: [{ type: 'tool_result', tool_use_id: 'provider-call', content: '{"campaignId":"campaign","state":"paused"}' }] });
+            expect(second.model).toBe('claude-sonnet-5-5'); expect(second.max_tokens).toBe(4096);
+            expect(f.executions).toHaveLength(1);
+            expect(f.published.map(event => event.kind)).toEqual(['started', 'delta', 'tool_requested', 'tool_result', 'delta', 'ended']);
+            expect(f.published.map(event => event.sequence)).toEqual([1, 2, 3, 4, 5, 6]);
+            expect(JSON.stringify(await f.events())).toContain('Campaign is paused.');
+            expect(JSON.stringify(f.published)).not.toContain(providerKey); expect(JSON.stringify(f.published)).not.toContain(bearer);
+        } finally { await f.dispose(); }
+    });
+
+    it('cancellation aborts the broker request and prevents late delta/ended', async () => {
+        const f = await fixture({ transport, blocked: true });
+        try {
+            value({ result: await f.runtime.startRun(run({})) });
+            await vi.waitFor(() => expect(f.upstreamRequests).toHaveLength(1));
+            expect(await f.runtime.cancelRun({ protocolVersion: 1, runId: 'run', reason: 'owner' })).toMatchObject({ ok: true, value: { status: 'cancelled' } });
+            await vi.waitFor(() => expect(f.upstreamRequests[0].signal.aborted).toBe(true));
+            expect((await f.events()).map(event => event.kind)).toEqual(['started', 'cancelled']);
+        } finally { await f.dispose(); }
+    });
+});
+
+it('rejects expired, revoked, misbound, missing-token and sandbox-only grants without egress', async () => {
+    const f = await fixture({ transport: 'memory' });
+    try {
+        const input = run({});
+        for (const invalid of [{ ...input, runBearer: undefined }, { ...input, runId: 'foreign' }, { ...input, grant: { ...input.grant, revoked: true } },
+            { ...input, grant: { ...input.grant, expiresAt: 1000 } }, { ...input, grant: { ...input.grant, capabilities: ['context', 'events'] } },
+            { ...input, context: { ...input.context, scope: { ownerId: 'foreign', workspaceId: 'workspace' } } }]) expect((await f.runtime.startRun(invalid)).ok).toBe(false);
+        expect(f.upstreamRequests).toEqual([]);
+        const outside = createModelRuntime({ clock: { now: () => 1000 }, ids: { next: () => 'id' }, adapters: f.adapters,
+            client: { ...f.client, brokerBaseUrl: 'https://vendor.invalid' } });
+        expect((await outside.startRun(input)).ok).toBe(false); await outside.dispose({});
+    } finally { await f.dispose(); }
+});
+
+it('does not invent a tool result or follow-up request for pending approval', async () => {
+    const f = await fixture({ transport: 'memory', pending: true });
+    try {
+        value({ result: await f.runtime.startRun(run({})) });
+        await vi.waitFor(async () => expect((await f.events()).at(-1)?.kind).toBe('error'));
+        expect(f.upstreamRequests).toHaveLength(1);
+        expect((await f.events()).map(event => event.kind)).toEqual(['started', 'delta', 'tool_requested', 'error']);
+    } finally { await f.dispose(); }
+});
+
+it('reserves a terminal error at the event cap and rejects duplicate run IDs', async () => {
+    const f = await fixture({ transport: 'memory' });
+    const runtime = createModelRuntime({ clock: { now: () => 1000 }, ids: { next: () => 'id' }, client: f.client,
+        adapters: { ...f.adapters, async anthropic(input) {
+            for (let index = 0; index < 8192; index++) input.onEvent({ type: 'text_delta', delta: 'x' });
+            return { stopReason: 'end_turn', toolTurns: 0 };
+        } } });
+    try {
+        value({ result: await runtime.startRun(run({})) });
+        expect(await runtime.startRun(run({}))).toMatchObject({ ok: false, error: { code: 'conflict' } });
+        await vi.waitFor(async () => {
+            const tail = value({ result: await runtime.events({ runId: 'run', after: 8000, limit: 1000 }) });
+            expect(tail.at(-1)).toMatchObject({ sequence: 8192, kind: 'error' });
+            expect(tail.some(event => event.kind === 'ended')).toBe(false);
+        });
+        expect(f.upstreamRequests).toEqual([]);
+    } finally { await runtime.dispose({}); await f.dispose(); }
+});
+
+it('bounds retained bytes and keeps a terminal error when a provider floods large deltas', async () => {
+    const f = await fixture({ transport: 'memory' });
+    const runtime = createModelRuntime({ clock: { now: () => 1000 }, ids: { next: () => 'id' }, client: f.client,
+        adapters: { ...f.adapters, async anthropic(input) {
+            for (let index = 0; index < 100; index++) input.onEvent({ type: 'text_delta', delta: 'x'.repeat(65000) });
+            return { stopReason: 'end_turn', toolTurns: 0 };
+        } } });
+    try {
+        value({ result: await runtime.startRun(run({})) });
+        await vi.waitFor(async () => {
+            const events = value({ result: await runtime.events({ runId: 'run', after: 0, limit: 1000 }) });
+            expect(events.at(-1)?.kind).toBe('error');
+            expect(events.reduce((total, event) => total + new TextEncoder().encode(JSON.stringify(event)).length, 0)).toBeLessThanOrEqual(2097152);
+        });
+    } finally { await runtime.dispose({}); await f.dispose(); }
+});
