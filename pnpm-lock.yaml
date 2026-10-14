@@ -71,6 +71,15 @@ importers:
 
   apps/agent:
     dependencies:
+      '@jini-ai/agent-runtime':
+        specifier: 0.4.9
+        version: 0.4.9(@jini-ai/integrations@0.4.2(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6))(@jini-ai/platform@0.5.3)(better-sqlite3@13.0.3))(@jini-ai/platform@0.5.3)(@jini-ai/protocol@0.4.4)
+      '@jini-ai/core':
+        specifier: 0.4.5
+        version: 0.4.5(express@5.2.1)
+      '@jini-ai/protocol':
+        specifier: 0.4.4
+        version: 0.4.4
       '@open-marketing/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -101,15 +110,36 @@ importers:
 
   apps/server:
     dependencies:
+      '@jini-ai/agent-plugins':
+        specifier: 0.4.6
+        version: 0.4.6(@jini-ai/core@0.4.5)(@jini-ai/platform@0.5.3)(yauzl@3.4.0)
+      '@jini-ai/agentic':
+        specifier: 0.4.4
+        version: 0.4.4(@jini-ai/core@0.4.5)(@jini-ai/protocol@0.4.4)(zod@4.1.13)
+      '@jini-ai/chat':
+        specifier: 0.6.2
+        version: 0.6.2(@jini-ai/agent-runtime@0.4.9(@jini-ai/integrations@0.4.2(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6))(@jini-ai/platform@0.5.3)(better-sqlite3@13.0.3))(@jini-ai/platform@0.5.3)(@jini-ai/protocol@0.4.4))(@jini-ai/agentic@0.4.4(@jini-ai/core@0.4.5)(@jini-ai/protocol@0.4.4)(zod@4.1.13))(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6))(@jini-ai/protocol@0.4.4)(@jini-ai/ui@0.5.2(@jini-ai/agentic@0.4.4(@jini-ai/core@0.4.5)(@jini-ai/protocol@0.4.4)(zod@4.1.13))(@jini-ai/integrations@0.4.2(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6))(@jini-ai/platform@0.5.3)(better-sqlite3@13.0.3))(@jini-ai/platform@0.5.3)(micromark@4.0.3)(parse5@7.3.0)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(zod@4.1.13))(better-sqlite3@13.0.3)(kysely@0.29.6)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       '@jini-ai/cms':
         specifier: 0.5.6
         version: 0.5.6(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6))(kysely@0.29.6)(parse5@7.3.0)
+      '@jini-ai/core':
+        specifier: 0.4.5
+        version: 0.4.5(express@5.2.1)
       '@jini-ai/db':
         specifier: 0.3.2
         version: 0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6)
+      '@jini-ai/plugins':
+        specifier: 0.5.1
+        version: 0.5.1(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6))(@jini-ai/platform@0.5.3)(kysely@0.29.6)(semver@7.8.5)
+      '@jini-ai/protocol':
+        specifier: 0.4.4
+        version: 0.4.4
+      '@jini-ai/ui':
+        specifier: 0.5.2
+        version: 0.5.2(@jini-ai/agentic@0.4.4(@jini-ai/core@0.4.5)(@jini-ai/protocol@0.4.4)(zod@4.1.13))(@jini-ai/integrations@0.4.2(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6))(@jini-ai/platform@0.5.3)(better-sqlite3@13.0.3))(@jini-ai/platform@0.5.3)(micromark@4.0.3)(parse5@7.3.0)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(zod@4.1.13)
       '@modelcontextprotocol/sdk':
-        specifier: 1.24.0
-        version: 1.24.0(zod@4.1.13)
+        specifier: 1.32.1
+        version: 1.32.1(zod@4.1.13)
       '@open-marketing/audit':
         specifier: workspace:*
         version: link:../../features/audit
@@ -158,12 +188,24 @@ importers:
       kysely:
         specifier: 0.29.6
         version: 0.29.6
+      yauzl:
+        specifier: 3.4.0
+        version: 3.4.0
       zod:
         specifier: 4.1.13
         version: 4.1.13
 
   apps/studio:
     dependencies:
+      '@jini-ai/agentic':
+        specifier: 0.4.4
+        version: 0.4.4(@jini-ai/core@0.4.5)(@jini-ai/protocol@0.4.4)(zod@4.1.13)
+      '@jini-ai/chat':
+        specifier: 0.6.2
+        version: 0.6.2(@jini-ai/agent-runtime@0.4.9(@jini-ai/integrations@0.4.2(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6))(@jini-ai/platform@0.5.3)(better-sqlite3@13.0.3))(@jini-ai/platform@0.5.3)(@jini-ai/protocol@0.4.4))(@jini-ai/agentic@0.4.4(@jini-ai/core@0.4.5)(@jini-ai/protocol@0.4.4)(zod@4.1.13))(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6))(@jini-ai/protocol@0.4.4)(@jini-ai/ui@0.5.2(@jini-ai/agentic@0.4.4(@jini-ai/core@0.4.5)(@jini-ai/protocol@0.4.4)(zod@4.1.13))(@jini-ai/integrations@0.4.2(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6))(@jini-ai/platform@0.5.3)(better-sqlite3@13.0.3))(@jini-ai/platform@0.5.3)(micromark@4.0.3)(parse5@8.0.1)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(zod@4.1.13))(better-sqlite3@13.0.3)(kysely@0.29.6)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+      '@jini-ai/ui':
+        specifier: 0.5.2
+        version: 0.5.2(@jini-ai/agentic@0.4.4(@jini-ai/core@0.4.5)(@jini-ai/protocol@0.4.4)(zod@4.1.13))(@jini-ai/integrations@0.4.2(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6))(@jini-ai/platform@0.5.3)(better-sqlite3@13.0.3))(@jini-ai/platform@0.5.3)(micromark@4.0.3)(parse5@8.0.1)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(zod@4.1.13)
       '@open-marketing/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -330,10 +372,10 @@ importers:
     dependencies:
       '@jini-ai/mcp':
         specifier: 0.4.3
-        version: 0.4.3(@jini-ai/platform@0.5.3(express@5.2.1))(@modelcontextprotocol/sdk@1.24.0(zod@4.1.13))(express@5.2.1)
+        version: 0.4.3(@jini-ai/platform@0.5.3(express@5.2.1))(@modelcontextprotocol/sdk@1.32.1(zod@4.1.13))(express@5.2.1)
       '@modelcontextprotocol/sdk':
-        specifier: 1.24.0
-        version: 1.24.0(zod@4.1.13)
+        specifier: 1.32.1
+        version: 1.32.1(zod@4.1.13)
       '@open-marketing/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -473,7 +515,7 @@ importers:
     dependencies:
       '@jini-ai/agent-plugins':
         specifier: 0.4.4
-        version: 0.4.4(@jini-ai/core@0.4.3)(@jini-ai/platform@0.5.3)
+        version: 0.4.4(@jini-ai/core@0.4.5)(@jini-ai/platform@0.5.3)(yauzl@3.4.0)
       '@open-marketing/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -919,6 +961,12 @@ packages:
     resolution: {integrity: sha512-43/qtrDUokr7LJqoF2c3+RInu/t4zfrpYdoSDfYyhg52rwLV6TnOvdG4fXm7IkSB3wErkcmJS9iEhjVtOSEjjA==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
 
+  '@hono/node-server@2.1.5':
+    resolution: {integrity: sha512-MgP/I06GdvsilDspMk/qmRzpk8LOUStP6jFAbSRi40W09DhoyUn+Mj7eyKICPqeYKybOjVFLVIAQzvu1bfIa7Q==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      hono: ^4 || ^5.0.0-0
+
   '@humanfs/core@0.19.2':
     resolution: {integrity: sha512-UhXNm+CFMWcbChXywFwkmhqjs3PRCmcSa/hfBgLIb7oQ5HNb1wS0icWsGtSAUNgefHeI+eBrA8I1fxmbHsGdvA==}
     engines: {node: '>=18.18.0'}
@@ -959,6 +1007,111 @@ packages:
       yauzl:
         optional: true
 
+  '@jini-ai/agent-plugins@0.4.6':
+    resolution: {integrity: sha512-3SXIhqGYcEkyNaCKpET6kIhkF70hBAM/dIpFY4rTY4l2HETodFTRN2556XJ8JCOosU4ZNGRM5A7tjRwvL3lVoA==}
+    peerDependencies:
+      '@jini-ai/core': ^0.4.3
+      '@jini-ai/platform': ^0.5.3
+      yauzl: ^3.4.0
+    peerDependenciesMeta:
+      '@jini-ai/platform':
+        optional: true
+      yauzl:
+        optional: true
+
+  '@jini-ai/agent-runtime@0.4.9':
+    resolution: {integrity: sha512-C+mB7aj7mmZOc5R8CnRNyNhwwxpqV40km+Of2KPwn3tFTla46V44g4s67So6oxjwfZmjom80zdhGJOcot3lspg==}
+    peerDependencies:
+      '@github/copilot-sdk': '*'
+      '@jini-ai/integrations': ^0.4.2
+      '@jini-ai/platform': ^0.5.5
+      '@jini-ai/protocol': ^0.4.4
+    peerDependenciesMeta:
+      '@github/copilot-sdk':
+        optional: true
+      '@jini-ai/integrations':
+        optional: true
+      '@jini-ai/platform':
+        optional: true
+      '@jini-ai/protocol':
+        optional: true
+
+  '@jini-ai/agentic@0.4.4':
+    resolution: {integrity: sha512-311d44JlQkfuL5gyjz50qDMNdze1HhNPxA6+6OOtMX/FNS3FHr1qWtAHaKQPRNPgEa7wf8OzkRbckkWH5z3Igw==}
+    peerDependencies:
+      '@jini-ai/core': ^0.4.3
+      '@jini-ai/protocol': ^0.4.4
+      zod: ^3.25.76
+    peerDependenciesMeta:
+      '@jini-ai/core':
+        optional: true
+      '@jini-ai/protocol':
+        optional: true
+      zod:
+        optional: true
+
+  '@jini-ai/chat@0.6.2':
+    resolution: {integrity: sha512-e3w/s6MK7XFrwEZYEtabijkYOQkKHJT+2AIJYVwEl9eE9TR+xyffa3vIfHKPL5wj1IqNeAf0vTHL/P4Qzlkvjg==}
+    peerDependencies:
+      '@ag-ui/core': 0.0.58
+      '@electric-sql/pglite': 0.5.8
+      '@jini-ai/agent-runtime': ^0.4.5
+      '@jini-ai/agentic': ^0.4.4
+      '@jini-ai/db': ^0.3.2
+      '@jini-ai/diagnostics': ^0.5.2
+      '@jini-ai/protocol': ^0.4.4
+      '@jini-ai/ui': ^0.5.0
+      '@mcp-ui/client': 7.1.1
+      '@radix-ui/react-checkbox': ^1.3.11
+      '@radix-ui/react-label': ^2.1.15
+      '@radix-ui/react-radio-group': ^1.4.7
+      '@radix-ui/react-select': ^2.3.7
+      '@radix-ui/react-slot': ^1.3.3
+      better-sqlite3: ^13.0.0
+      kysely: ^0.29.6
+      pg: ^8.23.0
+      react: ^18.3.0 || ^19.0.0
+      react-dom: ^18.3.0 || ^19.0.0
+    peerDependenciesMeta:
+      '@ag-ui/core':
+        optional: true
+      '@electric-sql/pglite':
+        optional: true
+      '@jini-ai/agent-runtime':
+        optional: true
+      '@jini-ai/agentic':
+        optional: true
+      '@jini-ai/db':
+        optional: true
+      '@jini-ai/diagnostics':
+        optional: true
+      '@jini-ai/protocol':
+        optional: true
+      '@jini-ai/ui':
+        optional: true
+      '@mcp-ui/client':
+        optional: true
+      '@radix-ui/react-checkbox':
+        optional: true
+      '@radix-ui/react-label':
+        optional: true
+      '@radix-ui/react-radio-group':
+        optional: true
+      '@radix-ui/react-select':
+        optional: true
+      '@radix-ui/react-slot':
+        optional: true
+      better-sqlite3:
+        optional: true
+      kysely:
+        optional: true
+      pg:
+        optional: true
+      react:
+        optional: true
+      react-dom:
+        optional: true
+
   '@jini-ai/cms@0.5.6':
     resolution: {integrity: sha512-rSpRWAzH2WG6mZETFJSB9qsMwdxxJYgCSSyqlXB+OIupzI0bGSWC6Zm3OdYACMNlSUCjwMRUuF8S4eStqV3uaQ==}
     peerDependencies:
@@ -982,8 +1135,8 @@ packages:
       sharp:
         optional: true
 
-  '@jini-ai/core@0.4.3':
-    resolution: {integrity: sha512-PZsSd1tXRami/XAr9S9rX1DauM1kemKWItJpiv61SmJ/jpByGB52/Zue973DobSuy/vF3sJLwv1ObKt6K2pASg==}
+  '@jini-ai/core@0.4.5':
+    resolution: {integrity: sha512-SDveSyaVkSinUHX30LJJWX+VHthCOIaiorBS8kB8LKp8FothBJ3OsIFs7VFpPp6qALj4uucviN7BNgZm+LJEXw==}
     peerDependencies:
       express: ^4.21.0
     peerDependenciesMeta:
@@ -1045,6 +1198,106 @@ packages:
   '@jini-ai/platform@0.5.3':
     resolution: {integrity: sha512-gKXh7b/IsvI+rSrsKgJy++sJrnzHii/QMlJnRjyqlLy1nMM7X6Dd3qy+jTUT30nEYAZ8QpmQAS48F2CBfiZO2A==}
 
+  '@jini-ai/plugins@0.5.1':
+    resolution: {integrity: sha512-9X8/EHFcTDQNEjkQoBC3LumhJpZdX562THbCFoLXdUE3mXUzHGc5xYgEDvOP9WyQ9OhVZsmchZdDMShMj/oY0g==}
+    peerDependencies:
+      '@jini-ai/db': ^0.3.2
+      '@jini-ai/platform': ^0.5.3
+      kysely: ^0.29.6
+      semver: ^7.6.2
+    peerDependenciesMeta:
+      '@jini-ai/db':
+        optional: true
+      '@jini-ai/platform':
+        optional: true
+      kysely:
+        optional: true
+      semver:
+        optional: true
+
+  '@jini-ai/protocol@0.4.4':
+    resolution: {integrity: sha512-y4YlD3ZFrg0OXc/3gnhgqVqx/hl28os3tYFOfvQL0TFAuRPsiPeNrljJCMYw+gxrszHRmg86a/a6kQq+x3Zzjw==}
+
+  '@jini-ai/ui@0.5.2':
+    resolution: {integrity: sha512-nt2zC69bgstYUuQDc1+62bMr/lt290T/2UCBjPALQd4mx/bOVycuGderyqxQ+1YX0QS0znanNk8nEztDfH2S7A==}
+    peerDependencies:
+      '@excalidraw/excalidraw': 0.18.1
+      '@jini-ai/agentic': ^0.4.4
+      '@jini-ai/integrations': ^0.4.2
+      '@jini-ai/platform': ^0.5.3
+      '@lexical/react': 0.36.2
+      '@lexical/utils': 0.36.2
+      '@mcp-ui/client': 7.1.1
+      '@radix-ui/react-checkbox': ^1.3.11
+      '@radix-ui/react-label': ^2.1.15
+      '@radix-ui/react-radio-group': ^1.4.7
+      '@radix-ui/react-select': ^2.3.7
+      '@radix-ui/react-slot': ^1.3.3
+      '@tanstack/react-query': ^5.0.0
+      class-variance-authority: ^0.7.1
+      clsx: ^2.1.1
+      grapesjs: 0.23.4
+      lexical: 0.36.2
+      micromark: ^4.0.0
+      micromark-extension-gfm: ^3.0.0
+      parse5: ^7.3.0 || ^8.0.1
+      react: ^18.3.0 || ^19.0.0
+      react-dom: ^18.3.0 || ^19.0.0
+      shiki: ^1.24.4
+      tailwind-merge: ^2.6.0
+      zod: ^3.25.76
+    peerDependenciesMeta:
+      '@excalidraw/excalidraw':
+        optional: true
+      '@jini-ai/agentic':
+        optional: true
+      '@jini-ai/integrations':
+        optional: true
+      '@jini-ai/platform':
+        optional: true
+      '@lexical/react':
+        optional: true
+      '@lexical/utils':
+        optional: true
+      '@mcp-ui/client':
+        optional: true
+      '@radix-ui/react-checkbox':
+        optional: true
+      '@radix-ui/react-label':
+        optional: true
+      '@radix-ui/react-radio-group':
+        optional: true
+      '@radix-ui/react-select':
+        optional: true
+      '@radix-ui/react-slot':
+        optional: true
+      '@tanstack/react-query':
+        optional: true
+      class-variance-authority:
+        optional: true
+      clsx:
+        optional: true
+      grapesjs:
+        optional: true
+      lexical:
+        optional: true
+      micromark:
+        optional: true
+      micromark-extension-gfm:
+        optional: true
+      parse5:
+        optional: true
+      react:
+        optional: true
+      react-dom:
+        optional: true
+      shiki:
+        optional: true
+      tailwind-merge:
+        optional: true
+      zod:
+        optional: true
+
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
 
@@ -1058,8 +1311,8 @@ packages:
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
 
-  '@modelcontextprotocol/sdk@1.24.0':
-    resolution: {integrity: sha512-D8h5KXY2vHFW8zTuxn2vuZGN0HGrQ5No6LkHwlEA9trVgNdPL3TF1dSqKA7Dny6BbBYKSW/rOBDXdC8KJAjUCg==}
+  '@modelcontextprotocol/sdk@1.32.1':
+    resolution: {integrity: sha512-2DdE+SJDtzLEEWzY1ZjY7Q+VcPhcV1KisD3zI4u0XZyktsjHum1mwbMI+JaulUBi2OZk+KJAi2uPXzxichPkdw==}
     engines: {node: '>=18'}
     peerDependencies:
       '@cfworker/json-schema': ^4.1.1
@@ -1836,8 +2089,8 @@ packages:
     resolution: {integrity: sha512-KfYbmpRm0VbLjEvVa9yGwCi9GI34xvi7A/HXYWQO65CSD2u3MczUJSuwXKFIxlGsgBQizV9q5J9NHj4VG0n+pA==}
     engines: {node: '>=12.0.0'}
 
-  express-rate-limit@7.5.1:
-    resolution: {integrity: sha512-7iN8iPMDzOMHPUYllBEsQdWVB6fPDMPqwjBaFrgr4Jgr/+okjvzAy+UHlYYL/Vs0OsOrMkwS6PJDkFlJwoxUnw==}
+  express-rate-limit@8.7.1:
+    resolution: {integrity: sha512-2FXbqkygil3mZiXzEtM0IjE/UBmBNot0J1GEVrJT4JbrvwOSoEtqtO+wHbiMQELWe1eNvHoYRg2dkjOid+6JkA==}
     engines: {node: '>= 16'}
     peerDependencies:
       express: '>= 4.11'
@@ -2050,6 +2303,10 @@ packages:
   hastscript@9.0.1:
     resolution: {integrity: sha512-g7df9rMFX/SPi34tyGCyUBREQoKkapwdY/T04Qn9TDWfHhAYt4/I0gMVirzK5wEzeUqIjEB+LXC/ypb7Aqno5w==}
 
+  hono@4.13.13:
+    resolution: {integrity: sha512-CQ46U0ZkAGmbT/4UxdzzGJpacP2IeKgY4a5/tOI9AABbpOMfK739wfDXmv1usCk+3RkKj1hQy4/fjhiwa2xlrA==}
+    engines: {node: '>=16.9.0'}
+
   html-encoding-sniffer@4.0.0:
     resolution: {integrity: sha512-Y22oTqIU4uuPgEemfz7NDJz6OeKf12Lsu+QC+s3BVpda64lTiMYCyGwg5ki4vFxkMwQdeZDl2adZoqUgdFuTgQ==}
     engines: {node: '>=18'}
@@ -2113,6 +2370,10 @@ packages:
   interpret@3.1.1:
     resolution: {integrity: sha512-6xwYfHbajpoF0xLW+iwLkhwgvLoZDfjYfoFNu8ftMoXINzwuymNLd9u/KmwtdT2GbR+/Cz66otEGEVVUHX9QLQ==}
     engines: {node: '>=10.13.0'}
+
+  ip-address@10.7.4:
+    resolution: {integrity: sha512-DWBMKyeM25D70nrIiTkgQth59/G+naKOTep6huF9j+GmeK3DMD60Zvxg5d5qQnz+38AHgou6ean2LECX+lrKDg==}
+    engines: {node: '>= 12'}
 
   ipaddr.js@1.9.1:
     resolution: {integrity: sha512-0KI/607xoxSToH7GjN1FfSbLoU0+btTicjsQSWQlh/hZykN8KpmMf7uYwPW3R+akZ6R/w18ZlXSHBYXiYUPO3g==}
@@ -2207,6 +2468,9 @@ packages:
 
   json-schema-traverse@1.0.0:
     resolution: {integrity: sha512-NM8/P9n3XjXhIZn1lLhkFaACTOURQXjWhV4BA/RnOv8xvgqtqpAX9IO4mRQxSx1Rlo4tqzeqb0sOlruaOy3dug==}
+
+  json-schema-typed@8.0.2:
+    resolution: {integrity: sha512-fQhoXdcvc3V28x7C7BMs4P5+kNlgUURe2jmUT1T//oBRMDrqy1QPelJimwZGo7Hg9VPV3EQV5Bnq4hbFy2vetA==}
 
   json-stable-stringify-without-jsonify@1.0.1:
     resolution: {integrity: sha512-Bdboy+l7tA3OGW6FjyFHWkP5LuByj1Tk33Ljyq0axyzdk9//JSi2u3fP1QSmd1KNwq6VOKYGlAu87CisVir6Pw==}
@@ -3161,6 +3425,10 @@ packages:
   yauzl@2.10.0:
     resolution: {integrity: sha512-p4a9I6X6nu6IhoGmBqAcbJy1mlC4j27vEPZX9F4L4/vZT3Lyq1VkFHw/V/PUcB9Buo+DG3iHkT0x3Qya58zc3g==}
 
+  yauzl@3.4.0:
+    resolution: {integrity: sha512-jIH9yLR9wqr0wOS0TpBvo/g/2UgZH5qePVbjgRliiF0BYvOZyaBknKsF+x9Iht0O6sqgnB93rCICdOZFecJuDw==}
+    engines: {node: '>=12'}
+
   yocto-queue@0.1.0:
     resolution: {integrity: sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q==}
     engines: {node: '>=10'}
@@ -3169,6 +3437,9 @@ packages:
     resolution: {integrity: sha512-O/PgfnpT1xKSDeQYSCfRI5Gy3hPf91mKVDuYLUHZJMiDFptvP41MSnWofm8dnCm0256ZNfZIM7DSzuSMAFnjHA==}
     peerDependencies:
       zod: ^3.25.28 || ^4
+
+  zod@3.25.76:
+    resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
 
   zod@4.1.13:
     resolution: {integrity: sha512-AvvthqfqrAhNH9dnfmrfKzX5upOdjUVJYFqNSlkmGf64gRaTzlPwz99IHYnVs28qYAybvAlBV+H7pn0saFY4Ig==}
@@ -3390,6 +3661,10 @@ snapshots:
       '@eslint/core': 0.17.0
       levn: 0.4.1
 
+  '@hono/node-server@2.1.5(hono@4.13.13)':
+    dependencies:
+      hono: 4.13.13
+
   '@humanfs/core@0.19.2':
     dependencies:
       '@humanfs/types': 0.15.0
@@ -3417,27 +3692,84 @@ snapshots:
 
   '@istanbuljs/schema@0.1.6': {}
 
-  '@jini-ai/agent-plugins@0.4.4(@jini-ai/core@0.4.3)(@jini-ai/platform@0.5.3)':
+  '@jini-ai/agent-plugins@0.4.4(@jini-ai/core@0.4.5)(@jini-ai/platform@0.5.3)(yauzl@3.4.0)':
     dependencies:
-      '@jini-ai/core': 0.4.3(express@5.2.1)
+      '@jini-ai/core': 0.4.5(express@5.2.1)
     optionalDependencies:
       '@jini-ai/platform': 0.5.3(express@5.2.1)
+      yauzl: 3.4.0
+
+  '@jini-ai/agent-plugins@0.4.6(@jini-ai/core@0.4.5)(@jini-ai/platform@0.5.3)(yauzl@3.4.0)':
+    dependencies:
+      '@jini-ai/core': 0.4.5(express@5.2.1)
+    optionalDependencies:
+      '@jini-ai/platform': 0.5.3(express@5.2.1)
+      yauzl: 3.4.0
+
+  '@jini-ai/agent-runtime@0.4.9(@jini-ai/integrations@0.4.2(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6))(@jini-ai/platform@0.5.3)(better-sqlite3@13.0.3))(@jini-ai/platform@0.5.3)(@jini-ai/protocol@0.4.4)':
+    dependencies:
+      '@jini-ai/core': 0.4.5(express@5.2.1)
+      '@jini-ai/oauth': 0.2.2
+    optionalDependencies:
+      '@jini-ai/integrations': 0.4.2(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6))(@jini-ai/platform@0.5.3)(better-sqlite3@13.0.3)
+      '@jini-ai/platform': 0.5.3(express@5.2.1)
+      '@jini-ai/protocol': 0.4.4
+    transitivePeerDependencies:
+      - express
+
+  '@jini-ai/agentic@0.4.4(@jini-ai/core@0.4.5)(@jini-ai/protocol@0.4.4)(zod@4.1.13)':
+    optionalDependencies:
+      '@jini-ai/core': 0.4.5(express@5.2.1)
+      '@jini-ai/protocol': 0.4.4
+      zod: 4.1.13
+
+  '@jini-ai/chat@0.6.2(@jini-ai/agent-runtime@0.4.9(@jini-ai/integrations@0.4.2(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6))(@jini-ai/platform@0.5.3)(better-sqlite3@13.0.3))(@jini-ai/platform@0.5.3)(@jini-ai/protocol@0.4.4))(@jini-ai/agentic@0.4.4(@jini-ai/core@0.4.5)(@jini-ai/protocol@0.4.4)(zod@4.1.13))(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6))(@jini-ai/protocol@0.4.4)(@jini-ai/ui@0.5.2(@jini-ai/agentic@0.4.4(@jini-ai/core@0.4.5)(@jini-ai/protocol@0.4.4)(zod@4.1.13))(@jini-ai/integrations@0.4.2(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6))(@jini-ai/platform@0.5.3)(better-sqlite3@13.0.3))(@jini-ai/platform@0.5.3)(micromark@4.0.3)(parse5@7.3.0)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(zod@4.1.13))(better-sqlite3@13.0.3)(kysely@0.29.6)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)':
+    dependencies:
+      '@jini-ai/core': 0.4.5(express@5.2.1)
+    optionalDependencies:
+      '@jini-ai/agent-runtime': 0.4.9(@jini-ai/integrations@0.4.2(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6))(@jini-ai/platform@0.5.3)(better-sqlite3@13.0.3))(@jini-ai/platform@0.5.3)(@jini-ai/protocol@0.4.4)
+      '@jini-ai/agentic': 0.4.4(@jini-ai/core@0.4.5)(@jini-ai/protocol@0.4.4)(zod@4.1.13)
+      '@jini-ai/db': 0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6)
+      '@jini-ai/protocol': 0.4.4
+      '@jini-ai/ui': 0.5.2(@jini-ai/agentic@0.4.4(@jini-ai/core@0.4.5)(@jini-ai/protocol@0.4.4)(zod@4.1.13))(@jini-ai/integrations@0.4.2(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6))(@jini-ai/platform@0.5.3)(better-sqlite3@13.0.3))(@jini-ai/platform@0.5.3)(micromark@4.0.3)(parse5@7.3.0)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(zod@4.1.13)
+      better-sqlite3: 13.0.3
+      kysely: 0.29.6
+      react: 19.2.0
+      react-dom: 19.2.0(react@19.2.0)
+    transitivePeerDependencies:
+      - express
+
+  '@jini-ai/chat@0.6.2(@jini-ai/agent-runtime@0.4.9(@jini-ai/integrations@0.4.2(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6))(@jini-ai/platform@0.5.3)(better-sqlite3@13.0.3))(@jini-ai/platform@0.5.3)(@jini-ai/protocol@0.4.4))(@jini-ai/agentic@0.4.4(@jini-ai/core@0.4.5)(@jini-ai/protocol@0.4.4)(zod@4.1.13))(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6))(@jini-ai/protocol@0.4.4)(@jini-ai/ui@0.5.2(@jini-ai/agentic@0.4.4(@jini-ai/core@0.4.5)(@jini-ai/protocol@0.4.4)(zod@4.1.13))(@jini-ai/integrations@0.4.2(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6))(@jini-ai/platform@0.5.3)(better-sqlite3@13.0.3))(@jini-ai/platform@0.5.3)(micromark@4.0.3)(parse5@8.0.1)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(zod@4.1.13))(better-sqlite3@13.0.3)(kysely@0.29.6)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)':
+    dependencies:
+      '@jini-ai/core': 0.4.5(express@5.2.1)
+    optionalDependencies:
+      '@jini-ai/agent-runtime': 0.4.9(@jini-ai/integrations@0.4.2(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6))(@jini-ai/platform@0.5.3)(better-sqlite3@13.0.3))(@jini-ai/platform@0.5.3)(@jini-ai/protocol@0.4.4)
+      '@jini-ai/agentic': 0.4.4(@jini-ai/core@0.4.5)(@jini-ai/protocol@0.4.4)(zod@4.1.13)
+      '@jini-ai/db': 0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6)
+      '@jini-ai/protocol': 0.4.4
+      '@jini-ai/ui': 0.5.2(@jini-ai/agentic@0.4.4(@jini-ai/core@0.4.5)(@jini-ai/protocol@0.4.4)(zod@4.1.13))(@jini-ai/integrations@0.4.2(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6))(@jini-ai/platform@0.5.3)(better-sqlite3@13.0.3))(@jini-ai/platform@0.5.3)(micromark@4.0.3)(parse5@8.0.1)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(zod@4.1.13)
+      better-sqlite3: 13.0.3
+      kysely: 0.29.6
+      react: 19.2.0
+      react-dom: 19.2.0(react@19.2.0)
+    transitivePeerDependencies:
+      - express
 
   '@jini-ai/cms@0.5.6(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6))(kysely@0.29.6)(parse5@7.3.0)':
     dependencies:
-      '@jini-ai/core': 0.4.3(express@5.2.1)
+      '@jini-ai/core': 0.4.5(express@5.2.1)
     optionalDependencies:
       '@jini-ai/db': 0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6)
       kysely: 0.29.6
       parse5: 7.3.0
 
-  '@jini-ai/core@0.4.3(express@5.2.1)':
+  '@jini-ai/core@0.4.5(express@5.2.1)':
     optionalDependencies:
       express: 5.2.1
 
   '@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6)':
     dependencies:
-      '@jini-ai/core': 0.4.3(express@5.2.1)
+      '@jini-ai/core': 0.4.5(express@5.2.1)
       '@jini-ai/platform': 0.5.3(express@5.2.1)
     optionalDependencies:
       better-sqlite3: 13.0.3
@@ -3448,13 +3780,13 @@ snapshots:
 
   '@jini-ai/desktop-host@0.4.2':
     dependencies:
-      '@jini-ai/core': 0.4.3(express@5.2.1)
+      '@jini-ai/core': 0.4.5(express@5.2.1)
     transitivePeerDependencies:
       - express
 
   '@jini-ai/integrations@0.4.2(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6))(@jini-ai/platform@0.5.3)(better-sqlite3@13.0.3)':
     dependencies:
-      '@jini-ai/core': 0.4.3(express@5.2.1)
+      '@jini-ai/core': 0.4.5(express@5.2.1)
     optionalDependencies:
       '@jini-ai/db': 0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6)
       '@jini-ai/platform': 0.5.3(express@5.2.1)
@@ -3462,24 +3794,24 @@ snapshots:
     transitivePeerDependencies:
       - express
 
-  '@jini-ai/mcp@0.4.3(@jini-ai/platform@0.5.3(express@5.2.1))(@modelcontextprotocol/sdk@1.24.0(zod@4.1.13))(express@5.2.1)':
+  '@jini-ai/mcp@0.4.3(@jini-ai/platform@0.5.3(express@5.2.1))(@modelcontextprotocol/sdk@1.32.1(zod@4.1.13))(express@5.2.1)':
     dependencies:
-      '@jini-ai/core': 0.4.3(express@5.2.1)
+      '@jini-ai/core': 0.4.5(express@5.2.1)
     optionalDependencies:
       '@jini-ai/platform': 0.5.3(express@5.2.1)
-      '@modelcontextprotocol/sdk': 1.24.0(zod@4.1.13)
+      '@modelcontextprotocol/sdk': 1.32.1(zod@4.1.13)
     transitivePeerDependencies:
       - express
 
   '@jini-ai/oauth@0.2.2':
     dependencies:
-      '@jini-ai/core': 0.4.3(express@5.2.1)
+      '@jini-ai/core': 0.4.5(express@5.2.1)
     transitivePeerDependencies:
       - express
 
   '@jini-ai/platform@0.5.3(express@5.2.1)':
     dependencies:
-      '@jini-ai/core': 0.4.3(express@5.2.1)
+      '@jini-ai/core': 0.4.5(express@5.2.1)
       hast-util-from-parse5: 8.0.3
       hast-util-to-mdast: 10.1.2
       mdast-util-gfm-table: 2.0.0
@@ -3489,6 +3821,51 @@ snapshots:
     transitivePeerDependencies:
       - express
       - supports-color
+
+  '@jini-ai/plugins@0.5.1(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6))(@jini-ai/platform@0.5.3)(kysely@0.29.6)(semver@7.8.5)':
+    dependencies:
+      '@jini-ai/core': 0.4.5(express@5.2.1)
+    optionalDependencies:
+      '@jini-ai/db': 0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6)
+      '@jini-ai/platform': 0.5.3(express@5.2.1)
+      kysely: 0.29.6
+      semver: 7.8.5
+    transitivePeerDependencies:
+      - express
+
+  '@jini-ai/protocol@0.4.4':
+    dependencies:
+      zod: 3.25.76
+
+  '@jini-ai/ui@0.5.2(@jini-ai/agentic@0.4.4(@jini-ai/core@0.4.5)(@jini-ai/protocol@0.4.4)(zod@4.1.13))(@jini-ai/integrations@0.4.2(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6))(@jini-ai/platform@0.5.3)(better-sqlite3@13.0.3))(@jini-ai/platform@0.5.3)(micromark@4.0.3)(parse5@7.3.0)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(zod@4.1.13)':
+    dependencies:
+      '@jini-ai/core': 0.4.5(express@5.2.1)
+    optionalDependencies:
+      '@jini-ai/agentic': 0.4.4(@jini-ai/core@0.4.5)(@jini-ai/protocol@0.4.4)(zod@4.1.13)
+      '@jini-ai/integrations': 0.4.2(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6))(@jini-ai/platform@0.5.3)(better-sqlite3@13.0.3)
+      '@jini-ai/platform': 0.5.3(express@5.2.1)
+      micromark: 4.0.3
+      parse5: 7.3.0
+      react: 19.2.0
+      react-dom: 19.2.0(react@19.2.0)
+      zod: 4.1.13
+    transitivePeerDependencies:
+      - express
+
+  '@jini-ai/ui@0.5.2(@jini-ai/agentic@0.4.4(@jini-ai/core@0.4.5)(@jini-ai/protocol@0.4.4)(zod@4.1.13))(@jini-ai/integrations@0.4.2(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6))(@jini-ai/platform@0.5.3)(better-sqlite3@13.0.3))(@jini-ai/platform@0.5.3)(micromark@4.0.3)(parse5@8.0.1)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(zod@4.1.13)':
+    dependencies:
+      '@jini-ai/core': 0.4.5(express@5.2.1)
+    optionalDependencies:
+      '@jini-ai/agentic': 0.4.4(@jini-ai/core@0.4.5)(@jini-ai/protocol@0.4.4)(zod@4.1.13)
+      '@jini-ai/integrations': 0.4.2(@jini-ai/db@0.3.2(better-sqlite3@13.0.3)(kysely@0.29.6))(@jini-ai/platform@0.5.3)(better-sqlite3@13.0.3)
+      '@jini-ai/platform': 0.5.3(express@5.2.1)
+      micromark: 4.0.3
+      parse5: 8.0.1
+      react: 19.2.0
+      react-dom: 19.2.0(react@19.2.0)
+      zod: 4.1.13
+    transitivePeerDependencies:
+      - express
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:
@@ -3504,8 +3881,9 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.6.0
 
-  '@modelcontextprotocol/sdk@1.24.0(zod@4.1.13)':
+  '@modelcontextprotocol/sdk@1.32.1(zod@4.1.13)':
     dependencies:
+      '@hono/node-server': 2.1.5(hono@4.13.13)
       ajv: 8.17.1
       ajv-formats: 3.0.1(ajv@8.17.1)
       content-type: 1.0.5
@@ -3514,8 +3892,10 @@ snapshots:
       eventsource: 3.0.7
       eventsource-parser: 3.1.1
       express: 5.2.1
-      express-rate-limit: 7.5.1(express@5.2.1)
+      express-rate-limit: 8.7.1(express@5.2.1)
+      hono: 4.13.13
       jose: 6.2.12
+      json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
       raw-body: 3.0.2
       zod: 4.1.13
@@ -4320,9 +4700,13 @@ snapshots:
 
   expect-type@1.4.0: {}
 
-  express-rate-limit@7.5.1(express@5.2.1):
+  express-rate-limit@8.7.1(express@5.2.1):
     dependencies:
+      debug: 4.4.3
       express: 5.2.1
+      ip-address: 10.7.4
+    transitivePeerDependencies:
+      - supports-color
 
   express@5.2.1:
     dependencies:
@@ -4649,6 +5033,8 @@ snapshots:
       property-information: 7.2.0
       space-separated-tokens: 2.0.2
 
+  hono@4.13.13: {}
+
   html-encoding-sniffer@4.0.0:
     dependencies:
       whatwg-encoding: 3.1.1
@@ -4710,6 +5096,8 @@ snapshots:
   ini@4.1.1: {}
 
   interpret@3.1.1: {}
+
+  ip-address@10.7.4: {}
 
   ipaddr.js@1.9.1: {}
 
@@ -4811,6 +5199,8 @@ snapshots:
   json-schema-traverse@0.4.1: {}
 
   json-schema-traverse@1.0.0: {}
+
+  json-schema-typed@8.0.2: {}
 
   json-stable-stringify-without-jsonify@1.0.1: {}
 
@@ -5836,11 +6226,17 @@ snapshots:
       buffer-crc32: 0.2.13
       fd-slicer: 1.1.0
 
+  yauzl@3.4.0:
+    dependencies:
+      pend: 1.2.0
+
   yocto-queue@0.1.0: {}
 
   zod-to-json-schema@3.25.2(zod@4.1.13):
     dependencies:
       zod: 4.1.13
+
+  zod@3.25.76: {}
 
   zod@4.1.13: {}
 
