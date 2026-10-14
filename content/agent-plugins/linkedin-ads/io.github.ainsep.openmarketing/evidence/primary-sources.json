@@ -1,0 +1,493 @@
+{
+  "version": 1,
+  "checkedAt": "2026-10-13",
+  "scope": "R1 + R2 documentation only; not vendor acceptance or host admission",
+  "sources": [
+    {
+      "id": "accounts",
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads/account-structure/create-and-manage-accounts?view=li-lms-2026-09",
+      "endpoints": [
+        "GET /adAccounts?q=search"
+      ],
+      "requestFields": [
+        "search.id.values",
+        "pageSize",
+        "pageToken"
+      ],
+      "responseFields": [
+        "elements",
+        "metadata.nextPageToken",
+        "id",
+        "name",
+        "currency",
+        "status",
+        "test"
+      ],
+      "scopes": [
+        "r_ads",
+        "rw_ads"
+      ],
+      "status": "verified-documentation",
+      "checkedAt": "2026-10-13",
+      "apiVersion": "202609"
+    },
+    {
+      "id": "groups",
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads/account-structure/create-and-manage-campaign-groups?view=li-lms-2026-09",
+      "endpoints": [
+        "GET /adAccounts/{account}/adCampaignGroups?q=search",
+        "POST /adAccounts/{account}/adCampaignGroups",
+        "POST /adAccounts/{account}/adCampaignGroups/{group}"
+      ],
+      "requestFields": [
+        "search.id.values",
+        "search.status.values",
+        "pageSize",
+        "pageToken",
+        "account",
+        "name",
+        "runSchedule.start",
+        "runSchedule.end",
+        "totalBudget.amount",
+        "totalBudget.currencyCode",
+        "status:DRAFT",
+        "patch.$set.status:ACTIVE"
+      ],
+      "responseFields": [
+        "elements",
+        "metadata.nextPageToken",
+        "id",
+        "account",
+        "name",
+        "status",
+        "totalBudget",
+        "runSchedule",
+        "servingStatuses"
+      ],
+      "scopes": [
+        "r_ads",
+        "rw_ads"
+      ],
+      "constraints": [
+        "DRAFT creation does not serve",
+        "runSchedule.end required with totalBudget"
+      ],
+      "status": "verified-documentation",
+      "checkedAt": "2026-10-13",
+      "apiVersion": "202609"
+    },
+    {
+      "id": "campaigns",
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads/account-structure/create-and-manage-campaigns?view=li-lms-2026-09",
+      "endpoints": [
+        "GET /adAccounts/{account}/adCampaigns?q=search",
+        "POST /adAccounts/{account}/adCampaigns",
+        "POST /adAccounts/{account}/adCampaigns/{campaign}"
+      ],
+      "requestFields": [
+        "search.id.values",
+        "search.status.values",
+        "pageSize",
+        "pageToken",
+        "account",
+        "campaignGroup",
+        "associatedEntity",
+        "name",
+        "locale.country",
+        "locale.language",
+        "costType:CPC|CPM",
+        "dailyBudget.amount",
+        "dailyBudget.currencyCode",
+        "unitCost.amount",
+        "unitCost.currencyCode",
+        "runSchedule.start",
+        "runSchedule.end",
+        "politicalIntent:POLITICAL|NOT_POLITICAL|NOT_DECLARED",
+        "type:SPONSORED_UPDATES",
+        "offsiteDeliveryEnabled",
+        "audienceExpansionEnabled",
+        "targetingCriteria.include.and.or",
+        "status:PAUSED",
+        "patch.$set.status:ACTIVE|PAUSED",
+        "patch.$set.dailyBudget"
+      ],
+      "responseFields": [
+        "elements",
+        "metadata.nextPageToken",
+        "id",
+        "account",
+        "campaignGroup",
+        "name",
+        "status",
+        "dailyBudget",
+        "runSchedule",
+        "servingStatuses",
+        "201",
+        "204",
+        "x-restli-id"
+      ],
+      "scopes": [
+        "r_ads",
+        "rw_ads"
+      ],
+      "constraints": [
+        "politicalIntent declaration and EU advertiser notice are caller responsibilities"
+      ],
+      "status": "verified-documentation",
+      "checkedAt": "2026-10-13",
+      "apiVersion": "202609"
+    },
+    {
+      "id": "creatives",
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads/account-structure/create-and-manage-creatives?view=li-lms-2026-09",
+      "endpoints": [
+        "GET /adAccounts/{account}/creatives?q=criteria",
+        "POST /adAccounts/{account}/creatives",
+        "POST /adAccounts/{account}/creatives/{encodedUrn}"
+      ],
+      "requestFields": [
+        "creatives=List(URNs)",
+        "pageSize",
+        "pageToken",
+        "campaign",
+        "content.reference:share|ugcPost",
+        "intendedStatus:PAUSED",
+        "patch.$set.intendedStatus:ACTIVE"
+      ],
+      "responseFields": [
+        "elements",
+        "metadata.nextPageToken",
+        "id",
+        "account",
+        "campaign",
+        "intendedStatus",
+        "isServing",
+        "servingHoldReasons",
+        "content.reference",
+        "201",
+        "204",
+        "x-restli-id"
+      ],
+      "scopes": [
+        "r_ads",
+        "rw_ads"
+      ],
+      "status": "verified-documentation",
+      "checkedAt": "2026-10-13",
+      "apiVersion": "202609"
+    },
+    {
+      "id": "targeting",
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads/advertising-targeting/ads-targeting?view=li-lms-2026-09",
+      "endpoints": [
+        "GET /adTargetingEntities?q=typeahead"
+      ],
+      "requestFields": [
+        "facet",
+        "query",
+        "queryVersion:QUERY_USES_URNS"
+      ],
+      "responseFields": [
+        "elements",
+        "urn",
+        "facetUrn",
+        "name"
+      ],
+      "constraints": [
+        "locations/profileLocations/industries/employers/skills/titles support typeahead",
+        "client rejects pages over 100; no undocumented paging query added"
+      ],
+      "status": "verified-documentation",
+      "checkedAt": "2026-10-13",
+      "apiVersion": "202609"
+    },
+    {
+      "id": "version",
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/versioning?view=li-lms-2026-09",
+      "headers": [
+        "LinkedIn-Version:202609",
+        "X-Restli-Protocol-Version:2.0.0"
+      ],
+      "status": "verified-documentation",
+      "checkedAt": "2026-10-13",
+      "apiVersion": "202609"
+    },
+    {
+      "id": "oauth",
+      "url": "https://learn.microsoft.com/en-us/linkedin/shared/authentication/authorization-code-flow",
+      "endpoints": [
+        "GET https://www.linkedin.com/oauth/v2/authorization",
+        "POST https://www.linkedin.com/oauth/v2/accessToken"
+      ],
+      "fields": [
+        "client_id",
+        "client_secret",
+        "redirect_uri",
+        "state",
+        "scope",
+        "code",
+        "grant_type",
+        "access_token",
+        "expires_in"
+      ],
+      "status": "verified-documentation",
+      "checkedAt": "2026-10-13",
+      "apiVersion": "unversioned OAuth 2.0"
+    },
+    {
+      "id": "refresh",
+      "url": "https://learn.microsoft.com/en-us/linkedin/shared/authentication/programmatic-refresh-tokens",
+      "constraints": [
+        "approved partner access required; honor returned expiry; reconnect when unsupported"
+      ],
+      "status": "verified-documentation",
+      "checkedAt": "2026-10-13",
+      "apiVersion": "unversioned OAuth 2.0"
+    },
+    {
+      "id": "methods",
+      "url": "https://learn.microsoft.com/en-us/linkedin/shared/api-guide/concepts/methods",
+      "status": "verified-documentation",
+      "checkedAt": "2026-10-13",
+      "apiVersion": "Rest.li 2.0.0 (unversioned protocol guide)",
+      "fields": [
+        "CREATE:POST",
+        "FINDER:GET",
+        "X-RestLi-Method:PARTIAL_UPDATE",
+        "UPDATE:PUT"
+      ]
+    },
+    {
+      "id": "protocol-version",
+      "url": "https://learn.microsoft.com/en-us/linkedin/shared/api-guide/concepts/protocol-version",
+      "status": "verified-documentation",
+      "checkedAt": "2026-10-13",
+      "apiVersion": "Rest.li 2.0.0 (unversioned protocol guide)",
+      "fields": [
+        "X-Restli-Protocol-Version:2.0.0",
+        "URL-encoded URN values",
+        "literal List/parentheses delimiters"
+      ]
+    },
+    {
+      "id": "analytics",
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads-reporting/ads-reporting?view=li-lms-2026-09",
+      "endpoints": [
+        "GET /adAnalytics?q=analytics"
+      ],
+      "requestFields": [
+        "pivot:ACCOUNT|CAMPAIGN",
+        "timeGranularity:ALL",
+        "dateRange.start",
+        "dateRange.end",
+        "accounts",
+        "campaigns",
+        "fields"
+      ],
+      "responseFields": [
+        "elements",
+        "dateRange",
+        "pivotValues",
+        "costInLocalCurrency",
+        "impressions",
+        "clicks"
+      ],
+      "scopes": [
+        "r_ads_reporting"
+      ],
+      "constraints": [
+        "No pagination; empty may mean no activity or no read access; ALL can expand older dates to month boundaries; plugin rejects expanded windows."
+      ],
+      "status": "verified-documentation",
+      "checkedAt": "2026-10-13",
+      "apiVersion": "202609"
+    },
+    {
+      "id": "analytics-schema",
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads-reporting/ads-reporting-schema?view=li-lms-2026-09",
+      "endpoints": [],
+      "requestFields": [
+        "dateRange.start.year|month|day",
+        "dateRange.end.year|month|day"
+      ],
+      "responseFields": [
+        "dateRange.start",
+        "dateRange.end",
+        "pivotValues",
+        "costInLocalCurrency:BigDecimal",
+        "impressions:long",
+        "clicks:long"
+      ],
+      "scopes": [],
+      "constraints": [
+        "UTC inclusive dates; source decimal spend retained verbatim; unsafe JSON numeric counters rejected."
+      ],
+      "status": "verified-documentation",
+      "checkedAt": "2026-10-13",
+      "apiVersion": "202609"
+    },
+    {
+      "id": "conversions",
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads-reporting/conversions-api?view=li-lms-2026-09",
+      "endpoints": [
+        "GET /conversions?q=account",
+        "POST /conversions",
+        "PUT /campaignConversions/(campaign:URN,conversion:URN)",
+        "POST /conversionEvents"
+      ],
+      "requestFields": [
+        "account",
+        "name",
+        "conversionMethod:CONVERSIONS_API",
+        "type",
+        "postClickAttributionWindowSize",
+        "viewThroughAttributionWindowSize",
+        "attributionType",
+        "autoAssociationType:OBJECTIVE_BASED|ALL_CAMPAIGNS",
+        "campaign",
+        "conversion",
+        "conversionHappenedAt",
+        "eventId",
+        "user.userIds.idType:SHA256_EMAIL",
+        "user.userIds.idValue"
+      ],
+      "responseFields": [
+        "elements",
+        "id",
+        "account",
+        "name",
+        "type",
+        "conversionMethod",
+        "enabled",
+        "ownershipType",
+        "201",
+        "204",
+        "x-restli-id"
+      ],
+      "scopes": [
+        "rw_conversions",
+        "r_ads"
+      ],
+      "constraints": [
+        "One event per POST; conversion timestamp within past 90 days; 201 means accepted; 600 requests/min and 500000/day per token; server enforces rates; zero plugin retries.",
+        "autoAssociationType considers existing ACTIVE/PAUSED/DRAFT campaigns; ALL_CAMPAIGNS associates at most 200."
+      ],
+      "status": "verified-documentation",
+      "checkedAt": "2026-10-13",
+      "apiVersion": "202609"
+    },
+    {
+      "id": "conversions-schema",
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads-reporting/conversions-api-schema?view=li-lms-2026-09",
+      "endpoints": [],
+      "requestFields": [
+        "type:LEAD|SIGN_UP|START_TRIAL|PURCHASE|OTHER",
+        "postClickAttributionWindowSize:1|7|30|90",
+        "viewThroughAttributionWindowSize:1|7|30|90",
+        "attributionType:LAST_TOUCH_BY_CAMPAIGN|LAST_TOUCH_BY_CONVERSION",
+        "autoAssociationType:OBJECTIVE_BASED|ALL_CAMPAIGNS",
+        "conversion:urn:lla:llaPartnerConversion:ID",
+        "conversionHappenedAt:milliseconds",
+        "eventId",
+        "user.userIds.idType:SHA256_EMAIL",
+        "user.userIds.idValue"
+      ],
+      "responseFields": [
+        "ownershipType:OWNED|SHARED"
+      ],
+      "scopes": [],
+      "constraints": [
+        "Only lowercase 64-hex contacts email digests are accepted; no raw userInfo/click IDs/externalIds, no hashing.",
+        "OM eventId is mandatory for dedupe even though vendor field is optional."
+      ],
+      "status": "verified-documentation",
+      "checkedAt": "2026-10-13",
+      "apiVersion": "202609"
+    },
+    {
+      "id": "lead-forms",
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/lead-sync/leadsync?view=li-lms-2026-09",
+      "endpoints": [
+        "GET /leadForms?q=owner"
+      ],
+      "requestFields": [
+        "owner.sponsoredAccount",
+        "q:owner",
+        "start",
+        "count"
+      ],
+      "responseFields": [
+        "elements",
+        "id",
+        "owner.sponsoredAccount",
+        "name",
+        "state",
+        "versionId",
+        "paging.start",
+        "paging.count"
+      ],
+      "scopes": [
+        "r_ads",
+        "rw_ads"
+      ],
+      "constraints": [
+        "Advertising API scopes permit ad form metadata; Lead Sync response downloads need separate access and are outside scope.",
+        "Only metadata is projected; form content and provider paging URLs are discarded."
+      ],
+      "status": "verified-documentation",
+      "checkedAt": "2026-10-13",
+      "apiVersion": "202609"
+    },
+    {
+      "id": "lead-forms-schema",
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/lead-sync/lead-sync-schema?view=li-lms-2026-09",
+      "endpoints": [],
+      "requestFields": [],
+      "responseFields": [
+        "id",
+        "owner.sponsoredAccount",
+        "name",
+        "state:DRAFT|PUBLISHED|ARCHIVED",
+        "versionId"
+      ],
+      "scopes": [],
+      "constraints": [
+        "64-bit numeric form IDs must arrive as decimal strings if outside JavaScript safe integer range; unsafe numeric IDs reject."
+      ],
+      "status": "verified-documentation",
+      "checkedAt": "2026-10-13",
+      "apiVersion": "202609"
+    }
+  ],
+  "unverified": [
+    {
+      "fact": "Actual app product access, advertiser eligibility and OAuth/PKCE binding",
+      "behavior": "Host admission remains false by default; server owns OAuth; vendor 4xx becomes typed failure."
+    },
+    {
+      "fact": "Vendor idempotency key/header and per-operation reconciliation endpoint",
+      "behavior": "No invented header/endpoint; ONE host outbox claim, zero internal retries, unknown writes never resent."
+    },
+    {
+      "fact": "Group create acknowledgement header/status combination is not specified in the inspected group page",
+      "behavior": "Group create receipt remains unknown even for 201 + x-restli-id; use separate account-bound list readback, never retry."
+    }
+  ],
+  "omBounds": {
+    "requestBytes": 65536,
+    "responseBytes": 1048576,
+    "timeoutMs": 15000,
+    "maxPageSize": 100,
+    "maxIds": 100,
+    "retries": 0
+  },
+  "omR2Bounds": {
+    "maxReportDays": 366,
+    "maxReportRows": 100,
+    "maxConversionRules": 100,
+    "maxGrantDefinitions": 16,
+    "maxEventAgeMs": 7776000000,
+    "maxLeadOffset": 1000000,
+    "conversionEventsPerCall": 1
+  }
+}

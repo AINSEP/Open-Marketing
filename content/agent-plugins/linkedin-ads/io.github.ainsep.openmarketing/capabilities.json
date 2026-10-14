@@ -1,0 +1,245 @@
+{
+  "version": 1,
+  "admitted": false,
+  "capabilities": [
+    {
+      "capabilityId": "campaign.read.v1",
+      "version": 1,
+      "pluginId": "linkedin-ads",
+      "schemaFingerprint": "ea28bc97aaff939d4f45e61397e2165dfbcc928f2840dc49e9e852b9d05fd66c",
+      "admitted": false,
+      "effects": [
+        "read"
+      ]
+    },
+    {
+      "capabilityId": "campaign.create-draft.v1",
+      "version": 1,
+      "pluginId": "linkedin-ads",
+      "schemaFingerprint": "ea28bc97aaff939d4f45e61397e2165dfbcc928f2840dc49e9e852b9d05fd66c",
+      "admitted": false,
+      "effects": [
+        "write"
+      ]
+    },
+    {
+      "capabilityId": "campaign.create-paused.v1",
+      "version": 1,
+      "pluginId": "linkedin-ads",
+      "schemaFingerprint": "ea28bc97aaff939d4f45e61397e2165dfbcc928f2840dc49e9e852b9d05fd66c",
+      "admitted": false,
+      "effects": [
+        "write"
+      ]
+    },
+    {
+      "capabilityId": "campaign.activate-exact.v1",
+      "version": 1,
+      "pluginId": "linkedin-ads",
+      "schemaFingerprint": "ea28bc97aaff939d4f45e61397e2165dfbcc928f2840dc49e9e852b9d05fd66c",
+      "admitted": false,
+      "effects": [
+        "ad_spend"
+      ]
+    },
+    {
+      "capabilityId": "campaign.pause.v1",
+      "version": 1,
+      "pluginId": "linkedin-ads",
+      "schemaFingerprint": "ea28bc97aaff939d4f45e61397e2165dfbcc928f2840dc49e9e852b9d05fd66c",
+      "admitted": false,
+      "effects": [
+        "write"
+      ]
+    },
+    {
+      "capabilityId": "campaign.stop-only.v1",
+      "version": 1,
+      "pluginId": "linkedin-ads",
+      "schemaFingerprint": "a4e8d6fafafbadded17c3e01660998a92be045711dd43834ca7956f098b43e94",
+      "admitted": false,
+      "effects": [
+        "halt_stop"
+      ]
+    },
+    {
+      "capabilityId": "report.account-spend.v1",
+      "version": 1,
+      "pluginId": "linkedin-ads",
+      "schemaFingerprint": "eed1f9c0cc96ddfe1a7ee12993dcf63fa75fd215afab27b5f82e115d7a1823fc",
+      "admitted": false,
+      "effects": [
+        "read"
+      ]
+    },
+    {
+      "capabilityId": "conversion.rules-read.v1",
+      "version": 1,
+      "pluginId": "linkedin-ads",
+      "schemaFingerprint": "ea28bc97aaff939d4f45e61397e2165dfbcc928f2840dc49e9e852b9d05fd66c",
+      "admitted": false,
+      "effects": [
+        "read"
+      ]
+    },
+    {
+      "capabilityId": "conversion.setup.v1",
+      "version": 1,
+      "pluginId": "linkedin-ads",
+      "schemaFingerprint": "ea28bc97aaff939d4f45e61397e2165dfbcc928f2840dc49e9e852b9d05fd66c",
+      "admitted": false,
+      "effects": [
+        "write"
+      ]
+    },
+    {
+      "capabilityId": "conversion.deliver.v1",
+      "version": 1,
+      "pluginId": "linkedin-ads",
+      "schemaFingerprint": "4904da1c6878a3217f1f26030c31800909e52b6b6874f9335aa2595902a99d0f",
+      "admitted": false,
+      "effects": [
+        "conversion"
+      ]
+    },
+    {
+      "capabilityId": "lead.forms-read.v1",
+      "version": 1,
+      "pluginId": "linkedin-ads",
+      "schemaFingerprint": "ea28bc97aaff939d4f45e61397e2165dfbcc928f2840dc49e9e852b9d05fd66c",
+      "admitted": false,
+      "effects": [
+        "read"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "list_accounts",
+      "effects": [
+        "read"
+      ],
+      "capabilityId": "campaign.read.v1"
+    },
+    {
+      "name": "list_campaign_groups",
+      "effects": [
+        "read"
+      ],
+      "capabilityId": "campaign.read.v1"
+    },
+    {
+      "name": "list_campaigns",
+      "effects": [
+        "read"
+      ],
+      "capabilityId": "campaign.read.v1"
+    },
+    {
+      "name": "list_creatives",
+      "effects": [
+        "read"
+      ],
+      "capabilityId": "campaign.read.v1"
+    },
+    {
+      "name": "search_targeting",
+      "effects": [
+        "read"
+      ],
+      "capabilityId": "campaign.read.v1"
+    },
+    {
+      "name": "create_campaign_group_draft",
+      "effects": [
+        "write"
+      ],
+      "capabilityId": "campaign.create-draft.v1"
+    },
+    {
+      "name": "create_campaign_paused",
+      "effects": [
+        "write"
+      ],
+      "capabilityId": "campaign.create-paused.v1"
+    },
+    {
+      "name": "create_creative_paused",
+      "effects": [
+        "write"
+      ],
+      "capabilityId": "campaign.create-paused.v1"
+    },
+    {
+      "name": "activate",
+      "effects": [
+        "ad_spend"
+      ],
+      "capabilityId": "campaign.activate-exact.v1"
+    },
+    {
+      "name": "set_budget",
+      "effects": [
+        "ad_spend"
+      ],
+      "capabilityId": "campaign.activate-exact.v1"
+    },
+    {
+      "name": "pause",
+      "effects": [
+        "write"
+      ],
+      "capabilityId": "campaign.pause.v1"
+    },
+    {
+      "name": "report",
+      "effects": [
+        "read"
+      ],
+      "capabilityId": "report.account-spend.v1"
+    },
+    {
+      "name": "list_conversion_rules",
+      "effects": [
+        "read"
+      ],
+      "capabilityId": "conversion.rules-read.v1"
+    },
+    {
+      "name": "create_conversion_rule",
+      "effects": [
+        "write"
+      ],
+      "capabilityId": "conversion.setup.v1"
+    },
+    {
+      "name": "associate_conversion_rule",
+      "effects": [
+        "write"
+      ],
+      "capabilityId": "conversion.setup.v1"
+    },
+    {
+      "name": "list_lead_forms",
+      "effects": [
+        "read"
+      ],
+      "capabilityId": "lead.forms-read.v1"
+    }
+  ],
+  "backendStop": {
+    "capabilityId": "campaign.stop-only.v1",
+    "effects": [
+      "halt_stop"
+    ],
+    "agentTool": false
+  },
+  "fingerprintBasis": "SHA-256 of src/commands.ts; reporting uses src/reporting.ts, stop uses src/transport.ts, conversion backend uses src/capi.ts. Source compatibility metadata, not plugin trust or an allowlist.",
+  "backendConversion": {
+    "capabilityId": "conversion.deliver.v1",
+    "effects": [
+      "conversion"
+    ],
+    "agentTool": false
+  }
+}

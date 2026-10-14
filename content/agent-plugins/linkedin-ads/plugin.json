@@ -1,0 +1,126 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.1.0/plugin.schema.json",
+  "name": "linkedin-ads",
+  "version": "0.1.0",
+  "description": "LinkedIn DRAFT/PAUSED campaigns, analytics, conversion setup and server-only digest conversions; disabled until host admission.",
+  "license": "Apache-2.0",
+  "extensions": {
+    "io.github.ainsep.openmarketing": {
+      "version": 1,
+      "enabled": false,
+      "admitted": false,
+      "capabilities": [
+        {
+          "capabilityId": "campaign.read.v1",
+          "version": 1,
+          "pluginId": "linkedin-ads",
+          "schemaFingerprint": "ea28bc97aaff939d4f45e61397e2165dfbcc928f2840dc49e9e852b9d05fd66c",
+          "admitted": false,
+          "effects": [
+            "read"
+          ]
+        },
+        {
+          "capabilityId": "campaign.create-draft.v1",
+          "version": 1,
+          "pluginId": "linkedin-ads",
+          "schemaFingerprint": "ea28bc97aaff939d4f45e61397e2165dfbcc928f2840dc49e9e852b9d05fd66c",
+          "admitted": false,
+          "effects": [
+            "write"
+          ]
+        },
+        {
+          "capabilityId": "campaign.create-paused.v1",
+          "version": 1,
+          "pluginId": "linkedin-ads",
+          "schemaFingerprint": "ea28bc97aaff939d4f45e61397e2165dfbcc928f2840dc49e9e852b9d05fd66c",
+          "admitted": false,
+          "effects": [
+            "write"
+          ]
+        },
+        {
+          "capabilityId": "campaign.activate-exact.v1",
+          "version": 1,
+          "pluginId": "linkedin-ads",
+          "schemaFingerprint": "ea28bc97aaff939d4f45e61397e2165dfbcc928f2840dc49e9e852b9d05fd66c",
+          "admitted": false,
+          "effects": [
+            "ad_spend"
+          ]
+        },
+        {
+          "capabilityId": "campaign.pause.v1",
+          "version": 1,
+          "pluginId": "linkedin-ads",
+          "schemaFingerprint": "ea28bc97aaff939d4f45e61397e2165dfbcc928f2840dc49e9e852b9d05fd66c",
+          "admitted": false,
+          "effects": [
+            "write"
+          ]
+        },
+        {
+          "capabilityId": "campaign.stop-only.v1",
+          "version": 1,
+          "pluginId": "linkedin-ads",
+          "schemaFingerprint": "a4e8d6fafafbadded17c3e01660998a92be045711dd43834ca7956f098b43e94",
+          "admitted": false,
+          "effects": [
+            "halt_stop"
+          ]
+        },
+        {
+          "capabilityId": "report.account-spend.v1",
+          "version": 1,
+          "pluginId": "linkedin-ads",
+          "schemaFingerprint": "eed1f9c0cc96ddfe1a7ee12993dcf63fa75fd215afab27b5f82e115d7a1823fc",
+          "admitted": false,
+          "effects": [
+            "read"
+          ]
+        },
+        {
+          "capabilityId": "conversion.rules-read.v1",
+          "version": 1,
+          "pluginId": "linkedin-ads",
+          "schemaFingerprint": "ea28bc97aaff939d4f45e61397e2165dfbcc928f2840dc49e9e852b9d05fd66c",
+          "admitted": false,
+          "effects": [
+            "read"
+          ]
+        },
+        {
+          "capabilityId": "conversion.setup.v1",
+          "version": 1,
+          "pluginId": "linkedin-ads",
+          "schemaFingerprint": "ea28bc97aaff939d4f45e61397e2165dfbcc928f2840dc49e9e852b9d05fd66c",
+          "admitted": false,
+          "effects": [
+            "write"
+          ]
+        },
+        {
+          "capabilityId": "conversion.deliver.v1",
+          "version": 1,
+          "pluginId": "linkedin-ads",
+          "schemaFingerprint": "4904da1c6878a3217f1f26030c31800909e52b6b6874f9335aa2595902a99d0f",
+          "admitted": false,
+          "effects": [
+            "conversion"
+          ]
+        },
+        {
+          "capabilityId": "lead.forms-read.v1",
+          "version": 1,
+          "pluginId": "linkedin-ads",
+          "schemaFingerprint": "ea28bc97aaff939d4f45e61397e2165dfbcc928f2840dc49e9e852b9d05fd66c",
+          "admitted": false,
+          "effects": [
+            "read"
+          ]
+        }
+      ]
+    }
+  }
+}
