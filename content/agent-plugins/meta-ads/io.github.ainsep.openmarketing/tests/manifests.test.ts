@@ -19,9 +19,20 @@ describe("actual packaged Meta manifests and evidence", () => {
     const extension = manifest.extensions["io.github.ainsep.openmarketing"];
     expect(extension.enabled).toBe(false); expect(extension.admitted).toBe(false);
     const envelopes = extension.capabilities.map(value => capabilityEnvelopeSchema.parse({ ...(value as object), pluginDigest }));
-    expect(envelopes).toHaveLength(6);
+    expect(envelopes).toHaveLength(10);
     expect(envelopes.every(value => !value.admitted && value.pluginId === "meta-ads")).toBe(true);
     expect(new Set(envelopes.map(value => value.capabilityId)).size).toBe(envelopes.length);
+  });
+  it("declares the four organic Instagram effects consistently without changing existing admission", () => {
+    const extension = manifest.extensions["io.github.ainsep.openmarketing"];
+    const capabilities = JSON.parse(readFileSync(new URL("io.github.ainsep.openmarketing/capabilities.json", root), "utf8"));
+    expect(capabilities.capabilities).toEqual(extension.capabilities);
+    const envelopes = extension.capabilities.map(value => capabilityEnvelopeSchema.parse({ ...(value as object), pluginDigest }));
+    expect(envelopes.filter(value => value.capabilityId.startsWith("instagram.")).map(value => [value.capabilityId, value.effects])).toEqual([
+      ["instagram.accounts.v1", ["read"]], ["instagram.publish-post.v1", ["write"]],
+      ["instagram.post-status.v1", ["read"]], ["instagram.media-insights.v1", ["read"]],
+    ]);
+    expect(envelopes.filter(value => !value.capabilityId.startsWith("instagram."))).toHaveLength(6);
   });
   it("does not disguise proposed schemas as a captured actual tools/list", () => {
     const evidence = JSON.parse(readFileSync(new URL("io.github.ainsep.openmarketing/evidence/actual-tools-list.json", root), "utf8"));

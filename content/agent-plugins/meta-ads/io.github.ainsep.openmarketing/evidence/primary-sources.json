@@ -120,6 +120,152 @@
         "OM click ID bound of 220 characters",
         "Vendor acceptance for a particular account"
       ]
+    },
+    {
+      "id": "instagram-version-history",
+      "url": "https://developers.facebook.com/docs/graph-api/changelog/versions/",
+      "checkedOn": "2026-10-13",
+      "apiVersion": "server configuration; fixture v25.0; review latest v26.0",
+      "access": "failed in implementation run: 429",
+      "verification": "Coordinator review.md verified these vendor facts on 2026-10-13; implementation retrieval could not independently reproduce them",
+      "reviewConfirmed": [
+        "Server-configured apiVersion; fixtures use v25.0",
+        "Review confirmed v26.0 release on 2026-07-29"
+      ],
+      "doesNotVerify": [
+        "Live account eligibility, granted scopes or successful provider execution"
+      ]
+    },
+    {
+      "id": "instagram-facebook-login",
+      "url": "https://developers.facebook.com/docs/instagram-platform/instagram-api-with-facebook-login/get-started/",
+      "checkedOn": "2026-10-13",
+      "apiVersion": "server configuration; fixture v25.0; review latest v26.0",
+      "access": "failed in implementation run: 429",
+      "verification": "Coordinator review.md verified these vendor facts on 2026-10-13; implementation retrieval could not independently reproduce them",
+      "reviewConfirmed": [
+        "GET /me/accounts fields id,name,instagram_business_account{id,username}",
+        "Professional Instagram account linked to a Facebook Page",
+        "Discovery scopes instagram_basic,pages_show_list"
+      ],
+      "doesNotVerify": [
+        "Live account eligibility, granted scopes or successful provider execution"
+      ]
+    },
+    {
+      "id": "instagram-content-publishing",
+      "url": "https://developers.facebook.com/docs/instagram-platform/instagram-api-with-facebook-login/content-publishing/",
+      "checkedOn": "2026-10-13",
+      "apiVersion": "server configuration; fixture v25.0; review latest v26.0",
+      "access": "failed in implementation run: fetch error",
+      "verification": "Coordinator review.md verified these vendor facts on 2026-10-13; implementation retrieval could not independently reproduce them",
+      "reviewConfirmed": [
+        "Container create, bounded status polling, media_publish flow",
+        "Caption <=2200 characters, <=30 hashtags, <=20 mentions; JPEG images",
+        "Carousel <=10 children; OM minimum is 2",
+        "400 containers per 24h; containers expire after 24h",
+        "Poll once per minute, at most five minutes",
+        "Publish scopes instagram_basic,instagram_content_publish,pages_read_engagement; Page MANAGE or CREATE_CONTENT task",
+        "Business Manager role may require ads_management or ads_read",
+        "No native scheduling parameter; reject scheduled inputs",
+        "User/Page token terminology differs between guide/reference; server chooses token"
+      ],
+      "doesNotVerify": [
+        "Live account eligibility, granted scopes or successful provider execution"
+      ]
+    },
+    {
+      "id": "instagram-media",
+      "url": "https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-user/media/",
+      "checkedOn": "2026-10-13",
+      "apiVersion": "server configuration; fixture v25.0; review latest v26.0",
+      "access": "failed in implementation run: 429",
+      "verification": "Coordinator review.md verified these vendor facts on 2026-10-13; implementation retrieval could not independently reproduce them",
+      "reviewConfirmed": [
+        "POST /{igUserId}/media -> id",
+        "image_url,video_url,media_type=REELS|CAROUSEL|VIDEO,is_carousel_item,children,caption",
+        "Caption on carousel parent only; VIDEO for carousel children; no Reel children"
+      ],
+      "doesNotVerify": [
+        "Live account eligibility, granted scopes or successful provider execution"
+      ]
+    },
+    {
+      "id": "instagram-container",
+      "url": "https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-container/",
+      "checkedOn": "2026-10-13",
+      "apiVersion": "server configuration; fixture v25.0; review latest v26.0",
+      "access": "failed in implementation run: 429",
+      "verification": "Coordinator review.md verified these vendor facts on 2026-10-13; implementation retrieval could not independently reproduce them",
+      "reviewConfirmed": [
+        "GET /{containerId}?fields=status_code,status",
+        "EXPIRED,ERROR,FINISHED,IN_PROGRESS,PUBLISHED",
+        "PUBLISHED container is complete; no automatic repeat publication"
+      ],
+      "doesNotVerify": [
+        "Live account eligibility, granted scopes or successful provider execution"
+      ]
+    },
+    {
+      "id": "instagram-media-publish",
+      "url": "https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-user/media_publish/",
+      "checkedOn": "2026-10-13",
+      "apiVersion": "server configuration; fixture v25.0; review latest v26.0",
+      "access": "failed in implementation run: 429",
+      "verification": "Coordinator review.md verified these vendor facts on 2026-10-13; implementation retrieval could not independently reproduce them",
+      "reviewConfirmed": [
+        "POST /{igUserId}/media_publish creation_id -> media id",
+        "Check readiness before publish; publication is an ordinary external write, not spend"
+      ],
+      "doesNotVerify": [
+        "Live account eligibility, granted scopes or successful provider execution"
+      ]
+    },
+    {
+      "id": "instagram-publishing-limit",
+      "url": "https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-user/content_publishing_limit/",
+      "checkedOn": "2026-10-13",
+      "apiVersion": "server configuration; fixture v25.0; review latest v26.0",
+      "access": "failed in implementation run: 429",
+      "verification": "Coordinator review.md verified these vendor facts on 2026-10-13; implementation retrieval could not independently reproduce them",
+      "reviewConfirmed": [
+        "GET /{igUserId}/content_publishing_limit fields quota_usage,config{quota_total,quota_duration}",
+        "Docs conflict on 50/100 quota; use returned config, never hardcode publication quota"
+      ],
+      "doesNotVerify": [
+        "Live account eligibility, granted scopes or successful provider execution"
+      ]
+    },
+    {
+      "id": "instagram-media-insights",
+      "url": "https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-media/insights/",
+      "checkedOn": "2026-10-13",
+      "apiVersion": "server configuration; fixture v25.0; review latest v26.0",
+      "access": "failed in implementation run: fetch error",
+      "verification": "Coordinator review.md verified these vendor facts on 2026-10-13; implementation retrieval could not independently reproduce them",
+      "reviewConfirmed": [
+        "GET /{mediaId}/insights metric=reach,views,total_interactions",
+        "data[].name,period,values[].value,end_time; availability depends on media/account",
+        "impressions deprecated for media after 2024-07-02",
+        "Scopes instagram_manage_insights,instagram_basic,pages_read_engagement"
+      ],
+      "doesNotVerify": [
+        "Live account eligibility, granted scopes or successful provider execution"
+      ]
+    },
+    {
+      "id": "instagram-permissions",
+      "url": "https://developers.facebook.com/docs/permissions/",
+      "checkedOn": "2026-10-13",
+      "apiVersion": "server configuration; fixture v25.0; review latest v26.0",
+      "access": "failed in implementation run: 429",
+      "verification": "Coordinator review.md verified these vendor facts on 2026-10-13; implementation retrieval could not independently reproduce them",
+      "reviewConfirmed": [
+        "Facebook Login scope names listed in setup/publishing/insights entries; no Instagram Login scope substitution"
+      ],
+      "doesNotVerify": [
+        "Live account eligibility, granted scopes or successful provider execution"
+      ]
     }
   ],
   "reproducibility": "URLs reference upstream main as observed on checkedOn; no immutable upstream revision or live account behavior is asserted. No upstream source code was copied.",
@@ -191,5 +337,25 @@
       "src/capi.ts"
     ],
     "status": "proposed local codec fingerprint; never hosted-schema or account admission evidence"
+  },
+  "instagram": {
+    "review": "ADS-memory/.local-artifacts/codex-runs/2026-10-14-instagram/review.md",
+    "implementationSearch": "developers.facebook.com-only web searches returned no usable results; cited direct pages returned HTTP 429 or fetch errors. No secondary sources or live calls.",
+    "unverified": [
+      "Exact media dimensions, video codecs/duration, per-account metric availability, account token/task eligibility, future API-version compatibility"
+    ],
+    "failClosed": "No undocumented scheduling/upload/conversion field is sent. Reject malformed or unfamiliar status/quota/receipt; only FINISHED permits media_publish. Existing admitted:false host mechanism unchanged; no per-mapping evidence gate.",
+    "media": "Public HTTPS URLs only; OM asset-to-public-URL hosting is a server NEED. No DNS/media fetch by plugin.",
+    "resourceBounds": "OM: <=100 discovery Pages, <=64KiB boundary JSON, <=15s HTTP calls; <=5 polls/container 60s apart under one shared five-minute deadline.",
+    "idempotency": "Server single outbox key=operationId for FULL tool invocation; completed/uncertain operations cannot rerun. Read PUBLISHED before publish; lost ACK gets one status read, never a second POST. No plugin store or extra lock.",
+    "fingerprint": {
+      "value": "1c1f813e65db6730068c7776fce05320c2013a22baf7b2470cc8e5db01fd3486",
+      "method": "SHA-256 of concatenated UTF-8 file bytes in listed order",
+      "files": [
+        "src/instagram.ts",
+        "src/instagram-publish.ts"
+      ],
+      "status": "proposed local codec fingerprint; not a captured hosted schema or admission"
+    }
   }
 }

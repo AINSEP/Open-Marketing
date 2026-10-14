@@ -16,3 +16,5 @@ export { createMetaCapiBackend, decodeMetaCapiAcknowledgement } from "./capi.js"
 export type { MetaCapiBackend, MetaCapiConfiguration, MetaCapiEgressPort, MetaConversionAuthorityPort, MetaCapiRequest, MetaConversionInput, MetaCapiPayload, MetaConversionOutcome } from "./capi.js";
 export { decodeMetaSpendSnapshot, decimalToMinor } from "./reporting.js";
 export type { MetaReportQuery, MetaAccountMetadata, MetaSpendSnapshot } from "./reporting.js";
+export { invokeMetaInstagram, metaInstagramTools, metaInstagramCommandSchema, metaInstagramPostSchema } from "./instagram.js";
+export type { MetaInstagramRequest, MetaInstagramPost, MetaInstagramConfiguration, MetaInstagramGraphRequest, MetaInstagramDispatch, MetaInstagramWait, MetaInstagramResult, MetaInstagramPublishResult } from "./instagram.js";

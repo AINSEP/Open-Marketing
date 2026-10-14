@@ -2,7 +2,7 @@
   "$schema": "https://agent-plugins.org/schemas/1.1.0/plugin.schema.json",
   "name": "meta-ads",
   "version": "0.1.0",
-  "description": "Evidence-gated Meta codecs and server-only CAPI backend; disabled until host admission.",
+  "description": "Meta campaign codecs, server-only CAPI and organic Instagram publishing; disabled until host admission.",
   "license": "Apache-2.0",
   "extensions": {
     "io.github.ainsep.openmarketing": {
@@ -65,6 +65,46 @@
           "version": 1,
           "pluginId": "meta-ads",
           "schemaFingerprint": "0a2488beac4ca5ea1b4371274f64f605481a03f92b2895f04509dc894437b1eb",
+          "admitted": false,
+          "effects": [
+            "read"
+          ]
+        },
+        {
+          "capabilityId": "instagram.accounts.v1",
+          "version": 1,
+          "pluginId": "meta-ads",
+          "schemaFingerprint": "1c1f813e65db6730068c7776fce05320c2013a22baf7b2470cc8e5db01fd3486",
+          "admitted": false,
+          "effects": [
+            "read"
+          ]
+        },
+        {
+          "capabilityId": "instagram.publish-post.v1",
+          "version": 1,
+          "pluginId": "meta-ads",
+          "schemaFingerprint": "1c1f813e65db6730068c7776fce05320c2013a22baf7b2470cc8e5db01fd3486",
+          "admitted": false,
+          "effects": [
+            "write"
+          ]
+        },
+        {
+          "capabilityId": "instagram.post-status.v1",
+          "version": 1,
+          "pluginId": "meta-ads",
+          "schemaFingerprint": "1c1f813e65db6730068c7776fce05320c2013a22baf7b2470cc8e5db01fd3486",
+          "admitted": false,
+          "effects": [
+            "read"
+          ]
+        },
+        {
+          "capabilityId": "instagram.media-insights.v1",
+          "version": 1,
+          "pluginId": "meta-ads",
+          "schemaFingerprint": "1c1f813e65db6730068c7776fce05320c2013a22baf7b2470cc8e5db01fd3486",
           "admitted": false,
           "effects": [
             "read"

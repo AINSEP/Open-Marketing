@@ -61,6 +61,46 @@
       "effects": [
         "read"
       ]
+    },
+    {
+      "capabilityId": "instagram.accounts.v1",
+      "version": 1,
+      "pluginId": "meta-ads",
+      "schemaFingerprint": "1c1f813e65db6730068c7776fce05320c2013a22baf7b2470cc8e5db01fd3486",
+      "admitted": false,
+      "effects": [
+        "read"
+      ]
+    },
+    {
+      "capabilityId": "instagram.publish-post.v1",
+      "version": 1,
+      "pluginId": "meta-ads",
+      "schemaFingerprint": "1c1f813e65db6730068c7776fce05320c2013a22baf7b2470cc8e5db01fd3486",
+      "admitted": false,
+      "effects": [
+        "write"
+      ]
+    },
+    {
+      "capabilityId": "instagram.post-status.v1",
+      "version": 1,
+      "pluginId": "meta-ads",
+      "schemaFingerprint": "1c1f813e65db6730068c7776fce05320c2013a22baf7b2470cc8e5db01fd3486",
+      "admitted": false,
+      "effects": [
+        "read"
+      ]
+    },
+    {
+      "capabilityId": "instagram.media-insights.v1",
+      "version": 1,
+      "pluginId": "meta-ads",
+      "schemaFingerprint": "1c1f813e65db6730068c7776fce05320c2013a22baf7b2470cc8e5db01fd3486",
+      "admitted": false,
+      "effects": [
+        "read"
+      ]
     }
   ]
 }
