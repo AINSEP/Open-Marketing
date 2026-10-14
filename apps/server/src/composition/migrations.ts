@@ -19,6 +19,8 @@ export const migrationManifest = [
     { version: 14, feature: 'contacts', local: 1, path: 'features/contacts/migrations/0001_contacts.sql' },
     { version: 15, feature: 'web-events', local: 1, path: 'features/web-events/migrations/0001_web_events.sql' },
     { version: 16, feature: 'privacy', local: 1, path: 'features/privacy/migrations/0001_privacy.sql' },
+    { version: 17, feature: 'server', local: 1, path: 'apps/server/migrations/0001_assistant.sql' },
+    { version: 18, feature: 'server', local: 2, path: 'apps/server/migrations/0002_addons.sql' },
 ] as const;
 
 /** Load trusted scripts through injected filesystem access; validate the full batch before execution.

@@ -1,10 +1,10 @@
 import { mcpRequestSchema, parseBoundary, notImplemented, runEventSchema } from "@open-marketing/contracts";
-import type { Outcome, RunGrantMetadata, ClockPort, RunEvent } from "@open-marketing/contracts";
+import type { Outcome, RunGrantMetadata, ClockPort, RunEvent, AssistantContext } from "@open-marketing/contracts";
 import type { HttpRequest, HttpResponse } from "../ports.js";
 export interface RunGrantVerifierPort { verify(required: { authorization: string | undefined }): Promise<Outcome<RunGrantMetadata>> }
 /** Fixed local sandbox callbacks. Grant verification and exact route binding precede these effects. */
 export interface SandboxCallbacks {
- context(required: { grant: RunGrantMetadata }): Promise<Outcome<{ mode: 'local-sandbox' }>>;
+ context(required: { grant: RunGrantMetadata }): Promise<Outcome<AssistantContext | { mode: 'local-sandbox' }>>;
  record(required: { grant: RunGrantMetadata; event: RunEvent }): Promise<Outcome<{ recorded: true }>>;
 }
 /** Scope comes only from server-verified run grants. No body can widen authority or answer cards. */

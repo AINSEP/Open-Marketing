@@ -1,5 +1,8 @@
 #!/usr/bin/env node
-/** Executable fixture composition. Only the fixed sandbox runtime is admitted. */
+/** Executable OM composition. Server-issued run grants choose sandbox or the Jini model runtime. */
+import { providerTurnAdapters } from '@jini-ai/agent-runtime/providers/tool-turn';
+import { createModelRuntime } from '../runtime/model.js';
+import { createOmModelClient } from '../om-client/index.js';
 import { createServer } from 'node:http';
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
@@ -82,7 +85,23 @@ async function main(): Promise<void> {
     if (!config.ok) { process.stderr.write('Invalid sandbox agent environment\n'); process.exitCode = 1; return; }
     const clock: ClockPort = { now: () => Date.now() };
     const observer: ObserverPort = { observe(event) { process.stderr.write(JSON.stringify({ service: 'om-agent', ...event }) + '\n'); } };
-    const runtime = createSandboxRuntime({ clock, ids: { next: () => randomUUID() }, contextClient: createContextClient({ config: config.value, fetch, observer }) });
+    const sandbox = createSandboxRuntime({ clock, ids: { next: () => randomUUID() }, contextClient: createContextClient({ config: config.value, fetch, observer }) });
+    const model = createModelRuntime({ clock, ids: { next: () => randomUUID() },
+        client: createOmModelClient({ serverOrigin: config.value.OM_AGENT_SERVER_URL, fetch, observer,
+            deadline({ timeoutMs }) { const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), timeoutMs);
+                return { signal: controller.signal, dispose: () => clearTimeout(timer) }; } }), adapters: providerTurnAdapters });
+    const runtimes = new Map<string, typeof sandbox | typeof model>();
+    const runtime = {
+        async startRun(run: StartRunRequest) {
+            const selected = run.grant.capabilities.includes('model') ? model : sandbox;
+            const started = await selected.startRun(run);
+            if (started.ok) runtimes.set(run.runId, selected);
+            return started;
+        },
+        cancelRun(input: Parameters<typeof sandbox.cancelRun>[0]) { return (runtimes.get(input.runId) ?? sandbox).cancelRun(input); },
+        events(input: Parameters<typeof sandbox.events>[0]) { return (runtimes.get(input.runId) ?? sandbox).events(input); },
+        async dispose(_input: Record<string, never>) { await Promise.all([sandbox.dispose({}), model.dispose({})]); runtimes.clear(); },
+    };
     const listener = createAgentHttpListener({ createServer, token: config.value.OM_AGENT_CONTROL_TOKEN });
     const credential = { kind: 'service-control' as const, bearer: config.value.OM_AGENT_CONTROL_TOKEN };
     const app = createAgentApp({ listener, runtime: {

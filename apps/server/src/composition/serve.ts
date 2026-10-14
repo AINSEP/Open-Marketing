@@ -12,6 +12,7 @@ import type { KeyringConfiguration } from '@open-marketing/credentials';
 import { z } from 'zod';
 import { bootServer, type BootedServer, type ServerBootIo } from './index.js';
 import { localFailure, localStateRoot, readLocalFile, type LocalFilesystem } from './local-auth.js';
+/** Load a verified snapshot URL's default export; import errors propagate and plugin cost is unbounded. */ export async function loadAddonModule(required: { moduleUrl: string }): Promise<unknown> { return (await import(required.moduleUrl)).default as unknown; }
 
 /** Bind standard Node effects for boot and its real temporary-file integration test.
  * Paths are supplied by composition, independent of cwd; no resource is opened by this factory.

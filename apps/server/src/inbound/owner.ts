@@ -1,6 +1,6 @@
 /** Owner HTTP translation. Authentication/scope are supplied by the local server dispatcher. */
 import { z } from 'zod';
-import { approvalResponseSchema, idSchema, pageQuerySchema, parseBoundary } from '@open-marketing/contracts';
+import { assistantRunRequestSchema, assistantSettingsSchema, approvalResponseSchema, idSchema, pageQuerySchema, parseBoundary } from '@open-marketing/contracts';
 import type { CallContext, Money, Outcome, PageQuery } from '@open-marketing/contracts';
 import type { FormSubjectPort } from '@open-marketing/forms';
 import type { CampaignRecord, CampaignRepoPort } from '@open-marketing/campaigns';
@@ -9,7 +9,8 @@ import { routes } from '../cli/http.js';
 import { readCard } from '../cli/approval.js';
 import { localFailure } from '../composition/local-auth.js';
 import type { HttpRequest, HttpResponse } from '../ports.js';
-import type { OwnerRunPort } from '../composition/agent.js';
+import type { Conversations } from '../conversations.js';
+import type { OwnerRunPort } from '../ports.js';
 
 /** Existing owning repositories/exchange; tests inject the same public memory adapters. */
 export interface OwnerServices {
@@ -18,6 +19,7 @@ export interface OwnerServices {
     readonly confirmations: ConfirmationExchangePort;
     formSubjects?: FormSubjectPort;
     runs?: OwnerRunPort;
+    conversations?: Conversations;
 }
 type OwnerInput = { request: HttpRequest; context: CallContext; services: OwnerServices };
 type CampaignRow = z.infer<typeof routes.campaign.schema>;
@@ -166,6 +168,10 @@ export async function handleOwnerRequest(required: OwnerInput): Promise<HttpResp
         case 'GET /api/safety/allowance': return respond({ outcome: await required.services.safety.getGenerationAllowanceView({ context: required.context }), schema: routes.allowance.schema });
         case 'POST /api/safety/halt': return halt(required);
         case 'POST /api/runs': return startRun(required);
+        case 'GET /api/conversations': return conversationList(required);
+        case 'POST /api/conversations': return conversationCreate(required);
+        case 'GET /api/assistant/settings': return assistantSettings(required);
+        case 'POST /api/assistant/settings': return assistantSettingsWrite(required);
         default: return resourceRequest(required);
     }
 }
@@ -173,6 +179,7 @@ export async function handleOwnerRequest(required: OwnerInput): Promise<HttpResp
 /** Keep resource matching separate from the fixed route dispatcher to bound branch complexity. */
 async function resourceRequest(required: OwnerInput): Promise<HttpResponse> {
     if (required.request.path.startsWith('/api/runs/')) return runRequest(required);
+    if (required.request.path.startsWith('/api/conversations/')) return conversationRead(required);
     const match = /^\/api\/(campaigns|safety\/approvals)\/([^/]+)(\/answer)?$/.exec(required.request.path);
     if (!match) return { status: 503, body: localFailure({ message: 'Owner operation unavailable in local sandbox' }) };
     const id = resourceId({ segment: match[2] });
@@ -190,9 +197,9 @@ async function startRun(required: OwnerInput): Promise<HttpResponse> {
     if (!required.services.runs) return respond({ outcome: localFailure({ message: 'Sandbox agent unavailable' }), schema: routes.ask.schema });
     const body = await requestBody(required);
     if (!body.ok) return respond({ outcome: body, schema: routes.ask.schema });
-    const parsed = parseBoundary({ schema: z.strictObject({ prompt: z.string().min(1).max(65536).refine(value => value.trim().length > 0 && Buffer.byteLength(value, 'utf8') <= 65536) }), input: body.value });
+    const parsed = parseBoundary({ schema: assistantRunRequestSchema.refine(value => value.prompt.trim().length > 0 && Buffer.byteLength(value.prompt, 'utf8') <= 65536), input: body.value });
     if (!parsed.ok) return respond({ outcome: parsed, schema: routes.ask.schema });
-    return respond({ outcome: await required.services.runs.start({ context: required.context, prompt: parsed.value.prompt }), schema: routes.ask.schema });
+    return respond({ outcome: await required.services.runs.start({ context: required.context, prompt: parsed.value.prompt }, { conversationId: parsed.value.conversationId, frontendSessionId: parsed.value.frontendSessionId }), schema: routes.ask.schema });
 }
 
 /** Polling uses the shared CLI read model. The fixed sandbox requests no navigation, so
@@ -225,4 +232,40 @@ async function cancelRun(required: OwnerInput & { runs: OwnerRunPort; runId: str
     const empty = parseBoundary({ schema: z.strictObject({}), input: body.value });
     if (!empty.ok) return respond({ outcome: empty, schema: routes.cancelRun.schema });
     return respond({ outcome: await required.runs.cancel({ context: required.context, runId: required.runId }), schema: routes.cancelRun.schema });
+}
+
+/** Owner conversation/settings surfaces reuse I-0 schemas and Jini's bounded owner store. */
+async function conversationList(required: OwnerInput): Promise<HttpResponse> {
+ const query = pageQuery(required);
+ if (!query.ok) return respond({ outcome: query, schema: routes.conversations.schema });
+ const outcome = required.services.conversations ? await required.services.conversations.list({ context: required.context, query: query.value }) : localFailure({ message: 'Conversation storage unavailable' });
+ return respond({ outcome, schema: routes.conversations.schema });
+}
+async function conversationCreate(required: OwnerInput): Promise<HttpResponse> {
+ const body = await requestBody(required);
+ const parsed = body.ok ? parseBoundary({ schema: z.strictObject({}), input: body.value }) : body;
+ if (!parsed.ok) return respond({ outcome: parsed, schema: routes.createConversation.schema });
+ const outcome = required.services.conversations ? await required.services.conversations.create({ context: required.context }) : localFailure({ message: 'Conversation storage unavailable' });
+ return respond({ outcome, schema: routes.createConversation.schema });
+}
+async function conversationRead(required: OwnerInput): Promise<HttpResponse> {
+ if (required.request.method !== 'GET') return { status: 405, body: localFailure({ code: 'invalid_input', message: 'Method unavailable' }) };
+ const match = /^\/api\/conversations\/([^/]+)$/.exec(required.request.path);
+ if (!match) return { status: 404, body: localFailure({ code: 'forbidden', message: 'Conversation unavailable' }) };
+ const id = resourceId({ segment: match[1] }); const query = pageQuery(required);
+ if (!id.ok) return respond({ outcome: id, schema: routes.conversation.schema });
+ if (!query.ok) return respond({ outcome: query, schema: routes.conversation.schema });
+ const outcome = required.services.conversations ? await required.services.conversations.read({ context: required.context, conversationId: id.value, query: query.value }) : localFailure({ message: 'Conversation storage unavailable' });
+ return respond({ outcome, schema: routes.conversation.schema });
+}
+async function assistantSettings(required: OwnerInput): Promise<HttpResponse> {
+ const outcome = required.services.conversations ? await required.services.conversations.settings({ context: required.context }) : localFailure({ message: 'Assistant settings unavailable' });
+ return respond({ outcome, schema: routes.assistantSettings.schema });
+}
+async function assistantSettingsWrite(required: OwnerInput): Promise<HttpResponse> {
+ const body = await requestBody(required);
+ const parsed = body.ok ? parseBoundary({ schema: assistantSettingsSchema, input: body.value }) : body;
+ if (!parsed.ok) return respond({ outcome: parsed, schema: routes.setAssistantSettings.schema });
+ const outcome = required.services.conversations ? await required.services.conversations.setSettings({ context: required.context, settings: parsed.value }) : localFailure({ message: 'Assistant settings unavailable' });
+ return respond({ outcome, schema: routes.setAssistantSettings.schema });
 }

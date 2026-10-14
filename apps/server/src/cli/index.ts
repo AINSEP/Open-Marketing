@@ -22,7 +22,7 @@ export interface CliRuntime extends HttpRuntime, ApprovalRuntime {
 const options = {
   json: { type: "boolean" }, help: { type: "boolean" }, limit: { type: "string" },
   cursor: { type: "string" }, choice: { type: "string" }, account: { type: "string" },
-  "confirm-digest": { type: "string" }, "prompt-file": { type: "string" },
+  "confirm-digest": { type: "string" }, "prompt-file": { type: "string" }, conversation: { type: "string" },
 } as const;
 type Values = ReturnType<typeof parseCliArgs>["values"];
 type Command =
@@ -31,23 +31,23 @@ type Command =
   | { name: "campaign"; id: string }
   | { name: "answer"; cardId: string; choice: ApprovalResponse["choice"]; confirmDigest?: string }
   | { name: "halt"; accountId: string }
-  | { name: "ask"; prompt?: string; promptFile?: string };
+  | { name: "ask"; prompt?: string; promptFile?: string; conversationId?: string };
 
 const help = [
   "om status", "om campaigns list [--limit 1..100] [--cursor C]", "om campaigns show <id>",
   "om approvals list [--limit 1..100] [--cursor C]",
   "om approvals answer <card-id> --choice <allow|allow_chat|always_allow|cancel> [--confirm-digest <digest>]",
   "om ads halt --account <id>", "om settings generation show",
-  "om ask <prompt> | om ask --prompt-file <path|->", "All commands: --json, --help",
+  "om ask <prompt> [--conversation <id>] | om ask --prompt-file <path|-> [--conversation <id>]", "All commands: --json, --help",
   "Set OM_SERVER_URL and OM_OWNER_TOKEN (owner session, not agent service credentials).",
   "Approval answers display the current card and require explicit confirmation. Answers are recorded, not executed.",
-  "Ask polls a labeled local sandbox response. --json returns one run receipt. Ctrl-C cancels the run.",
+  "Ask polls the selected server assistant mode. --json returns one run receipt. Ctrl-C cancels the run.",
 ].join("\n") + "\n";
 
 // Dot-only IDs would be normalized as URL path traversal even after percent encoding.
 const pathId = idSchema.refine(value => value !== "." && value !== "..");
 const askInput = z.strictObject({
-  prompt: z.string().min(1).max(65536).optional(), promptFile: z.string().min(1).max(4096).optional(),
+  prompt: z.string().min(1).max(65536).optional(), promptFile: z.string().min(1).max(4096).optional(), conversationId: pathId.optional(),
 }).refine(value => (value.prompt === undefined) !== (value.promptFile === undefined));
 
 /** Narrow native parseArgs wrapper; throws are converted at the CLI input boundary. */
@@ -119,8 +119,8 @@ function buildCommand(required: { name: Command["name"]; operands: readonly stri
       return commandInput({ ...required, name, allowed: ["account"], count: 0,
         schema: z.strictObject({ accountId: idSchema }), input: { accountId: values.account } });
     case "ask":
-      return commandInput({ ...required, name, allowed: ["prompt-file"], count: values["prompt-file"] === undefined ? 1 : 0,
-        schema: askInput, input: { prompt: operands[0], promptFile: values["prompt-file"] } });
+      return commandInput({ ...required, name, allowed: ["prompt-file", "conversation"], count: values["prompt-file"] === undefined ? 1 : 0,
+        schema: askInput, input: { prompt: operands[0], promptFile: values["prompt-file"], conversationId: values.conversation } });
     default: { const exhaustive: never = name; return exhaustive; }
   }
 }
@@ -179,12 +179,12 @@ async function ask(required: { command: Extract<Command, { name: "ask" }>; sessi
   }
   if (!prompt.trim()) return failure({ code: "invalid_input", message: "Prompt must contain text" });
   if (new TextEncoder().encode(prompt).byteLength > 65536) return failure({ code: "limit_exceeded", message: "Prompt exceeds 64 KiB" });
-  return requestOm({ session: required.session, route: routes.ask, body: { prompt } });
+  return requestOm({ session: required.session, route: routes.ask, body: { prompt, conversationId: required.command.conversationId } });
 }
 
 /** Poll spacing is an injected timer/deadline; total observation and owner interruption abort it. */
 async function waitForPoll(required: { runtime: CliRuntime; signal: AbortSignal }): Promise<void> {
-  const delay = required.runtime.deadline.create({ timeoutMs: 100 });
+  const delay = required.runtime.deadline.create({ timeoutMs: 1000 });
   const signal = AbortSignal.any([delay.signal, required.signal]);
   try { if (!signal.aborted) await new Promise<void>(resolve => signal.addEventListener('abort', () => resolve(), { once: true })); }
   finally { delay.dispose({}); }
@@ -205,38 +205,39 @@ function checkedPage(required: { page: z.infer<typeof routes.runEvents.schema>; 
 /** Event JSON is untrusted at this terminal sink; only bounded text is displayed and controls escape. */
 function printRunEvent(required: { runtime: CliRuntime; event: RunEvent }): void {
   if (required.event.kind === 'delta') {
-    const payload = z.strictObject({ text: z.string().max(4096) }).safeParse(required.event.payload);
-    if (payload.success) required.runtime.stdout.write({ text: terminalText({ text: payload.data.text }) + '\n' });
+    const payload = z.strictObject({ text: z.string().max(65536) }).safeParse(required.event.payload);
+    if (payload.success) required.runtime.stdout.write({ text: terminalText({ text: payload.data.text }) });
     return;
   }
-  required.runtime.stdout.write({ text: '[Sandbox] ' + required.event.kind + '\n' });
+  const newline = required.event.kind === 'ended' ? '\n' : '';
+  required.runtime.stdout.write({ text: newline + '[Run] ' + required.event.kind + '\n' });
 }
 
 /** Validate/print one complete owner page, preserving explicit cancelled/interrupted outcomes. */
 async function observeRunPage(required: { runtime: CliRuntime; session: HttpSession; runId: string; after: number; signal: AbortSignal }): Promise<Outcome<{ after: number; completed: boolean }>> {
   const result = await requestOm({ session: required.session, route: routes.runEvents, id: required.runId, query: { after: required.after }, signal: required.signal });
-  if (required.signal.aborted) return failure({ code: 'cancelled', message: 'Sandbox observation interrupted' });
+  if (required.signal.aborted) return failure({ code: 'cancelled', message: 'Run observation interrupted' });
   if (!result.ok) return result;
   const checked = checkedPage({ ...required, page: result.value });
   if (!checked.ok) return checked;
   for (const event of result.value.events) printRunEvent({ runtime: required.runtime, event });
-  if (result.value.status === 'cancelled') return failure({ code: 'cancelled', message: 'Sandbox run cancelled' });
-  if (result.value.status === 'interrupted') return failure({ code: 'unavailable', message: 'Sandbox run interrupted' });
+  if (result.value.status === 'cancelled') return failure({ code: 'cancelled', message: 'Run cancelled' });
+  if (result.value.status === 'interrupted') return failure({ code: 'unavailable', message: 'Run interrupted' });
   return { ok: true, value: { after: checked.value, completed: result.value.status === 'completed' } };
 }
 
 async function cancelObservedRun(required: { session: HttpSession; runId: string }): Promise<Outcome<void>> {
   const cancel = await requestOm({ session: required.session, route: routes.cancelRun, id: required.runId, body: {} });
   if (!cancel.ok || cancel.value.runId !== required.runId) return failure({ code: 'unavailable', message: 'Observation stopped; run cancellation unconfirmed' });
-  return failure({ code: 'cancelled', message: 'Sandbox observation stopped; run authority revoked' });
+  return failure({ code: 'cancelled', message: 'Run observation stopped; run authority revoked' });
 }
 
 /** Observe at most 300 pages/30s; writes are never retried. Interruption/timeout revokes the
  * server grant via the owner cancel route. JSON mode skips this path entirely.
- * @complexity <=300 bounded GETs, <=128 events/page; no retained transcript in the CLI.
+ * @complexity <=300 bounded GETs/5 min, <=128 events/page; no retained transcript in the CLI.
  */
 async function followRun(required: { runtime: CliRuntime; session: HttpSession; runId: string }): Promise<Outcome<void>> {
-  const deadline = required.runtime.deadline.create({ timeoutMs: 30000 });
+  const deadline = required.runtime.deadline.create({ timeoutMs: 300000 });
   const signal = required.runtime.signal ? AbortSignal.any([deadline.signal, required.runtime.signal]) : deadline.signal;
   let after = 0;
   try {
@@ -308,7 +309,7 @@ function printResult(required: { runtime: CliRuntime; result: Outcome<unknown>; 
 async function runTextAsk(required: { command: Extract<Command, { name: 'ask' }>; runtime: CliRuntime; session: HttpSession }): Promise<Outcome<void>> {
   const started = await ask(required);
   if (!started.ok) { printResult({ ...required, result: started, json: false }); return started; }
-  required.runtime.stdout.write({ text: '[Sandbox run ' + terminalText({ text: started.value.runId }) + ']\n' });
+  required.runtime.stdout.write({ text: '[' + (started.value.mode === 'model' ? 'Model' : 'Sandbox') + ' run ' + terminalText({ text: started.value.runId }) + ']\n' });
   const observed = await followRun({ ...required, runId: started.value.runId });
   if (!observed.ok) printResult({ ...required, result: observed, json: false });
   return observed;

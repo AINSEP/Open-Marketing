@@ -1,4 +1,10 @@
 /** Sole server resource composition. Imports and factories are inert; boot is explicitly effectful. */
+import { createSqliteChatStore } from '@jini-ai/chat/store/sqlite';
+import { createChatRunLedger, createDurableRunStore } from '@jini-ai/chat/store/runtime';
+import type { StorageKernel } from '@jini-ai/db/kernel';
+import { createAssistantRuns, type AssistantDatabase, type AssistantRuns } from '../runs.js';
+import { createConversations } from '../conversations.js';
+import { handleModelRequest, type ModelCredentials, type ModelUpstream } from '../inbound/model.js';
 import { createSqlMeasureRepo, createSqlTrackedLink, type MeasureSqlDatabase } from '@open-marketing/measure';
 import { handlePublicRequest } from '../inbound/public.js';
 import { createAesGcmSecretSealer, createCredentialBroker, createCredentialKeyring, createCredentialService,
@@ -48,6 +54,7 @@ export interface ServerBootIo extends HttpEffects {
     readonly randomToken: (required: Record<string, never>) => string;
     readonly ready: (required: { studioUrl: string }) => void;
     readonly agentEffects?: AgentEffects;
+    readonly modelUpstream?: ModelUpstream;
     readonly loadCredentialMaster?: (required: { configuration: KeyringConfiguration; masterHex?: string }) => Promise<Outcome<Uint8Array>>;
 }
 /** Explicit owned lifecycle returned after successful boot. stop is idempotent and closes SQLite last. */
@@ -85,13 +92,14 @@ function stopResources(required: { resources: BootResources }): Promise<Outcome<
     return required.resources.stopped ??= closeResources(required);
 }
 
+type BootRequestInput = {
+    request: HttpRequest; auth: ReturnType<typeof createLocalAuth>; listener: NodeHttpListener;
+    fs: LocalFilesystem; studioRoot: string; context: CallContext; services: OwnerServices; integrations: Integrations; ids: IdPort; agent: ReturnType<typeof createLocalAgent>; clock: ClockPort; observer: ObserverPort; model: { credentials: ModelCredentials; upstream: ModelUpstream }; publicServices: Omit<Parameters<typeof handlePublicRequest>[0], 'request' | 'context'>;
+};
 /** Authenticate before bodies and derive owner scope locally. Studio configuration is supplied
  * in same-origin HTML; the owner cookie stays HttpOnly. Public ingress never uses owner auth.
  */
-async function handleBootRequest(required: {
-    request: HttpRequest; auth: ReturnType<typeof createLocalAuth>; listener: NodeHttpListener;
-    fs: LocalFilesystem; studioRoot: string; context: CallContext; services: OwnerServices; integrations: Integrations; ids: IdPort; agent: ReturnType<typeof createLocalAgent>; clock: ClockPort; publicServices: Omit<Parameters<typeof handlePublicRequest>[0], 'request' | 'context'>;
-}): Promise<HttpResponse> {
+async function handleBootRequest(required: BootRequestInput): Promise<HttpResponse> {
     const origin = required.listener.origin({});
     if (!origin) return { status: 503, body: localFailure({ message: 'Server is stopping' }) };
     if (required.request.path === '/health' && required.request.method === 'GET') {
@@ -103,7 +111,14 @@ async function handleBootRequest(required: {
             context: { ...trace, principal: { kind: 'service', serviceId: 'public-ingress' } } });
     }
     if (required.request.path === '/bootstrap') return required.auth.bootstrap({ request: required.request, origin });
+    if (required.request.path.startsWith('/api/agent/v1/model/')) return handleModelRequest({ request: required.request, grants: required.agent.grants, clock: required.clock, observer: required.observer, ...required.model });
     if (required.request.path.startsWith('/api/agent/')) return handleOmRequest({ request: required.request, grants: required.agent.grants, callbacks: required.agent.callbacks, clock: required.clock });
+    return handleAuthenticatedBootRequest({ ...required, origin });
+}
+
+/** Owner APIs and assets require the same origin-bound authentication before dispatch. */
+async function handleAuthenticatedBootRequest(required: BootRequestInput & { origin: string }): Promise<HttpResponse> {
+    const { origin } = required;
     const authenticated = required.auth.verify({ request: required.request, origin });
     if (!authenticated.ok) return { status: authenticated.error.code === 'forbidden' ? 403 : 401, body: authenticated };
     if (required.request.path.startsWith('/api/')) {
@@ -145,7 +160,7 @@ function ownerContext(required: { request: HttpRequest; context: CallContext; id
  * Every failed step closes acquired resources. The forms worker and fixed sandbox child start here.
  * @example await bootServer({ env, io, clock, ids, observer });
  * @returns A loopback bootstrap URL and stop handle, or a stable typed startup failure.
- * @complexity Fixed 16-entry bounded migration batch; no unbounded work or scheduling queue.
+ * @complexity Bounded migration batch; no unbounded work or scheduling queue.
  */
 export async function bootServer(required: {
     env: Readonly<Record<string, string | undefined>>; io: ServerBootIo; clock: ClockPort; ids: IdPort; observer: ObserverPort;
@@ -206,13 +221,24 @@ export async function bootServer(required: {
         const publicServices = { forms, identity, visits, clock: required.clock, campaigns: services.campaigns,
             links: createSqlTrackedLink({ database: measureDb, ids: required.ids, baseUrl: 'https://sandbox.example.test/l/', allowedOrigins: ['https://sandbox.example.test'] }, { observer: required.observer }) };
         services.formSubjects = forms.subjects;
+        // Migration 17 supplies these table types on the existing kernel; this assertion opens no second kernel.
+        const chatKernel = database.kernel as unknown as StorageKernel<AssistantDatabase>;
+        const conversations = createConversations({ db: campaignDb, ids: required.ids, observer: required.observer, integrations,
+            stores: ({ scope }) => createSqliteChatStore({ kernel: chatKernel, scope }, { clock: { nowMs: () => required.clock.now({}) } }) });
+        const persistence = createAssistantRuns({ kernel: chatKernel, conversations, clock: required.clock, ids: required.ids, observer: required.observer,
+            durable: createDurableRunStore({ kernel: chatKernel, isDaemonRunId: () => true }),
+            ledger: createChatRunLedger({ kernel: chatKernel, isDaemonRunId: () => true }) });
+        const interrupted = await persistence.initialize({ context });
+        if (!interrupted.ok) throw new Error('Assistant recovery unavailable');
+        services.conversations = conversations;
+        const model = { credentials: bindModelCredentials({ integrations, persistence }), upstream: required.io.modelUpstream ?? createModelUpstream({ fetch }) };
         resources.agent = createLocalAgent({ effects: required.io.agentEffects ?? createNodeAgentEffects({ projectRoot: required.io.projectRoot, ids: required.ids }),
-            clock: required.clock, ids: required.ids, observer: required.observer, randomToken: required.io.randomToken });
+            clock: required.clock, ids: required.ids, observer: required.observer, randomToken: required.io.randomToken, persistence });
         services.runs = resources.agent.owner;
         const agent = resources.agent;
         const bootContext = context;
         resources.app = createServerApp({ listener, handle: request => handleBootRequest({ request, auth, listener, fs: required.io.fs,
-            studioRoot: assets.value, context: bootContext, services, integrations, ids: required.ids, publicServices, agent, clock: required.clock }) });
+            studioRoot: assets.value, context: bootContext, services, integrations, ids: required.ids, publicServices, agent, model, clock: required.clock, observer: required.observer }) });
         const started = await resources.app.start({});
         if (!started.ok) { await stopResources({ resources }); return started; }
         const origin = listener.origin({});
@@ -229,10 +255,15 @@ export async function bootServer(required: {
         observeBoot({ ...required, context, operation: 'server.boot', outcome: 'ready' });
         return { ok: true, value: { studioUrl, stop: () => stopResources({ resources }) } };
     } catch {
-        await stopResources({ resources });
-        if (context) observeBoot({ ...required, context, operation: 'server.boot', outcome: 'failed' });
-        return localFailure({ message: `Local server startup failed during ${phase}` });
+        return failedBoot({ resources, context, observer: required.observer, phase });
     }
+}
+
+/** Failed startup releases acquired resources before reporting its phase; diagnostics are optional. */
+async function failedBoot(required: { resources: BootResources; context?: CallContext; observer: ObserverPort; phase: string }): Promise<Outcome<never>> {
+    await stopResources(required);
+    if (required.context) observeBoot({ observer: required.observer, context: required.context, operation: 'server.boot', outcome: 'failed' });
+    return localFailure({ message: `Local server startup failed during ${required.phase}` });
 }
 
 /** Sole composition binding for credential storage, crypto, locks and operations on the owned SQLite handle.
@@ -264,4 +295,29 @@ export function bindServerIntegrations(required: {
             async complete() { return localFailure({ code: 'not_implemented', message: 'OAuth sign-in deferred' }); },
         } });
     return createIntegrations({ repo, sealer, locks, audit, broker, service, db: required.db, observer: required.observer });
+}
+
+/** Bind the selected run's settings to the server-only sealed connection resolver.
+ * @example bindModelCredentials({ integrations, persistence });
+ * @complexity One scoped context read plus one fresh credential access; no credential cache.
+ */
+export function bindModelCredentials(required: { integrations: Integrations; persistence: AssistantRuns }): ModelCredentials {
+ return { async resolveProviderKey({ grant, signal }) {
+  const current = await required.persistence.context({ grant });
+  if (!current.ok) return current;
+  if (!('settings' in current.value) || current.value.settings.mode !== 'model') return localFailure({ code: 'forbidden', message: 'Model configuration unavailable' });
+  const settings = current.value.settings;
+  const context: CallContext = { scope: grant.scope, principal: { kind: 'service', serviceId: 'om-model-broker' }, runId: grant.runId, correlationId: grant.grantId, traceId: grant.grantId };
+  const secret = settings.connectionId === null
+   ? await required.integrations.resolveProviderKey({ context, provider: 'anthropic' }, { signal })
+   : await required.integrations.access({ context, pluginId: 'anthropic', connectionId: settings.connectionId }, { signal });
+  if (!secret.ok) return secret;
+  return { ok: true, value: { apiKey: typeof secret.value === 'string' ? secret.value : secret.value.accessToken, model: settings.model } };
+ } };
+}
+/** Host-only provider I/O. Broker fixes the URL and rechecks run authority before every request. */
+function createModelUpstream(required: { fetch: typeof fetch }): ModelUpstream {
+ return { send: input => required.fetch(input.url, { method: 'POST', headers: input.headers, body: input.body, signal: input.signal, redirect: input.redirect }),
+  deadline({ timeoutMs }) { const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), timeoutMs);
+   return { signal: controller.signal, dispose: () => clearTimeout(timer) }; } };
 }

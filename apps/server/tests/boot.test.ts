@@ -66,7 +66,7 @@ it('boots on SQLite, serves built studio, publishes desktop readiness and shares
         const native = fixture.handles[0];
         expect(native.pragma('foreign_keys', { simple: true })).toBe(1);
         expect(native.pragma('busy_timeout', { simple: true })).toBe(5000);
-        expect(native.prepare('SELECT version FROM om_schema_migrations ORDER BY version').all()).toEqual(Array.from({ length: 16 }, (_, index) => ({ version: index + 1 })));
+        expect(native.prepare('SELECT version FROM om_schema_migrations ORDER BY version').all()).toEqual(Array.from({ length: 18 }, (_, index) => ({ version: index + 1 })));
         for (const table of ['contact_subject', 'web_event', 'privacy_request']) {
             expect(native.prepare('SELECT name FROM sqlite_master WHERE name=?').get(table)).toEqual({ name: table });
         }
@@ -122,7 +122,7 @@ it('restarts without migration drift or owner/workspace changes; isolated roots 
         if (!restarted.ok) throw new Error(restarted.error.message);
         expect(await readLocalOwner({ fs, stateRoot: fixture.stateRoot })).toEqual(credentials);
         expect(fixture.handles[1].prepare('SELECT * FROM workspace').all()).toEqual([{ owner_id: credentials.value.ownerId, workspace_id: credentials.value.workspaceId }]);
-        expect(fixture.handles[1].prepare('SELECT COUNT(*) AS count FROM om_schema_migrations').get()).toEqual({ count: 16 });
+        expect(fixture.handles[1].prepare('SELECT COUNT(*) AS count FROM om_schema_migrations').get()).toEqual({ count: 18 });
         const otherRoot = join(fixture.directory, 'other-state');
         const other = await fixture.start({ env: { OM_STATE_ROOT: otherRoot } });
         if (!other.ok) throw new Error(other.error.message);

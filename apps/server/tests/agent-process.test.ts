@@ -231,7 +231,7 @@ it('boot wires a real child, HTTP owner routes and om ask prompt-file polling; J
             stdout: { write: ({ text }) => { output.push(text); } }, stderr: { write: ({ text }) => { errors.push(text); } },
             async *readPrompt({ path }) { yield await fs.readFile(path); } };
         value({ result: await runOmCli({ argv: ['ask', '--prompt-file', promptPath], runtime }) });
-        expect(output.join('')).toContain('Sandbox response:'); expect(output.join('')).toContain('[Sandbox] ended');
+        expect(output.join('')).toMatch(/^\[Sandbox run [^\]\n]+\]\n\[Run\] started\nSandbox response: [^\n]+executed\.\n\[Run\] ended\n$/);
         expect(output.join('')).not.toContain('fixture-sensitive-prompt'); expect(errors).toEqual([]);
         output.length = 0;
         value({ result: await runOmCli({ argv: ['ask', '--prompt-file', promptPath, '--json'], runtime }) });

@@ -1,7 +1,7 @@
 /** Owner HTTP mapping shared by the server and CLI. */
 import { z } from "zod";
 import {
-  appErrorSchema, chatMessageSchema, confirmationCardSchema, epochSchema, idSchema, moneySchema, navigationTargetSchema, parseBoundary, runEventSchema,
+  assistantSettingsStatusSchema, conversationListSchema, conversationSchema, appErrorSchema, chatMessageSchema, confirmationCardSchema, epochSchema, idSchema, moneySchema, navigationTargetSchema, parseBoundary, runEventSchema,
 } from "@open-marketing/contracts";
 import type { AppError, Outcome } from "@open-marketing/contracts";
 
@@ -35,7 +35,12 @@ export const routes = {
     z.strictObject({ accountId: idSchema, status: z.literal("failed"), error: appErrorSchema }),
   ]) },
   allowance: { method: "GET", path: "/api/safety/allowance", schema: allowance },
-  ask: { method: "POST", path: "/api/runs", schema: z.strictObject({ runId: idSchema, status: z.enum(["requested", "pending"]), expiresAt: epochSchema.optional() }) },
+  ask: { method: "POST", path: "/api/runs", schema: z.strictObject({ runId: idSchema, status: z.enum(["requested", "pending"]), expiresAt: epochSchema.optional(), conversationId: idSchema.optional(), mode: z.enum(['sandbox', 'model']).optional() }) },
+  conversations: { method: "GET", path: "/api/conversations", schema: conversationListSchema },
+  conversation: { method: "GET", path: "/api/conversations/:id", schema: conversationSchema },
+  createConversation: { method: "POST", path: "/api/conversations", schema: conversationSchema.shape.conversation },
+  assistantSettings: { method: "GET", path: "/api/assistant/settings", schema: assistantSettingsStatusSchema },
+  setAssistantSettings: { method: "POST", path: "/api/assistant/settings", schema: assistantSettingsStatusSchema },
   runEvents: { method: "GET", path: "/api/runs/:id/events", schema: z.strictObject({ runId: idSchema, status: z.enum(['running', 'completed', 'cancelled', 'interrupted']), events: z.array(runEventSchema).max(128) }) },
   cancelRun: { method: "POST", path: "/api/runs/:id/cancel", schema: z.strictObject({ runId: idSchema, status: z.enum(['requested', 'cancelled']) }) },
 } as const;

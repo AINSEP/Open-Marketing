@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { chatMessageSchema, confirmationCardSchema, navigationActionSchema, navigationTargetSchema, moneySchema, runEventSchema, parseBoundary } from "@open-marketing/contracts";
+import { toolRequestedPayloadSchema, toolResultPayloadSchema, approvalPayloadSchema, chatMessageSchema, confirmationCardSchema, navigationActionSchema, navigationTargetSchema, moneySchema, runEventSchema, parseBoundary } from "@open-marketing/contracts";
 import type { Outcome, RunEvent } from "@open-marketing/contracts";
 import type { StudioPayload, StudioSnapshot } from "./types.js";
 
@@ -60,9 +60,10 @@ const snapshotSchema = z.strictObject({
 });
 const payloadSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("message"), message: chatMessageSchema }),
-  z.strictObject({ type: z.literal("confirmation"), card: confirmationCardSchema }),
   z.strictObject({ type: z.literal("navigation"), action: navigationActionSchema }),
   z.strictObject({ type: z.literal("status"), text: z.string().max(1024) }),
+  z.strictObject({ type: z.literal("text_delta"), text: z.string().max(65536) }),
+  toolRequestedPayloadSchema, toolResultPayloadSchema, approvalPayloadSchema,
 ]);
 const secretKey = /^(authorization|password|secret|client[_-]?secret|access[_-]?token|refresh[_-]?token|api[_-]?key|bearer|credentials?)$/i;
 const secretText = /\bBearer\s+\S+|\bsk-[a-zA-Z0-9_-]{12,}|-----BEGIN .*PRIVATE KEY-----/;
@@ -95,7 +96,21 @@ export function parseStudioEvent(required: { input: unknown }): Outcome<{ event:
   if (!isSafeUiValue({ value: required.input, maxCharacters: 65536 })) return unsafe();
   const event = parseBoundary({ schema: runEventSchema, input: required.input });
   if (!event.ok) return event;
-  const payload = parseBoundary({ schema: payloadSchema, input: event.value.payload });
+  const raw = normalizePayload({ event: event.value });
+  const payload = parseBoundary({ schema: payloadSchema, input: raw });
   if (!payload.ok) return payload;
   return { ok: true, value: { event: event.value, payload: payload.value } };
+}
+
+/** Adapt the real agent's text/terminal envelopes; sample display payloads remain compatible. */
+function normalizePayload(required: { event: RunEvent }): unknown {
+ const { event } = required;
+ if (typeof event.payload === 'object' && event.payload !== null && !Array.isArray(event.payload) && typeof event.payload.type === 'string') return event.payload;
+ if (event.kind === 'delta') {
+  const text = z.strictObject({ text: z.string().max(65536) }).safeParse(event.payload);
+  return text.success ? { type: 'text_delta', text: text.data.text } : event.payload;
+ }
+ if (['started', 'ended', 'cancelled'].includes(event.kind) && z.strictObject({}).safeParse(event.payload).success) return { type: 'status', text: '' };
+ if (event.kind === 'error' && z.strictObject({ code: z.string().max(100) }).safeParse(event.payload).success) return { type: 'status', text: '' };
+ return event.payload;
 }

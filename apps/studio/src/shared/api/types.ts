@@ -1,4 +1,4 @@
-import type { CancellationReceipt, ChatMessage, ConfirmationCard, NavigationResult, Outcome, ApprovalResponse, RunEvent, NavigationAction, Money, ClockPort, IdPort } from "@open-marketing/contracts";
+import type { AssistantSettings, AssistantSettingsStatus, Conversation, ConversationList, ConversationSummary, ToolRequestedPayload, ToolResultPayload, ApprovalPayload, CancellationReceipt, ChatMessage, ConfirmationCard, NavigationResult, Outcome, ApprovalResponse, RunEvent, NavigationAction, Money, ClockPort, IdPort } from "@open-marketing/contracts";
 
 /** Small read model for j19–j21 to replace with domain canvases. */
 export interface StudioRow { readonly id: string; readonly title: string; readonly detail: string; readonly status: string }
@@ -80,16 +80,23 @@ export interface StudioSnapshot {
   readonly pages?: StudioPages;
 }
 /** A run receipt carries lifecycle metadata, never a vendor or bearer credential. */
-export interface StudioRun { readonly runId: string; readonly status: "requested" | "pending"; readonly expiresAt: number }
+export interface StudioRun { readonly runId: string; readonly status: "requested" | "pending"; readonly expiresAt: number; readonly conversationId?: string; readonly mode?: "sandbox" | "model" }
 export type StudioPayload =
   | { readonly type: "message"; readonly message: ChatMessage }
   | { readonly type: "confirmation"; readonly card: ConfirmationCard }
   | { readonly type: "navigation"; readonly action: NavigationAction }
-  | { readonly type: "status"; readonly text: string };
+  | { readonly type: "status"; readonly text: string }
+  | { readonly type: "text_delta"; readonly text: string }
+  | ToolRequestedPayload | ToolResultPayload | ApprovalPayload;
 /** Fixture and future HTTP adapters implement this boundary. Writes are never implicitly retried. */
 export interface StudioApiPort {
+  conversations?(required: { signal?: AbortSignal; cursor?: string }): Promise<Outcome<ConversationList>>;
+  conversation?(required: { conversationId: string; signal?: AbortSignal; cursor?: string }): Promise<Outcome<Conversation>>;
+  createConversation?(required: { signal?: AbortSignal }): Promise<Outcome<ConversationSummary>>;
+  settings?(required: { signal?: AbortSignal }): Promise<Outcome<AssistantSettingsStatus>>;
+  setSettings?(required: { settings: AssistantSettings; signal?: AbortSignal }): Promise<Outcome<AssistantSettingsStatus>>;
   snapshot(required: { signal?: AbortSignal }): Promise<Outcome<StudioSnapshot>>;
-  start(required: { message: ChatMessage; signal: AbortSignal }): Promise<Outcome<StudioRun>>;
+  start(required: { message: ChatMessage; signal: AbortSignal; conversationId?: string }): Promise<Outcome<StudioRun>>;
   events(required: { runId: string; after: number; signal: AbortSignal }): AsyncIterable<Outcome<RunEvent>>;
   cancel(required: { runId: string; reason: "owner" | "expired" }): Promise<Outcome<CancellationReceipt>>;
   approve(required: { response: ApprovalResponse; signal?: AbortSignal }): Promise<Outcome<{ status: "recorded" }>>;

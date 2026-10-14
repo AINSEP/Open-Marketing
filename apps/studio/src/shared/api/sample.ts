@@ -28,6 +28,11 @@ export function createSampleStudioApi(required: { runtime: StudioRuntime }): Stu
   const runs = new Map<string, SampleRun>();
   const acknowledgements: NavigationResult[] = [];
   return {
+    async conversations() { return unavailable(); },
+    async conversation() { return unavailable(); },
+    async createConversation() { return unavailable(); },
+    async settings() { return unavailable(); },
+    async setSettings() { return unavailable(); },
     async snapshot() { return parseStudioSnapshot({ input: snapshot }); },
     async start(input) {
       const message = parseBoundary({ schema: chatMessageSchema, input: input.message });

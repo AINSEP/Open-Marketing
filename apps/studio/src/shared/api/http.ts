@@ -1,6 +1,6 @@
 /** Cookie-authenticated owner transport. Server state is validated before reaching presentation. */
 import { z } from 'zod';
-import { appErrorSchema, approvalResponseSchema, parseBoundary } from '@open-marketing/contracts';
+import { assistantRunRequestSchema, assistantSettingsSchema, assistantSettingsStatusSchema, conversationListSchema, conversationSchema, conversationSummarySchema, appErrorSchema, approvalResponseSchema, epochSchema, idSchema, runEventSchema, parseBoundary } from '@open-marketing/contracts';
 import type { AppError, ObserverPort, Outcome } from '@open-marketing/contracts';
 import type { StudioApiPort, StudioRuntime } from './types.js';
 import { parseStudioSnapshot } from './validation.js';
@@ -81,9 +81,9 @@ async function receive<T>(required: { response: Response; parse: (required: { in
  */
 function transportResult<T>(required: { result: Outcome<T>; method: 'GET' | 'POST'; aborted: boolean; ownerAborted: boolean }): Outcome<T> {
     if (required.aborted) return failure({ code: required.ownerAborted ? 'cancelled' : 'unavailable',
-        message: required.method === 'POST' ? 'Approval response unavailable; outcome unknown. Refresh before another submission.' : 'Server response interrupted' });
+        message: required.method === 'POST' ? 'Write response unavailable; outcome unknown. Refresh before another submission.' : 'Server response interrupted' });
     if (!required.result.ok && required.method === 'POST' && ['protocol_mismatch', 'unavailable', 'limit_exceeded'].includes(required.result.error.code)) {
-        return failure({ code: required.result.error.code, message: 'Approval response unavailable; outcome unknown. Refresh before another submission.' });
+        return failure({ code: required.result.error.code, message: 'Write response unavailable; outcome unknown. Refresh before another submission.' });
     }
     return required.result;
 }
@@ -120,7 +120,7 @@ async function request<T>(required: {
     } catch {
         const code = required.signal?.aborted ? 'cancelled' : 'unavailable';
         outcome = code;
-        return failure({ code, message: required.method === 'POST' ? 'Approval response unavailable; outcome unknown. Refresh before another submission.' : 'Server response unavailable' });
+        return failure({ code, message: required.method === 'POST' ? 'Write response unavailable; outcome unknown. Refresh before another submission.' : 'Server response unavailable' });
     } finally {
         runtime.timers.cancel({ handle: timer });
         required.signal?.removeEventListener('abort', abort);
@@ -130,8 +130,8 @@ async function request<T>(required: {
     }
 }
 
-/** Inert HTTP implementation of the existing StudioApiPort. No sample fallback after connection
- * failures. Agent methods explicitly remain unavailable until I4 supplies the run transport.
+/** Inert owner transport; poll cursors for incremental text, activity and terminal evidence.
+ * No sample fallback and no automatic write retries.
  * @example createHttpStudioApi({ baseUrl: location.origin, fetch, runtime, observer });
  * @complexity O(1) construction; each snapshot/answer has one bounded request, no retries.
  */
@@ -145,9 +145,84 @@ export function createHttpStudioApi(required: Dependencies): StudioApiPort {
             return request({ dependencies: required, origin, path: '/api/safety/approvals/' + encodeURIComponent(response.value.cardId) + '/answer',
                 method: 'POST', body: response.value, signal: input.signal, parse: value => parseBoundary({ schema: recordedSchema, input: value.input }) });
         },
-        async start() { return unavailable(); },
-        async *events() { yield unavailable(); },
-        async cancel() { return unavailable(); },
+        async start(input) {
+            const parsed = parseBoundary({ schema: assistantRunRequestSchema, input: { prompt: input.message.text, conversationId: input.conversationId } });
+            if (!parsed.ok) return parsed;
+            return request({ dependencies: required, origin, path: '/api/runs', method: 'POST', body: parsed.value, signal: input.signal,
+                parse: value => parseBoundary({ schema: runReceiptSchema, input: value.input }) });
+        },
+        events: input => pollEvents({ dependencies: required, origin, ...input }),
+        cancel: input => request({ dependencies: required, origin, path: '/api/runs/' + encodeURIComponent(input.runId) + '/cancel', method: 'POST', body: {},
+            parse: value => parseBoundary({ schema: cancellationSchema, input: value.input }) }),
+        conversations: input => request({ dependencies: required, origin, path: '/api/conversations?limit=25' + (input.cursor ? '&cursor=' + encodeURIComponent(input.cursor) : ''), method: 'GET', signal: input.signal,
+            parse: value => parseBoundary({ schema: conversationListSchema, input: value.input }) }),
+        conversation: input => request({ dependencies: required, origin, path: '/api/conversations/' + encodeURIComponent(input.conversationId) + '?limit=100' + (input.cursor ? '&cursor=' + encodeURIComponent(input.cursor) : ''), method: 'GET', signal: input.signal,
+            parse: value => parseBoundary({ schema: conversationSchema, input: value.input }) }),
+        createConversation: input => request({ dependencies: required, origin, path: '/api/conversations', method: 'POST', body: {}, signal: input.signal,
+            parse: value => parseBoundary({ schema: conversationSummarySchema, input: value.input }) }),
+        settings: input => request({ dependencies: required, origin, path: '/api/assistant/settings', method: 'GET', signal: input.signal,
+            parse: value => parseBoundary({ schema: assistantSettingsStatusSchema, input: value.input }) }),
+        async setSettings(input) {
+            const parsed = parseBoundary({ schema: assistantSettingsSchema, input: input.settings });
+            if (!parsed.ok) return parsed;
+            return request({ dependencies: required, origin, path: '/api/assistant/settings', method: 'POST', body: parsed.value, signal: input.signal,
+                parse: value => parseBoundary({ schema: assistantSettingsStatusSchema, input: value.input }) });
+        },
         async acknowledgeNavigation() { return unavailable(); },
     };
+}
+
+const runReceiptSchema = z.strictObject({ runId: idSchema, status: z.enum(['requested', 'pending']), expiresAt: epochSchema,
+ conversationId: idSchema.optional(), mode: z.enum(['sandbox', 'model']).optional() });
+const cancellationSchema = z.strictObject({ runId: idSchema, status: z.enum(['requested', 'cancelled']) });
+const runPageSchema = z.strictObject({ runId: idSchema, status: z.enum(['running', 'completed', 'cancelled', 'interrupted']), events: z.array(runEventSchema).max(128) });
+
+/** Validate a full page before yielding anything; malformed/foreign/gapped pages leak no partial UI. */
+function checkedRunPage(required: { input: unknown; runId: string; after: number }): Outcome<z.infer<typeof runPageSchema>> {
+ const parsed = parseBoundary({ schema: runPageSchema, input: required.input });
+ if (!parsed.ok) return parsed;
+ let sequence = required.after;
+ if (parsed.value.runId !== required.runId) return failure({ code: 'protocol_mismatch', message: 'Different run returned' });
+ for (const event of parsed.value.events) {
+  if (event.runId !== required.runId || event.sequence !== ++sequence) return failure({ code: 'protocol_mismatch', message: 'Run event cursor mismatch' });
+ }
+ const last = parsed.value.events.at(-1)?.kind;
+ const expected = { completed: 'ended', cancelled: 'cancelled', interrupted: 'error', running: null }[parsed.value.status];
+ if (expected && last !== expected) return failure({ code: 'protocol_mismatch', message: 'Run page lacks terminal evidence' });
+ return parsed;
+}
+type PollInput = { dependencies: Dependencies; origin: Outcome<string>; runId: string; after: number; signal: AbortSignal };
+/** One cursor stream, bounded by the run deadline/session cancellation; <=8,192 unique events.
+ * Poll interval 1s, no retry of failed pages; every request retains the transport's 15s deadline.
+ */
+async function* pollEvents(required: PollInput): AsyncIterable<Outcome<import('@open-marketing/contracts').RunEvent>> {
+ let after = required.after;
+ while (!required.signal.aborted) {
+  const page = await requestRunPage({ ...required, after });
+  if (!page.ok) { yield* observedPollingFailure({ result: page, signal: required.signal }); return; }
+  for (const event of page.value.events) { after = event.sequence; yield { ok: true, value: event }; }
+  if (page.value.status !== 'running') return;
+  const next = await waitForRunPage({ ...required, after });
+  if (!next.ok) { yield next; return; }
+ }
+}
+
+function requestRunPage(required: PollInput): Promise<Outcome<z.infer<typeof runPageSchema>>> {
+ return request({ ...required, path: '/api/runs/' + encodeURIComponent(required.runId) + '/events?after=' + required.after, method: 'GET',
+  parse: value => checkedRunPage({ input: value.input, runId: required.runId, after: required.after }) });
+}
+
+/** Owner cancellation ends observation without presenting an error from the interrupted request. */
+function* observedPollingFailure(required: { result: Outcome<never>; signal: AbortSignal }): Generator<Outcome<never>> {
+ if (!required.signal.aborted) yield required.result;
+}
+
+/** Preserve the event cap and injected interval; an expected owner abort is not a transport failure. */
+async function waitForRunPage(required: PollInput): Promise<Outcome<void>> {
+ if (required.after >= 8192) return failure({ code: 'limit_exceeded', message: 'Run event limit exceeded' });
+ try { await required.dependencies.runtime.timers.wait({ delayMs: 1000, signal: required.signal }); }
+ catch {
+  if (!required.signal.aborted) return failure({ code: 'unavailable', message: 'Run polling interrupted' });
+ }
+ return { ok: true, value: undefined };
 }

@@ -84,7 +84,7 @@ it('rejects malformed, oversized, secret-bearing and contradictory responses wit
     expect(host.pending()).toBe(0);
 });
 
-it('validates configuration and approval inputs before fetching; unavailable agent methods do no network work', async () => {
+it('validates configuration and approval inputs before fetching', async () => {
     const host = testRuntime();
     let calls = 0;
     const deps = { runtime: host.runtime, observer: { observe() {} }, fetch: async () => { calls++; throw new Error('No fetch expected'); } };
@@ -94,10 +94,29 @@ it('validates configuration and approval inputs before fetching; unavailable age
     const api = createHttpStudioApi({ ...deps, baseUrl: 'http://127.0.0.1:4321' });
     expect(await api.snapshot({ signal: AbortSignal.abort() })).toMatchObject({ ok: false, error: { code: 'cancelled' } });
     expect(await api.approve({ response: { cardId: 'card', operationId: 'operation', argumentsDigest: 'invalid', choice: 'allow' } })).toMatchObject({ ok: false, error: { code: 'invalid_input' } });
-    expect(await api.start({ message: { id: 'message', role: 'user', text: 'fixture' }, signal: new AbortController().signal })).toMatchObject({ ok: false, error: { code: 'unavailable' } });
-    expect(await api.cancel({ runId: 'run', reason: 'owner' })).toMatchObject({ ok: false, error: { code: 'unavailable' } });
-    for await (const event of api.events({ runId: 'run', after: 0, signal: new AbortController().signal })) expect(event).toMatchObject({ ok: false, error: { code: 'unavailable' } });
     expect(calls).toBe(0);
+});
+
+it('dispatches assistant requests once and reports transport failures without sample fallback', async () => {
+    const host = testRuntime();
+    const calls: { path: string; method: string | undefined; body: BodyInit | null | undefined }[] = [];
+    const api = createHttpStudioApi({ baseUrl: 'http://127.0.0.1:4321', runtime: host.runtime, observer: { observe() {} },
+        async fetch(url, init) {
+            const target = new URL(String(url));
+            calls.push({ path: target.pathname + target.search, method: init?.method, body: init?.body });
+            throw new Error('Fixture server unavailable');
+        } });
+    expect(await api.start({ message: { id: 'message', role: 'user', text: 'fixture' }, conversationId: 'chat', signal: new AbortController().signal })).toMatchObject({ ok: false, error: { code: 'unavailable' } });
+    expect(await api.cancel({ runId: 'run', reason: 'owner' })).toMatchObject({ ok: false, error: { code: 'unavailable' } });
+    const events = [];
+    for await (const event of api.events({ runId: 'run', after: 0, signal: new AbortController().signal })) events.push(event);
+    expect(events).toEqual([{ ok: false, error: { code: 'unavailable', message: 'Server response unavailable', retryable: false } }]);
+    expect(calls).toEqual([
+        { path: '/api/runs', method: 'POST', body: JSON.stringify({ prompt: 'fixture', conversationId: 'chat' }) },
+        { path: '/api/runs/run/cancel', method: 'POST', body: '{}' },
+        { path: '/api/runs/run/events?after=0', method: 'GET', body: undefined },
+    ]);
+    expect(host.pending()).toBe(0);
 });
 
 it('deadlines and abort release resources, and uncertain writes are sent once', async () => {

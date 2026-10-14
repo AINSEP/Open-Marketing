@@ -39,8 +39,9 @@ function requestMetadata(required: { incoming: IncomingMessage; signal: AbortSig
     } catch { return localFailure({ code: 'invalid_input', message: 'Invalid request URL' }); }
 }
 
-/** The model route needs room for bounded tool-result feedback; all other routes keep 128 KiB. */
+/** Upload JSON allows base64 overhead; existing model/ordinary route bounds stay unchanged. */
 function bodyLimit(required: { path: string }): number {
+    if (required.path === '/api/addons/v1/install') return 50331648;
     return required.path === '/api/agent/v1/model/anthropic/v1/messages' ? 262144 : 131072;
 }
 
