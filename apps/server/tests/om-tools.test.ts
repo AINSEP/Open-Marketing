@@ -284,6 +284,15 @@ it('lists a seeded bundled agent-plugin source in the catalog after real boot re
         const tools = await response.json() as { value: { name: string }[] };
         const expected = 'addon_agent_plugin_' + createHash('sha256').update(seeded.id).digest('hex').slice(0, 32);
         expect(tools.value.some(tool => tool.name === expected)).toBe(true);
+        for (const name of ['om_contacts_resolve', 'om_forms_publish', 'om_web_events_touches', 'om_privacy_status', 'om_jobs_list', 'om_workspaces_list',
+            'om_campaign_create_paused', 'om_creative_generate', 'om_audit_list', 'om_measure_report_cac', 'om_paid_sending_allowance_get']) {
+            expect(tools.value.some(tool => tool.name === name)).toBe(true);
+        }
+        expect(tools.value.map(tool => tool.name)).toEqual(expect.arrayContaining([
+            'om_forms_preview', 'om_forms_submissions', 'om_jobs_get', 'om_jobs_cancel',
+            'om_campaign_propose_launch', 'om_campaign_reconcile', 'om_creative_status', 'om_creative_cancel',
+            'om_measure_create_link', 'om_paid_sending_allowance_set',
+        ]));
     } finally { if (server?.ok) await server.value.stop({}); await removeStateRoot({ path: directory }); }
 }, 30000);
 

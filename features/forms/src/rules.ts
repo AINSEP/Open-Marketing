@@ -20,7 +20,8 @@ const fieldSchema = z.strictObject({
 });
 const wordingSchema = z.strictObject({ fieldId: idSchema, purpose: idSchema, topic: idSchema, target: idSchema,
   wording: z.string().min(1).max(5000), wordingVersion: idSchema, wordingDigest: digestSchema });
-const publicationSchema = z.strictObject({ scope: scopeSchema, publicationId: idSchema, formDefinitionId: idSchema,
+/** Full bounded publication wire schema; publish additionally checks scope, CMS fields and independent consent wording. */
+export const publicationSchema = z.strictObject({ scope: scopeSchema, publicationId: idSchema, formDefinitionId: idSchema,
   slug: idSchema, version: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER),
   fields: z.array(fieldSchema).min(1).max(20), consent: z.array(wordingSchema).max(20), publishedAt: epochSchema.max(8_640_000_000_000_000) });
 /** Receipt data has only reload IDs and a digest; validates SQL and injected port results. */

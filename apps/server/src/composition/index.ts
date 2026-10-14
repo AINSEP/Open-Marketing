@@ -1,3 +1,7 @@
+import { bindSandboxCreative } from './creative.js';
+import { bindSandboxCampaigns } from './campaigns.js';
+import { bindCatalogAudit, bindCatalogScope, bindCatalogMeasure, sandboxPlatformReports } from './catalog.js';
+import type { OmFeatureServices } from '../om-tools.js';
 import { bindServerAddons, type AddonEffects } from './addons.js';
 import { buildOmToolDefinitions, createOmTools } from '../om-tools.js';
 import type { OmTools } from '../om-tools.js';
@@ -226,7 +230,7 @@ export async function bootServer(required: {
         };
         const integrations = bindServerIntegrations({ db: campaignDb, clock: required.clock, ids: required.ids,
             observer: required.observer, io: required.io, stateRoot: config.value.stateRoot, masterHex: required.env.OM_CREDENTIAL_KEY });
-        const services: OwnerServices = {
+        const services: OwnerServices & OmFeatureServices = {
             campaigns: createSqlCampaignRepo({ db: campaignDb }, { observer: required.observer }),
             safety: createSqlSafetyRepo({ db: safetyDb, clock: required.clock, ids: required.ids, ownerTimezone: config.value.timezone, observer: required.observer }),
             confirmations: resources.confirmations, integrations,
@@ -244,10 +248,17 @@ export async function bootServer(required: {
         };
         const measure = createSqlMeasureRepo({ database: measureDb, jobs: { async enqueue() { return localFailure({ code: 'forbidden', message: 'Conversions denied in local sandbox' }); } } }, { observer: required.observer });
         resources.privacy = bindPrivacy({ unit: database.unit, identity, subjects: forms.subjects, measure, clock: required.clock, ids: required.ids, observer: required.observer });
-        resources.workers = createFormWorkers({ unit: database.unit, forms, clock: required.clock, ids: required.ids, observer: required.observer, context, schedule: required.io.schedule });
         const publicServices = { forms, identity, visits, clock: required.clock, campaigns: services.campaigns,
             links: createSqlTrackedLink({ database: measureDb, ids: required.ids, baseUrl: 'https://sandbox.example.test/l/', allowedOrigins: ['https://sandbox.example.test'] }, { observer: required.observer }) };
         services.formSubjects = forms.subjects;
+        const audit = bindCatalogAudit({ unit: database.unit, clock: required.clock, ids: required.ids, observer: required.observer });
+        Object.assign(services, bindCatalogScope({ database, safetyDb, clock: required.clock, ids: required.ids, observer: required.observer, timezone: config.value.timezone }), {
+            creative: bindSandboxCreative({ unit: database.unit, safetyRepo: services.safety, confirmations: resources.confirmations, clock: required.clock, ids: required.ids, observer: required.observer, audit }),
+            campaignWorkflow: bindSandboxCampaigns({ unit: database.unit, repo: services.campaigns, safety: services.safety, clock: required.clock, ids: required.ids, observer: required.observer, audit }),
+            audit, contacts: identity.contacts, forms: forms.forms, webEvents: identity.webEvents, privacy: resources.privacy.privacy,
+            measure: bindCatalogMeasure({ repo: measure, links: publicServices.links, reports: sandboxPlatformReports(required), clock: required.clock, ids: required.ids, observer: required.observer, audit }),
+        });
+        resources.workers = createFormWorkers({ unit: database.unit, forms, creative: services.creative, clock: required.clock, ids: required.ids, observer: required.observer, context, schedule: required.io.schedule });
         // Migration 17 supplies these table types on the existing kernel; this assertion opens no second kernel.
         const chatKernel = database.kernel as unknown as StorageKernel<AssistantDatabase>;
         const conversations = createConversations({ db: campaignDb, ids: required.ids, observer: required.observer, integrations,

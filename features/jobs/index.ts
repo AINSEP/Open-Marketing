@@ -21,3 +21,7 @@ export { createJobHandlerRegistry } from "./src/handlers.js";
 export type { JobHandler, JobHandlerRegistry } from "./src/handlers.js";
 export { createMemoryJobObserver } from "./src/memory.js";
 export { JobStoreError } from "./src/errors.js";
+
+export { createSqlScopedJobs } from "./src/scoped.js";
+export { createMemoryScopedJobs } from "./src/adapters/memory-scoped.js";
+export type { ScopedJobs, ScopedJob } from "./src/scoped.js";

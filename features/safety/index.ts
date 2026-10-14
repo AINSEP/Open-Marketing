@@ -9,3 +9,6 @@ export type { MemoryConfirmationExchange } from "./src/confirmation.js";
 export type { VerifiedEffectFixture, VerifiedQuoteFixture, VerifiedStopFixture } from "./src/memory.js";
 export { createSqlSafetyRepo } from "./src/sql.js";
 export type { SafetySqlDatabase, SafetySqlSession } from "./src/sql.js";
+
+export { paidSendingAllowanceSchema, createSqlPaidSendingAllowances, createMemoryPaidSendingAllowances } from "./src/paid-sending.js";
+export type { PaidSendingAllowance, PaidSendingAllowances } from "./src/paid-sending.js";

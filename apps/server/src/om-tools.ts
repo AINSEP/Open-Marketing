@@ -14,15 +14,21 @@ import type { OwnerServices } from './inbound/owner.js';
 import { routes } from './cli/http.js';
 import { localFailure } from './composition/local-auth.js';
 import type { ContactService, Subject } from '@open-marketing/contacts';
+import { publicationSchema } from '@open-marketing/forms';
 import type { FormsService } from '@open-marketing/forms';
 import { webEventSnippetSource } from '@open-marketing/web-events';
 import type { WebEventService } from '@open-marketing/web-events';
 import type { PrivacyService } from '@open-marketing/privacy';
 import type { MeasureService } from '@open-marketing/measure';
 import type { CampaignService } from '@open-marketing/campaigns';
-import type { AccountBindingLookupPort } from '@open-marketing/workspaces';
+import type { AccountBindingLookupPort, WorkspaceListing } from '@open-marketing/workspaces';
+import type { ScopedJobs } from '@open-marketing/jobs';
+import { paidSendingAllowanceSchema } from '@open-marketing/safety';
+import type { PaidSendingAllowances } from '@open-marketing/safety';
 import type { AuditService } from '@open-marketing/audit';
-import type { OmTools } from './om-tool-types.js';
+import { creativeToolInputSchema } from './om-tool-types.js';
+import type { GenerationStatus } from '@open-marketing/creative';
+import type { OmTools, CreativeToolBinding } from './om-tool-types.js';
 export type { OmTools } from './om-tool-types.js';
 
 export type OmToolPolicy = 'read' | 'write' | 'destructive' | 'spend' | 'generation' | 'internal';
@@ -484,6 +490,7 @@ function ownerSettingsDefinition(required: { services: OwnerServices }): OmToolD
  * Missing services produce named coverage NEEDS rather than callable stubs.
  */
 export interface OmFeatureServices {
+    creative?: CreativeToolBinding;
     contacts?: ContactService;
     forms?: FormsService;
     webEvents?: WebEventService;
@@ -492,6 +499,9 @@ export interface OmFeatureServices {
     campaignWorkflow?: CampaignService;
     accountBindings?: AccountBindingLookupPort;
     audit?: AuditService;
+    workspaces?: WorkspaceListing;
+    jobs?: ScopedJobs;
+    paidSending?: PaidSendingAllowances;
 }
 
 /** A small schema-bound call to an existing service. The owner identity is projected for named
@@ -561,10 +571,12 @@ function contactOutput(required: { outcome: Outcome<Subject> }): Outcome<Subject
     return { ok: true, value: timezone === undefined ? subject : { ...subject, timezone } };
 }
 
-/** Bind read/publication views only. Forms owns the full authored publication schema. */
+/** Forms owns authored publication validation, including field and consent invariants. */
 function formDefinitions(required: { forms: FormsService }): OmToolDefinition[] {
     const service = required.forms;
     return [
+        serviceDefinition({ name: 'om_forms_publish', capability: 'Form publish', policy: 'write', schema: z.strictObject({ publication: publicationSchema.omit({ scope: true }) }),
+            invoke: ({ context, value, signal }) => service.publish({ context, publication: { ...value.publication, scope: context.scope } }, { signal }) }),
         serviceDefinition({ name: 'om_forms_preview', capability: 'Form preview', policy: 'read', schema: z.strictObject({ slug: idSchema }),
             invoke: ({ context, value, signal }) => service.renderHostedForm({ context, ...value }, { signal }) }),
         serviceDefinition({ name: 'om_forms_submissions', capability: 'Form submissions', policy: 'read', schema: z.strictObject({ publicationId: idSchema, page: pageQuerySchema }),
@@ -597,7 +609,7 @@ function measureDefinitions(required: { measure: MeasureService }): OmToolDefini
     return [
         serviceDefinition({ name: 'om_measure_create_link', capability: 'Tracked link creation', policy: 'write', schema: z.strictObject({ destinationUrl: z.url().max(2048), campaignId: idSchema, utm: z.record(idSchema, z.string().max(1024)).refine(value => Object.keys(value).length <= 10) }),
             invoke: ({ context, value: request, signal }) => service.createTrackedLink({ context, request }, { signal }) }),
-        serviceDefinition({ name: 'om_measure_report_cac', capability: 'CAC reporting', policy: 'read', schema: z.strictObject({ definitionId: idSchema, accountId: idSchema, attributionWindow: idSchema, window: timeWindowSchema, currency: z.string().length(3), timezone: idSchema, attributionModel: idSchema }),
+        serviceDefinition({ name: 'om_measure_report_cac', capability: 'CAC reporting (local sandbox-account fixtures)', policy: 'read', schema: z.strictObject({ definitionId: idSchema, accountId: idSchema, attributionWindow: idSchema, window: timeWindowSchema, currency: z.string().length(3), timezone: idSchema, attributionModel: idSchema }),
             invoke: ({ context, value: query, signal }) => service.reportCac({ context, query }, { signal }) }),
     ];
 }
@@ -607,7 +619,7 @@ function measureDefinitions(required: { measure: MeasureService }): OmToolDefini
 function campaignDefinitions(required: { campaignWorkflow: CampaignService }): OmToolDefinition[] {
     const service = required.campaignWorkflow;
     return [
-        serviceDefinition({ name: 'om_campaign_create_paused', capability: 'Paused/draft campaign creation', policy: 'write', schema: z.strictObject({ operationId: idSchema, connectionId: idSchema, accountId: idSchema, name: z.string().min(1).max(200), objective: idSchema, creativeIds: idSchema.array().min(1).max(100), creativeDigest: digestSchema, placements: idSchema.array().min(1).max(100) }),
+        serviceDefinition({ name: 'om_campaign_create_paused', capability: 'Paused/draft campaign creation (local sandbox-account / sandbox-campaigns / sandbox-creative)', policy: 'write', schema: z.strictObject({ operationId: idSchema, connectionId: idSchema, accountId: idSchema, name: z.string().min(1).max(200), objective: idSchema, creativeIds: idSchema.array().min(1).max(100), creativeDigest: digestSchema, placements: idSchema.array().min(1).max(100) }),
             invoke: ({ context, value: draft, signal }) => service.createPaused({ context, draft }, { signal }) }),
         serviceDefinition({ name: 'om_campaign_propose_launch', capability: 'Launch proposal', policy: 'write', schema: z.strictObject({ campaignId: idSchema, flight: z.strictObject({ window: timeWindowSchema, expectedExposure: moneySchema, timezone: idSchema }) }),
             invoke: ({ context, value, signal }) => service.proposeLaunch({ context, ...value }, { signal }) }),
@@ -621,6 +633,7 @@ function campaignDefinitions(required: { campaignWorkflow: CampaignService }): O
 function featureDefinitions(required: { services: OmFeatureServices }): OmToolDefinition[] {
     const services = required.services;
     const definitions: OmToolDefinition[] = [];
+    if (services.creative) definitions.push(...creativeDefinitions({ creative: services.creative }));
     if (services.contacts) definitions.push(...contactDefinitions({ contacts: services.contacts }));
     if (services.forms) definitions.push(...formDefinitions({ forms: services.forms }));
     if (services.webEvents) definitions.push(...webEventDefinitions({ webEvents: services.webEvents }));
@@ -631,7 +644,58 @@ function featureDefinitions(required: { services: OmFeatureServices }): OmToolDe
         invoke: ({ context, value, signal }) => services.accountBindings!.find({ context, ...value }, { signal }) }));
     if (services.audit) definitions.push(serviceDefinition({ name: 'om_audit_list', capability: 'Audit list', policy: 'read', schema: pageQuerySchema.extend({ operationId: idSchema.optional() }),
         invoke: ({ context, value: query, signal }) => services.audit!.list({ context, query }, { signal }) }));
+    definitions.push(...scopedDefinitions({ services }));
     return definitions;
+}
+
+/** Additive owning APIs expose only scoped read models, pending-job cancellation and settings. */
+function scopedDefinitions(required: { services: OmFeatureServices }): OmToolDefinition[] {
+    const services = required.services;
+    const definitions: OmToolDefinition[] = [];
+    const jobId = z.strictObject({ jobId: idSchema });
+    if (services.workspaces) definitions.push(serviceDefinition({ name: "om_workspaces_list", capability: "Workspace list", policy: "read", schema: pageQuerySchema,
+        invoke: ({ context, value: query, signal }) => services.workspaces!.list({ context, query }, { signal }) }));
+    if (services.jobs) definitions.push(
+        serviceDefinition({ name: "om_jobs_get", capability: "Job get", policy: "read", schema: jobId,
+            invoke: ({ context, value, signal }) => services.jobs!.get({ context, ...value }, { signal }) }),
+        serviceDefinition({ name: "om_jobs_list", capability: "Job list", policy: "read", schema: pageQuerySchema,
+            invoke: ({ context, value: query, signal }) => services.jobs!.list({ context, query }, { signal }) }),
+        serviceDefinition({ name: "om_jobs_cancel", capability: "Job cancel", policy: "write", schema: jobId,
+            invoke: ({ context, value, signal }) => services.jobs!.cancel({ context, ...value }, { signal }) }));
+    if (services.paidSending) definitions.push(
+        serviceDefinition({ name: "om_paid_sending_allowance_get", capability: "Paid-sending allowance get", policy: "read", schema: z.strictObject({}),
+            invoke: ({ context, signal }) => services.paidSending!.get({ context }, { signal }) }),
+        serviceDefinition({ name: "om_paid_sending_allowance_set", capability: "Paid-sending allowance set", policy: "write", ownerOnly: true, schema: paidSendingAllowanceSchema,
+            invoke: ({ context, value: settings, signal }) => services.paidSending!.set({ context, settings }, { signal }) }));
+    return definitions;
+}
+
+/** Queued generation uses the same verified safety/allowance policy as every other financial tool. */
+function creativeDefinitions(required: { creative: CreativeToolBinding }): OmToolDefinition[] {
+    const binding = required.creative;
+    const generationId = z.strictObject({ generationId: idSchema });
+    return [
+        { name: 'om_creative_generate', capability: 'Creative generation', description: 'Queue a zero-cost local sandbox generation. model is sandbox; this fixture creates durable pending intent. Vendor rendering is I-2.',
+            effects: ['generation'], policy: 'generation', revision: '1', inputSchema: toolInputSchema({ schema: creativeToolInputSchema }),
+            safety: binding.safety, prepareEffect: binding.prepareEffect, parse: input => parseBoundary({ schema: creativeToolInputSchema, input: input.input }),
+            async invoke({ context, input, authorization, permit }) {
+                if (!authorization || !permit) return localFailure({ code: 'forbidden', message: 'Generation requires verified dispatch authority' });
+                const parsed = parseBoundary({ schema: creativeToolInputSchema, input });
+                return parsed.ok ? redactAddonOutcome({ outcome: await binding.generate({ context, input: parsed.value, authorization, permit }) }) : parsed;
+            } },
+        serviceDefinition({ name: 'om_creative_status', capability: 'Creative status', policy: 'read', schema: generationId,
+            invoke: async ({ context, value, signal }) => creativeStatusOutput({ outcome: await binding.service.refreshJob({ context, ...value }, { signal }) }) }),
+        serviceDefinition({ name: 'om_creative_cancel', capability: 'Creative cancellation', policy: 'write', schema: generationId,
+            invoke: async ({ context, value, signal }) => creativeStatusOutput({ outcome: await binding.service.cancelGeneration({ context, ...value }, { signal }) }) }),
+    ];
+}
+
+/** Deliberately project lifecycle metadata; remote operation errors and state never enter chat. */
+function creativeStatusOutput(required: { outcome: Outcome<GenerationStatus> }): Outcome<unknown> {
+    if (!required.outcome.ok) return redactAddonOutcome(required);
+    const status = required.outcome.value;
+    return { ok: true, value: { generationId: status.generationId, state: status.state, dispatchState: status.dispatchState,
+        asyncOperationId: status.asyncOperationId, assetIds: status.assetIds, actualCost: status.actualCost } };
 }
 
 const addonSchemas = { addons_list: addonListRequestSchema, addons_install: installAddonSchema, addons_set_enabled: setAddonEnabledSchema,

@@ -12,3 +12,6 @@ export type { MemorySession, MemoryIdentity } from "./src/memory.js";
 export { createWorkspaceRecord } from "./src/store.js";
 export { createMemoryWorkspaceRepo } from "./src/adapters/memory-store.js";
 export { createSqlWorkspaceRepo } from "./src/adapters/sql-store.js";
+
+export { createSqlWorkspaceListing, createMemoryWorkspaceListing } from "./src/list.js";
+export type { WorkspaceListing } from "./src/list.js";

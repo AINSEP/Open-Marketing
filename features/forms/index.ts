@@ -5,3 +5,5 @@ export * from "./src/service.js";
 export { createMemoryFormsStorage } from "./src/memory.js";
 export { createSqlFormsStorage } from "./src/sql.js";
 export { acceptFormSubmission } from "./src/acceptance.js";
+
+export { publicationSchema } from "./src/rules.js";
