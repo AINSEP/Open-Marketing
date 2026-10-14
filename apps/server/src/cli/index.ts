@@ -4,7 +4,7 @@ export type { CliRuntime } from './types.js';
 /** Inert owner CLI: terminal commands use HTTP, never features, DB, or vendor configuration. */
 import { parseArgs } from "node:util";
 import { z } from "zod";
-import { approvalChoiceSchema, digestSchema, idSchema, pageQuerySchema, parseBoundary } from "@open-marketing/contracts";
+import { approvalChoiceSchema, boundedJsonSchema, digestSchema, idSchema, pageQuerySchema, parseBoundary, toolCallSchema } from "@open-marketing/contracts";
 import type { ApprovalResponse, Outcome, PageQuery, RunEvent } from "@open-marketing/contracts";
 import { answerApproval, readCard } from "./approval.js";
 import { createSession, failure, requestOm, routes, terminalText } from "./http.js";
@@ -13,7 +13,7 @@ import type { HttpSession } from "./http.js";
 const options = {
   json: { type: "boolean" }, help: { type: "boolean" }, limit: { type: "string" },
   cursor: { type: "string" }, choice: { type: "string" }, account: { type: "string" },
-  "confirm-digest": { type: "string" }, "prompt-file": { type: "string" }, conversation: { type: "string" },
+  "input-file": { type: "string" }, "confirm-digest": { type: "string" }, "prompt-file": { type: "string" }, conversation: { type: "string" },
 } as const;
 type Values = ReturnType<typeof parseCliArgs>["values"];
 type Command =
@@ -22,6 +22,9 @@ type Command =
   | { name: "campaign"; id: string }
   | { name: "answer"; cardId: string; choice: ApprovalResponse["choice"]; confirmDigest?: string }
   | { name: "halt"; accountId: string }
+  | { name: "tools-list"; query: PageQuery }
+  | { name: "tools-show"; id: string }
+  | { name: "tools-call"; id: string; inputFile: string }
   | { name: "ask"; prompt?: string; promptFile?: string; conversationId?: string };
 
 const help = [
@@ -30,9 +33,11 @@ const help = [
   "om approvals answer <card-id> --choice <allow|allow_chat|always_allow|cancel> [--confirm-digest <digest>]",
   "om ads halt --account <id>", "om settings generation show",
   "om ask <prompt> [--conversation <id>] | om ask --prompt-file <path|-> [--conversation <id>]", "All commands: --json, --help",
+  "om tools list [--limit 1..100]", "om tools show <name>", "om tools call <name> --input-file <path|->",
+  "Tool calls use the server policy. Text mode displays/answers its exact card; --json returns a pending receipt.",
   "om addons list|install|enable|disable|uninstall --help", "om integrations list|connect|disconnect --help",
   "Set OM_SERVER_URL and OM_OWNER_TOKEN (owner session, not agent service credentials).",
-  "Approval answers display the current card and require explicit confirmation. Answers are recorded, not executed.",
+  "Approval answers display the current card and require explicit confirmation. The server records answers and continues the frozen operation when applicable.",
   "Ask polls the selected server assistant mode. --json returns one run receipt. Ctrl-C cancels the run.",
 ].join("\n") + "\n";
 
@@ -82,6 +87,9 @@ function commandName(required: { positionals: readonly string[] }): Outcome<{ na
     case "approvals answer": return { ok: true, value: { name: "answer", operands } };
     case "ads halt": return { ok: true, value: { name: "halt", operands } };
     case "settings generation show": return { ok: true, value: { name: "allowance", operands } };
+    case "tools list": return { ok: true, value: { name: "tools-list", operands } };
+    case "tools show": return { ok: true, value: { name: "tools-show", operands } };
+    case "tools call": return { ok: true, value: { name: "tools-call", operands } };
     case "ask": return { ok: true, value: { name: "ask", operands } };
     default: return failure({ code: "invalid_input", message: "Unknown command; use om --help" });
   }
@@ -100,6 +108,12 @@ function buildCommand(required: { name: Command["name"]; operands: readonly stri
     case "campaigns": case "approvals":
       return commandInput({ ...required, name, allowed: ["limit", "cursor"], count: 0,
         schema: z.strictObject({ query: pageInput }), input: { query: { limit: values.limit, cursor: values.cursor } } });
+    case "tools-list":
+      return commandInput({ ...required, name, allowed: ["limit"], count: 0, schema: z.strictObject({ query: pageInput }), input: { query: { limit: values.limit ?? "100" } } });
+    case "tools-show":
+      return commandInput({ ...required, name, allowed: [], count: 1, schema: z.strictObject({ id: pathId }), input: { id: operands[0] } });
+    case "tools-call":
+      return commandInput({ ...required, name, allowed: ["input-file"], count: 1, schema: z.strictObject({ id: pathId, inputFile: z.string().min(1).max(4096) }), input: { id: operands[0], inputFile: values["input-file"] } });
     case "campaign":
       return commandInput({ ...required, name, allowed: [], count: 1,
         schema: z.strictObject({ id: pathId }), input: { id: operands[0] } });
@@ -158,6 +172,53 @@ async function readPrompt(required: { runtime: CliRuntime; path: string }): Prom
     return failure({ code: "invalid_input", message: "Prompt file/stdin could not be read as UTF-8" });
   } finally {
     deadline.dispose({});
+  }
+}
+
+/** Parse bounded JSON file/stdin before generating a stable operation identity or sending HTTP.
+ * Tool JSON is data; file paths and approval authority never reach a feature or vendor directly.
+ */
+async function toolInput(required: { runtime: CliRuntime; path: string }): Promise<Outcome<z.infer<typeof boundedJsonSchema>>> {
+  if (required.runtime.signal?.aborted) return failure({ code: 'cancelled', message: 'Tool call cancelled before dispatch' });
+  const text = await readPrompt(required);
+  if (!text.ok) return text;
+  try { return parseBoundary({ schema: boundedJsonSchema, input: JSON.parse(text.value) as unknown }); }
+  catch { return failure({ code: 'invalid_input', message: 'Tool input must contain one bounded JSON value' }); }
+}
+
+/** Human tool calls use the existing fetch/display/confirm/answer flow and return the actual
+ * operation result. JSON mode returns the receipt; owner approval commands can continue it.
+ * @complexity <=64 KiB input, one dispatch and at most three continuation HTTP calls; no retries.
+ */
+async function callTool(required: { command: Extract<Command, { name: 'tools-call' }>; session: HttpSession; runtime: CliRuntime; json: boolean }): Promise<Outcome<unknown>> {
+  const input = await toolInput({ runtime: required.runtime, path: required.command.inputFile });
+  if (!input.ok) return input;
+  const call = parseBoundary({ schema: toolCallSchema, input: { name: required.command.id, input: input.value, operationId: required.runtime.ids.next({}) } });
+  if (!call.ok) return call;
+  // An uncertain POST keeps this identity visible for reconciliation; it is never retried here.
+  required.runtime.stderr.write({ text: 'Tool operation: ' + terminalText({ text: call.value.operationId }) + '\n' });
+  const dispatched = await requestOm({ session: required.session, route: routes.callTool, body: call.value, signal: required.runtime.signal });
+  if (!dispatched.ok) return dispatched;
+  if (dispatched.value.status !== 'pending' || required.json) return dispatched;
+  return continueToolCall({ ...required, receipt: dispatched.value });
+}
+
+/** Exact Allow is chosen only after the injected terminal confirmation, never by --json.
+ * A pending/unknown receipt remains queryable rather than becoming fabricated completion.
+ */
+async function continueToolCall(required: { session: HttpSession; runtime: CliRuntime; receipt: Extract<z.infer<typeof routes.callTool.schema>, { status: 'pending' }> }): Promise<Outcome<unknown>> {
+  if (!required.receipt.cardId) return { ok: true, value: required.receipt };
+  const answered = await answerApproval({ session: required.session, runtime: required.runtime, cardId: required.receipt.cardId, choice: 'allow' });
+  if (!answered.ok) return answered;
+  const operation = await requestOm({ session: required.session, route: routes.toolOperation, id: required.receipt.operationId, signal: required.runtime.signal });
+  if (!operation.ok) return operation;
+  switch (operation.value.status) {
+    case 'completed': return { ok: true, value: { status: 'completed', output: operation.value.output } };
+    case 'pending': return { ok: true, value: operation.value };
+    case 'unknown': return { ok: false, error: { ...operation.value.error, retryable: false } };
+    case 'cancelled': return failure({ code: 'cancelled', message: 'Tool operation cancelled' });
+    case 'interrupted': return failure({ code: 'expired', message: 'Tool operation interrupted; request fresh authority' });
+    default: { const exhaustive: never = operation.value; return exhaustive; }
   }
 }
 
@@ -271,10 +332,13 @@ async function halt(required: { session: HttpSession; accountId: string }): Prom
 }
 
 /** One exhaustive dispatch; no command bypasses the shared HTTP boundary. */
-async function dispatch(required: { command: Command; session: HttpSession; runtime: CliRuntime }): Promise<Outcome<unknown>> {
+async function dispatch(required: { command: Command; session: HttpSession; runtime: CliRuntime; json: boolean }): Promise<Outcome<unknown>> {
   const { command, session, runtime } = required;
   switch (command.name) {
     case "help": return { ok: true, value: { help } };
+    case "tools-list": return requestOm({ session, route: routes.tools, query: command.query });
+    case "tools-show": return requestOm({ session, route: routes.describeTool, id: command.id });
+    case "tools-call": return callTool({ ...required, command });
     case "status": return requestOm({ session, route: routes.status });
     case "allowance": return requestOm({ session, route: routes.allowance });
     case "campaigns": return requestOm({ session, route: routes.campaigns, query: command.query });
@@ -319,7 +383,7 @@ async function runParsedCommand(required: { command: Command; runtime: CliRuntim
   if (required.command.name === 'ask' && !required.json) {
     return runTextAsk({ ...required, command: required.command, session: session.value });
   }
-  const result = await dispatch({ command: required.command, session: session.value, runtime: required.runtime });
+  const result = await dispatch({ command: required.command, session: session.value, runtime: required.runtime, json: required.json });
   printResult({ runtime: required.runtime, result, json: required.json });
   if (!result.ok) return result;
   return { ok: true, value: undefined };

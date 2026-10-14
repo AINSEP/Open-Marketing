@@ -8,10 +8,11 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { parseBoundary, toolDescriptorSchema, toolOperationSchema, toolResultSchema } from '@open-marketing/contracts';
 import type { ApprovalResponse, CallContext, Outcome, ToolCall, ToolResult } from '@open-marketing/contracts';
-import { createMemoryConfirmationExchange, createMemorySafetyRepo } from '@open-marketing/safety';
+import { createMemoryConfirmationExchange, createMemorySafetyRepo, createMemoryAccountDispatchLock, createMemoryPlatformLimitEvidence, createMemorySpendPolicy, createMemoryVerifiedEffectResolver, createMemorySafetyAudit, createSafetyService, digestArguments } from '@open-marketing/safety';
 import { createMemoryCampaignRepo } from '@open-marketing/campaigns';
 import { buildOmToolDefinitions, createOmTools, discoveryTools, toolInputSchema, toolPolicy } from '../src/om-tools.js';
-import type { OmToolDefinition } from '../src/om-tools.js';
+import type { EffectRequest, PlatformLimitEvidence } from '@open-marketing/safety';
+import type { OmFeatureServices, OmToolDefinition } from '../src/om-tools.js';
 import { generateOmToolCoverage, ownerRouteDisposition } from '../src/om-tool-coverage.js';
 import { routes } from '../src/cli/http.js';
 import { handleOwnerRequest } from '../src/inbound/owner.js';
@@ -19,6 +20,9 @@ import type { OwnerServices } from '../src/inbound/owner.js';
 import { handleOmRequest } from '../src/inbound/om.js';
 import { bootServer } from '../src/composition/index.js';
 import { createNodeBootIo } from '../src/composition/serve.js';
+import { runOmCli, type CliRuntime } from '../src/cli/index.js';
+import { createContactService, createMemoryContactRepo } from '@open-marketing/contacts';
+import type { AddonToolDependencies } from '../src/addon-tools.js';
 import { removeStateRoot } from './state-root.js';
 
 const owner: CallContext = { scope: { ownerId: 'owner', workspaceId: 'workspace' }, principal: { kind: 'owner', ownerId: 'owner' }, correlationId: 'correlation', traceId: 'trace' };
@@ -33,7 +37,7 @@ function fixture(_required: Record<string, never>) {
     const confirmations = createMemoryConfirmationExchange({ clock, ids });
     const effects: unknown[] = []; const contexts: CallContext[] = [];
     const schema = z.strictObject({ value: z.number() });
-    const definition: OmToolDefinition = { name: 'fixture_write', capability: 'Fixture write', description: 'Save the exact fixture value.',
+    const definition: { -readonly [Key in keyof OmToolDefinition]: OmToolDefinition[Key] } = { name: 'fixture_write', capability: 'Fixture write', description: 'Save the exact fixture value.',
         effects: ['write'], policy: 'write', revision: '1', inputSchema: toolInputSchema({ schema }),
         parse: input => parseBoundary({ schema, input: input.input }),
         async invoke(input) { effects.push(input.input); contexts.push(input.context); return { ok: true, value: { saved: (input.input as { value: number }).value } }; } };
@@ -186,13 +190,13 @@ it('validates generated input schemas and preserves their input defaults and con
     expect(() => toolInputSchema({ schema: z.string().describe('x'.repeat(65537)) })).toThrow(z.ZodError);
 });
 
-it('classifies unknown declarations as write and never dispatches unsupported financial/typed effects', async () => {
+it('classifies unknown declarations as write and fails closed without financial or typed bindings', async () => {
     expect(toolPolicy({ effects: [] })).toBe('write'); expect(toolPolicy({ effects: ['read', 'unknown'] })).toBe('write');
     expect(toolPolicy({ effects: ['unknown', 'ad_spend'] })).toBe('spend');
     expect(toolPolicy({ effects: ['read', 'destructive'] })).toBe('destructive');
     for (const effect of ['ad_spend', 'generation', 'conversion', 'halt_stop'] as const) {
         const f = fixture({}); f.definition.effects = [effect];
-        expect(await f.tools.dispatch({ context: agent, call: f.call })).toMatchObject({ ok: false, error: { code: 'not_implemented' } });
+        expect(await f.tools.dispatch({ context: agent, call: f.call })).toMatchObject({ ok: false, error: { code: effect === 'conversion' || effect === 'halt_stop' ? 'forbidden' : 'not_implemented' } });
         expect(f.effects).toEqual([]); f.tools.dispose({});
     }
 });
@@ -236,7 +240,8 @@ it('generates checked route/capability coverage from declarations, with explicit
     expect(rows.some(row => row.status === 'NEEDS' && row.capability.includes('not connected'))).toBe(true);
     expect(rows.find(row => row.capability === 'Paused/draft campaign creation')?.policy).toBe('write');
     expect(rows.find(row => row.capability === 'Vendor activation/live budget/cap changes (not connected)')?.policy).toBe('spend');
-    expect(rows.filter(row => row.tool).every(row => row.cli.includes('R4'))).toBe(true); f.tools.dispose({});
+    expect(rows.filter(row => row.tool).every(row => row.cli === 'om tools list/show/call')).toBe(true);
+    expect(rows.filter(row => row.status === 'NEEDS').every(row => !!row.needs && !!row.reason)).toBe(true); f.tools.dispose({});
 });
 
 it('dispatches the existing status read without a card and refuses caller-supplied routing', async () => {
@@ -281,3 +286,296 @@ it('lists a seeded bundled agent-plugin source in the catalog after real boot re
         expect(tools.value.some(tool => tool.name === expected)).toBe(true);
     } finally { if (server?.ok) await server.value.stop({}); await removeStateRoot({ path: directory }); }
 }, 30000);
+
+
+/** Verified fixture requests exercise the existing safety service, never a forged approval.
+ * Multiple operations share one allowance/account barrier and the dispatcher's real exchange.
+ */
+function financialFixture(required: { policy: 'spend' | 'generation'; amounts?: readonly number[]; unknown?: boolean; unbounded?: boolean }) {
+    const f = fixture({});
+    f.definition.policy = required.policy;
+    f.definition.effects = required.policy === 'spend' ? ['ad_spend'] : ['generation'];
+    const pluginDigest = 'b'.repeat(64); const schemaFingerprint = 'c'.repeat(64);
+    const amounts = required.amounts ?? [300, 300, 800];
+    const calls = amounts.map((amount, index) => ({ ...f.call, operationId: 'financial-' + index, input: { value: amount } }));
+    const requests: EffectRequest[] = calls.map((call, index) => {
+        const args = { tool: call.name, input: call.input };
+        const argumentsDigest = value({ result: digestArguments({ arguments: args }) });
+        const amount = { minorUnits: amounts[index], currency: 'USD' };
+        const window = { start: 0, end: 100000 };
+        const base: EffectRequest = { arguments: args, pluginDigest, schemaFingerprint, operationScope: f.definition.name,
+            envelope: { operationId: call.operationId, connectionId: 'connection', accountId: required.policy === 'spend' ? 'account' : null,
+                effects: [...f.definition.effects], argumentsDigest,
+                moneyExposure: required.policy === 'spend' ? { amount, window } : null,
+                requiredLimit: required.policy === 'spend' ? { amount: { minorUnits: 1000, currency: 'USD' }, timezone: 'UTC', evidenceId: 'cap', semantics: 'hard_limit' } : null } };
+        if (required.policy === 'spend') return base;
+        return { ...base, generation: { request: { operationId: call.operationId, connectionId: 'connection', argumentsDigest, configurationDigest: schemaFingerprint },
+            quote: { quoteId: 'quote-' + index, pluginId: 'fixture-provider', pluginDigest, argumentsDigest, modelConfigurationDigest: schemaFingerprint,
+                estimated: required.unbounded ? null : amount, upperBound: required.unbounded ? null : amount, pricingEvidenceId: 'pricing', expiresAt: 100000, status: required.unknown ? 'unknown' : 'known' } } };
+    });
+    const evidence: PlatformLimitEvidence = { evidenceId: 'cap', accountId: 'account', amount: { minorUnits: 1000, currency: 'USD' }, window: { start: 0, end: 100000 }, observedAt: 1000, semantics: 'hard_limit', pluginDigest };
+    let enabled = true;
+    const resolver = createMemoryVerifiedEffectResolver({ effects: requests.map(request => ({ scope: owner.scope, request, envelope: request.envelope })),
+        quotes: requests.flatMap(request => request.generation ? [{ scope: owner.scope, ...request.generation, pluginDigest, schemaFingerprint }] : []) });
+    const safety = createSafetyService({ repo: f.services.safety, confirmations: f.services.confirmations, clock: f.clock, ids: f.ids,
+        policy: createMemorySpendPolicy({}), effects: { ...resolver, async resolve(input, options) {
+            return enabled ? resolver.resolve(input, options) : { ok: false, error: { code: 'forbidden', message: 'Fixture backend removed', retryable: false } };
+        } }, accountLocks: createMemoryAccountDispatchLock({ ids: f.ids }), audit: createMemorySafetyAudit({}),
+        platformLimits: createMemoryPlatformLimitEvidence({ evidence: [{ scope: owner.scope, evidence }] }) });
+    f.definition.safety = safety;
+    f.definition.prepareEffect = async ({ call }) => {
+        const request = requests.find(request => request.envelope.operationId === call.operationId);
+        return request ? { ok: true, value: request } : { ok: false, error: { code: 'forbidden', message: 'Fixture operation unverified', retryable: false } };
+    };
+    const original = f.definition.invoke;
+    f.definition.invoke = async input => { expect(input.permit?.operationId).toBe(input.authorization?.envelope.operationId); expect(input.permit).toBeDefined(); return original(input); };
+    async function answer(input: { call: ToolCall; choice?: ApprovalResponse['choice'] }) {
+        const card = value({ result: await f.tools.card({ context: owner, operationId: input.call.operationId }) })!;
+        expect(card).not.toBeNull();
+        return f.tools.answer({ context: owner, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: input.choice ?? 'allow' } });
+    }
+    return { ...f, calls, requests, answer, disconnect() { enabled = false; } };
+}
+
+it('requires a new exact spend card for every operation and returns the actual bounded dispatch result', async () => {
+    const f = financialFixture({ policy: 'spend', amounts: [300, 300] });
+    try {
+        for (const call of f.calls) {
+            expect(value({ result: await f.tools.dispatch({ context: agent, call }) }).status).toBe('pending');
+            const card = value({ result: await f.tools.card({ context: agent, operationId: call.operationId }) })!;
+            expect(card.classification).toBe('spend'); expect(card.allowedChoices).toEqual(['allow', 'cancel']);
+            expect(await f.answer({ call, choice: 'always_allow' })).toMatchObject({ ok: false });
+            value({ result: await f.answer({ call }) });
+            expect(value({ result: await f.tools.dispatch({ context: agent, call }) })).toEqual({ status: 'completed', output: { saved: 300 } });
+        }
+        expect(f.effects).toEqual([{ value: 300 }, { value: 300 }]);
+        expect(value({ result: await f.services.safety.snapshot({ context: owner, accountId: 'account' }) }).reserved.minorUnits).toBe(600);
+    } finally { f.tools.dispose({}); }
+});
+
+it('uses a normal generation grant only within the aggregate remaining allowance, then asks for exact spend', async () => {
+    const f = financialFixture({ policy: 'generation' });
+    try {
+        value({ result: await f.tools.dispatch({ context: agent, call: f.calls[0] }) });
+        const first = value({ result: await f.tools.card({ context: agent, operationId: f.calls[0].operationId }) })!;
+        expect(first.classification).toBe('generation'); expect(first.allowedChoices).toContain('always_allow');
+        value({ result: await f.answer({ call: f.calls[0], choice: 'always_allow' }) });
+        expect(value({ result: await f.tools.operation({ context: agent, operationId: f.calls[0].operationId }) })).toMatchObject({ status: 'completed', output: { saved: 300 } });
+        expect(value({ result: await f.tools.dispatch({ context: agent, call: f.calls[1] }) })).toEqual({ status: 'completed', output: { saved: 300 } });
+        expect(value({ result: await f.tools.card({ context: agent, operationId: f.calls[1].operationId }) })).toBeNull();
+        value({ result: await f.tools.dispatch({ context: agent, call: f.calls[2] }) });
+        const above = value({ result: await f.tools.card({ context: agent, operationId: f.calls[2].operationId }) })!;
+        expect(above.classification).toBe('spend'); expect(above.allowedChoices).toEqual(['allow', 'cancel']);
+        expect(f.effects).toEqual([{ value: 300 }, { value: 300 }]);
+        value({ result: await f.answer({ call: f.calls[2] }) });
+        expect(value({ result: await f.tools.operation({ context: agent, operationId: f.calls[2].operationId }) }).status).toBe('completed');
+        expect(f.effects).toHaveLength(3);
+        expect(value({ result: await f.services.safety.getGenerationAllowanceView({ context: owner }) }).remaining.minorUnits).toBe(0);
+    } finally { f.tools.dispose({}); }
+});
+
+it('unknown generation cost has an exact spend card and an unbounded quote cannot dispatch', async () => {
+    for (const unbounded of [false, true]) {
+        const f = financialFixture({ policy: 'generation', amounts: [300], unknown: true, unbounded });
+        try {
+            value({ result: await f.tools.dispatch({ context: agent, call: f.calls[0] }) });
+            const card = value({ result: await f.tools.card({ context: agent, operationId: f.calls[0].operationId }) })!;
+            expect(card.classification).toBe('spend'); expect(card.allowedChoices).toEqual(['allow', 'cancel']);
+            value({ result: await f.answer({ call: f.calls[0] }) });
+            expect(value({ result: await f.tools.operation({ context: agent, operationId: f.calls[0].operationId }) }).status).toBe(unbounded ? 'unknown' : 'completed');
+            expect(f.effects).toHaveLength(unbounded ? 0 : 1);
+        } finally { f.tools.dispose({}); }
+    }
+});
+
+it('rechecks the current financial backend after approval and refuses a halted account', async () => {
+    for (const deny of ['disconnect', 'halt'] as const) {
+        const f = financialFixture({ policy: 'spend', amounts: [300] });
+        try {
+            value({ result: await f.tools.dispatch({ context: agent, call: f.calls[0] }) });
+            if (deny === 'disconnect') f.disconnect();
+            else value({ result: await f.services.safety.halt({ context: owner, adAccountId: 'account' }) });
+            value({ result: await f.answer({ call: f.calls[0] }) });
+            expect(value({ result: await f.tools.operation({ context: agent, operationId: f.calls[0].operationId }) })).toMatchObject({ status: 'unknown', error: { retryable: false } });
+            expect(f.effects).toEqual([]);
+        } finally { f.tools.dispose({}); }
+    }
+});
+
+it('one exact owner continuation sets the allowance and records local halt without claiming a remote stop', async () => {
+    const f = fixture({});
+    const definitions = value({ result: await buildOmToolDefinitions({ context: owner, services: f.services }) });
+    const tools = createOmTools({ clock: f.clock, observer: f.observer, confirmations: f.services.confirmations as ReturnType<typeof createMemoryConfirmationExchange>,
+        authorize: () => ({ ok: true, value: undefined }), async definitions() { return { ok: true, value: definitions }; } });
+    try {
+        const calls: ToolCall[] = [
+            { name: 'om_allowance_set', operationId: 'setting', input: { amount: { currency: 'USD', minorUnits: 1500 }, dayTimezone: 'UTC', revision: 0 } },
+            { name: 'om_halt_account', operationId: 'halt', input: { accountId: 'account' } },
+        ];
+        for (const call of calls) {
+            value({ result: await tools.dispatch({ context: agent, call }) });
+            const card = value({ result: await tools.card({ context: agent, operationId: call.operationId }) })!;
+            expect(card.allowedChoices).toEqual(['allow', 'cancel']);
+            value({ result: await tools.answer({ context: owner, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } }) });
+            expect(value({ result: await tools.operation({ context: agent, operationId: call.operationId }) }).status).toBe('completed');
+        }
+        expect(value({ result: await f.services.safety.getGenerationAllowance({ context: owner }) }).amount.minorUnits).toBe(1500);
+        expect(value({ result: await f.services.safety.getHalt({ context: owner, accountId: 'account' }) })).toMatchObject({ remoteStatus: 'pending' });
+    } finally { tools.dispose({}); f.tools.dispose({}); }
+});
+
+/** Minimal D2 seam fixture; source descriptions remain distinct from backend execution. */
+function addonFixture(required: { failure?: boolean } = {}): AddonToolDependencies {
+    const rejected: Outcome<never> = { ok: false, error: { code: 'unavailable', message: 'remote sk-fixture-secret-never-display', retryable: true } };
+    const addon = { id: 'fixture-addon', kind: 'plugin' as const, name: 'Fixture', description: 'Fixture instructions', version: '1.0.0', revision: 'revision', enabled: true };
+    return { observer: { observe() {} }, addons: {
+        async list() { return required.failure ? rejected : { ok: true, value: { items: [addon], cursor: null } }; },
+        async describe() { return { ok: true, value: { effects: ['future-effect'], instructions: 'Fixture contribution' } }; },
+        async install() { return rejected; }, async setEnabled() { return rejected; }, async uninstall() { return rejected; },
+    }, integrations: { async list() { return { ok: true, value: { items: [], cursor: null } }; }, async disconnect() { return rejected; } } };
+}
+
+it('consumes D2 management/source schemas and redacts structured third-party failures before the dispatcher boundary', async () => {
+    const f = fixture({});
+    try {
+        const addons = addonFixture();
+        const definitions = value({ result: await buildOmToolDefinitions({ context: owner, services: f.services, addons }) });
+        expect(definitions.filter(tool => tool.name.startsWith('addons_') || tool.name.startsWith('integrations_'))).toHaveLength(6);
+        const source = definitions.find(tool => tool.name.startsWith('addon_plugin_'))!;
+        expect(source.policy).toBe('write'); expect(value({ result: await source.invoke({ context: owner, input: {} }) })).toMatchObject({ instructions: 'Fixture contribution' });
+        const failing = await definitions.find(tool => tool.name === 'integrations_disconnect')!.invoke({ context: owner, input: { connectionId: 'connection' } });
+        expect(failing).toMatchObject({ ok: false, error: { code: 'unavailable', retryable: true } });
+        expect(JSON.stringify(failing)).not.toContain('sk-fixture');
+        const badDiscovery = await buildOmToolDefinitions({ context: owner, services: f.services, addons: addonFixture({ failure: true }) });
+        expect(JSON.stringify(badDiscovery)).not.toContain('sk-fixture'); expect(badDiscovery.ok).toBe(false);
+        const rows = generateOmToolCoverage({ definitions });
+        expect(rows.find(row => row.tool === source.name)).toMatchObject({ status: 'connected', policy: 'write', cli: 'om tools list/show/call' });
+        expect(rows.filter(row => row.status === 'NEEDS').every(row => !!row.reason && !!row.needs)).toBe(true);
+    } finally { f.tools.dispose({}); }
+});
+
+it('binds contact writes to the public service and requests an exact destructive merge card', async () => {
+    const f = fixture({});
+    const contacts = createContactService({ repo: createMemoryContactRepo({}), suppression: { async assess() { return { ok: true, value: { allowed: true } }; } }, digest: { activeKeyVersion: 'v1', keys: { v1: new Uint8Array([1, 2, 3]) } }, clock: f.clock, ids: f.ids });
+    const services: OwnerServices & OmFeatureServices = { ...f.services, contacts };
+    const definitions = value({ result: await buildOmToolDefinitions({ context: owner, services }) });
+    const tools = createOmTools({ clock: f.clock, observer: f.observer, confirmations: f.services.confirmations as ReturnType<typeof createMemoryConfirmationExchange>,
+        authorize: () => ({ ok: true, value: undefined }), async definitions() { return { ok: true, value: definitions }; } });
+    try {
+        const subjects: string[] = [];
+        for (const email of ['one@example.test', 'two@example.test']) {
+            const call = { name: 'om_contacts_upsert', operationId: email, input: { identifiers: [{ kind: 'email', raw: email }] } };
+            value({ result: await tools.dispatch({ context: agent, call }) });
+            const card = value({ result: await tools.card({ context: agent, operationId: call.operationId }) })!;
+            value({ result: await tools.answer({ context: owner, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } }) });
+            const operation = value({ result: await tools.operation({ context: agent, operationId: call.operationId }) });
+            expect(operation.status).toBe('completed');
+            if (operation.status !== 'completed') throw new Error('Expected completed contact write');
+            subjects.push((operation.output as { subjectId: string }).subjectId);
+        }
+        value({ result: await tools.dispatch({ context: agent, call: { name: 'om_contacts_merge', operationId: 'merge', input: { sourceSubjectId: subjects[1], targetSubjectId: subjects[0] } } }) });
+        const card = value({ result: await tools.card({ context: agent, operationId: 'merge' }) })!;
+        expect(card.classification).toBe('destructive'); expect(card.allowedChoices).toEqual(['allow', 'cancel']);
+        value({ result: await tools.answer({ context: owner, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } }) });
+        expect(value({ result: await contacts.resolve({ context: owner, identifier: { kind: 'email', raw: 'two@example.test' } }) }).subjectId).toBe(subjects[0]);
+        expect(generateOmToolCoverage({ definitions }).some(row => row.capability === 'Contact upsert' && row.status === 'NEEDS')).toBe(false);
+    } finally { tools.dispose({}); f.tools.dispose({}); }
+});
+
+/** Injected HTTP/file/terminal fixture drives the real generic CLI and dispatcher together. */
+function toolCliFixture(required: { confirmed?: boolean; file?: string } = {}) {
+    const f = fixture({}); let next = 0; let confirmations = 0;
+    const requests: { path: string; method: string; body: unknown }[] = []; const stdout: string[] = []; const stderr: string[] = [];
+    const runtime: CliRuntime = { env: { OM_SERVER_URL: 'http://fixture.test', OM_OWNER_TOKEN: 'fixture-token' }, clock: f.clock, ids: { next: () => 'cli-' + ++next },
+        deadline: { create() { return { signal: new AbortController().signal, dispose() {} }; } },
+        stdout: { write({ text }) { stdout.push(text); } }, stderr: { write({ text }) { stderr.push(text); } },
+        async confirm() { confirmations++; return required.confirmed === true; },
+        async *readPrompt() { yield new TextEncoder().encode(required.file ?? '{"value":7}'); },
+        fetch: (async (url: URL, init?: RequestInit) => {
+            const body = init?.body === undefined ? undefined : JSON.parse(String(init.body)) as unknown;
+            requests.push({ path: url.pathname, method: init?.method ?? 'GET', body });
+            const response = await handleOwnerRequest({ context: owner, services: f.services, request: { method: init?.method === 'POST' ? 'POST' : 'GET', path: url.pathname, query: Object.fromEntries(url.searchParams), body } });
+            return new Response(JSON.stringify(response.body), { status: response.status });
+        }) as typeof fetch };
+    return { ...f, runtime, requests, stdout, stderr, confirmationCount: () => confirmations };
+}
+
+it('generic CLI list/show/call reaches the same catalog and human approval returns the actual tool output', async () => {
+    const f = toolCliFixture({ confirmed: true });
+    try {
+        value({ result: await runOmCli({ argv: ['tools', 'list', '--json'], runtime: f.runtime }) });
+        expect(f.requests[0]).toMatchObject({ path: '/api/tools', method: 'GET' });
+        value({ result: await runOmCli({ argv: ['tools', 'show', 'fixture_write', '--json'], runtime: f.runtime }) });
+        expect(f.requests[1]).toMatchObject({ path: '/api/tools/describe/fixture_write' });
+        value({ result: await runOmCli({ argv: ['tools', 'call', 'fixture_write', '--input-file', '-'], runtime: f.runtime }) });
+        expect(f.effects).toEqual([{ value: 7 }]); expect(f.confirmationCount()).toBe(1);
+        expect(f.stdout.at(-1)).toContain('"output":{"saved":7}');
+        expect(f.requests.filter(request => request.path === '/api/tools/call')).toHaveLength(1);
+        expect(f.stderr.join('')).toContain('Approval card:');
+    } finally { f.tools.dispose({}); }
+});
+
+it('JSON tool calls return pending and never approve, while malformed input and irrelevant flags send no HTTP', async () => {
+    const f = toolCliFixture({ confirmed: true });
+    try {
+        value({ result: await runOmCli({ argv: ['tools', 'call', 'fixture_write', '--input-file', '-', '--json'], runtime: f.runtime }) });
+        expect(f.confirmationCount()).toBe(0); expect(f.effects).toEqual([]); expect(f.stdout.join('')).toContain('"status":"pending"');
+    } finally { f.tools.dispose({}); }
+    for (const argv of [
+        ['tools', 'call', 'fixture_write'], ['tools', 'call', 'fixture_write', '--input-file', '-', '--choice', 'allow'],
+        ['tools', 'show', '..'], ['tools', 'list', '--limit', '101'], ['tools', 'list', '--limit', '1', '--limit', '2'],
+    ]) {
+        const bad = toolCliFixture();
+        try { expect(await runOmCli({ argv, runtime: bad.runtime })).toMatchObject({ ok: false }); expect(bad.requests).toEqual([]); }
+        finally { bad.tools.dispose({}); }
+    }
+    for (const file of ['{', JSON.stringify('x'.repeat(65537))]) {
+        const bad = toolCliFixture({ file });
+        try { expect(await runOmCli({ argv: ['tools', 'call', 'fixture_write', '--input-file', '-', '--json'], runtime: bad.runtime })).toMatchObject({ ok: false }); expect(bad.requests).toEqual([]); }
+        finally { bad.tools.dispose({}); }
+    }
+});
+
+it('reserves financial identity before verification and cancellation cannot reopen the pending operation', async () => {
+    const f = financialFixture({ policy: 'generation', amounts: [300] });
+    const ready = Promise.withResolvers<void>(); const release = Promise.withResolvers<void>();
+    const prepare = f.definition.prepareEffect!;
+    f.definition.prepareEffect = async input => { ready.resolve(); await release.promise; return prepare(input); };
+    try {
+        const first = f.tools.dispatch({ context: agent, call: f.calls[0] });
+        await ready.promise;
+        expect(value({ result: await f.tools.dispatch({ context: agent, call: f.calls[0] }) }).status).toBe('pending');
+        f.revoke(); release.resolve();
+        expect(await first).toMatchObject({ ok: false, error: { code: 'cancelled' } });
+        expect(value({ result: await f.tools.operation({ context: owner, operationId: f.calls[0].operationId }) }).status).toBe('cancelled');
+        expect(f.effects).toEqual([]);
+        expect(value({ result: await f.services.confirmations.list({ context: owner, query: { limit: 100 } }) }).items).toEqual([]);
+    } finally { release.resolve(); f.tools.dispose({}); }
+});
+
+it('re-resolves installed D2 sources and invalidates a pending card when its package is removed', async () => {
+    const f = fixture({}); const addons = addonFixture();
+    const tools = createOmTools({ clock: f.clock, observer: f.observer, confirmations: f.services.confirmations as ReturnType<typeof createMemoryConfirmationExchange>,
+        authorize: () => ({ ok: true, value: undefined }), definitions: input => buildOmToolDefinitions({ ...input, services: f.services, addons }) });
+    try {
+        const catalog = value({ result: await tools.list({ context: owner, limit: 100 }) });
+        const source = catalog.find(tool => tool.name.startsWith('addon_plugin_'))!;
+        value({ result: await tools.dispatch({ context: agent, call: { name: source.name, operationId: 'addon-operation', input: {} } }) });
+        const card = value({ result: await tools.card({ context: agent, operationId: 'addon-operation' }) })!;
+        addons.addons.list = async () => ({ ok: true, value: { items: [], cursor: null } });
+        expect(await tools.answer({ context: owner, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } })).toMatchObject({ ok: false, error: { code: 'conflict' } });
+        expect(value({ result: await tools.operation({ context: agent, operationId: 'addon-operation' }) }).status).toBe('interrupted');
+        expect(value({ result: await tools.list({ context: owner, limit: 100 }) }).some(tool => tool.name === source.name)).toBe(false);
+    } finally { tools.dispose({}); f.tools.dispose({}); }
+});
+
+it('typed backend effects cannot be disguised by combining them with read/write/generation/spend', async () => {
+    for (const effect of ['conversion', 'halt_stop'] as const) {
+        const f = fixture({}); f.definition.effects = ['write', 'generation', 'ad_spend', effect];
+        try {
+            expect(toolPolicy({ effects: f.definition.effects })).toBe('internal');
+            expect(await f.tools.dispatch({ context: agent, call: f.call })).toMatchObject({ ok: false, error: { code: 'forbidden' } });
+            expect(f.effects).toEqual([]);
+        } finally { f.tools.dispose({}); }
+    }
+});

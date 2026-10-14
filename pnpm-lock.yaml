@@ -161,6 +161,9 @@ importers:
       '@open-marketing/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@open-marketing/creative':
+        specifier: workspace:*
+        version: link:../../features/creative
       '@open-marketing/credentials':
         specifier: workspace:*
         version: link:../../features/credentials
