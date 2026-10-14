@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
-import type { BrowserWindow, BrowserWindowConstructorOptions, Session, WebContents } from "electron";
+import type { BrowserWindow, BrowserWindowConstructorOptions, Display, Rectangle, Screen, Session, WebContents } from "electron";
 import { expect, it, vi } from "vitest";
-import { createElectronHost, initialWindowBounds } from "../src/electron-host.js";
+import { centeredWindowBounds, createElectronHost, initialWindowBounds, intersectsWorkArea } from "../src/electron-host.js";
 
 const success = { ok: true, value: undefined };
 const opening = { studioUrl: "http://127.0.0.1:43210/studio", webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false } } as const;
@@ -11,8 +11,15 @@ type HeaderGuard = NonNullable<Parameters<Session["webRequest"]["onHeadersReceiv
 type PermissionGuard = NonNullable<Parameters<Session["setPermissionRequestHandler"]>[0]>;
 
 /** Only this fake boundary casts the Electron objects; tests drive registered callbacks. */
-function fixture(input: { partition?: string; load?: Promise<void> } = {}) {
+function fixture(input: { partition?: string; load?: Promise<void>; bounds?: Rectangle; workAreas?: readonly Rectangle[]; cursorArea?: Rectangle } = {}) {
  const calls: string[] = [];
+ const internal = { x: 0, y: 25, width: 1440, height: 875 };
+ const screen = {
+  // The fake screen supplies only the workArea used by the adapter.
+  getAllDisplays: vi.fn<Screen["getAllDisplays"]>(() => (input.workAreas ?? [internal]).map(workArea => ({ workArea }) as Display)),
+  getCursorScreenPoint: vi.fn<Screen["getCursorScreenPoint"]>(() => ({ x: 100, y: 100 })),
+  getDisplayNearestPoint: vi.fn<Screen["getDisplayNearestPoint"]>(() => ({ workArea: input.cursorArea ?? internal }) as Display),
+ };
  const session = {
   setPermissionRequestHandler: vi.fn<Session["setPermissionRequestHandler"]>(),
   setPermissionCheckHandler: vi.fn<Session["setPermissionCheckHandler"]>(),
@@ -33,13 +40,15 @@ function fixture(input: { partition?: string; load?: Promise<void> } = {}) {
    await input.load;
   }),
   show: vi.fn(() => { calls.push("show"); }),
+  getBounds: vi.fn<BrowserWindow["getBounds"]>(() => { calls.push("bounds"); return input.bounds ?? { x: 40, y: 25, width: 1360, height: 875 }; }),
+  setBounds: vi.fn<BrowserWindow["setBounds"]>(),
   isDestroyed: () => destroyed,
   destroy: vi.fn(() => { destroyed = true; calls.push("destroy"); }),
  };
  const createSession = vi.fn(() => session as unknown as Session);
  const createWindow = vi.fn((_options: BrowserWindowConstructorOptions) => window as unknown as BrowserWindow);
- const host = createElectronHost({ partition: input.partition ?? "om-fixture", createSession, createWindow });
- return { host, session, contents, window, createSession, createWindow, calls };
+ const host = createElectronHost({ partition: input.partition ?? "om-fixture", createSession, createWindow, screen });
+ return { host, session, contents, window, createSession, createWindow, screen, calls };
 }
 
 it("is inert and applies secure preferences and session guards before loading", async () => {
@@ -55,7 +64,9 @@ it("is inert and applies secure preferences and session guards before loading", 
   webviewTag: false, allowRunningInsecureContent: false, experimentalFeatures: false,
  } });
  expect(adapter.createWindow.mock.calls[0][0].webPreferences).not.toHaveProperty("preload");
- expect(adapter.calls).toEqual(["load", "show"]);
+ expect(adapter.calls).toEqual(["load", "show", "bounds"]);
+ expect(adapter.window.setBounds).not.toHaveBeenCalled();
+ expect(adapter.screen.getDisplayNearestPoint).not.toHaveBeenCalled();
  expect(await adapter.host.close({})).toEqual(success);
  expect(await adapter.host.close({})).toEqual(success);
  expect(adapter.window.destroy).toHaveBeenCalledOnce();
@@ -175,4 +186,61 @@ it("uses an injected persistent partition without changing session guards", asyn
  expect(adapter.session.setPermissionRequestHandler).toHaveBeenCalledOnce();
  expect(adapter.session.webRequest.onBeforeRequest).toHaveBeenCalledOnce();
  await adapter.host.close({});
+});
+
+const retinaWorkArea = { x: 0, y: 25, width: 1440, height: 875 };
+const leftWorkArea = { x: -1920, y: 25, width: 1920, height: 1055 };
+const rightWorkArea = { x: 1440, y: 25, width: 1920, height: 1055 };
+
+it.each([
+ { workAreas: [retinaWorkArea, leftWorkArea], bounds: { x: -1655, y: 94, width: 1360, height: 900 }, visible: true },
+ { workAreas: [retinaWorkArea, rightWorkArea], bounds: { x: -1655, y: 94, width: 1360, height: 900 }, visible: false },
+ { workAreas: [rightWorkArea, retinaWorkArea], bounds: { x: 1720, y: 94, width: 1360, height: 900 }, visible: true },
+ { workAreas: [retinaWorkArea, leftWorkArea], bounds: { x: 1439, y: 100, width: 800, height: 600 }, visible: true },
+ { workAreas: [retinaWorkArea, leftWorkArea], bounds: { x: 1440, y: 100, width: 800, height: 600 }, visible: false },
+ { workAreas: [retinaWorkArea, leftWorkArea], bounds: { x: 0, y: 900, width: 800, height: 600 }, visible: false },
+ { workAreas: [{ x: 0, y: 25, width: 1440, height: 0 }], bounds: { x: 0, y: 0, width: 800, height: 600 }, visible: false },
+])("checks positive overlap against every DIP work area: %j", ({ bounds, workAreas, visible }) => {
+ expect(intersectsWorkArea({ bounds, workAreas })).toBe(visible);
+});
+
+it.each([
+ [leftWorkArea, { x: -1640, y: 102, width: 1360, height: 900 }],
+ [rightWorkArea, { x: 1720, y: 102, width: 1360, height: 900 }],
+ [retinaWorkArea, { x: 40, y: 25, width: 1360, height: 875 }],
+])("recovers an off-screen restored window on the cursor display %j after showing", async (cursorArea, expected) => {
+ const adapter = fixture({ bounds: { x: -4000, y: 94, width: 1360, height: 900 }, workAreas: [retinaWorkArea, cursorArea], cursorArea });
+ expect(await adapter.host.open(opening)).toEqual(success);
+ expect(adapter.calls).toEqual(["load", "show", "bounds"]);
+ expect(adapter.screen.getAllDisplays).toHaveBeenCalledOnce();
+ expect(adapter.screen.getDisplayNearestPoint).toHaveBeenCalledExactlyOnceWith({ x: 100, y: 100 });
+ expect(adapter.window.setBounds).toHaveBeenCalledExactlyOnceWith(expected);
+});
+
+it("preserves a visible window on the negative-x external display", async () => {
+ const adapter = fixture({ bounds: { x: -1655, y: 94, width: 1360, height: 900 }, workAreas: [retinaWorkArea, leftWorkArea] });
+ expect(await adapter.host.open(opening)).toEqual(success);
+ expect(adapter.window.setBounds).not.toHaveBeenCalled();
+});
+
+it("uses the display layout at show time after a display changes during load", async () => {
+ const { promise: load, resolve: finish } = Promise.withResolvers<void>();
+ const adapter = fixture({ load, bounds: { x: -1655, y: 94, width: 1360, height: 900 }, workAreas: [retinaWorkArea, leftWorkArea], cursorArea: rightWorkArea });
+ const pending = adapter.host.open(opening);
+ expect(adapter.screen.getAllDisplays).not.toHaveBeenCalled();
+ adapter.screen.getAllDisplays.mockReturnValue([{ workArea: retinaWorkArea }, { workArea: rightWorkArea }] as Display[]);
+ finish();
+ expect(await pending).toEqual(success);
+ expect(adapter.window.setBounds).toHaveBeenCalledExactlyOnceWith({ x: 1720, y: 102, width: 1360, height: 900 });
+});
+
+it("centers restored dimensions without growing them", () => {
+ expect(centeredWindowBounds({ bounds: { width: 800, height: 600 }, workArea: rightWorkArea })).toEqual({ x: 2000, y: 252, width: 800, height: 600 });
+});
+
+it("maps a native recovery failure to the existing safe open error and destroys the window", async () => {
+ const adapter = fixture({ bounds: { x: -4000, y: 94, width: 1360, height: 900 } });
+ adapter.window.setBounds.mockImplementation(() => { throw new Error("native move failed"); });
+ expect(await adapter.host.open(opening)).toMatchObject({ ok: false, error: { code: "unavailable" } });
+ expect(adapter.window.destroy).toHaveBeenCalledOnce();
 });

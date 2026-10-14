@@ -66,6 +66,7 @@ async function start(): Promise<void> {
    now: () => performance.now(),
   },
   electron: {
+   screen,
    createSession: required => session.fromPartition(required.partition, { cache: false }),
    createWindow: required => new BrowserWindow({ ...required, ...initialWindowBounds({ workArea: screen.getPrimaryDisplay().workArea }) }),
   },

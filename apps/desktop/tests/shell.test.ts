@@ -123,7 +123,7 @@ it("terminal exit replay between readiness and subscription never opens studio",
 it("composition rejects missing/relative local paths without constructing effects", () => {
  const unexpected = () => { throw new Error("effects must stay inert"); };
  const effects = { platform: "darwin" as const, spawn: unexpected, signalGroup: unexpected, schedule: unexpected, now: unexpected };
- const electron = { createSession: unexpected, createWindow: unexpected };
+ const electron = { createSession: unexpected, createWindow: unexpected, screen: { getAllDisplays: unexpected, getCursorScreenPoint: unexpected, getDisplayNearestPoint: unexpected } };
  for (const env of [{}, { OM_NODE_EXECUTABLE: "node", OM_SERVER_ENTRY: "/server.js", OM_STATE_ROOT: "/state" }]) {
   expect(composeDesktop({ env, server: effects, electron, partition: "fixture", showError: unexpected })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
  }

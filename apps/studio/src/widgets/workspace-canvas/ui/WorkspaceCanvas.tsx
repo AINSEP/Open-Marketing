@@ -6,6 +6,7 @@ import type { ReactElement } from "react";
 import { CreativeMediaCanvas } from "./CreativeMediaCanvas.js";
 import { CampaignSafetyCanvas } from "./CampaignSafetyCanvas.js";
 import { OperationsCanvas } from "./OperationsCanvas.js";
+import { CanvasEmptyState } from "./CanvasEmptyState.js";
 
 /** Domain inspection through the existing API port; actions beyond exact review await j22. */
 export function WorkspaceCanvas(props: WorkspaceCanvasProps): ReactElement {
@@ -13,7 +14,7 @@ export function WorkspaceCanvas(props: WorkspaceCanvasProps): ReactElement {
   return <section className="workspace-canvas" data-view={props.target}>
     <div className="preview-notice"><span aria-hidden="true">◈</span><p>{props.snapshot.mode === "sample" ? "Preview workspace. All content and approvals are samples; no external call or spend will run." : "Review server results before taking the next step."}</p></div>
     {props.target === "workspaces" && <><div className="metrics-grid">{canvas.metrics.map(renderMetric)}</div><section className="brief-banner"><div><span className="eyebrow">FROM INTENT TO IMPACT</span><h2>A little clarity.<br />A better campaign.</h2><p>Shape the idea. Review the creative.<br />Know exactly what happens next.</p><button type="button" className="primary-button" onClick={props.onOpenChat}>Start with an idea <span aria-hidden="true">↗</span></button></div><div className="banner-art" aria-hidden="true"><div className="art-orbit" /><div className="art-note">Make it<br /><em>meaningful.</em></div><span className="art-spark">✦</span></div></section></>}
-    {props.target === "workspaces" ? <><div className="section-heading"><h2>{canvas.heading}</h2><span className="muted">{props.snapshot.mode === "sample" ? "SAMPLE CONTENT" : "WORKSPACE CONTENT"}</span></div><div className="canvas-grid">{canvas.rows.map(renderRow)}</div></> : <DomainCanvas model={canvas} target={props.target} />}
+    {props.target === "workspaces" ? <><div className="section-heading"><h2>{canvas.heading}</h2><span className="muted">{props.snapshot.mode === "sample" ? "SAMPLE CONTENT" : "WORKSPACE CONTENT"}</span></div><div className="canvas-grid">{canvas.rows.map(renderRow)}</div></> : canvas.emptyState ? <CanvasEmptyState model={canvas.emptyState} onOpenChat={props.onOpenChat} /> : <DomainCanvas model={canvas} target={props.target} />}
     <footer className="canvas-footer"><span>Intent → creative → campaign → evidence</span><span>Every spend call gets its own review.</span></footer>
   </section>;
 }

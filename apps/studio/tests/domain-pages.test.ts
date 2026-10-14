@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { afterEach, it, expect } from "vitest";
+import { afterEach, it, expect, vi } from "vitest";
 import { createElement } from "react";
 import { render, screen, cleanup, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
@@ -138,13 +138,64 @@ it("shows useful reauthentication and lost plugin authority, with operation/job/
   expect(activity.getByText("Operation: sample-halt-01")).toBeDefined();
   expect(activity.getByText("Job: job-halt-01")).toBeDefined(); expect(activity.getByText("Audit: audit-halt-01")).toBeDefined();
 });
-it("keeps shell-only snapshots compatible and shows unavailable domain details without successful defaults", async () => {
+it("keeps shell-only snapshots compatible without inventing successful domain defaults", async () => {
   const host = await domainHost(); const { pages: omitted, ...snapshot } = host.snapshot;
   expect(omitted).toBeDefined(); expect(parseStudioSnapshot({ input: snapshot }).ok).toBe(true);
-  for (const target of ["creative", "media-library", "campaigns", "settings", "measure", "connections", "plugins", "activity"] as const) {
+  for (const target of ["creative", "settings", "measure", "connections", "plugins"] as const) {
     show({ host, target, snapshot }); expect(screen.getByText("Domain details unavailable")).toBeDefined();
     expect(screen.queryByRole("button", { name: /^Allow$/ })).toBeNull(); cleanup();
   }
+});
+
+const emptyCanvasCases = [
+  { target: "campaigns", message: "Your campaigns and draft reviews will appear here.", link: "Connect an ad account in Integrations", button: "Ask the assistant to draft one" },
+  { target: "media-library", message: "Your images, videos, and creative assets will appear here.", link: "Connect an account in Integrations", button: "Ask the assistant to create an image" },
+  { target: "activity", message: "Your jobs, approvals, and outcomes will appear here.", link: "Connect an account in Integrations", button: "Ask the assistant to help you get started" },
+] as const;
+
+it.each(emptyCanvasCases)("guides first use on $target when optional page data is absent", async ({ target, message, link, button }) => {
+  const host = await domainHost(); const { pages: omitted, ...snapshot } = host.snapshot;
+  expect(omitted).toBeDefined();
+  const onOpenChat = vi.fn();
+  show({ host: { ...host, onOpenChat }, target, snapshot });
+  expect(screen.getByRole("status").textContent).toBe(message);
+  expect(screen.getByRole("link", { name: link }).getAttribute("href")).toBe("#/addons/integrations");
+  expect(screen.queryByText("Domain details unavailable")).toBeNull();
+  expect(screen.queryByRole("button", { name: /^Allow$/ })).toBeNull();
+  expect(onOpenChat).not.toHaveBeenCalled();
+  await userEvent.setup().click(screen.getByRole("button", { name: button }));
+  expect(onOpenChat).toHaveBeenCalledOnce();
+});
+
+it.each(emptyCanvasCases)("guides first use on $target when the API supplies empty lists", async ({ target, message, link, button }) => {
+  const host = await domainHost(); const data = pages({ snapshot: host.snapshot });
+  const snapshot: StudioSnapshot = { ...host.snapshot, mode: "connected", pages: {
+    ...data,
+    creative: { ...data.creative, assets: [] },
+    campaigns: { ...data.campaigns, drafts: [], halts: [] },
+    operations: { ...data.operations, activity: [] },
+  } };
+  const onOpenChat = vi.fn();
+  show({ host: { ...host, onOpenChat }, target, snapshot });
+  expect(screen.getByRole("status").textContent).toBe(message);
+  expect(screen.getByRole("link", { name: link }).getAttribute("href")).toBe("#/addons/integrations");
+  expect(screen.queryByRole("button", { name: /^Allow$/ })).toBeNull();
+  await userEvent.setup().click(screen.getByRole("button", { name: button }));
+  expect(onOpenChat).toHaveBeenCalledOnce();
+});
+
+it("keeps campaign halt evidence visible even without campaign drafts", async () => {
+  const host = await domainHost(); const data = pages({ snapshot: host.snapshot });
+  const snapshot: StudioSnapshot = { ...host.snapshot, pages: { ...data, campaigns: { ...data.campaigns, drafts: [] } } };
+  show({ host, target: "campaigns", snapshot });
+  expect(screen.queryByRole("article", { name: "Get started" })).toBeNull();
+  expect(within(screen.getByRole("article", { name: "Launch account" })).getByText("blocked")).toBeDefined();
+});
+
+it.each(["campaigns", "media-library", "activity"] as const)("preserves populated %s content", async target => {
+  const host = await domainHost(); show({ host, target });
+  expect(screen.queryByRole("article", { name: "Get started" })).toBeNull();
+  expect(screen.getAllByRole("article").length).toBeGreaterThan(0);
 });
 it("rejects a mixed-validity domain batch, nested secrets, plugin configuration and display-limit overflow", async () => {
   const host = await domainHost(); const data = pages({ snapshot: host.snapshot });

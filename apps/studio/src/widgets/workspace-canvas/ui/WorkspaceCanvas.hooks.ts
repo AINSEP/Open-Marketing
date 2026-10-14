@@ -22,10 +22,18 @@ export type ReportView = Report & { readonly sourceText: string; readonly cacTex
 export interface CreativeMediaModel { readonly generations: readonly GenerationView[]; readonly assets: readonly AssetView[] }
 export interface CampaignSafetyModel { readonly drafts: readonly DraftView[]; readonly halts: Pages["campaigns"]["halts"]; readonly allowances: readonly AllowanceView[] }
 export interface OperationsModel extends Omit<Pages["operations"], "reports"> { readonly reports: readonly ReportView[] }
+/** Page copy and destinations for the three first-use canvas states. */
+export interface CanvasEmptyStateModel { readonly message: string; readonly linkLabel: string; readonly href: string; readonly assistantLabel: string }
 export interface WorkspaceCanvasModel {
   readonly rows: readonly StudioRow[]; readonly metrics: readonly StudioMetric[]; readonly heading: string;
   readonly creative: CreativeMediaModel | null; readonly campaigns: CampaignSafetyModel | null; readonly operations: OperationsModel | null;
+  readonly emptyState: CanvasEmptyStateModel | null;
 }
+const emptyStates = {
+  campaigns: { message: "Your campaigns and draft reviews will appear here.", linkLabel: "Connect an ad account in Integrations", href: "#/addons/integrations", assistantLabel: "Ask the assistant to draft one" },
+  "media-library": { message: "Your images, videos, and creative assets will appear here.", linkLabel: "Connect an account in Integrations", href: "#/addons/integrations", assistantLabel: "Ask the assistant to create an image" },
+  activity: { message: "Your jobs, approvals, and outcomes will appear here.", linkLabel: "Connect an account in Integrations", href: "#/addons/integrations", assistantLabel: "Ask the assistant to help you get started" },
+} satisfies Record<string, CanvasEmptyStateModel>;
 const allowanceLabels: Record<Generation["allowanceClassification"], string> = {
   within_allowance: "Within daily allowance · server assessment",
   over_allowance: "Over daily allowance · exact approval required",
@@ -43,10 +51,24 @@ export function useWorkspaceCanvas(required: WorkspaceCanvasProps): WorkspaceCan
   return {
     rows: required.snapshot.rows[required.target] ?? [], metrics: required.snapshot.metrics,
     heading: canvasHeading({ target: required.target }),
+    emptyState: canvasEmptyState({ target: required.target, pages }),
     creative: pages ? creativeView({ area: pages.creative, cards, props: required }) : null,
     campaigns: pages ? campaignView({ area: pages.campaigns, cards, props: required }) : null,
     operations: pages ? operationsView({ area: pages.operations }) : null,
   };
+}
+/** Treat absent optional page data and empty lists alike, without hiding halt evidence.
+ * @returns First-use copy, or null when this page has content or uses another canvas.
+ * @complexity O(1) time/space; no I/O or inferred campaign status.
+ */
+function canvasEmptyState(required: { target: NavigationTarget; pages: StudioSnapshot["pages"] }): CanvasEmptyStateModel | null {
+  const pages = required.pages;
+  switch (required.target) {
+    case "campaigns": return !pages || (pages.campaigns.drafts.length === 0 && pages.campaigns.halts.length === 0) ? emptyStates.campaigns : null;
+    case "media-library": return !pages || pages.creative.assets.length === 0 ? emptyStates["media-library"] : null;
+    case "activity": return !pages || pages.operations.activity.length === 0 ? emptyStates.activity : null;
+    default: return null;
+  }
 }
 /** Null money carries no evidence of zero cost; Intl handles currency precision. */
 function formatMoney(required: { money: Money | null }): string {

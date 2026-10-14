@@ -1,5 +1,5 @@
 /** Secure Electron adapter; the real Electron module is loaded only by main.ts. */
-import type { BrowserWindow, BrowserWindowConstructorOptions, Rectangle, Session } from "electron";
+import type { BrowserWindow, BrowserWindowConstructorOptions, Rectangle, Screen, Session } from "electron";
 import { z } from "zod";
 import type { Outcome } from "@open-marketing/contracts";
 import type { ElectronHostPort } from "./ports.js";
@@ -8,6 +8,7 @@ import type { ElectronHostPort } from "./ports.js";
 export interface ElectronEffects {
  createSession(required: { partition: string }): Session;
  createWindow(required: BrowserWindowConstructorOptions): BrowserWindow;
+ screen: Pick<Screen, "getAllDisplays" | "getCursorScreenPoint" | "getDisplayNearestPoint">;
 }
 
 const success: Outcome<void> = { ok: true, value: undefined };
@@ -25,9 +26,43 @@ const csp = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inl
  * @returns Complete initial bounds, capped to fit smaller displays without saved positions.
  */
 export function initialWindowBounds(required: { workArea: Rectangle }): Rectangle {
- const width = Math.min(1360, required.workArea.width);
- const height = Math.min(900, required.workArea.height);
+ return centeredWindowBounds({ workArea: required.workArea, bounds: { width: 1360, height: 900 } });
+}
+
+/** Preserve visible windows, including negative coordinates and partial overlap.
+ * Both window bounds and work areas must use Electron DIP coordinates.
+ * @returns Whether at least one display has positive-area overlap; edge contact is off-screen.
+ * @example intersectsWorkArea({ bounds: windowBounds, workAreas: displays.map(display => display.workArea) });
+ * @complexity O(d) time for d displays, O(1) extra space; no effects.
+ */
+export function intersectsWorkArea(required: { bounds: Rectangle; workAreas: readonly Rectangle[] }): boolean {
+ const bounds = required.bounds;
+ return required.workAreas.some(area =>
+  Math.max(bounds.x, area.x) < Math.min(bounds.x + bounds.width, area.x + area.width) &&
+  Math.max(bounds.y, area.y) < Math.min(bounds.y + bounds.height, area.y + area.height));
+}
+
+/** Center existing DIP dimensions, capped to the destination work area. No effects.
+ * @returns Complete centered bounds in DIP coordinates.
+ * @example centeredWindowBounds({ bounds: { width: 800, height: 600 }, workArea });
+ * @complexity O(1) time/space.
+ */
+export function centeredWindowBounds(required: { workArea: Rectangle; bounds: Pick<Rectangle, "width" | "height"> }): Rectangle {
+ const width = Math.min(required.bounds.width, required.workArea.width);
+ const height = Math.min(required.bounds.height, required.workArea.height);
  return { width, height, x: required.workArea.x + Math.floor((required.workArea.width - width) / 2), y: required.workArea.y + Math.floor((required.workArea.height - height) / 2) };
+}
+
+/** Read current geometry after show: constructor-time display placement can be stale.
+ * Move only fully off-screen windows to the cursor's display; native failures reach openNow's typed error boundary.
+ * @complexity O(d) time/space for the current display list; one native move at most.
+ */
+function ensureWindowVisible(required: { window: BrowserWindow; screen: ElectronEffects["screen"] }): void {
+ const bounds = required.window.getBounds();
+ const workAreas = required.screen.getAllDisplays().map(display => display.workArea);
+ if (intersectsWorkArea({ bounds, workAreas })) return;
+ const workArea = required.screen.getDisplayNearestPoint(required.screen.getCursorScreenPoint()).workArea;
+ required.window.setBounds(centeredWindowBounds({ bounds, workArea }));
 }
 
 /** Reject malformed URLs, credentials, and lookalike hosts before Electron uses them. */
@@ -94,6 +129,7 @@ export function createElectronHost(required: ElectronEffects & { partition: stri
    await window.loadURL(parsed.data);
    if (closed) return { ok: false, error: { code: "cancelled", message: "Studio opening was stopped", retryable: false } };
    window.show();
+   ensureWindowVisible({ window, screen: required.screen });
    return success;
   } catch {
    const cleaned = destroyWindow();
