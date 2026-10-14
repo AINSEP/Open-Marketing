@@ -1,0 +1,126 @@
+{
+  "version": 1,
+  "admitted": false,
+  "capabilities": [
+    {
+      "capabilityId": "tiktok_ads.get_advertiser.v1",
+      "version": 1,
+      "pluginId": "tiktok-ads",
+      "schemaFingerprint": "2ab99b57c4ab97c50c20f7e9d1dbf3c7629984befcfad86c937804babfa4f3df",
+      "admitted": false,
+      "effects": [
+        "read"
+      ]
+    },
+    {
+      "capabilityId": "tiktok_ads.get_campaigns.v1",
+      "version": 1,
+      "pluginId": "tiktok-ads",
+      "schemaFingerprint": "69eee642265eb6f47f0f5c9bb2ad628807da841e775a77798ae8ef18b481fd3e",
+      "admitted": false,
+      "effects": [
+        "read"
+      ]
+    },
+    {
+      "capabilityId": "tiktok_ads.get_adgroups.v1",
+      "version": 1,
+      "pluginId": "tiktok-ads",
+      "schemaFingerprint": "56476fe3fe8a2be82f06736e131b8949a62e32ef7e9eb942001c8f4e9e192591",
+      "admitted": false,
+      "effects": [
+        "read"
+      ]
+    },
+    {
+      "capabilityId": "tiktok_ads.get_ads.v1",
+      "version": 1,
+      "pluginId": "tiktok-ads",
+      "schemaFingerprint": "b33657025167f3c2e3573129e85999e376f9ec9a5cabf24a5f0c2c1a88618337",
+      "admitted": false,
+      "effects": [
+        "read"
+      ]
+    },
+    {
+      "capabilityId": "report.account-spend.v1",
+      "version": 1,
+      "pluginId": "tiktok-ads",
+      "schemaFingerprint": "28a8a8a35a4966272cea9a6a5afdd47807d0ff91972219f944331e7221c090bd",
+      "admitted": false,
+      "effects": [
+        "read"
+      ]
+    },
+    {
+      "capabilityId": "tiktok_ads.create_campaign_paused.v1",
+      "version": 1,
+      "pluginId": "tiktok-ads",
+      "schemaFingerprint": "c44d2a187c05ca48638ce3f8257d55e867c05ee6cb9891261cfc6b1fb448b208",
+      "admitted": false,
+      "effects": [
+        "write"
+      ]
+    },
+    {
+      "capabilityId": "tiktok_ads.create_adgroup_paused.v1",
+      "version": 1,
+      "pluginId": "tiktok-ads",
+      "schemaFingerprint": "bd4d374a2ac7aae2cc00d2ec1d37d944f038cbf9e2a95392d137657b7c959f6e",
+      "admitted": false,
+      "effects": [
+        "write"
+      ]
+    },
+    {
+      "capabilityId": "tiktok_ads.create_ad_paused.v1",
+      "version": 1,
+      "pluginId": "tiktok-ads",
+      "schemaFingerprint": "0c065129d36766b525f0618501098133f69dfc616a98e55c7bc7e8dc541db05b",
+      "admitted": false,
+      "effects": [
+        "write"
+      ]
+    },
+    {
+      "capabilityId": "tiktok_ads.activate_entity.v1",
+      "version": 1,
+      "pluginId": "tiktok-ads",
+      "schemaFingerprint": "e034de5b0772da14b7219edba10faa07fc1ca13d890054e170967c63156fe076",
+      "admitted": false,
+      "effects": [
+        "ad_spend"
+      ]
+    },
+    {
+      "capabilityId": "tiktok_ads.pause_entity.v1",
+      "version": 1,
+      "pluginId": "tiktok-ads",
+      "schemaFingerprint": "b27f372ae1c209208becf31ea1b14c4c6252e5882637bb62f598fd6158718129",
+      "admitted": false,
+      "effects": [
+        "write"
+      ]
+    },
+    {
+      "capabilityId": "campaign.stop-only.v1",
+      "version": 1,
+      "pluginId": "tiktok-ads",
+      "schemaFingerprint": "97f2f482c47e78d42b58ab49b45f20d6d2b20281dc550fcfc32db3a40466b190",
+      "admitted": false,
+      "effects": [
+        "halt_stop"
+      ]
+    },
+    {
+      "capabilityId": "conversion.signup-trial.v1",
+      "version": 1,
+      "pluginId": "tiktok-ads",
+      "schemaFingerprint": "2fa7895d14ca0d7fca7d4b2a892a6fafd74123f841147d0e13a6f3fe743542a9",
+      "admitted": false,
+      "effects": [
+        "conversion"
+      ]
+    }
+  ]
+}

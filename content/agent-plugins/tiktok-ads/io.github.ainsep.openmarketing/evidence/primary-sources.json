@@ -1,0 +1,447 @@
+{
+  "apiVersion": "v1.3",
+  "inspectedAt": "2026-10-13",
+  "vendorPublicationDate": "UNVERIFIED: no publication date exposed by the inspected references",
+  "admission": "disabled-pending-host-admission",
+  "scope": "R1 + R2: ten tool commands; backend-only campaign halt and digest-only signup/trial Events delivery. Server/addons integration remains deferred.",
+  "inspection": "Official TikTok developer web searches and direct portal/SDK reads, 2026-10-13. Most portal pages render only with JavaScript; searchable official snippets supplement TikTok-owned SDK field documentation. SDK field presence does not establish accepted combinations or response shape. No authenticated vendor calls.",
+  "baseUrl": "https://business-api.tiktok.com/open_api/v1.3/",
+  "authentication": {
+    "portalUrl": "https://business-api.tiktok.com/portal/docs?id=1738373141733378",
+    "sdkUrl": "https://github.com/tiktok/tiktok-business-api-sdk/blob/main/python_sdk/business_api_client/api/account_management_api.py",
+    "confirmed": [
+      "The SDK's advertiser_info method sets the Access-Token request header from access_token.",
+      "access_token is required by each of the five inspected SDK methods."
+    ],
+    "unverified": [
+      "UNVERIFIED: exact app permission/scope names and account-specific eligibility; no scopes are invented in code.",
+      "UNVERIFIED in this inspection: OAuth token lifetime/rotation. Server/addons owns exchange, storage and authorization checks."
+    ]
+  },
+  "endpoints": [
+    {
+      "tool": "tiktok_ads.get_advertiser",
+      "path": "advertiser/info/",
+      "method": "GET",
+      "portalUrl": "https://business-api.tiktok.com/portal/docs?id=1739593083610113",
+      "sdkUrl": "https://github.com/tiktok/tiktok-business-api-sdk/blob/main/python_sdk/docs/AccountManagementApi.md#advertiser_info",
+      "confirmedRequestFields": [
+        "advertiser_ids: list of string IDs",
+        "access_token: required header input"
+      ],
+      "unverified": [
+        "UNVERIFIED: nested data.list response shape and advertiser_id, advertiser_name, currency, timezone response mapping; fixture-labelled and strictly decoded.",
+        "UNVERIFIED: JSON-text array query encoding. SDK declares collection format multi; selected JSON-text encoding needs host admission verification."
+      ],
+      "apiVersion": "v1.3",
+      "inspectedAt": "2026-10-13"
+    },
+    {
+      "tool": "tiktok_ads.get_campaigns",
+      "path": "campaign/get/",
+      "method": "GET",
+      "portalUrl": "https://business-api.tiktok.com/portal/docs?id=1739315828649986",
+      "sdkUrl": "https://github.com/tiktok/tiktok-business-api-sdk/blob/main/python_sdk/docs/CampaignCreationApi.md#campaign_get",
+      "confirmedRequestFields": [
+        "advertiser_id: string",
+        "access_token: required header input",
+        "page: integer",
+        "page_size: integer",
+        "filtering: FilteringCampaignGet"
+      ],
+      "filterUrl": "https://github.com/tiktok/tiktok-business-api-sdk/blob/main/python_sdk/docs/FilteringCampaignGet.md",
+      "confirmedFilterFields": [
+        "campaign_ids: list of strings"
+      ],
+      "unverified": [
+        "UNVERIFIED: data.list rows containing advertiser_id, campaign_id, campaign_name, operation_status; data.page_info.page, page_size, total_page, total_number and exact total-page semantics. Missing/malformed/mismatched values fail per call."
+      ],
+      "apiVersion": "v1.3",
+      "inspectedAt": "2026-10-13"
+    },
+    {
+      "tool": "tiktok_ads.get_adgroups",
+      "path": "adgroup/get/",
+      "method": "GET",
+      "portalUrl": "https://business-api.tiktok.com/portal/docs?id=1739314558673922",
+      "sdkUrl": "https://github.com/tiktok/tiktok-business-api-sdk/blob/main/python_sdk/docs/AdgroupApi.md#adgroup_get",
+      "confirmedRequestFields": [
+        "advertiser_id: string",
+        "access_token: required header input",
+        "page: integer",
+        "page_size: integer",
+        "filtering: FilteringAdgroupGet"
+      ],
+      "filterUrl": "https://github.com/tiktok/tiktok-business-api-sdk/blob/main/python_sdk/docs/FilteringAdgroupGet.md",
+      "confirmedFilterFields": [
+        "adgroup_ids: list of strings"
+      ],
+      "portalExampleUrl": "https://business-api.tiktok.com/portal/docs?id=1788434533212162",
+      "confirmedFromPortalSearch": [
+        "v1.3/adgroup/get uses advertiser_id, JSON-text filtering, page and page_size in its examples."
+      ],
+      "unverified": [
+        "UNVERIFIED: data.list rows containing advertiser_id, campaign_id, adgroup_id, adgroup_name, operation_status; data.page_info.page, page_size, total_page, total_number and exact total-page semantics."
+      ],
+      "apiVersion": "v1.3",
+      "inspectedAt": "2026-10-13"
+    },
+    {
+      "tool": "tiktok_ads.get_ads",
+      "path": "ad/get/",
+      "method": "GET",
+      "portalUrl": "https://business-api.tiktok.com/portal/docs?id=1735735588640770",
+      "sdkUrl": "https://github.com/tiktok/tiktok-business-api-sdk/blob/main/python_sdk/docs/AdApi.md#ad_get",
+      "confirmedRequestFields": [
+        "advertiser_id: string",
+        "access_token: required header input",
+        "page: integer",
+        "page_size: integer",
+        "filtering: FilteringAdGet"
+      ],
+      "filterUrl": "https://github.com/tiktok/tiktok-business-api-sdk/blob/main/python_sdk/docs/FilteringAdGet.md",
+      "confirmedFilterFields": [
+        "ad_ids: list of strings"
+      ],
+      "portalExampleUrl": "https://business-api.tiktok.com/portal/docs?id=1788434533212162",
+      "confirmedFromPortalSearch": [
+        "v1.3/ad/get uses advertiser_id, JSON-text filtering, page and page_size in its examples."
+      ],
+      "unverified": [
+        "UNVERIFIED: data.list rows containing advertiser_id, campaign_id, adgroup_id, ad_id, ad_name, operation_status; data.page_info.page, page_size, total_page, total_number and exact total-page semantics."
+      ],
+      "apiVersion": "v1.3",
+      "inspectedAt": "2026-10-13"
+    },
+    {
+      "tool": "tiktok_ads.report",
+      "path": "report/integrated/get/",
+      "method": "GET",
+      "portalUrl": "https://business-api.tiktok.com/portal/docs?id=1740302848100353",
+      "sdkUrl": "https://github.com/tiktok/tiktok-business-api-sdk/blob/main/python_sdk/docs/ReportingApi.md#report_integrated_get",
+      "confirmedRequestFields": [
+        "report_type: string, required",
+        "access_token: required header input",
+        "advertiser_id: string",
+        "service_type: string",
+        "data_level: string",
+        "dimensions: list of strings",
+        "metrics: list of strings",
+        "start_date: string",
+        "end_date: string",
+        "page: integer",
+        "page_size: integer"
+      ],
+      "dimensionsUrl": "https://business-api.tiktok.com/portal/docs?id=1751443956638721",
+      "confirmedFromPortalSearch": [
+        "advertiser_id is a basic-report dimension; stat_time_day groups by day; AUCTION_ADVERTISER appears as an advertiser data level; spend appears as a metric."
+      ],
+      "selectedFixtureValues": {
+        "report_type": "BASIC",
+        "service_type": "AUCTION",
+        "data_level": "AUCTION_ADVERTISER",
+        "dimensions": [
+          "advertiser_id"
+        ],
+        "metrics": [
+          "spend"
+        ]
+      },
+      "unverified": [
+        "UNVERIFIED: this exact selected metric/dimension/report/service combination and inclusive date/timezone semantics.",
+        "UNVERIFIED: data.list[].dimensions.advertiser_id, data.list[].metrics.spend decimal text and data.page_info.page, page_size, total_page, total_number response mapping.",
+        "UNVERIFIED: decimal precision and vendor timezone-to-IANA mapping. Host must supply verified account metadata; decoder does not infer currency exponent, translate offset labels, round, or sum breakdown rows.",
+        "UNVERIFIED: reports' zero-row meaning. Empty and partial reports have complete:false and spend:null, never a zero or complete snapshot."
+      ],
+      "apiVersion": "v1.3",
+      "inspectedAt": "2026-10-13"
+    },
+    {
+      "tool": "tiktok_ads.create_campaign_paused",
+      "path": "campaign/create/",
+      "method": "POST",
+      "apiVersion": "v1.3",
+      "inspectedAt": "2026-10-13",
+      "portalUrl": "https://business-api.tiktok.com/portal/docs?id=1739318962329602",
+      "sdkUrl": "https://github.com/tiktok/tiktok-business-api-sdk/blob/main/python_sdk/docs/CampaignCreationApi.md#campaign_create",
+      "modelUrl": "https://github.com/tiktok/tiktok-business-api-sdk/blob/main/python_sdk/docs/CampaignCreateBody.md",
+      "confirmedRequestFields": [
+        "advertiser_id",
+        "campaign_name",
+        "objective_type",
+        "budget_mode",
+        "budget",
+        "operation_status"
+      ],
+      "selectedFixtureValues": {
+        "objective_type": "TRAFFIC",
+        "budget_mode": "BUDGET_MODE_DAY",
+        "operation_status": "DISABLE"
+      },
+      "unverified": [
+        "UNVERIFIED: accepted enum/field combinations and eligibility for this narrow ordinary website traffic path, including DISABLE semantics. Host admission remains false.",
+        "UNVERIFIED: create response ID shape (campaign_id/adgroup_id/ad_ids). Malformed acceptance stays unknown; explicit non-DISABLE or incomplete readback fails per call without automatic repair."
+      ],
+      "confirmedDefaults": "SDK documents ENABLE as the operation_status default. Plugin explicitly overrides it with DISABLE on campaign, group and each creative."
+    },
+    {
+      "tool": "tiktok_ads.create_adgroup_paused",
+      "path": "adgroup/create/",
+      "method": "POST",
+      "apiVersion": "v1.3",
+      "inspectedAt": "2026-10-13",
+      "portalUrl": "https://business-api.tiktok.com/portal/docs?id=1739499616346114",
+      "sdkUrl": "https://github.com/tiktok/tiktok-business-api-sdk/blob/main/python_sdk/docs/AdgroupApi.md#adgroup_create",
+      "modelUrl": "https://github.com/tiktok/tiktok-business-api-sdk/blob/main/python_sdk/docs/AdgroupCreateBody.md",
+      "confirmedRequestFields": [
+        "advertiser_id",
+        "campaign_id",
+        "adgroup_name",
+        "budget_mode",
+        "budget",
+        "operation_status",
+        "promotion_type",
+        "placement_type",
+        "placements",
+        "location_ids",
+        "optimization_goal",
+        "billing_event",
+        "bid_type",
+        "pacing",
+        "schedule_type",
+        "schedule_start_time"
+      ],
+      "selectedFixtureValues": {
+        "promotion_type": "WEBSITE",
+        "placement_type": "PLACEMENT_TYPE_NORMAL",
+        "placements": [
+          "PLACEMENT_TIKTOK"
+        ],
+        "optimization_goal": "CLICK",
+        "billing_event": "CPC",
+        "bid_type": "BID_TYPE_NO_BID",
+        "pacing": "PACING_MODE_SMOOTH",
+        "schedule_type": "SCHEDULE_FROM_NOW",
+        "budget_mode": "BUDGET_MODE_DAY",
+        "operation_status": "DISABLE"
+      },
+      "unverified": [
+        "UNVERIFIED: accepted enum/field combinations and eligibility for this narrow ordinary website traffic path, including DISABLE semantics. Host admission remains false.",
+        "UNVERIFIED: create response ID shape (campaign_id/adgroup_id/ad_ids). Malformed acceptance stays unknown; explicit non-DISABLE or incomplete readback fails per call without automatic repair."
+      ],
+      "confirmedDefaults": "SDK documents ENABLE as the operation_status default. Plugin explicitly overrides it with DISABLE on campaign, group and each creative."
+    },
+    {
+      "tool": "tiktok_ads.create_ad_paused",
+      "path": "ad/create/",
+      "method": "POST",
+      "apiVersion": "v1.3",
+      "inspectedAt": "2026-10-13",
+      "portalUrl": "https://business-api.tiktok.com/portal/docs?id=1739953377508354",
+      "sdkUrl": "https://github.com/tiktok/tiktok-business-api-sdk/blob/main/python_sdk/docs/AdApi.md#ad_create",
+      "modelUrl": "https://github.com/tiktok/tiktok-business-api-sdk/blob/main/python_sdk/docs/AdCreateBody.md",
+      "confirmedRequestFields": [
+        "advertiser_id",
+        "adgroup_id",
+        "creatives"
+      ],
+      "selectedFixtureValues": {
+        "creatives[].ad_format": "SINGLE_VIDEO",
+        "creatives[].identity_type": "AUTH_CODE",
+        "creatives[].call_to_action": "LEARN_MORE",
+        "creatives[].operation_status": "DISABLE"
+      },
+      "unverified": [
+        "UNVERIFIED: accepted enum/field combinations and eligibility for this narrow ordinary website traffic path, including DISABLE semantics. Host admission remains false.",
+        "UNVERIFIED: create response ID shape (campaign_id/adgroup_id/ad_ids). Malformed acceptance stays unknown; explicit non-DISABLE or incomplete readback fails per call without automatic repair."
+      ],
+      "creativeModelUrl": "https://github.com/tiktok/tiktok-business-api-sdk/blob/main/python_sdk/docs/AdcreateCreatives.md",
+      "confirmedCreativeFields": [
+        "ad_name",
+        "ad_text",
+        "ad_format",
+        "video_id",
+        "identity_type",
+        "identity_id",
+        "landing_page_url",
+        "call_to_action",
+        "operation_status"
+      ],
+      "confirmedDefaults": "SDK documents ENABLE as the operation_status default. Plugin explicitly overrides it with DISABLE on campaign, group and each creative."
+    },
+    {
+      "tools": [
+        "tiktok_ads.activate_entity",
+        "tiktok_ads.pause_entity",
+        "backend.stop"
+      ],
+      "path": "campaign/status/update/",
+      "method": "POST",
+      "apiVersion": "v1.3",
+      "inspectedAt": "2026-10-13",
+      "portalUrl": "https://business-api.tiktok.com/portal/docs?id=1739320994354178",
+      "sdkUrl": "https://github.com/tiktok/tiktok-business-api-sdk/blob/main/python_sdk/docs/CampaignCreationApi.md#campaign_status_update",
+      "modelUrl": "https://github.com/tiktok/tiktok-business-api-sdk/blob/main/python_sdk/docs/CampaignStatusUpdateBody.md",
+      "confirmedRequestFields": [
+        "advertiser_id",
+        "campaign_ids",
+        "operation_status"
+      ],
+      "selectedFixtureValues": {
+        "activation": "ENABLE",
+        "pause/stop": "DISABLE"
+      },
+      "unverified": [
+        "UNVERIFIED: accepted status enum and actual serving semantics. ENABLE/DISABLE are fixture-labelled constants in commands.ts; host admission covers real dispatch. Readback observes operational status only.",
+        "UNVERIFIED: vendor write idempotency guarantees. Stable OM operationId is a server outbox claim, never an assumed vendor dedupe key."
+      ]
+    },
+    {
+      "tools": [
+        "tiktok_ads.activate_entity",
+        "tiktok_ads.pause_entity"
+      ],
+      "path": "adgroup/status/update/",
+      "method": "POST",
+      "apiVersion": "v1.3",
+      "inspectedAt": "2026-10-13",
+      "portalUrl": "https://business-api.tiktok.com/portal/docs?id=1739591716326402",
+      "sdkUrl": "https://github.com/tiktok/tiktok-business-api-sdk/blob/main/python_sdk/docs/AdgroupApi.md#adgroup_status_update",
+      "modelUrl": "https://github.com/tiktok/tiktok-business-api-sdk/blob/main/python_sdk/docs/AdgroupStatusUpdateBody.md",
+      "confirmedRequestFields": [
+        "advertiser_id",
+        "adgroup_ids",
+        "operation_status"
+      ],
+      "selectedFixtureValues": {
+        "activation": "ENABLE",
+        "pause/stop": "DISABLE"
+      },
+      "unverified": [
+        "UNVERIFIED: accepted status enum and actual serving semantics. ENABLE/DISABLE are fixture-labelled constants in commands.ts; host admission covers real dispatch. Readback observes operational status only.",
+        "UNVERIFIED: vendor write idempotency guarantees. Stable OM operationId is a server outbox claim, never an assumed vendor dedupe key."
+      ]
+    },
+    {
+      "tools": [
+        "tiktok_ads.activate_entity",
+        "tiktok_ads.pause_entity"
+      ],
+      "path": "ad/status/update/",
+      "method": "POST",
+      "apiVersion": "v1.3",
+      "inspectedAt": "2026-10-13",
+      "portalUrl": "https://business-api.tiktok.com/portal/docs?id=1739953422970882",
+      "sdkUrl": "https://github.com/tiktok/tiktok-business-api-sdk/blob/main/python_sdk/docs/AdApi.md#ad_status_update",
+      "modelUrl": "https://github.com/tiktok/tiktok-business-api-sdk/blob/main/python_sdk/docs/AdStatusUpdateBody.md",
+      "confirmedRequestFields": [
+        "advertiser_id",
+        "ad_ids",
+        "operation_status"
+      ],
+      "selectedFixtureValues": {
+        "activation": "ENABLE",
+        "pause/stop": "DISABLE"
+      },
+      "unverified": [
+        "UNVERIFIED: accepted status enum and actual serving semantics. ENABLE/DISABLE are fixture-labelled constants in commands.ts; host admission covers real dispatch. Readback observes operational status only.",
+        "UNVERIFIED: vendor write idempotency guarantees. Stable OM operationId is a server outbox claim, never an assumed vendor dedupe key."
+      ]
+    },
+    {
+      "tool": "backend.deliver",
+      "path": "event/track/",
+      "method": "POST",
+      "apiVersion": "v1.3",
+      "eventsVersion": "Events API 2.0",
+      "inspectedAt": "2026-10-13",
+      "portalUrl": "https://business-api.tiktok.com/portal/docs?id=1771100865818625",
+      "guideUrl": "https://business-api.tiktok.com/portal/docs?id=1771100779668482",
+      "searchableParametersUrl": "https://business-api.tiktok.com/gateway/docs/index?doc_id=1771100865818625&identify_key=c0138ffadd90a955c1f0670a56fe348d1d40680b3c89461e09f78ed26785164b&language=ENGLISH",
+      "standardEventsUrl": "https://ads.tiktok.com/resources/help/article/standard-events-parameters",
+      "identifierGuideUrl": "https://business-api.tiktok.com/gateway/docs/index?doc_id=1799004097478658&identify_key=c0138ffadd90a955c1f0670a56fe348d1d40680b3c89461e09f78ed26785164b",
+      "payloadHelperUrl": "https://business-api.tiktok.com/payload_helper/",
+      "confirmedRequestFields": [
+        "event_source",
+        "event_source_id",
+        "data[].event",
+        "data[].event_time",
+        "data[].event_id",
+        "data[].user.email",
+        "data[].user.phone",
+        "data[].user.external_id",
+        "data[].page.url"
+      ],
+      "confirmedFromOfficialSearch": [
+        "POST v1.3/event/track; Access-Token and JSON body. Web source uses the Pixel code; page is required.",
+        "event_time is Unix seconds, UTC+0. Plugin explicitly floors OM epoch milliseconds divided by 1000.",
+        "event_source_id + event_id + event identify vendor channel deduplication. OM event ID is preserved.",
+        "HTTP 200 plus code:0,data:{} represents request acceptance, not attributed conversion proof.",
+        "CompleteRegistration describes signup and StartTrial describes a trial in the official standard-event table."
+      ],
+      "omRestrictions": [
+        "Exactly one event per POST (vendor allows up to 1000). Seven-day maximum age is an OM cap.",
+        "Only lowercase SHA-256 email/phone/external_id from contacts; no raw identifiers, IP, cookies, click identifiers or new hasher.",
+        "Host binds the exact web payload/pixel to current measurement grant/consent and a durable delivery claim, then holds a live fence through credentialed egress."
+      ],
+      "unverified": [
+        "UNVERIFIED: this advertiser OAuth token's permission names, pixel authorization and Events eligibility; no alternate credential or invented scope fallback.",
+        "UNVERIFIED: per-event reconciliation endpoint/receipt and attribution. reconcile returns unknown without egress; uncertain deliveries are never automatically resent."
+      ]
+    }
+  ],
+  "responseEnvelope": {
+    "sdkUrl": "https://github.com/tiktok/tiktok-business-api-sdk/blob/main/python_sdk/docs/InlineResponse200.md",
+    "confirmedFields": [
+      "code: integer",
+      "message: string",
+      "request_id: string request log identifier",
+      "data: object"
+    ],
+    "portalExampleUrl": "https://business-api.tiktok.com/portal/docs/get-info-about-an-identity/v1.3",
+    "confirmedFromPortalSearch": [
+      "Successful example responses include code:0 and data; the plugin requires explicit code:0 rather than relying on HTTP 200."
+    ],
+    "behavior": "Explicit code:0 plus structured data is required for POST acceptance. Reads bind advertiser, filter and page. Unknown/malformed write receipts stay unknown. Create/status readback must match the exact changed entity IDs and requested operational status; no auto-pause or auto-activation."
+  },
+  "omBounds": {
+    "timeoutMs": 15000,
+    "responseBytes": 1048576,
+    "pageSize": 100,
+    "pageNumber": 10000,
+    "filterIds": 100,
+    "inclusiveReportDays": 31,
+    "automaticRetries": 0,
+    "redirects": "error",
+    "eventsPerPost": 1,
+    "maxEventAgeMs": 604800000
+  },
+  "unverified": [
+    "UNVERIFIED: vendor mutation idempotency and selected creation/status combinations. No automatic retries; server owns ONE jobs outbox and exact approvals.",
+    "UNVERIFIED: OAuth scope names, Events token/pixel eligibility, authorized advertiser enumeration and live response mapping. Server/addons owns connect-time enumeration/admission.",
+    "UNVERIFIED: precision/timezone reporting semantics and effective hierarchy serving status. Existing strict account-spend normalization remains unchanged.",
+    "Fixtures are synthetic, never certification or approval. Real host admission is false until its integration and vendor evidence are reviewed."
+  ],
+  "handoff": [
+    "Addons/Coordinator loads the namespace entry, binds the ONE gateway, call-time credential broker and conversion authority to jobs/audit/safety/measure.",
+    "Host must check admission/account/mode/current authority, exact-card approval for every activation, current halt epoch, payload digests and single durable claims, retaining the fence through credential resolution.",
+    "Assistant consumes ten tiktokTools through ONE catalog and its HTTP/studio/CLI/OM MCP parity mechanism. stop/deliver/reconcile remain typed backend operations.",
+    "Run the written suites against real server host adapters, package build and om:check after integration. This lane ran no tests/builds/installs."
+  ],
+  "writePolicy": {
+    "pausedCreation": [
+      "write"
+    ],
+    "pause": [
+      "write"
+    ],
+    "activation": [
+      "ad_spend"
+    ],
+    "haltStop": [
+      "halt_stop"
+    ],
+    "conversions": "backend measurement grant/consent recheck; not an agent tool",
+    "admission": "All capabilities remain admitted:false, enabled:false; no extra UNVERIFIED code-level availability gate."
+  }
+}
