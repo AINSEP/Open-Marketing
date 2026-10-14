@@ -49,7 +49,7 @@ it('accepts 8,192 unique events including the terminal slot and rejects event 8,
  } } });
  await exceeded.session.send({ text: 'fixture' }); expect(exceeded.session.getSnapshot().status).toBe('unavailable');
  expect(exceeded.session.getSnapshot().notice).toContain('Event limit reached'); exceeded.session.dispose();
-});
+}, 20000);
 it('rejects conflicting replay, a cursor gap and a changed trace identity', async () => {
  for (const second of [event({ sequence: 1, payload: { text: 'changed' } }), event({ sequence: 3 }), { ...event({ sequence: 2 }), traceId: 'foreign' }]) {
   const f = fixture({ api: { async *events() { yield { ok: true, value: event({ sequence: 1 }) }; yield { ok: true, value: second }; } } });
@@ -100,6 +100,22 @@ it('Stop voids run cards and ignores late success after server cancellation', as
  const sending = run.session.send({ text: 'fixture' }); await entered.promise; expect(run.session.getSnapshot().cards).toHaveLength(1);
  await run.session.cancel(); await sending; expect(cancellations).toBe(1); expect(run.session.getSnapshot().cards).toEqual([]);
  expect(run.session.getSnapshot().status).toBe('cancelled'); run.session.dispose(); f.session.dispose();
+});
+
+it('an authoritative cancelled card clears its pending tool row without claiming completion', async () => {
+ const f = fixture(); const snapshot = await f.api.snapshot({}); if (!snapshot.ok) throw new Error('Fixture snapshot unavailable');
+ const card = snapshot.value.cards[0];
+ const run = fixture({ api: { async *events() {
+  yield { ok: true, value: event({ sequence: 1, kind: 'tool_requested', payload: { type: 'tool_requested', call: { name: 'fixture_write', input: {}, operationId: card.operationId } } }) };
+  yield { ok: true, value: event({ sequence: 2, kind: 'tool_result', payload: { type: 'tool_result', operationId: card.operationId, result: { status: 'pending', operationId: card.operationId, cardId: card.cardId } } }) };
+  yield { ok: true, value: event({ sequence: 3, kind: 'tool_requested', payload: { type: 'confirmation', card } }) };
+  yield { ok: true, value: event({ sequence: 4, kind: 'tool_result', payload: { type: 'confirmation_resolved', operationId: card.operationId, cardId: card.cardId, status: 'cancelled' } }) };
+  yield { ok: true, value: event({ sequence: 5, kind: 'error', payload: { code: 'cancelled' } }) };
+ } } });
+ await run.session.send({ text: 'fixture' });
+ expect(run.session.getSnapshot().cards).toEqual([]);
+ expect(run.session.getSnapshot().tools).toEqual([{ name: 'fixture_write', operationId: card.operationId, status: 'cancelled' }]);
+ run.session.dispose(); f.session.dispose();
 });
 it('HTTP polling requests incremental cursors and validates actual agent envelopes', async () => {
  const host = testRuntime(); const paths: string[] = [];

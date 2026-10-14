@@ -94,7 +94,9 @@ export function createChatSession(required: Dependencies): ChatSession {
       }
       case "tool_requested": update({ tools: [...state.tools.filter(tool => tool.operationId !== payload.call.operationId), { operationId: payload.call.operationId, name: payload.call.name, status: 'running' as const }].slice(-100) }); return;
       case "tool_result": update({ tools: state.tools.map(tool => tool.operationId === payload.operationId ? { ...tool, status: payload.result.status === 'completed' ? 'completed' : 'pending' } : tool) }); return;
-      case "confirmation_resolved": update({ cards: state.cards.filter(card => card.cardId !== payload.cardId) }); return;
+      case "confirmation_resolved": update({ cards: state.cards.filter(card => card.cardId !== payload.cardId),
+        tools: state.tools.map(tool => tool.operationId === payload.operationId
+          ? { ...tool, status: payload.status === 'completed' ? 'completed' : 'cancelled' } : tool) }); return;
       case "status": return; // Status copy is derived from lifecycle, not untrusted agent claims.
       case "navigation": {
         update({ navigation: { status: "pending", actionId: payload.action.actionId } });

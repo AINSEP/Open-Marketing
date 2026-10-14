@@ -7,11 +7,11 @@ import { removeStateRoot } from './state-root.js';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { expect, it, vi } from 'vitest';
-import type { AddonKind, AddonSummary, AddonUpload, CallContext, Outcome, ObserverPort } from '@open-marketing/contracts';
+import type { AddonKind, AddonSummary, AddonUpload, AppError, CallContext, Outcome, ObserverPort } from '@open-marketing/contracts';
 import type { CredentialSqlPort } from '@open-marketing/credentials';
 import { bindServerAddons, createNodeAddonEffects } from '../src/composition/addons.js';
 import { loadAddonModule } from '../src/composition/serve.js';
-import { createSqlAddonRepository } from '../src/addons.js';
+import { addonBoundary, createSqlAddonRepository } from '../src/addons.js';
 import type { AddonRepository } from '../src/addons.js';
 import { decodeAddonUpload } from '../src/addon-upload.js';
 import { handleAddonRequest } from '../src/inbound/addons.js';
@@ -24,6 +24,24 @@ export function value<T>(required: { result: Outcome<T> }): T {
     return required.result.value;
 }
 const markdown = '---\n{"name":"fixture-skill","description":"Fixture instructions"}\n---\nFixture-only instructions.';
+
+it.each<AppError>([
+    { code: 'unavailable', message: 'Tool outcome unknown; reconcile before another attempt', retryable: false },
+    { code: 'conflict', message: 'Fixture conflict permits retry', retryable: true },
+])('preserves structured boundary failures ($code, retryable=$retryable)', async error => {
+    const observer = { observe: vi.fn() };
+    const result = await addonBoundary({ context, dependencies: { observer }, operation: 'fixture.write',
+        run: async () => ({ ok: false, error }) });
+    expect(result).toEqual({ ok: false, error });
+    expect(observer.observe).toHaveBeenCalledWith({ operation: 'fixture.write', outcome: error.code,
+        correlationId: context.correlationId, traceId: context.traceId, runId: context.runId });
+});
+
+it('maps unstructured boundary throws to the redacted retryable default', async () => {
+    const result = await addonBoundary({ context, dependencies: { observer: { observe: vi.fn() } }, operation: 'fixture.write',
+        run: async () => { throw new Error('fixture-secret'); } });
+    expect(result).toEqual({ ok: false, error: { code: 'unavailable', message: 'Add-on operation unavailable or denied', retryable: true } });
+});
 
 export function upload(required: { kind: AddonKind; spend?: boolean; version?: string }): AddonUpload {
     const files: Record<string, string> = required.kind === 'skill' ? { 'SKILL.md': markdown } : agentFiles({ spend: required.spend });

@@ -1,8 +1,8 @@
 /** Jini's provider loop stays in the agent; every model/tool effect goes through OM. */
 import { runProviderToolTurn } from '@jini-ai/agent-runtime/providers/tool-turn';
 import type { ProviderTurnAdapters, ProviderTurnEvent, ProviderToolCall, ProviderToolResult } from '@jini-ai/agent-runtime/providers/tool-turn';
-import { assistantContextSchema, parseBoundary, startRunSchema, toolCallSchema, toolDescriptorSchema, toolResultSchema } from '@open-marketing/contracts';
-import type { AppError, AssistantContext, ClockPort, IdPort, Outcome, RunEvent, StartRunRequest, ToolCall, ToolDescriptor, ToolResult } from '@open-marketing/contracts';
+import { assistantContextSchema, confirmationCardSchema, operationPollSchema, parseBoundary, startRunSchema, toolCallSchema, toolDescriptorSchema, toolOperationSchema, toolResultSchema } from '@open-marketing/contracts';
+import type { AppError, AssistantContext, ClockPort, ConfirmationCard, IdPort, Outcome, RunEvent, StartRunRequest, ToolCall, ToolDescriptor, ToolOperation, ToolResult } from '@open-marketing/contracts';
 import type { JiniRuntimePort } from '../ports.js';
 
 /** Caller-owned OM transport. No provider key or direct vendor tool belongs here.
@@ -15,12 +15,16 @@ export interface ModelClient {
     load(required: { run: StartRunRequest; signal: AbortSignal }): Promise<Outcome<AssistantContext>>;
     publish(required: { run: StartRunRequest; event: RunEvent; signal: AbortSignal }): Promise<Outcome<void>>;
     executeTool(required: { run: StartRunRequest; call: ToolCall; signal: AbortSignal }): Promise<Outcome<ToolResult>>;
+    loadTools?(required: { run: StartRunRequest; signal: AbortSignal }): Promise<Outcome<readonly ToolDescriptor[]>>;
+    operation?(required: { run: StartRunRequest; operationId: string; signal: AbortSignal }): Promise<Outcome<ToolOperation>>;
+    readCard?(required: { run: StartRunRequest; operationId: string; signal: AbortSignal }): Promise<Outcome<ConfirmationCard | null>>;
+    wait?(required: { signal: AbortSignal; intervalMs: number }): Promise<void>;
     deadline(required: { timeoutMs: number }): { signal: AbortSignal; dispose(): void };
 }
 
 interface ModelRun {
     request: StartRunRequest; events: RunEvent[]; controller: AbortController; signal: AbortSignal;
-    terminal: boolean; bytes: number; publications: Promise<void>; work?: Promise<void>; releaseDeadline(): void;
+    terminal: boolean; bytes: number; tools: readonly ToolDescriptor[]; publications: Promise<void>; work?: Promise<void>; releaseDeadline(): void;
 }
 interface ModelDependencies { clock: ClockPort; ids: IdPort; client: ModelClient; adapters: ProviderTurnAdapters }
 
@@ -90,21 +94,91 @@ function providerEvent(required: { event: ProviderTurnEvent; state: ModelRun; de
     }
 }
 
-/** Validate before invoking OM and after its result. Pending operations intentionally fail
- * until R3 supplies bounded approval continuation; they are never reported as completed.
- * @complexity O(b) validation with the shared 64 KiB/depth bounds; one OM tool request.
+/** Validate before invoking OM and after its result. Jini's callback stays open during approval.
+ * @complexity O(b) validation with shared 64 KiB/depth bounds; bounded one-second polling.
  */
 async function executeTool(required: { call: ProviderToolCall; state: ModelRun; deps: ModelDependencies }): Promise<ProviderToolResult> {
     if (!active(required)) throw new Error('Model run cancelled');
-    const call = parseBoundary({ schema: toolCallSchema, input: { name: required.call.name, input: required.call.input, operationId: required.deps.ids.next({}) } });
-    if (!call.ok || !required.deps.client.tools.some(tool => tool.name === required.call.name)) throw new Error('Model tool unavailable');
-    append({ ...required, kind: 'tool_requested', payload: { type: 'tool_requested', call: call.value } });
+    const call = admittedToolCall(required);
+    const target = targetCall({ call: call.value });
+    if (!target.ok) return { content: JSON.stringify(target.error), isError: true };
+    if (call.value.name === 'execute_tool') call.value.input = target.value;
+    append({ ...required, kind: 'tool_requested', payload: { type: 'tool_requested', call: target.value } });
     const result = await required.deps.client.executeTool({ run: required.state.request, call: call.value, signal: required.state.signal });
-    if (!active(required) || !result.ok) throw new Error('Model tool unavailable');
+    if (!active(required)) throw new Error('Model tool unavailable');
+    if (!result.ok) return { content: JSON.stringify(result.error), isError: true };
     const parsed = parseBoundary({ schema: toolResultSchema, input: result.value });
-    if (!parsed.ok || parsed.value.status !== 'completed') throw new Error('Model tool result unavailable');
-    append({ ...required, kind: 'tool_result', payload: { type: 'tool_result', operationId: call.value.operationId, result: parsed.value } });
-    return { content: JSON.stringify(parsed.value.output) };
+    if (!parsed.ok) throw new Error('Model tool result unavailable');
+    checkPendingIdentity({ result: parsed.value, operationId: target.value.operationId });
+    const completed = parsed.value.status === 'pending'
+        ? await awaitOperation({ ...required, pending: parsed.value }) : parsed.value;
+    append({ ...required, kind: 'tool_result', payload: { type: 'tool_result', operationId: target.value.operationId, result: completed } });
+    return { content: JSON.stringify(completed.output) };
+}
+function admittedToolCall(required: { call: ProviderToolCall; state: ModelRun; deps: ModelDependencies }): { ok: true; value: ToolCall } {
+    const parsed = parseBoundary({ schema: toolCallSchema, input: { name: required.call.name, input: required.call.input, operationId: required.deps.ids.next({}) } });
+    if (!parsed.ok || !required.state.tools.some(tool => tool.name === required.call.name)) throw new Error('Model tool unavailable');
+    return parsed;
+}
+function checkPendingIdentity(required: { result: ToolResult; operationId: string }): void {
+    if (required.result.status === 'pending' && required.result.operationId !== required.operationId) throw new Error('Pending tool identity differs');
+}
+
+/** Agent mints the target identity once per invocation; model input cannot borrow a prior approval. */
+function targetCall(required: { call: ToolCall }): Outcome<ToolCall> {
+    if (required.call.name !== 'execute_tool') return { ok: true, value: required.call };
+    const parsed = parseBoundary({ schema: toolCallSchema, input: required.call.input });
+    return parsed.ok ? { ok: true, value: { ...parsed.value, operationId: required.call.operationId } } : parsed;
+}
+
+/** Overall deadline is exactly the run deadline, capped by its grant. Cancellation wins late polls.
+ * Pending cards are authoritative server values; an approved result is fed to the active Jini loop.
+ * @complexity At most one poll/sec until the <=5 minute run deadline; constant polling storage.
+ */
+async function awaitOperation(required: { state: ModelRun; deps: ModelDependencies; pending: Extract<ToolResult, { status: 'pending' }> }): Promise<Extract<ToolResult, { status: 'completed' }>> {
+    const { state, deps, pending } = required;
+    const poll = operationPollSchema.parse({ operationId: pending.operationId, intervalMs: 1000,
+        deadlineAt: Math.min(state.request.deadlineAt ?? state.request.grant.expiresAt, state.request.grant.expiresAt) });
+    if (!deps.client.operation || !deps.client.wait) throw new Error('Approval continuation unavailable');
+    append({ ...required, kind: 'tool_result', payload: { type: 'tool_result', operationId: poll.operationId, result: pending } });
+    const card = await publishCard({ ...required, operationId: poll.operationId });
+    while (pollActive({ ...required, deadlineAt: poll.deadlineAt })) {
+        await deps.client.wait({ signal: state.signal, intervalMs: poll.intervalMs });
+        if (!pollActive({ ...required, deadlineAt: poll.deadlineAt })) throw new Error('Approval wait expired');
+        const operation = await readOperation({ ...required, operationId: poll.operationId });
+        if (operation.status === 'pending') continue;
+        resolveCard({ ...required, card, operation });
+        if (operation.status !== 'completed') throw new Error('Approval operation interrupted');
+        return { status: 'completed', output: operation.output };
+    }
+    throw new Error('Approval wait interrupted');
+}
+function pollActive(required: { state: ModelRun; deps: ModelDependencies; deadlineAt: number }): boolean {
+    return active(required) && required.deps.clock.now({}) < required.deadlineAt;
+}
+/** One authoritative, identity-bound poll. The run signal also bounds its transport deadline. */
+async function readOperation(required: { state: ModelRun; deps: ModelDependencies; operationId: string }): Promise<ToolOperation> {
+    const result = await required.deps.client.operation!({ run: required.state.request, operationId: required.operationId, signal: required.state.signal });
+    if (!active(required) || !result.ok) throw new Error('Approval operation unavailable');
+    const parsed = parseBoundary({ schema: toolOperationSchema, input: result.value });
+    if (!parsed.ok || parsed.value.operationId !== required.operationId) throw new Error('Approval operation identity differs');
+    return parsed.value;
+}
+async function publishCard(required: { state: ModelRun; deps: ModelDependencies; operationId: string }): Promise<ConfirmationCard | null> {
+    if (!required.deps.client.readCard) return null;
+    const result = await required.deps.client.readCard({ run: required.state.request, operationId: required.operationId, signal: required.state.signal });
+    if (!result.ok || !active(required)) throw new Error('Approval card unavailable');
+    if (!result.value) return null; // Owner may have answered before this read.
+    const parsed = parseBoundary({ schema: confirmationCardSchema, input: result.value });
+    if (!parsed.ok || parsed.value.operationId !== required.operationId) throw new Error('Approval card identity differs');
+    append({ ...required, kind: 'tool_requested', payload: { type: 'confirmation', card: parsed.value } });
+    return parsed.value;
+}
+function resolveCard(required: { state: ModelRun; deps: ModelDependencies; card: ConfirmationCard | null; operation: ToolOperation }): void {
+    if (!required.card) return;
+    const status = required.operation.status === 'completed' ? 'completed' : required.operation.status === 'cancelled' ? 'cancelled' : 'interrupted';
+    append({ ...required, kind: 'tool_result', payload: { type: 'confirmation_resolved', cardId: required.card.cardId,
+        operationId: required.operation.operationId, status } });
 }
 
 /** Reuse Jini's actual provider/tool loop with caller-injected adapters, never a local imitation.
@@ -119,7 +193,10 @@ async function performTurn(required: { state: ModelRun; deps: ModelDependencies 
     if (!context.ok || !active(required)) throw new Error('Model context unavailable');
     const parsed = parseBoundary({ schema: assistantContextSchema, input: context.value });
     if (!parsed.ok || parsed.value.settings.mode !== 'model') throw new Error('Model context unavailable');
-    const tools = toolDescriptorSchema.array().max(100).parse(deps.client.tools);
+    const discovery = deps.client.loadTools ? await deps.client.loadTools({ run: state.request, signal: state.signal }) : { ok: true as const, value: deps.client.tools };
+    if (!discovery.ok || !active(required)) throw new Error('Model discovery unavailable');
+    const tools = toolDescriptorSchema.array().max(100).parse(discovery.value);
+    state.tools = tools;
     const result = await runProviderToolTurn({ protocol: 'anthropic', adapters: deps.adapters, apiKey: state.request.runBearer!,
         model: parsed.value.settings.model, system: deps.client.system,
         messages: [...parsed.value.messages.slice(-39).map(message => ({ role: message.role, content: message.text })),
@@ -168,7 +245,7 @@ export function createModelRuntime(required: ModelDependencies): JiniRuntimePort
             const deadline = required.client.deadline({ timeoutMs: deadlineAt - required.clock.now({}) });
             const controller = new AbortController();
             const state: ModelRun = { request: structuredClone(parsed.value), events: [], controller, signal: AbortSignal.any([controller.signal, deadline.signal]),
-                terminal: false, bytes: 0, publications: Promise.resolve(), releaseDeadline: deadline.dispose };
+                terminal: false, bytes: 0, tools: [], publications: Promise.resolve(), releaseDeadline: deadline.dispose };
             runs.set(input.runId, state);
             state.work = executeRun({ state, deps: required });
             return { ok: true, value: { runId: input.runId, status: 'pending' } };

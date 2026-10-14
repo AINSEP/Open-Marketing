@@ -1,4 +1,6 @@
 import { bindServerAddons, type AddonEffects } from './addons.js';
+import { buildOmToolDefinitions, createOmTools } from '../om-tools.js';
+import type { OmTools } from '../om-tools.js';
 import type { YamlReaderPort } from '@jini-ai/agentic/skills/install';
 import type { ExternalMcpSessions } from '../external-mcp.js';
 import { bindAddonFederationSessions } from './addon-federation.js';
@@ -68,7 +70,7 @@ export interface ServerBootIo extends HttpEffects {
 }
 /** Explicit owned lifecycle returned after successful boot. stop is idempotent and closes SQLite last. */
 export interface BootedServer { readonly studioUrl: string; stop(required: Record<string, never>): Promise<Outcome<void>> }
-interface BootResources { addons?: ReturnType<typeof bindBootAddons>; native?: Database.Database; app?: LifecyclePort; confirmations?: MemoryConfirmationExchange; workers?: ReturnType<typeof createFormWorkers>; privacy?: ReturnType<typeof bindPrivacy>; agent?: ReturnType<typeof createLocalAgent>; stopped?: Promise<Outcome<void>> }
+interface BootResources { tools?: OmTools; addons?: ReturnType<typeof bindBootAddons>; native?: Database.Database; app?: LifecyclePort; confirmations?: MemoryConfirmationExchange; workers?: ReturnType<typeof createFormWorkers>; privacy?: ReturnType<typeof bindPrivacy>; agent?: ReturnType<typeof createLocalAgent>; stopped?: Promise<Outcome<void>> }
 
 /** Best-effort low-cardinality lifecycle diagnostics; no credential/token or raw exception details. */
 function observeBoot(required: { observer: ObserverPort; context: CallContext; operation: string; outcome: string }): void {
@@ -87,6 +89,7 @@ async function stopService(required: { service?: Pick<LifecyclePort, 'stop'>; me
 async function closeResources(required: { resources: BootResources }): Promise<Outcome<void>> {
     let result = await stopService({ service: required.resources.app, message: 'Server transport cleanup failed' });
     const agent = await stopService({ service: required.resources.agent, message: 'Sandbox agent cleanup failed' });
+    required.resources.tools?.dispose({});
     if (!agent.ok) result = agent;
     const workers = await stopService({ service: required.resources.workers, message: 'Worker cleanup failed' });
     if (!workers.ok) result = workers;
@@ -125,7 +128,7 @@ async function handleBootRequest(required: BootRequestInput): Promise<HttpRespon
     }
     if (required.request.path === '/bootstrap') return required.auth.bootstrap({ request: required.request, origin });
     if (required.request.path.startsWith('/api/agent/v1/model/')) return handleModelRequest({ request: required.request, grants: required.agent.grants, clock: required.clock, observer: required.observer, ...required.model });
-    if (required.request.path.startsWith('/api/agent/')) return handleOmRequest({ request: required.request, grants: required.agent.grants, callbacks: required.agent.callbacks, clock: required.clock });
+    if (required.request.path.startsWith('/api/agent/')) return handleOmRequest({ request: required.request, grants: required.agent.grants, callbacks: required.agent.callbacks, clock: required.clock, tools: required.services.tools });
     return handleAuthenticatedBootRequest({ ...required, origin });
 }
 
@@ -166,6 +169,15 @@ function ownerContext(required: { request: HttpRequest; context: CallContext; id
     const trace = schema.safeParse(required.request.headers?.['x-trace-id']);
     return { ...required.context, correlationId: correlation.success ? correlation.data : required.ids.next({}),
         traceId: trace.success ? trace.data : required.ids.next({}) };
+}
+
+/** Owner authority comes only from authenticated ingress, still restricted to this boot scope. */
+function scopedOwnerAuthority(required: { context: CallContext; expected: CallContext }): Outcome<void> {
+    const principal = required.context.principal;
+    if (principal.kind !== 'owner' || principal.ownerId !== required.expected.scope.ownerId
+        || required.context.scope.ownerId !== required.expected.scope.ownerId || required.context.scope.workspaceId !== required.expected.scope.workspaceId)
+        return localFailure({ code: 'forbidden', message: 'Owner tool scope unavailable' });
+    return { ok: true, value: undefined };
 }
 
 /** Boot one explicitly owned local database: validate config, provision owner, prepare assets,
@@ -248,8 +260,16 @@ export async function bootServer(required: {
         services.conversations = conversations;
         const model = { credentials: bindModelCredentials({ integrations, persistence }), upstream: required.io.modelUpstream ?? createModelUpstream({ fetch }) };
         resources.agent = createLocalAgent({ effects: required.io.agentEffects ?? createNodeAgentEffects({ projectRoot: required.io.projectRoot, ids: required.ids }),
-            clock: required.clock, ids: required.ids, observer: required.observer, randomToken: required.io.randomToken, persistence });
+            clock: required.clock, ids: required.ids, observer: required.observer, randomToken: required.io.randomToken, persistence,
+            onRevoked: input => resources.tools?.cancel(input) });
         services.runs = resources.agent.owner;
+        resources.tools = createOmTools({ clock: required.clock, observer: required.observer, confirmations: resources.confirmations,
+            authorize: input => input.context.principal.kind === 'owner'
+                ? scopedOwnerAuthority({ context: input.context, expected: context! })
+                : resources.agent!.authorize(input),
+            definitions: input => buildOmToolDefinitions({ ...input, services,
+                addons: services.addons ? { addons: services.addons, integrations, observer: required.observer } : undefined }) });
+        services.tools = resources.tools;
         const agent = resources.agent;
         const bootContext = context;
         resources.app = createServerApp({ listener, handle: request => handleBootRequest({ request, auth, listener, fs: required.io.fs,

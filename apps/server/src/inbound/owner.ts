@@ -4,7 +4,7 @@ import type { Addons } from '../addons.js';
 import type { Integrations } from '../integrations.js';
 /** Owner HTTP translation. Authentication/scope are supplied by the local server dispatcher. */
 import { z } from 'zod';
-import { assistantRunRequestSchema, assistantSettingsSchema, approvalResponseSchema, idSchema, pageQuerySchema, parseBoundary } from '@open-marketing/contracts';
+import { assistantRunRequestSchema, assistantSettingsSchema, approvalResponseSchema, idSchema, pageQuerySchema, parseBoundary, toolCallSchema, toolDescriptorSchema, toolOperationSchema, toolResultSchema, toolSearchSchema } from '@open-marketing/contracts';
 import type { CallContext, Money, Outcome, PageQuery } from '@open-marketing/contracts';
 import type { FormSubjectPort } from '@open-marketing/forms';
 import type { CampaignRecord, CampaignRepoPort } from '@open-marketing/campaigns';
@@ -15,6 +15,7 @@ import { localFailure } from '../composition/local-auth.js';
 import type { HttpRequest, HttpResponse } from '../ports.js';
 import type { Conversations } from '../conversations.js';
 import type { OwnerRunPort } from '../ports.js';
+import type { OmTools } from '../om-tool-types.js';
 
 /** Existing owning repositories/exchange; tests inject the same public memory adapters. */
 export interface OwnerServices {
@@ -26,6 +27,7 @@ export interface OwnerServices {
     conversations?: Conversations;
     addons?: Addons;
     integrations?: Integrations;
+    tools?: OmTools;
 }
 type OwnerInput = { request: HttpRequest; context: CallContext; services: OwnerServices };
 type CampaignRow = z.infer<typeof routes.campaign.schema>;
@@ -142,8 +144,11 @@ async function answer(required: OwnerInput & { id: string }): Promise<HttpRespon
     const response = parseBoundary({ schema: approvalResponseSchema, input: body.value });
     if (!response.ok) return respond({ outcome: response, schema: routes.answer.schema });
     if (response.value.cardId !== required.id) return respond({ outcome: localFailure({ code: 'conflict', message: 'Card path differs from response' }), schema: routes.answer.schema });
-    const result = await required.services.confirmations.confirm({ context: required.context, response: response.value });
-    return respond({ outcome: result.ok ? { ok: true, value: { status: 'recorded' as const } } : result, schema: routes.answer.schema });
+    const result = required.services.tools && await required.services.tools.card({ context: required.context, operationId: response.value.operationId });
+    const continued = result?.ok && result.value
+        ? await required.services.tools!.answer({ context: required.context, response: response.value })
+        : await required.services.confirmations.confirm({ context: required.context, response: response.value });
+    return respond({ outcome: continued.ok ? { ok: true, value: { status: 'recorded' as const } } : continued, schema: routes.answer.schema });
 }
 
 function requestBody(required: { request: HttpRequest }): Promise<Outcome<unknown>> {
@@ -166,6 +171,7 @@ async function halt(required: OwnerInput): Promise<HttpResponse> {
  * @complexity O(path length) routing, fixed route set; each operation has bounded reads/body.
  */
 export async function handleOwnerRequest(required: OwnerInput): Promise<HttpResponse> {
+    if (required.request.path === '/api/tools' || required.request.path.startsWith('/api/tools/')) return ownerToolRequest(required);
     if (required.request.path.startsWith('/api/addons/v1/')) return addonOwnerRequest(required);
     switch (required.request.method + ' ' + required.request.path) {
         case 'GET /api/status': return respond({ outcome: { ok: true, value: { ready: true, mode: 'local' as const } }, schema: routes.status.schema });
@@ -181,6 +187,33 @@ export async function handleOwnerRequest(required: OwnerInput): Promise<HttpResp
         case 'POST /api/assistant/settings': return assistantSettingsWrite(required);
         default: return resourceRequest(required);
     }
+}
+
+/** Generic catalog transport; owner authentication is supplied before parsing or invocation. */
+async function ownerToolRequest(required: OwnerInput): Promise<HttpResponse> {
+    const tools = required.services.tools;
+    if (!tools) return { status: 503, body: localFailure({ message: 'OM tool catalog unavailable' }) };
+    if (required.request.method === 'GET' && required.request.path === '/api/tools') return ownerToolList({ ...required, tools });
+    if (required.request.method === 'POST' && required.request.path === '/api/tools/call') {
+        const body = await requestBody(required);
+        const parsed = body.ok ? parseBoundary({ schema: toolCallSchema, input: body.value }) : body;
+        if (!parsed.ok) return { status: 400, body: parsed };
+        return respond({ outcome: await tools.dispatch({ context: required.context, call: parsed.value, signal: required.request.signal }), schema: toolResultSchema });
+    }
+    return ownerToolResource({ ...required, tools });
+}
+async function ownerToolList(required: OwnerInput & { tools: OmTools }): Promise<HttpResponse> {
+    const parsed = parseBoundary({ schema: z.strictObject({ query: z.string().max(1024).optional(), limit: z.string().regex(/^\d{1,3}$/).default('25').transform(Number) }).pipe(toolSearchSchema), input: required.request.query ?? {} });
+    if (!parsed.ok) return { status: 400, body: parsed };
+    return respond({ outcome: await required.tools.list({ context: required.context, ...parsed.value }), schema: toolDescriptorSchema.array().max(100) });
+}
+async function ownerToolResource(required: OwnerInput & { tools: OmTools }): Promise<HttpResponse> {
+    const match = /^\/api\/tools\/(describe|operations)\/([^/]+)$/.exec(required.request.path);
+    if (!match || required.request.method !== 'GET') return { status: 404, body: localFailure({ code: 'invalid_input', message: 'Tool route unavailable' }) };
+    const id = resourceId({ segment: match[2] });
+    if (!id.ok) return { status: 400, body: id };
+    if (match[1] === 'describe') return respond({ outcome: await required.tools.describe({ context: required.context, name: id.value }), schema: toolDescriptorSchema });
+    return respond({ outcome: await required.tools.operation({ context: required.context, operationId: id.value }), schema: toolOperationSchema });
 }
 
 /** Keep resource matching separate from the fixed route dispatcher to bound branch complexity. */

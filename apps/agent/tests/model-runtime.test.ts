@@ -6,6 +6,7 @@ import { providerTurnAdapters } from '@jini-ai/agent-runtime/providers/tool-turn
 import type { ProviderTurnAdapters } from '@jini-ai/agent-runtime/providers/tool-turn';
 import type { Outcome, RunEvent, StartRunRequest } from '@open-marketing/contracts';
 import { createModelRuntime, type ModelClient } from '../src/runtime/model.js';
+import { createOmModelClient } from '../src/om-client/index.js';
 
 const bearer = 'run-fixture-'.padEnd(64, 'x');
 const providerKey = 'sealed-fixture-provider-key';
@@ -174,6 +175,95 @@ it('does not invent a tool result or follow-up request for pending approval', as
         expect(f.upstreamRequests).toHaveLength(1);
         expect((await f.events()).map(event => event.kind)).toEqual(['started', 'delta', 'tool_requested', 'error']);
     } finally { await f.dispose(); }
+});
+
+it('holds the real Jini tool callback open and sends the approved output in the next provider request', async () => {
+    const f = await fixture({ transport: 'memory', pending: true });
+    const approved = Promise.withResolvers<void>();
+    const intervals: number[] = [];
+    f.client.wait = async input => { intervals.push(input.intervalMs); await approved.promise; };
+    f.client.readCard = async input => ({ ok: true, value: { cardId: 'card', operationId: input.operationId,
+        argumentsDigest: 'a'.repeat(64), arguments: { tool: 'om_campaigns_get', input: { campaignId: 'campaign' } },
+        classification: 'write', allowedChoices: ['allow', 'cancel'], expiresAt: 10000 } });
+    f.client.operation = async input => ({ ok: true, value: { status: 'completed', operationId: input.operationId,
+        output: { campaignId: 'campaign', state: 'paused', approved: true } } });
+    try {
+        value({ result: await f.runtime.startRun(run({})) });
+        await vi.waitFor(async () => expect((await f.events()).some(event => (event.payload as { type?: string }).type === 'confirmation')).toBe(true));
+        expect(f.upstreamRequests).toHaveLength(1);
+        expect((await f.events()).some(event => event.kind === 'ended')).toBe(false);
+        approved.resolve();
+        await vi.waitFor(async () => expect((await f.events()).at(-1)?.kind).toBe('ended'));
+        expect(intervals).toEqual([1000]); expect(f.executions).toHaveLength(1);
+        const second = JSON.parse(f.upstreamRequests[1].body);
+        expect(second.messages.at(-1).content[0].content).toBe('{"campaignId":"campaign","state":"paused","approved":true}');
+        expect((await f.events()).some(event => (event.payload as { type?: string; status?: string }).type === 'confirmation_resolved'
+            && (event.payload as { status?: string }).status === 'completed')).toBe(true);
+    } finally { approved.resolve(); await f.dispose(); }
+});
+
+it('run cancellation interrupts an approval wait and refuses a late completed result', async () => {
+    const f = await fixture({ transport: 'memory', pending: true });
+    const waiting = Promise.withResolvers<void>();
+    let polls = 0;
+    f.client.wait = async input => {
+        waiting.resolve();
+        await new Promise<void>(resolve => input.signal.addEventListener('abort', () => resolve(), { once: true }));
+    };
+    f.client.operation = async input => { polls++; return { ok: true, value: { status: 'completed', operationId: input.operationId, output: { shouldNotArrive: true } } }; };
+    try {
+        value({ result: await f.runtime.startRun(run({})) }); await waiting.promise;
+        value({ result: await f.runtime.cancelRun({ protocolVersion: 1, runId: 'run', reason: 'owner' }) });
+        await vi.waitFor(async () => expect((await f.events()).at(-1)?.kind).toBe('cancelled'));
+        expect(polls).toBe(0); expect(f.upstreamRequests).toHaveLength(1);
+        expect((await f.events()).some(event => (event.payload as { result?: { status?: string } }).result?.status === 'completed')).toBe(false);
+    } finally { await f.dispose(); }
+});
+
+it('refuses an operation result with a different identity and never sends it to the model', async () => {
+    const f = await fixture({ transport: 'memory', pending: true });
+    f.client.wait = async () => undefined;
+    f.client.operation = async () => ({ ok: true, value: { status: 'completed', operationId: 'foreign', output: { stolen: true } } });
+    try {
+        value({ result: await f.runtime.startRun(run({})) });
+        await vi.waitFor(async () => expect((await f.events()).at(-1)?.kind).toBe('error'));
+        expect(f.upstreamRequests).toHaveLength(1);
+        expect(JSON.stringify(await f.events())).not.toContain('stolen');
+    } finally { await f.dispose(); }
+});
+
+it('stops approval polling at the accepted run deadline without a follow-up provider request', async () => {
+    const f = await fixture({ transport: 'memory', pending: true });
+    let now = 1000; let polls = 0;
+    f.client.wait = async () => { now = 10000; };
+    f.client.operation = async input => { polls++; return { ok: true, value: { status: 'completed', operationId: input.operationId, output: {} } }; };
+    const runtime = createModelRuntime({ clock: { now: () => now }, ids: { next: () => 'operation' }, client: f.client, adapters: f.adapters });
+    try {
+        value({ result: await runtime.startRun(run({})) });
+        await vi.waitFor(async () => expect(value({ result: await runtime.events({ runId: 'run', after: 0, limit: 100 }) }).at(-1)?.kind).toBe('error'));
+        expect(polls).toBe(0); expect(f.upstreamRequests).toHaveLength(1);
+    } finally { await runtime.dispose({}); await f.dispose(); }
+});
+
+it('uses only fixed authenticated OM MCP/operation routes and validates the SDK-enclosed outcome', async () => {
+    const paths: string[] = []; const tokens: string[] = [];
+    const client = createOmModelClient({ serverOrigin: 'http://127.0.0.1:31000', observer: { observe() {} },
+        deadline: () => ({ signal: new AbortController().signal, dispose() {} }),
+        async fetch(url, options) {
+            const path = new URL(String(url)).pathname; paths.push(path); tokens.push(new Headers(options?.headers).get('authorization') ?? '');
+            if (path.endsWith('/operations/operation')) return Response.json({ ok: true, value: { status: 'completed', operationId: 'operation', output: { saved: 7 } } });
+            const rpc = JSON.parse(String(options?.body)) as { id: string; method: string };
+            if (rpc.method === 'tools/list') return Response.json({ jsonrpc: '2.0', id: rpc.id, result: { tools: [{ name: 'execute_tool',
+                description: 'Execute an OM tool', inputSchema: { type: 'object' }, annotations: { readOnlyHint: false } }] } });
+            return Response.json({ jsonrpc: '2.0', id: rpc.id, result: { content: [{ type: 'text', text: JSON.stringify({ ok: true, value: { status: 'pending', operationId: 'operation', cardId: 'card' } }) }] } });
+        } });
+    const input = { run: run({}), signal: new AbortController().signal };
+    expect(value({ result: await client.loadTools!(input) }).map(tool => tool.name)).toEqual(['execute_tool']);
+    expect(await client.executeTool({ ...input, call: { name: 'execute_tool', operationId: 'operation', input: { name: 'fixture_write', input: { value: 7 }, operationId: 'operation' } } }))
+        .toEqual({ ok: true, value: { status: 'pending', operationId: 'operation', cardId: 'card' } });
+    expect(await client.operation!({ ...input, operationId: 'operation' })).toEqual({ ok: true, value: { status: 'completed', operationId: 'operation', output: { saved: 7 } } });
+    expect(paths).toEqual(['/api/agent/v1/mcp', '/api/agent/v1/mcp', '/api/agent/v1/runs/run/operations/operation']);
+    expect(tokens.every(token => token === 'Bearer ' + bearer)).toBe(true);
 });
 
 it('reserves a terminal error at the event cap and rejects duplicate run IDs', async () => {

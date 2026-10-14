@@ -218,7 +218,7 @@ function releaseFinishedRun(required: { runs: Map<string, LocalRun>; tokens: Map
  * @example const agent = createLocalAgent({ effects, clock, ids, observer, randomToken });
  * @complexity <=32 live projections, <=8,192 events/2 MiB per run; reconciliation reads <=128 events.
  */
-export function createLocalAgent(required: { effects: AgentEffects; clock: ClockPort; ids: IdPort; observer: ObserverPort; randomToken(required: Record<string, never>): string; persistence?: AssistantRuns }) {
+export function createLocalAgent(required: { effects: AgentEffects; clock: ClockPort; ids: IdPort; observer: ObserverPort; randomToken(required: Record<string, never>): string; persistence?: AssistantRuns; onRevoked?(required: { context: CallContext; runId: string }): void }) {
     const runs = new Map<string, LocalRun>();
     const tokens = new Map<string, LocalRun>();
     const instanceId = required.ids.next({});
@@ -232,6 +232,7 @@ export function createLocalAgent(required: { effects: AgentEffects; clock: Clock
     /** Local terminal evidence; grants revoke before any subsequent callback can be admitted. */
     async function terminate(input: { run: LocalRun; status: 'cancelled' | 'interrupted' }): Promise<Outcome<void>> {
         input.run.grant.revoked = true;
+        required.onRevoked?.({ context: input.run.context, runId: input.run.grant.runId });
         return queueRun({ run: input.run, work: async () => {
             if (input.run.status !== 'running') return { ok: true, value: undefined };
             const event: RunEvent = { protocolVersion: 1, eventId: required.ids.next({}), runId: input.run.grant.runId,
@@ -280,6 +281,7 @@ export function createLocalAgent(required: { effects: AgentEffects; clock: Clock
             if (!persisted.ok) return persisted;
         }
         commitEvent({ run, event });
+        if (run.grant.revoked) required.onRevoked?.({ context: run.context, runId: run.grant.runId });
         observe({ ...required, context: run.context, operation: 'server.agent.event', outcome: event.kind });
         return { ok: true, value: { recorded: true } };
     }
@@ -315,7 +317,7 @@ export function createLocalAgent(required: { effects: AgentEffects; clock: Clock
     async function begin(input: { context: CallContext; prompt: string; runId: string; conversationId: string; mode: 'sandbox' | 'model'; expiresAt: number; frontendSessionId?: string }): ReturnType<OwnerRunPort['start']> {
         const grant: RunGrantMetadata = { protocolVersion: 1, grantId: required.ids.next({}), agentInstanceId: instanceId,
             scope: structuredClone(input.context.scope), conversationId: input.conversationId, runId: input.runId,
-            capabilities: input.mode === 'model' ? ['context', 'events', 'model'] : ['context', 'events'],
+            capabilities: input.mode === 'model' ? ['context', 'events', 'model', 'tools'] : ['context', 'events'],
             expiresAt: input.expiresAt, authenticationEpoch: required.clock.now({}), revoked: false };
         const context: CallContext = { ...structuredClone(input.context), runId: input.runId, principal: { kind: 'agent', agentInstanceId: instanceId, runId: input.runId } };
         const bearer = createHmac('sha256', grantKey).update(grant.grantId).digest('hex');
@@ -369,6 +371,17 @@ export function createLocalAgent(required: { effects: AgentEffects; clock: Clock
         },
     };
     return { owner, grants, callbacks,
+        /** Recheck current run authority at every tool dispatch and owner continuation. */
+        authorize(input: { context: CallContext }): Outcome<void> {
+            const owned = ownerRun({ context: input.context, runId: input.context.runId ?? '' });
+            if (!owned.ok) return owned;
+            const run = owned.value;
+            const principal = input.context.principal;
+            if (principal.kind !== 'agent' || principal.runId !== run.grant.runId || principal.agentInstanceId !== instanceId
+                || run.status !== 'running' || !run.grant.capabilities.includes('tools')) return failure({ code: 'forbidden', message: 'Tool run authority unavailable' });
+            const current = currentGrant({ grant: run.grant });
+            return current.ok ? { ok: true, value: undefined } : current;
+        },
         async start(input: { serverUrl: string }): Promise<Outcome<void>> {
             if (child || stopping) return failure({ code: 'conflict', message: 'Sandbox agent lifecycle already started' });
             const launched = await required.effects.launch({ ...input, instanceId, controlToken, grantKey, exited: () => { void lost(); } });

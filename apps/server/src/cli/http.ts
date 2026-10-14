@@ -3,6 +3,7 @@ import { addonListSchema, addonSummarySchema, addonUninstallReceiptSchema, integ
 import { z } from "zod";
 import {
   assistantSettingsStatusSchema, conversationListSchema, conversationSchema, appErrorSchema, chatMessageSchema, confirmationCardSchema, epochSchema, idSchema, moneySchema, navigationTargetSchema, parseBoundary, runEventSchema,
+  toolDescriptorSchema, toolOperationSchema, toolResultSchema,
 } from "@open-marketing/contracts";
 import type { AppError, Outcome } from "@open-marketing/contracts";
 
@@ -24,6 +25,10 @@ const studioSnapshot = z.strictObject({
  * App-local read models stay outside the pure shared contracts package.
  */
 export const routes = {
+  tools: { method: 'GET', path: '/api/tools', schema: toolDescriptorSchema.array().max(100) },
+  describeTool: { method: 'GET', path: '/api/tools/describe/:id', schema: toolDescriptorSchema },
+  callTool: { method: 'POST', path: '/api/tools/call', schema: toolResultSchema },
+  toolOperation: { method: 'GET', path: '/api/tools/operations/:id', schema: toolOperationSchema },
   addons: { method: 'GET', path: '/api/addons/v1/packages', schema: addonListSchema },
   addonInstall: { method: 'POST', path: '/api/addons/v1/install', schema: addonSummarySchema },
   addonSetEnabled: { method: 'POST', path: '/api/addons/v1/set-enabled', schema: addonSummarySchema },
