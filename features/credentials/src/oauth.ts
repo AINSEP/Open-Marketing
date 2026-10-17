@@ -50,6 +50,7 @@ export function createBoundOAuthClient(required: {
         if (entry.expiresAt <= required.clock.now({})) return failure({ code: "expired" });
         if (!equalState({ expected: entry.state, actual: input.callback.state }) || entry.request.returnUri !== input.callback.redirectUri) return failure({ code: "forbidden" });
         const exchanged = await required.bindings.exchange({ context: entry.context, request: entry.request, reference: entry.reference, callback: input.callback }, options);
+        if (input.callback.error !== undefined) return failure({ code: "unauthenticated" });
         if (!exchanged.ok) return exchanged;
         if (!secretSchema.safeParse(exchanged.value).success) return failure({ code: "protocol_mismatch" });
         return exchanged;

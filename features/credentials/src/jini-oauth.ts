@@ -5,7 +5,7 @@ import type { OAuthClientPort } from "./ports.js";
 import type { OAuthHostBindings } from "./oauth.js";
 import type { SealedSecret } from "./types.js";
 import { createBoundOAuthClient } from "./oauth.js";
-import { correlatedFetch, jiniBoundary, oauthTimeout, parseTokens, resolveProvider } from "./jini-oauth-common.js";
+import { correlatedFetch, jiniBoundary, oauthPayloadPrefix, oauthTimeout, parseTokens, resolveProvider } from "./jini-oauth-common.js";
 import type { JiniOAuthDependencies } from "./jini-oauth-common.js";
 import { failure, scopeKey } from "./rules.js";
 
@@ -36,7 +36,7 @@ export function createJiniOAuthClient(required: JiniOAuthDependencies & {
           randomBytesFn: dependencies.randomBytesFn, guard: dependencies.guard,
           ownerKey: scopeKey(input.reference), redirectUri: input.request.returnUri,
           options: { clientDisplayName: dependencies.clientDisplayName, softwareId: dependencies.softwareId, redirectUris: dependencies.allowedReturnUris },
-        }, { resource: resolved.value.resource });
+        }, { resource: resolved.value.resource, extraAuthorizationParams: resolved.value.extraAuthorizationParams });
         return { ok: true, value: { authorizationUrl: result.authorizationUrl, expiresAt: Date.parse(result.expiresAt) } };
       } }, options);
     },
@@ -54,18 +54,19 @@ async function exchange(required: { dependencies: Parameters<typeof createJiniOA
     if (!resolved.ok) return resolved;
     const timeout = oauthTimeout({ dependencies: required.dependencies });
     if (!timeout.ok) return timeout;
+    const expiry: { refreshExpiresAt?: string } = {};
     const tokens = await completeAuthorizationCode({
       provider: resolved.value.provider, client: resolved.value.client, pending: required.dependencies.pending,
-      guard: required.dependencies.guard, fetchFn: correlatedFetch({ dependencies: required.dependencies, context: required.input.context }, optional),
+      guard: required.dependencies.guard, fetchFn: correlatedFetch({ dependencies: required.dependencies, context: required.input.context, expiry }, optional),
       clock: { nowMs: () => required.dependencies.clock.now({}) }, ownerKey: scopeKey(required.input.reference),
-      params: { state: required.input.callback.state, code: required.input.callback.code },
+      params: { state: required.input.callback.state, code: required.input.callback.code, error: required.input.callback.error },
     }, { timeoutMs: timeout.value });
     const parsed = parseTokens({ value: tokens });
     if (!parsed.ok) return parsed;
     const scopes = resolved.value.provider.defaultScopes;
     const allowed = new Set(scopes);
     if (parsed.value.scopes.some(scope => !allowed.has(scope))) return failure({ code: "protocol_mismatch" });
-    const updated = { ...parsed.value, scopes: parsed.value.scopes.length ? parsed.value.scopes : scopes };
-    return required.dependencies.sealer.seal({ reference: required.input.reference, plaintext: JSON.stringify(updated) }, optional);
+    const updated = { ...parsed.value, ...expiry, scopes: parsed.value.scopes.length ? parsed.value.scopes : scopes };
+    return required.dependencies.sealer.seal({ reference: required.input.reference, plaintext: oauthPayloadPrefix + JSON.stringify(updated) }, optional);
   } }, optional);
 }

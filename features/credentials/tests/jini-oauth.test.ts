@@ -1,8 +1,20 @@
 import { deriveCodeChallenge } from "@jini-ai/oauth";
 import { describe, expect, it } from "vitest";
 import { createCredentialBroker, createMemoryCredentialAudit, createMemoryCredentialLock, createMemoryCredentialRepo } from "../index.js";
-import { createJiniFixture, createTokenRecord, expiredTokens, freshTokens, oauthProvider } from "./jini-fixture.js";
+import { createJiniFixture, createTokenRecord as createFixtureRecord, expiredTokens, freshTokens, oauthProvider } from "./jini-fixture.js";
 import { context, hostContext, request, value } from "./fixtures.js";
+
+/** Versioned fixture storage exercises the production decoder without changing legacy fixtures. */
+async function createTokenRecord(required: Parameters<typeof createFixtureRecord>[0]) {
+  return createFixtureRecord({ ...required, sealer: { ...required.sealer, seal(input, options) {
+    return required.sealer.seal({ ...input, plaintext: "om.oauth.v1:" + input.plaintext }, options);
+  } } });
+}
+/** Assert the storage tag before inspecting secret fields inside this host-only test. */
+function payload(required: { plaintext: string }) {
+  expect(required.plaintext.startsWith("om.oauth.v1:")).toBe(true);
+  return JSON.parse(required.plaintext.slice("om.oauth.v1:".length));
+}
 
 /** Drive only the public OAuth port; the HTTP fixture observes actual protocol output. */
 async function connect(required: { fixture: ReturnType<typeof createJiniFixture> }) {
@@ -12,6 +24,35 @@ async function connect(required: { fixture: ReturnType<typeof createJiniFixture>
 }
 
 describe("published Jini OAuth adapter", () => {
+  it("consumes denial through Jini without exchanging tokens, and rejects replay", async () => {
+    const h = createJiniFixture({});
+    const challenge = value({ outcome: await h.oauth.begin({ context, request }) });
+    const callback = { transactionId: challenge.transactionId, state: new URL(challenge.authorizationUrl).searchParams.get("state")!, redirectUri: request.returnUri, error: "access_denied" };
+    expect(await h.oauth.complete({ callback })).toMatchObject({ ok: false, error: { code: "unauthenticated" } });
+    expect(await h.oauth.complete({ callback })).toMatchObject({ ok: false, error: { code: "expired" } });
+    expect(await h.pending.size({})).toBe(0);
+    expect(h.requests).toHaveLength(0);
+  });
+  it("passes offline/consent parameters and captures the provider's refresh deadline", async () => {
+    const h = createJiniFixture({ provider: { ...oauthProvider, extraAuthorizationParams: { access_type: "offline", prompt: "consent" } }, body: { access_token: "access", refresh_token: "refresh", expires_in: 3600, refresh_token_expires_in: 86400 } });
+    const connected = await connect({ fixture: h });
+    const url = new URL(connected.challenge.authorizationUrl);
+    expect(url.searchParams.get("access_type")).toBe("offline");
+    expect(url.searchParams.get("prompt")).toBe("consent");
+    const reference = { scope: context.scope, connectionId: connected.challenge.transactionId, version: 1 };
+    const tokens = payload({ plaintext: value({ outcome: await h.sealer.open({ reference, secret: value({ outcome: connected.result }) }) }) });
+    expect(tokens.refreshExpiresAt).toBe(new Date(1234 + 86400000).toISOString());
+  });
+  it.each([-1, "3600", null])("rejects malformed refresh lifetime %s before saving", async lifetime => {
+    const h = createJiniFixture({ body: { access_token: "access", refresh_token_expires_in: lifetime } });
+    expect((await connect({ fixture: h })).result).toMatchObject({ ok: false, error: { code: "protocol_mismatch" } });
+    expect(h.requests).toHaveLength(1);
+  });
+  it.each(["broken-json", JSON.stringify({ access_token: "x".repeat(65537) })])("bounds and validates raw token responses", async body => {
+    const h = createJiniFixture({ fetchFn: async () => new Response(body, { headers: { "content-type": "application/json" } }) });
+    expect((await connect({ fixture: h })).result).toMatchObject({ ok: false, error: { code: "protocol_mismatch" } });
+    expect(h.requests).toHaveLength(1);
+  });
   it("exchanges the verifier matching the displayed PKCE challenge, and returns only ciphertext", async () => {
     const h = createJiniFixture({});
     const connected = await connect({ fixture: h });
@@ -30,7 +71,7 @@ describe("published Jini OAuth adapter", () => {
     expect(JSON.stringify([secret, connected.challenge, h.observer.events({})])).not.toMatch(/sensitive-(access|refresh)-token|sensitive-code|code_verifier/);
     const reference = { scope: context.scope, connectionId: connected.challenge.transactionId, version: 1 };
     const opened = value({ outcome: await h.sealer.open({ reference, secret }) });
-    expect(JSON.parse(opened)).toMatchObject({ accessToken: "sensitive-access-token", refreshToken: "sensitive-refresh-token" });
+    expect(payload({ plaintext: opened })).toMatchObject({ accessToken: "sensitive-access-token", refreshToken: "sensitive-refresh-token" });
     expect(await h.pending.size({})).toBe(0);
   });
   it("never exchanges wrong state, changed redirect, or concurrent replay", async () => {
@@ -54,12 +95,13 @@ describe("published Jini OAuth adapter", () => {
     const connected = await connect({ fixture: h });
     const secret = value({ outcome: connected.result });
     const reference = { scope: context.scope, connectionId: connected.challenge.transactionId, version: 1 };
-    expect(JSON.parse(value({ outcome: await h.sealer.open({ reference, secret }) })).scopes).toEqual(oauthProvider.provider.defaultScopes);
+    expect(payload({ plaintext: value({ outcome: await h.sealer.open({ reference, secret }) }) }).scopes).toEqual(oauthProvider.provider.defaultScopes);
   });
   it.each([
     { body: { error: "invalid_grant", error_description: "sensitive-provider-error" }, status: 400, code: "unauthenticated" },
     { body: { access_token: 42 }, status: 200, code: "protocol_mismatch" },
     { body: { access_token: "token", token_type: "MAC" }, status: 200, code: "protocol_mismatch" },
+    { body: { access_token: "token", scope: "ads.write" }, status: 200, code: "protocol_mismatch" },
   ])("redacts errors and validates tokens ($code)", async testCase => {
     const h = createJiniFixture(testCase);
     const result = (await connect({ fixture: h })).result;
@@ -71,7 +113,7 @@ describe("published Jini OAuth adapter", () => {
     expect((await h.oauth.begin({ context, request: { ...request, pluginId: "missing" } })).ok).toBe(false);
     const noPkce = createJiniFixture({ provider: { ...oauthProvider, provider: { ...oauthProvider.provider, usesPkce: false } } });
     expect((await noPkce.oauth.begin({ context, request })).ok).toBe(false);
-    const invalidTimeout = createJiniFixture({ timeoutMs: 60001 });
+    const invalidTimeout = createJiniFixture({ timeoutMs: 15001 });
     expect((await connect({ fixture: invalidTimeout })).result.ok).toBe(false);
     expect(invalidTimeout.requests).toHaveLength(0);
   });
@@ -102,7 +144,7 @@ describe("published Jini refresh adapter", () => {
     expect(await broker.use({ context: hostContext, reference: record.reference, operationId: "dispatch" }, { signal: controller.signal })).toMatchObject({ ok: false, error: { code: "cancelled" } });
     const updated = value({ outcome: await repo.getSecret({ context: hostContext, connectionId: record.reference.connectionId }) })!;
     expect(updated.reference.version).toBe(2);
-    expect(JSON.parse(value({ outcome: await h.sealer.open({ reference: updated.reference, secret: updated.secret }) }))).toMatchObject({ refreshToken: "rotated-refresh-token" });
+    expect(payload({ plaintext: value({ outcome: await h.sealer.open({ reference: updated.reference, secret: updated.secret }) }) })).toMatchObject({ refreshToken: "rotated-refresh-token" });
     expect(h.requests).toHaveLength(1);
   });
   it("refreshes once through the broker for racing stale references", async () => {
@@ -117,7 +159,7 @@ describe("published Jini refresh adapter", () => {
     expect(results.filter(result => result.ok)).toHaveLength(1);
     expect(results.filter(result => !result.ok && result.error.code === "conflict")).toHaveLength(2);
     const updated = value({ outcome: await repo.getSecret({ context: hostContext, connectionId: record.reference.connectionId }) })!;
-    const tokens = JSON.parse(value({ outcome: await h.sealer.open({ reference: updated.reference, secret: updated.secret }) }));
+    const tokens = payload({ plaintext: value({ outcome: await h.sealer.open({ reference: updated.reference, secret: updated.secret }) }) });
     expect(tokens).toMatchObject({ accessToken: "rotated-access-token", refreshToken: freshTokens.refreshToken, scopes: freshTokens.scopes });
     const form = new URLSearchParams(String(h.requests[0].init.body));
     expect(form.get("grant_type")).toBe("refresh_token");
@@ -143,11 +185,11 @@ describe("published Jini refresh adapter", () => {
     expect((await h.refresh.refresh({ context: { ...hostContext, scope: { ...hostContext.scope, ownerId: "other" } }, record })).ok).toBe(false);
     expect(h.requests).toHaveLength(1);
   });
-  it("does not call HTTP for fresh or malformed authenticated token JSON", async () => {
+  it("does not call HTTP for fresh or malformed tagged token JSON", async () => {
     const h = createJiniFixture({});
     const record = await createTokenRecord({ sealer: h.sealer });
     expect(value({ outcome: await h.refresh.refresh({ context: hostContext, record }) })).toBeNull();
-    const secret = value({ outcome: await h.sealer.seal({ reference: record.reference, plaintext: "not-json" }) });
+    const secret = value({ outcome: await h.sealer.seal({ reference: record.reference, plaintext: "om.oauth.v1:not-json" }) });
     expect(await h.refresh.refresh({ context: hostContext, record: { ...record, secret } })).toMatchObject({ ok: false, error: { code: "protocol_mismatch" } });
     expect(h.requests).toHaveLength(0);
   });

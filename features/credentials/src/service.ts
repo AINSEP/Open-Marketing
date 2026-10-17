@@ -1,18 +1,20 @@
 import type { CallContext, CallOptions, ClockPort, Outcome } from "@open-marketing/contracts";
 import type { CredentialRepoPort, SecretSealerPort, KeyringPort, OAuthClientPort, CredentialLockPort, CredentialAuditPort, CredentialObserverPort } from "./ports.js";
-import type { ConnectChallenge, ConnectRequest, ConnectionSummary, CredentialService, CredentialReference, SealedSecret, VerifiedOAuthCallback } from "./types.js";
+import type { BrowserOAuthCallback, ConnectChallenge, ConnectRequest, ConnectStatus, ConnectionSummary, CredentialService, CredentialReference, SealedSecret, VerifiedOAuthCallback } from "./types.js";
 import { withCredentialLock } from "./locks.js";
-import { boundary, callbackSchema, challengeSchema, connectSchema, failure, lookupSchema, revocationSchema, sameScope, secretSchema, summarySchema } from "./rules.js";
+import { boundary, browserCallbackSchema, callbackSchema, challengeSchema, connectSchema, failure, lookupSchema, revocationSchema, sameScope, secretSchema, statusSchema, summarySchema } from "./rules.js";
 
-interface PendingConnection { context: CallContext; request: ConnectRequest; challenge: ConnectChallenge }
+interface PendingConnection { context: CallContext; request: ConnectRequest; challenge: ConnectChallenge; consumed?: boolean }
 interface ServiceDependencies {
   repo: CredentialRepoPort; sealer: SecretSealerPort; keyring: KeyringPort;
   oauth: OAuthClientPort; clock: ClockPort; locks: CredentialLockPort; audit: CredentialAuditPort;
 }
 
 /** Inert server lifecycle factory. Bound transactions expire and are consumed before exchange.
+ * Consumed entries remain pending until exchange/storage settles; replay cannot remove them.
  * A reconnect uses a new connection ID; revoked IDs are never resurrected.
- * @complexity O(pending transactions) on begin, O(1) on completion/revocation; cap 256.
+ * @complexity O(pending transactions) on begin/browser completion, O(1) on status/revocation; cap 256.
+ * @example service.completeConnect({ callback: { state, code, redirectUri } })
  */
 export function createCredentialService(required: ServiceDependencies, optional?: { observer?: CredentialObserverPort }): CredentialService {
   const pending = new Map<string, PendingConnection>();
@@ -32,14 +34,31 @@ export function createCredentialService(required: ServiceDependencies, optional?
     },
     async completeConnect(input, options) {
       return boundary({ run: async () => {
-        if (!callbackSchema.safeParse(input.callback).success) return failure({ code: "invalid_input" });
-        const callback = structuredClone(input.callback);
-        const entry = pending.get(callback.transactionId);
-        if (!entry) return failure({ code: "expired" });
-        pending.delete(callback.transactionId);
-        if (entry.challenge.expiresAt <= required.clock.now({})) return failure({ code: "expired" });
-        if (!matchesCallback({ entry, callback })) return failure({ code: "forbidden" });
-        return completeConnection({ dependencies: required, entry, callback }, options);
+        const parsed = callbackSchema.or(browserCallbackSchema).safeParse(input.callback);
+        if (!parsed.success) return failure({ code: "invalid_input" });
+        const entry = findPending({ pending, callback: parsed.data });
+        if (!entry || entry.consumed) return failure({ code: "expired" });
+        // Preserve the internal transaction-ID API's consume-on-attempt semantics.
+        entry.consumed = "transactionId" in parsed.data;
+        const callback = { ...parsed.data, transactionId: entry.challenge.transactionId };
+        try {
+          if (entry.challenge.expiresAt <= required.clock.now({})) return failure({ code: "expired" });
+          if (!matchesCallback({ entry, callback })) return failure({ code: "forbidden" });
+          entry.consumed = true;
+          return await completeConnection({ dependencies: required, entry, callback }, options);
+        } finally {
+          if (entry.consumed) pending.delete(callback.transactionId);
+        }
+      } }, options);
+    },
+    async connectStatus(input, options) {
+      return boundary({ run: async () => {
+        if (!statusSchema.safeParse(input).success) return failure({ code: "invalid_input" });
+        if (!isOwner({ context: input.context })) return failure({ code: "forbidden" });
+        const snapshot = structuredClone(input);
+        const entry = pending.get(snapshot.transactionId);
+        if (entry && sameScope({ left: entry.context.scope, right: snapshot.context.scope }) && (entry.consumed || entry.challenge.expiresAt > required.clock.now({}))) return { ok: true, value: { status: "pending" as const } };
+        return savedStatus({ repo: required.repo, input: snapshot }, options);
       } }, options);
     },
     async revoke(input, options) {
@@ -54,14 +73,32 @@ export function createCredentialService(required: ServiceDependencies, optional?
   };
 }
 
+/** Opaque browser state resolves only against the existing bounded collection. @complexity O(pending), cap 256. */
+function findPending(required: { pending: Map<string, PendingConnection>; callback: VerifiedOAuthCallback | BrowserOAuthCallback }): PendingConnection | undefined {
+  if ("transactionId" in required.callback) return required.pending.get(required.callback.transactionId);
+  const matches = Array.from(required.pending.values()).filter(entry => new URL(entry.challenge.authorizationUrl).searchParams.get("state") === required.callback.state);
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+/** Scoped lookup returns only validated public summaries, including reconnect/revoked status. @complexity O(1) repository calls. */
+async function savedStatus(required: { repo: CredentialRepoPort; input: { context: CallContext; transactionId: string } }, optional?: CallOptions): Promise<Outcome<ConnectStatus>> {
+  const loaded = await required.repo.get({ context: required.input.context, connectionId: required.input.transactionId }, optional);
+  if (!loaded.ok) return loaded;
+  if (!loaded.value) return { ok: true, value: { status: "expired" } };
+  const parsed = summarySchema.safeParse(loaded.value);
+  if (!parsed.success) return failure({ code: "protocol_mismatch" });
+  if (!sameScope({ left: parsed.data.scope, right: required.input.context.scope }) || parsed.data.connectionId !== required.input.transactionId) return failure({ code: "protocol_mismatch" });
+  return { ok: true, value: { status: "complete", connection: parsed.data } };
+}
+
 /** Authenticated owner/scope agreement; agent principals cannot connect/revoke. @complexity O(1). */
 function isOwner(required: { context: CallContext }): boolean {
   return required.context.principal.kind === "owner" && required.context.principal.ownerId === required.context.scope.ownerId;
 }
-/** Bounded expiry scan uses only injected time. @complexity O(pending count), at most 256. */
+/** Bounded expiry scan preserves callbacks awaiting settlement. @complexity O(pending count), at most 256. */
 function expirePending(required: { pending: Map<string, PendingConnection>; now: number }): void {
   for (const [id, entry] of required.pending) {
-    if (entry.challenge.expiresAt <= required.now) required.pending.delete(id);
+    if (!entry.consumed && entry.challenge.expiresAt <= required.now) required.pending.delete(id);
   }
 }
 /** Require HTTPS authorization and S256; provider remains responsible for generating/persisting PKCE. @complexity O(URL length). */
@@ -86,6 +123,7 @@ async function completeConnection(required: { dependencies: ServiceDependencies;
   const reference: CredentialReference = { scope: required.entry.context.scope, connectionId: required.callback.transactionId, version: 1 };
   return withCredentialLock({ locks: required.dependencies.locks, reference, run: async () => {
     const secret = await required.dependencies.oauth.complete({ callback: required.callback }, optional);
+    if (required.callback.error !== undefined) return failure({ code: "unauthenticated" });
     if (!secret.ok) return secret;
     return persistConnection({ dependencies: required.dependencies, entry: required.entry, reference, secret: secret.value }, optional);
   } }, optional);

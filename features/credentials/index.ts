@@ -18,3 +18,5 @@ export { createMemoryCredentialObserver } from "./src/memory.js";
 export { createJiniOAuthClient } from "./src/jini-oauth.js";
 export { createJiniCredentialRefresh } from "./src/jini-refresh.js";
 export type { JiniOAuthProvider, JiniOAuthDependencies } from "./src/jini-oauth-common.js";
+export type { BrowserOAuthCallback, ConnectStatus } from "./src/types.js";
+export { readCredentialAccess } from "./src/jini-oauth-common.js";

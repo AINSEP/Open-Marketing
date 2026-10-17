@@ -1,6 +1,61 @@
 import { describe, expect, it } from "vitest";
-import { createAesGcmSecretSealer, createCredentialBroker, createMemoryCredentialAudit, createMemoryCredentialLock, createMemoryCredentialRepo, createMemorySecretSealer } from "../index.js";
+import { createAesGcmSecretSealer, createCredentialBroker, createMemoryCredentialAudit, createMemoryCredentialLock, createMemoryCredentialRepo, createMemorySecretSealer, readCredentialAccess } from "../index.js";
+import { createJiniFixture, createTokenRecord, expiredTokens } from "./jini-fixture.js";
 import { configuration, context, hostContext, reference, value } from "./fixtures.js";
+
+describe("tagged OAuth storage compatibility", () => {
+  it.each(["pasted-token", "not-json", JSON.stringify(expiredTokens)])("leaves untagged pasted secrets unchanged: %s", async plaintext => {
+    const h = createJiniFixture({});
+    const record = await createTokenRecord({ sealer: h.sealer });
+    const secret = value({ outcome: await h.sealer.seal({ reference, plaintext }) });
+    expect(readCredentialAccess({ plaintext })).toEqual({ ok: true, value: { accessToken: plaintext } });
+    expect(value({ outcome: await h.refresh.refresh({ context: hostContext, record: { ...record, secret } }) })).toBeNull();
+    expect(h.requests).toHaveLength(0);
+  });
+  it.each(["om.oauth.v2:{}", "om.oauth.v1:broken", "om.oauth.v1:{}", "om.oauth.v1:" + "x".repeat(65536)])("fails closed for malformed/reserved OAuth payloads", plaintext => {
+    expect(readCredentialAccess({ plaintext })).toMatchObject({ ok: false, error: { code: "protocol_mismatch" } });
+  });
+  it("decodes only access fields, including a token issued without refresh support", async () => {
+    const tokens = { ...expiredTokens, refreshToken: null };
+    const plaintext = "om.oauth.v1:" + JSON.stringify(tokens);
+    expect(value({ outcome: readCredentialAccess({ plaintext }) })).toEqual({ accessToken: tokens.accessToken, expiresAt: 0, scopes: tokens.scopes });
+    const h = createJiniFixture({});
+    const record = await createTokenRecord({ sealer: h.sealer });
+    const secret = value({ outcome: await h.sealer.seal({ reference, plaintext }) });
+    expect(await h.refresh.refresh({ context: hostContext, record: { ...record, secret } })).toMatchObject({ ok: false, error: { code: "unauthenticated" } });
+    expect(h.requests).toHaveLength(0);
+  });
+  it.each([
+    { deadline: "1970-01-02T00:00:00.000Z", rotation: undefined, lifetime: undefined },
+    { deadline: "1970-01-02T00:00:00.000Z", rotation: "rotated", lifetime: 31536000 },
+    { deadline: undefined, rotation: "rotated", lifetime: undefined },
+    { deadline: "1970-01-02T00:00:00.000Z", rotation: "rotated", lifetime: 1000 },
+  ])("preserves omitted/rotated refresh tokens without resetting a known deadline", async testCase => {
+    const h = createJiniFixture({ body: { access_token: "new-access", expires_in: 3600, refresh_token: testCase.rotation, refresh_token_expires_in: testCase.lifetime } });
+    const record = await createTokenRecord({ sealer: h.sealer });
+    const plaintext = "om.oauth.v1:" + JSON.stringify({ ...expiredTokens, refreshExpiresAt: testCase.deadline });
+    const secret = value({ outcome: await h.sealer.seal({ reference, plaintext }) });
+    const rotated = value({ outcome: await h.refresh.refresh({ context: hostContext, record: { ...record, secret } }) })!;
+    const opened = value({ outcome: await h.sealer.open({ reference: { ...reference, version: 2 }, secret: rotated }) });
+    const tokens = JSON.parse(opened.slice("om.oauth.v1:".length));
+    expect(tokens.refreshToken).toBe(testCase.rotation ?? expiredTokens.refreshToken);
+    const expectedDeadline = testCase.lifetime === 1000 ? new Date(1234 + 1000000).toISOString() : testCase.deadline;
+    expect(tokens.refreshExpiresAt).toBe(expectedDeadline);
+    expect(value({ outcome: readCredentialAccess({ plaintext: opened }) }).accessToken).toBe("new-access");
+    expect(h.requests).toHaveLength(1);
+  });
+  it("marks an expired refresh deadline reconnect_required before HTTP", async () => {
+    const h = createJiniFixture({});
+    const repo = createMemoryCredentialRepo({});
+    const plaintext = "om.oauth.v1:" + JSON.stringify({ ...expiredTokens, refreshExpiresAt: "1970-01-01T00:00:00.000Z" });
+    const secret = value({ outcome: await h.sealer.seal({ reference, plaintext }) });
+    value({ outcome: await repo.store({ context, reference, secret, pluginId: "plugin" }) });
+    const broker = createCredentialBroker({ repo, sealer: h.sealer, refresh: h.refresh, locks: createMemoryCredentialLock({}), audit: createMemoryCredentialAudit({}) });
+    expect(await broker.use({ context: hostContext, reference, operationId: "dispatch" })).toMatchObject({ ok: false, error: { code: "unauthenticated" } });
+    expect(value({ outcome: await repo.get({ context, connectionId: reference.connectionId }) })?.status).toBe("reconnect_required");
+    expect(h.requests).toHaveLength(0);
+  });
+});
 
 describe("completed refresh cancellation regression", () => {
   it("finishes storing a successful rotation before returning cancellation", async () => {

@@ -3,8 +3,14 @@ import type { Outcome, CallContext, CallOptions, Scope } from "@open-marketing/c
 export type ConnectRequest = { readonly pluginId: string; readonly returnUri: string };
 /** ConnectChallenge domain value; validation belongs at the boundary. */
 export type ConnectChallenge = { readonly transactionId: string; readonly authorizationUrl: string; readonly expiresAt: number };
-/** VerifiedOAuthCallback domain value; validation belongs at the boundary. */
-export type VerifiedOAuthCallback = { readonly transactionId: string; readonly state: string; readonly code: string; readonly redirectUri: string };
+/** Browser result has exactly one code/error; provider descriptions are discarded at parsing. */
+export type BrowserOAuthCallback = { readonly state: string; readonly redirectUri: string } & (
+  { readonly code: string; readonly error?: never } | { readonly error: string; readonly code?: never; readonly error_description?: string }
+);
+/** Internal callback bound to an existing connection transaction. */
+export type VerifiedOAuthCallback = BrowserOAuthCallback & { readonly transactionId: string };
+/** Owner-scoped sign-in progress; saved connection IDs equal transaction IDs. */
+export type ConnectStatus = { readonly status: "pending" | "complete" | "expired"; readonly connection?: ConnectionSummary };
 /** ConnectionSummary domain value; validation belongs at the boundary. */
 export type ConnectionSummary = { readonly connectionId: string; readonly scope: Scope; readonly pluginId: string; readonly status: "connected" | "revoked" | "reconnect_required" };
 /** RevocationReceipt domain value; validation belongs at the boundary. */
@@ -22,9 +28,15 @@ export interface CredentialService {
   ): Promise<Outcome<ConnectChallenge>>;
 
   completeConnect(
-    required: { callback: VerifiedOAuthCallback },
+    required: { callback: VerifiedOAuthCallback | BrowserOAuthCallback },
     optional?: CallOptions,
   ): Promise<Outcome<ConnectionSummary>>;
+
+  /** Owner-only progress lookup; no secret-bearing records leave this boundary. */
+  connectStatus(
+    required: { context: CallContext; transactionId: string },
+    optional?: CallOptions,
+  ): Promise<Outcome<ConnectStatus>>;
 
   revoke(
     required: { context: CallContext; connectionId: string },
