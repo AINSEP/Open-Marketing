@@ -22,10 +22,12 @@ import { handleModelRequest, type ModelCredentials, type ModelUpstream } from '.
 import { createSqlMeasureRepo, createSqlTrackedLink, type MeasureSqlDatabase } from '@open-marketing/measure';
 import { handlePublicRequest } from '../inbound/public.js';
 import { createAesGcmSecretSealer, createCredentialBroker, createCredentialKeyring, createCredentialService,
-    createMemoryCredentialLock, createSqlCredentialAudit, createSqlCredentialRepo } from '@open-marketing/credentials';
-import type { KeyringConfiguration } from '@open-marketing/credentials';
+    createMemoryCredentialLock, createSqlCredentialAudit, createSqlCredentialRepo, createJiniOAuthClient, createJiniCredentialRefresh } from '@open-marketing/credentials';
+import type { KeyringConfiguration, JiniOAuthProvider, OAuthClientPort, CredentialBrokerPort } from '@open-marketing/credentials';
+import { createPendingAuthorizationStore, type OAuthHttpPorts } from '@jini-ai/oauth';
+import { oauthCallbackPath, oauthMetadataSchema } from '../integration-oauth-contracts.js';
 import { createIntegrations, type Integrations } from '../integrations.js';
-import { handleIntegrationRequest } from '../inbound/integrations.js';
+import { handleIntegrationRequest, handleOAuthBrowserCallback } from '../inbound/integrations.js';
 import { bindForms, seedSandboxForm } from './forms.js';
 import { bindIdentity, createVisitTokens, localKey } from './identity.js';
 import { bindPrivacy } from './privacy.js';
@@ -75,6 +77,7 @@ export interface ServerBootIo extends HttpEffects {
     readonly addonFederation?: AddonFederationEffects;
     readonly agentPlugins?: AgentPluginEffects;
     readonly modelUpstream?: ModelUpstream;
+    readonly oauth?: OAuthHttpPorts;
     readonly loadCredentialMaster?: (required: { configuration: KeyringConfiguration; masterHex?: string }) => Promise<Outcome<Uint8Array>>;
 }
 /** Explicit owned lifecycle returned after successful boot. stop is idempotent and closes SQLite last. */
@@ -136,6 +139,7 @@ type BootRequestInput = {
 async function handleBootRequest(required: BootRequestInput): Promise<HttpResponse> {
     const origin = required.listener.origin({});
     if (!origin) return { status: 503, body: localFailure({ message: 'Server is stopping' }) };
+    if (required.request.method === 'GET' && required.request.path === oauthCallbackPath) return handleOAuthBrowserCallback(required);
     if (required.request.path === '/health' && required.request.method === 'GET') {
         return { status: 200, body: { ok: true, value: { ready: true, mode: 'local' } } };
     }
@@ -243,7 +247,9 @@ export async function bootServer(required: {
                 database.unit.transaction({ work: ({ session }) => session.query<Row>(input) }),
         };
         const integrations = bindServerIntegrations({ db: campaignDb, clock: required.clock, ids: required.ids,
-            observer: required.observer, io: required.io, stateRoot: config.value.stateRoot, masterHex: required.env.OM_CREDENTIAL_KEY });
+            observer: required.observer, io: required.io, stateRoot: config.value.stateRoot, masterHex: required.env.OM_CREDENTIAL_KEY,
+            providers: await loadOAuthProviders({ io: required.io }),
+            redirectUri: () => { const origin = listener.origin({}); return origin ? origin + oauthCallbackPath : null; } });
         const services: OwnerServices & OmFeatureServices = {
             campaigns: createSqlCampaignRepo({ db: campaignDb }, { observer: required.observer }),
             safety: createSqlSafetyRepo({ db: safetyDb, clock: required.clock, ids: required.ids, ownerTimezone: config.value.timezone, observer: required.observer }),
@@ -362,13 +368,14 @@ async function failedBoot(required: { resources: BootResources; context?: CallCo
 }
 
 /** Sole composition binding for credential storage, crypto, locks and operations on the owned SQLite handle.
- * OAuth entry points stay unavailable in this paste-token run. Key reads are lazy and injected;
+ * OAuth adapters are lazy until the listener has its exact loopback redirect. Key reads are injected;
  * importing/constructing integrations opens no file, listener, database or vendor connection.
  * @example const integrations = bindServerIntegrations({ db, clock, ids, observer, io, stateRoot });
  * @complexity O(1) construction; bounded repository/crypto work belongs to the supplied adapters.
  */
 export function bindServerIntegrations(required: {
     db: CampaignSqlPort; clock: ClockPort; ids: IdPort; observer: ObserverPort; io: ServerBootIo; stateRoot: string; masterHex?: string;
+    providers?: ReadonlyMap<string, JiniOAuthProvider>; redirectUri?: () => string | null;
 }): Integrations {
     const configuration: KeyringConfiguration = { hkdfSalt: 'io.github.ainsep.openmarketing.credentials.v1',
         envVarName: 'OM_CREDENTIAL_KEY', keyFilePath: join(required.stateRoot, 'credentials.key') };
@@ -383,13 +390,42 @@ export function bindServerIntegrations(required: {
     const locks = createMemoryCredentialLock({});
     const repo = createSqlCredentialRepo({ db: required.db, clock: required.clock });
     const audit = createSqlCredentialAudit({ db: required.db, ids: required.ids, clock: required.clock });
-    const broker = createCredentialBroker({ repo, sealer, locks, audit });
+    const providers = required.providers ?? new Map<string, JiniOAuthProvider>();
+    const randomBytesFn = ({ byteLength }: { byteLength: number }) => new Uint8Array(Buffer.from(z.string().regex(/^[a-f0-9]{64}$/).parse(required.io.randomToken({})), 'hex').subarray(0, byteLength));
+    const pending = createPendingAuthorizationStore({ clock: { nowMs: () => required.clock.now({}) }, randomBytesFn });
+    const http = required.io.oauth;
+    const dependencies = http ? { ...http, providers, clock: required.clock, sealer, observer: required.observer } : undefined;
+    const broker: CredentialBrokerPort = createCredentialBroker({ repo, sealer, locks, audit, refresh: dependencies ? { refresh: (input, options) =>
+        createJiniCredentialRefresh({ ...dependencies, clientCredentials: { repo, broker } }).refresh(input, options) } : undefined });
+    let oauth: OAuthClientPort | undefined;
     const service = createCredentialService({ repo, sealer, keyring, locks, audit, clock: required.clock,
         oauth: {
-            async begin() { return localFailure({ code: 'not_implemented', message: 'OAuth sign-in deferred' }); },
-            async complete() { return localFailure({ code: 'not_implemented', message: 'OAuth sign-in deferred' }); },
+            async begin(input, options) {
+                const redirect = required.redirectUri?.();
+                if (!dependencies || !redirect) return localFailure({ message: 'OAuth configuration unavailable' });
+                oauth ??= createJiniOAuthClient({ ...dependencies, clientCredentials: { repo, broker }, pending, randomBytesFn, ids: required.ids, allowedReturnUris: [redirect],
+                    allowedAuthorizationOrigins: [...providers.values()].map(value => new URL(value.provider.authorizationEndpoint!).origin),
+                    clientDisplayName: 'Open Marketing', softwareId: 'io.github.ainsep.openmarketing' });
+                return oauth.begin(input, options);
+            },
+            async complete(input, options) { return oauth ? oauth.complete(input, options) : localFailure({ code: 'expired', message: 'Sign-in expired' }); },
         } });
-    return createIntegrations({ repo, sealer, locks, audit, broker, service, db: required.db, observer: required.observer });
+    return createIntegrations({ repo, sealer, locks, audit, broker, service, db: required.db, observer: required.observer, redirectUri: required.redirectUri });
+}
+
+/** Parse plugin metadata; client configuration comes only from sealed storage at use time.
+ * @throws On invalid/oversized config or metadata; boot reports a fixed startup failure.
+ * @complexity Two bounded local reads, <=16 KiB each; no vendor calls or admission changes.
+ */
+export async function loadOAuthProviders(required: { io: ServerBootIo }): Promise<ReadonlyMap<string, JiniOAuthProvider>> {
+    const providers = new Map<string, JiniOAuthProvider>();
+    for (const id of ['google-ads', 'linkedin-ads']) {
+        const metadata = oauthMetadataSchema.parse(JSON.parse((await readLocalFile({ fs: required.io.fs,
+            path: join(required.io.projectRoot, 'content/agent-plugins', id, 'io.github.ainsep.openmarketing/oauth.json'), maxBytes: 16384 })).toString('utf8')));
+        if (metadata.provider.providerId !== id) throw new Error('OAuth provider mismatch');
+        providers.set(id, metadata);
+    }
+    return providers;
 }
 
 /** Bind the selected run's settings to the server-only sealed connection resolver.

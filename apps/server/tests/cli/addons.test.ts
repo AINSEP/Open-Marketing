@@ -140,3 +140,50 @@ it.each(['empty', 'file-link', 'directory-link', 'root-link', 'aggregate-cap', '
   } finally { await fs.rm(root, { recursive: true, force: true }); }
 });
 
+
+it('maps OAuth start/status and stdin-only callback without printing callback codes or tokens', async () => {
+  const challenge = { transactionId: 'sign-in', authorizationUrl: 'https://accounts.google.com/o/oauth2/v2/auth?state=fixture-state', expiresAt: 301000 };
+  for (const input of [
+    { argv: ['integrations', 'oauth', 'start', '--plugin', 'google-ads', '--json'], value: { status: 'completed', output: challenge }, path: '/oauth/start' },
+    { argv: ['integrations', 'oauth', 'status', '--transaction', 'sign-in', '--json'], value: { status: 'complete', connection }, path: '/oauth/status?transactionId=sign-in' },
+    { argv: ['integrations', 'oauth', 'callback', '--response-stdin', '--json'], value: connection, path: '/oauth/callback' },
+  ]) {
+    const f = fixture({ value: input.value });
+    const runtime = { ...f.runtime, async *readPrompt() { yield Buffer.from(JSON.stringify({ state: 'fixture-state', code: 'fixture-code-secret' })); } };
+    expect((await runOmCli({ argv: input.argv, runtime })).ok).toBe(true);
+    expect(f.calls[0].url).toContain(input.path);
+    expect(f.calls[0].init?.headers).toMatchObject({ authorization: 'Bearer fixture-owner' });
+    expect(f.stdout.join('') + f.stderr.join('')).not.toContain('fixture-code-secret');
+    if (input.path.endsWith('callback')) expect(f.calls[0].body).toEqual({ state: 'fixture-state', code: 'fixture-code-secret' });
+  }
+});
+it.each([
+  ['integrations', 'oauth', 'client', 'set', '--plugin', 'google-ads', '--client-secret', 'fixture-code-secret'],
+  ['integrations', 'oauth', 'client', 'set', '--plugin', 'google-ads', 'fixture-code-secret'],
+  ['integrations', 'oauth', 'callback', '--code', 'fixture-code-secret'],
+  ['integrations', 'oauth', 'start', '--plugin', 'google-ads', '--response-stdin'],
+  ['integrations', 'oauth', 'callback', '--response-stdin', 'fixture-code-secret'],
+  ['integrations', 'oauth', 'status', '--transaction', 'one', '--transaction', 'two'],
+])('rejects invalid OAuth argv before I/O: %s', async (...argv) => {
+  const f = fixture({});
+  expect((await runOmCli({ argv, runtime: f.runtime })).ok).toBe(false);
+  expect(f.calls).toEqual([]); expect(f.reads).toEqual([]);
+  expect(f.stdout.join('') + f.stderr.join('')).not.toContain('fixture-code-secret');
+});
+it('rejects a malformed completed start response before printing extra secret fields', async () => {
+  const f = fixture({ value: { status: 'completed', output: { transactionId: 'sign-in', authorizationUrl: 'https://fixture.test', expiresAt: 301000, refreshToken: 'fixture-secret' } } });
+  expect((await runOmCli({ argv: ['integrations', 'oauth', 'start', '--plugin', 'google-ads', '--json'], runtime: f.runtime })).ok).toBe(false);
+  expect(f.stdout.join('') + f.stderr.join('')).not.toContain('fixture-secret');
+});
+
+it('sets OAuth client JSON from stdin and clears without stdin, returning only configuration status', async () => {
+  const client = { clientId: 'fixture-client', clientSecret: 'fixture-client-secret' };
+  const f = fixture({ value: { configured: true, clientId: client.clientId } });
+  const runtime = { ...f.runtime, async *readPrompt() { f.reads.push('-'); yield Buffer.from(JSON.stringify(client)); } };
+  expect((await runOmCli({ argv: ['integrations', 'oauth', 'client', 'set', '--plugin', 'google-ads', '--json'], runtime })).ok).toBe(true);
+  expect(f.reads).toEqual(['-']); expect(f.calls[0].body).toEqual({ pluginId: 'google-ads', client });
+  expect(f.stdout.join('') + f.stderr.join('')).not.toContain(client.clientSecret);
+  const clear = fixture({ value: { configured: false } });
+  expect((await runOmCli({ argv: ['integrations', 'oauth', 'client', 'clear', '--plugin', 'google-ads'], runtime: clear.runtime })).ok).toBe(true);
+  expect(clear.reads).toEqual([]); expect(clear.calls[0].body).toEqual({ pluginId: 'google-ads', client: null });
+});

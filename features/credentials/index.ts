@@ -9,7 +9,7 @@ export { createBoundOAuthClient } from "./src/oauth.js";
 export type { OAuthHostBindings } from "./src/oauth.js";
 export { createSqlCredentialRepo, createSqlCredentialAudit } from "./src/sql.js";
 export { listCredentialConnections } from "./src/sql.js";
-export { connectCredentialToken } from "./src/token.js";
+export { connectCredentialToken, readCredentialOAuthClient } from "./src/token.js";
 export type { CredentialSqlPort } from "./src/sql.js";
 export { createMemoryCredentialRefresh } from "./src/memory.js";
 export type { CredentialRefreshPort } from "./src/ports.js";

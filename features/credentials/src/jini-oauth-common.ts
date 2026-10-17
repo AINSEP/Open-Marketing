@@ -3,13 +3,14 @@ import type { OAuthClient, OAuthFetch, OAuthProviderDescriptor, OAuthTokenSet, O
 import { z } from "zod";
 import { appErrorSchema } from "@open-marketing/contracts";
 import type { CallContext, CallOptions, ClockPort, Outcome } from "@open-marketing/contracts";
-import type { CredentialObserverPort, SecretSealerPort } from "./ports.js";
+import type { CredentialBrokerPort, CredentialRepoPort, CredentialObserverPort, SecretSealerPort } from "./ports.js";
+import { readCredentialOAuthClient } from "./token.js";
 import { failure } from "./rules.js";
 
 /** Host-only plugin configuration. Never serialize clients into agent/UI configuration. */
 export interface JiniOAuthProvider {
   readonly provider: OAuthProviderDescriptor;
-  readonly client: OAuthClient;
+  readonly client?: OAuthClient;
   readonly resource?: string;
   readonly extraAuthorizationParams?: { readonly access_type?: "offline"; readonly prompt?: "consent" };
 }
@@ -23,6 +24,7 @@ export interface JiniOAuthDependencies {
   readonly sealer: SecretSealerPort;
   readonly timeoutMs?: number;
   readonly observer?: CredentialObserverPort;
+  readonly clientCredentials?: { readonly repo: CredentialRepoPort; readonly broker: CredentialBrokerPort };
 }
 
 const scopesSchema = z.array(z.string().min(1).max(128).regex(/^[\x21\x23-\x5b\x5d-\x7e]+$/)).max(64);
@@ -61,10 +63,23 @@ export function readStoredTokens(required: { plaintext: string }): Outcome<Store
 /** Validate plugin configuration before protocol effects. Unknown plugins fail closed.
  * @complexity Time/space O(config bytes), with bounded scopes and field lengths.
  */
-export function resolveProvider(required: { providers: ReadonlyMap<string, JiniOAuthProvider>; pluginId: string }): Outcome<JiniOAuthProvider> {
-  const candidate = required.providers.get(required.pluginId);
+export async function resolveProvider(required: { dependencies: JiniOAuthDependencies; context: CallContext; pluginId: string }, optional?: CallOptions): Promise<Outcome<z.infer<typeof providerSchema>>> {
+  const { dependencies, pluginId } = required;
+  const candidate = dependencies.providers.get(pluginId);
   if (!candidate) return failure({ code: "unavailable" });
-  const parsed = providerSchema.safeParse(candidate);
+  let client = candidate.client; let provider = candidate.provider;
+  if (dependencies.clientCredentials) {
+    const saved = await readCredentialOAuthClient({ ...dependencies.clientCredentials, sealer: dependencies.sealer, context: { ...required.context, principal: { kind: "service", serviceId: "oauth-client" } }, pluginId }, optional);
+    if (!saved.ok) return saved;
+    if (!saved.value) return failure({ code: "unavailable" });
+    client = { ...saved.value, authMethod: saved.value.clientSecret ? candidate.provider.clientAuth : "none" };
+    provider = { ...provider, clientAuth: client.authMethod };
+  }
+  return validateProvider({ candidate: { ...candidate, provider, client } });
+}
+/** Validate auth consistency after server-only client lookup. @complexity O(config bytes), bounded schemas. */
+function validateProvider(required: { candidate: unknown }): Outcome<z.infer<typeof providerSchema>> {
+  const parsed = providerSchema.safeParse(required.candidate);
   if (!parsed.success) return failure({ code: "invalid_input" });
   if (parsed.data.client.authMethod !== parsed.data.provider.clientAuth) return failure({ code: "invalid_input" });
   if (parsed.data.client.authMethod !== "none" && !parsed.data.client.clientSecret) return failure({ code: "invalid_input" });

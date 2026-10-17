@@ -8,8 +8,9 @@ import type { AddonSummary, AddonToolSource, CallContext, CallOptions, ObserverP
 import type { Addons } from './addons.js';
 import { addonBoundary, addonFailure } from './addons.js';
 import type { Integrations } from './integrations.js';
+import { oauthStartSchema, oauthStatusQuerySchema } from './integration-oauth-contracts.js';
 
-export type AddonToolDependencies = { addons: Addons; integrations: Pick<Integrations, 'list' | 'disconnect'>; observer: ObserverPort };
+export type AddonToolDependencies = { addons: Addons; integrations: Pick<Integrations, 'list' | 'disconnect'> & Partial<Pick<Integrations, 'startOAuth' | 'oauthStatus'>>; observer: ObserverPort };
 const definitionSchemas = {
     addons_list: addonListRequestSchema,
     addons_install: installAddonSchema,
@@ -17,6 +18,8 @@ const definitionSchemas = {
     addons_uninstall: uninstallAddonSchema,
     integrations_list: pageQuerySchema,
     integrations_disconnect: disconnectIntegrationSchema,
+    integrations_oauth_start: oauthStartSchema,
+    integrations_oauth_status: oauthStatusQuerySchema,
 } as const;
 export type AddonManagementToolName = keyof typeof definitionSchemas;
 
@@ -31,6 +34,12 @@ export const addonManagementTools = [
     { name: 'addons_uninstall', description: 'Disable an add-on, close its sessions and remove its installed bytes.', effects: ['destructive'] },
     { name: 'integrations_list', description: 'List saved integrations without tokens or server configuration.', effects: ['read'] },
     { name: 'integrations_disconnect', description: 'Disconnect a saved integration.', effects: ['destructive'] },
+].map(definition => ({ ...definition, inputSchema: z.toJSONSchema(definitionSchemas[definition.name as AddonManagementToolName], { io: 'input' }) }));
+
+/** Browser sign-in tools expose challenges and progress, never callback codes or tokens. */
+export const integrationOAuthTools = [
+    { name: 'integrations_oauth_start', description: 'Start browser sign-in for a configured Google or LinkedIn app. Returns a URL and transaction ID; unavailable apps need server configuration. Never request codes in chat.', effects: ['write'] },
+    { name: 'integrations_oauth_status', description: 'Check sign-in progress by transactionId, or client configuration by pluginId (configured and clientId only). Paste client secrets in owner settings or CLI stdin, never chat.', effects: ['read'] },
 ].map(definition => ({ ...definition, inputSchema: z.toJSONSchema(definitionSchemas[definition.name as AddonManagementToolName], { io: 'input' }) }));
 
 /** Connection help is a pointer, deliberately excluded from the six callable management tools. */
@@ -55,6 +64,11 @@ export async function invokeAddonManagementTool(required: { context: CallContext
                 invoke: ({ value: query }) => required.dependencies.integrations.list({ context: required.context, query }, optional) });
             case 'integrations_disconnect': return parseAndInvoke({ schema: disconnectIntegrationSchema, input: required.input,
                 invoke: ({ value: request }) => required.dependencies.integrations.disconnect({ context: required.context, request }, optional) });
+            // Dispatcher already checked current agent authority and the owner's write grant.
+            case 'integrations_oauth_start': return parseAndInvoke({ schema: oauthStartSchema, input: required.input,
+                invoke: async ({ value: request }) => required.dependencies.integrations.startOAuth?.({ context: { ...required.context, principal: { kind: 'owner', ownerId: required.context.scope.ownerId } }, request }, optional) ?? addonFailure({ code: 'unavailable' }) });
+            case 'integrations_oauth_status': return parseAndInvoke({ schema: oauthStatusQuerySchema, input: required.input,
+                invoke: async ({ value }) => required.dependencies.integrations.oauthStatus?.({ context: { ...required.context, principal: { kind: 'owner', ownerId: required.context.scope.ownerId } }, ...value }, optional) ?? addonFailure({ code: 'unavailable' }) });
             case 'integrations_connect': return { ok: true, value: integrationConnectHelp };
             default: return addonFailure({ code: 'invalid_input' });
         }

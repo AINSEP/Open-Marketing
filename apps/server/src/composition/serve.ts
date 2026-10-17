@@ -15,6 +15,9 @@ import { setTimeout as waitFor } from 'node:timers/promises';
 import type { ClockPort, ObserverPort, Outcome } from '@open-marketing/contracts';
 import type { KeyringConfiguration } from '@open-marketing/credentials';
 import { z } from 'zod';
+import { createOAuthUrlGuard, type OAuthHttpPorts } from '@jini-ai/oauth';
+import { createHttpClient, createNodeGuardedHttpPorts, guardedFetch } from '@jini-ai/platform/http/guarded';
+import { oauthCallbackPath } from '../integration-oauth-contracts.js';
 import { bootServer, type BootedServer, type ServerBootIo } from './index.js';
 import { localFailure, localStateRoot, readLocalFile, type LocalFilesystem } from './local-auth.js';
 /** Load a verified snapshot URL's default export; import errors propagate and plugin cost is unbounded. */ export async function loadAddonModule(required: { moduleUrl: string }): Promise<unknown> { return (await import(required.moduleUrl)).default as unknown; }
@@ -29,7 +32,7 @@ export function createNodeBootIo(required: { projectRoot: string; studioRoot: st
     return { ...required, fs, createServer, openSqlite: ({ path }) => new Database(path),
         randomToken: () => randomBytes(32).toString('hex'),
         addonEffects: input => createNodeAddonEffects({ ...input, loadModule: loadAddonModule }),
-        addonYaml: { read: readAddonYaml },
+        addonYaml: { read: readAddonYaml }, oauth: createOAuthHttp({}),
         addonFederation: createNodeFederationEffects({ fetch, stdio: input => new StdioClientTransport(input) }),
         agentPlugins: { fetch, loadModule: loadAgentPluginModule,
             async moduleDigest({ moduleUrl }) { return createHash('sha256').update(await readLocalFile({ fs, path: fileURLToPath(moduleUrl), maxBytes: 8388608 })).digest('hex'); },
@@ -41,6 +44,27 @@ export function createNodeBootIo(required: { projectRoot: string; studioRoot: st
         } },
         loadCredentialMaster: input => loadCredentialMaster({ ...input, fs, randomToken: () => randomBytes(32).toString('hex') }),
         schedule: ({ callback, delayMs }) => { const timer = setTimeout(callback, delayMs); return () => clearTimeout(timer); } };
+}
+
+/** Reuse Jini's DNS-pinned transport; cap full DNS/body work at 15s/64 KiB, no redirects/retries.
+ * Foreign fetch ABI accepts only the explicit URL/string-form requests emitted by Jini OAuth.
+ * @complexity One bounded HTTP request; construction opens no socket and retains no credentials.
+ */
+export function createOAuthHttp(_required: Record<string, never>): OAuthHttpPorts {
+    const client = createHttpClient({ ...createNodeGuardedHttpPorts({}), userAgent: 'Open-Marketing', policy: {
+        allowedSchemes: ['https'], denyPrivateAddresses: true, devHostAllowlist: [], maxRedirects: 0,
+        connectTimeoutMs: 15000, maxResponseBytes: 65536, maxDecompressedBytes: 65536 } });
+    const guard = createOAuthUrlGuard({ assertAllowed({ url, label }) {
+        if (url.username || url.password || url.hash) throw new Error('Invalid OAuth endpoint');
+        if (label === 'redirect URI') {
+            if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || !url.port || url.pathname !== oauthCallbackPath || url.search) throw new Error('Invalid OAuth callback');
+        } else if (url.protocol !== 'https:') throw new Error('Invalid OAuth endpoint');
+    } }, { allowLoopbackHttp: true });
+    return { guard, async fetchFn({ url }, init = {}) {
+        if (url instanceof Request || init.method !== 'POST' || typeof init.body !== 'string') throw new Error('Invalid OAuth request');
+        return guardedFetch({ client, url: String(url), timeoutMs: 15000 }, { method: 'POST', headers: init.headers,
+            body: init.body, signal: init.signal ?? undefined, redirect: 'error', totalDeadlineMs: 15000 });
+    } };
 }
 
 /** Explicit host key loading: a configured 32-byte hex master or a private per-state-root key file.

@@ -1,12 +1,13 @@
 /** One OM catalog and dispatcher. SDK/HTTP adapters share these exact operations. */
 import { z } from 'zod';
+import { oauthStartSchema, oauthStatusQuerySchema } from './integration-oauth-contracts.js';
 import { buildUiToolDefinitions } from './ui-tools.js';
 import { assistantSettingsSchema, boundedJsonSchema, callContextSchema, generationAllowanceSettingsSchema, idSchema, pageQuerySchema, timeWindowSchema, digestSchema, moneySchema,
     parseBoundary, toolCallSchema, toolDescriptorSchema, toolSearchSchema, addonToolEffectsSchema, addonListRequestSchema, installAddonSchema, setAddonEnabledSchema, uninstallAddonSchema, disconnectIntegrationSchema } from '@open-marketing/contracts';
 import type { ApprovalResponse, CallContext, ClockPort, ConfirmationCard, Outcome, ToolCall, ToolDescriptor, ToolOperation, ToolResult } from '@open-marketing/contracts';
 import { digestArguments } from '@open-marketing/safety';
 import type { DispatchPermit, EffectRequest, FrozenDispatchRequest, ConfirmationExchangePort, SafetyService } from '@open-marketing/safety';
-import { addonManagementTools, loadAddonToolSources, invokeAddonManagementTool, invokeAddonTool } from './addon-tools.js';
+import { addonManagementTools, integrationOAuthTools, loadAddonToolSources, invokeAddonManagementTool, invokeAddonTool } from './addon-tools.js';
 import type { AddonToolDependencies } from './addon-tools.js';
 import { addonBoundary } from './addons.js';
 import type { ObserverPort } from '@open-marketing/contracts';
@@ -856,12 +857,14 @@ function creativeStatusOutput(required: { outcome: Outcome<GenerationStatus> }):
 }
 
 const addonSchemas = { addons_list: addonListRequestSchema, addons_install: installAddonSchema, addons_set_enabled: setAddonEnabledSchema,
-    addons_uninstall: uninstallAddonSchema, integrations_list: pageQuerySchema, integrations_disconnect: disconnectIntegrationSchema };
+    addons_uninstall: uninstallAddonSchema, integrations_list: pageQuerySchema, integrations_disconnect: disconnectIntegrationSchema,
+    integrations_oauth_start: oauthStartSchema, integrations_oauth_status: oauthStatusQuerySchema };
 const addonRoutes = { addons_list: 'addons', addons_install: 'addonInstall', addons_set_enabled: 'addonSetEnabled',
-    addons_uninstall: 'addonUninstall', integrations_list: 'integrations', integrations_disconnect: 'integrationDisconnect' } as const;
+    addons_uninstall: 'addonUninstall', integrations_list: 'integrations', integrations_disconnect: 'integrationDisconnect',
+    integrations_oauth_start: 'integrationOAuthStart', integrations_oauth_status: 'integrationOAuthStatus' } as const;
 /** D2 owns installation/lifecycle and credential custody; all management calls use its one seam. */
 function addonDefinitions(required: { dependencies: AddonToolDependencies }): OmToolDefinition[] {
-    return addonManagementTools.map(tool => {
+    return [...addonManagementTools, ...integrationOAuthTools].map(tool => {
         const name = tool.name as keyof typeof addonSchemas;
         const schema: z.ZodType = addonSchemas[name];
         return { ...tool, effects: addonToolEffectsSchema.parse(tool.effects), inputSchema: toolDescriptorSchema.shape.inputSchema.parse(tool.inputSchema), revision: '1',

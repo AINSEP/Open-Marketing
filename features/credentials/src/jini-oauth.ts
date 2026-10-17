@@ -29,7 +29,7 @@ export function createJiniOAuthClient(required: JiniOAuthDependencies & {
   const bindings: OAuthHostBindings = {
     authorize(input, options) {
       return jiniBoundary({ run: async () => {
-        const resolved = resolveProvider({ providers: dependencies.providers, pluginId: input.request.pluginId });
+        const resolved = await resolveProvider({ dependencies, context: input.context, pluginId: input.request.pluginId }, options);
         if (!resolved.ok) return resolved;
         const result = await beginAuthorizationCode({
           provider: resolved.value.provider, client: resolved.value.client, pending: dependencies.pending,
@@ -50,7 +50,7 @@ export function createJiniOAuthClient(required: JiniOAuthDependencies & {
  */
 async function exchange(required: { dependencies: Parameters<typeof createJiniOAuthClient>[0]; input: Parameters<OAuthHostBindings["exchange"]>[0] }, optional?: CallOptions): Promise<Outcome<SealedSecret>> {
   return jiniBoundary({ run: async () => {
-    const resolved = resolveProvider({ providers: required.dependencies.providers, pluginId: required.input.request.pluginId });
+    const resolved = await resolveProvider({ dependencies: required.dependencies, context: required.input.context, pluginId: required.input.request.pluginId }, optional);
     if (!resolved.ok) return resolved;
     const timeout = oauthTimeout({ dependencies: required.dependencies });
     if (!timeout.ok) return timeout;

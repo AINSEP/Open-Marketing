@@ -21,6 +21,8 @@ import { buildOmToolDefinitions, createOmTools, discoveryTools, toolInputSchema,
 import type { EffectRequest, PlatformLimitEvidence } from '@open-marketing/safety';
 import type { OmFeatureServices, OmToolDefinition } from '../src/om-tools.js';
 import { generateOmToolCoverage, ownerRouteDisposition } from '../src/om-tool-coverage.js';
+import { handleIntegrationRequest } from '../src/inbound/integrations.js';
+import type { Integrations } from '../src/integrations.js';
 import { routes } from '../src/cli/http.js';
 import { handleOwnerRequest } from '../src/inbound/owner.js';
 import { createFrontendSessions } from '../src/inbound/frontend.js';
@@ -510,7 +512,7 @@ it('consumes D2 management/source schemas and redacts structured third-party fai
     try {
         const addons = addonFixture();
         const definitions = value({ result: await buildOmToolDefinitions({ context: owner, services: f.services, addons }) });
-        expect(definitions.filter(tool => tool.name.startsWith('addons_') || tool.name.startsWith('integrations_'))).toHaveLength(6);
+        expect(definitions.filter(tool => tool.name.startsWith('addons_') || tool.name.startsWith('integrations_'))).toHaveLength(8);
         const source = definitions.find(tool => tool.name.startsWith('addon_plugin_'))!;
         expect(source.policy).toBe('write'); expect(value({ result: await source.invoke({ context: owner, input: {} }) })).toMatchObject({ instructions: 'Fixture contribution' });
         const failing = await definitions.find(tool => tool.name === 'integrations_disconnect')!.invoke({ context: owner, input: { connectionId: 'connection' } });
@@ -1128,4 +1130,39 @@ it('reports frontend disconnect persistence errors through endRun and disposal',
         await expect(f.relay.endRun({ context: owner, runId: 'run', status: 'cancelled' })).rejects.toEqual(failure);
         await expect(f.relay.dispose({})).rejects.toEqual(failure);
     } finally { await f.tools.dispose({}); }
+});
+
+it('routes OAuth HTTP and assistant starts through one write card and keeps callback secrets outside tools', async () => {
+    const f = fixture({}); const addons = addonFixture(); const starts: CallContext[] = [];
+    const challenge = { transactionId: 'sign-in', authorizationUrl: 'https://accounts.google.com/o/oauth2/v2/auth?state=fixture-state', expiresAt: 301000 };
+    addons.integrations.startOAuth = async input => { starts.push(input.context); return { ok: true, value: challenge }; };
+    addons.integrations.oauthStatus = async input => ({ ok: true, value: 'pluginId' in input ? { configured: true, clientId: 'fixture-client' } : { status: 'pending' } });
+    const definitions = value({ result: await buildOmToolDefinitions({ context: agent, services: f.services, addons }) });
+    const tools = createOmTools({ clock: f.clock, observer: f.observer, confirmations: f.services.confirmations,
+        authorize: () => ({ ok: true, value: undefined }), definitions: async () => ({ ok: true, value: definitions }) });
+    try {
+        const start = definitions.find(tool => tool.name === 'integrations_oauth_start')!;
+        expect(start).toMatchObject({ policy: 'write', ownerRoute: 'integrationOAuthStart' });
+        expect(start.parse({ input: { pluginId: 'google-ads', code: 'never-chat' } })).toMatchObject({ ok: false });
+        expect(definitions.some(tool => tool.name === 'integrations_oauth_callback')).toBe(false);
+        expect(definitions.some(tool => tool.name === 'integrations_oauth_client_set' || tool.name === 'integrations_oauth_client_clear')).toBe(false);
+        expect(definitions.find(tool => tool.name === 'integrations_oauth_status')!.parse({ input: { pluginId: 'google-ads', clientSecret: 'never-chat' } })).toMatchObject({ ok: false });
+        expect(await tools.dispatch({ context: agent, call: { name: 'integrations_oauth_status', input: { pluginId: 'google-ads' }, operationId: 'client-status' } })).toMatchObject({ value: { status: 'completed', output: { configured: true, clientId: 'fixture-client' } } });
+        const integrations = addons.integrations as Integrations;
+        const response = await handleIntegrationRequest({ context: owner, integrations, services: { tools }, request: { method: 'POST', path: routes.integrationOAuthStart.path,
+            headers: { 'idempotency-key': 'http-start' }, body: { pluginId: 'google-ads' } } });
+        expect(response).toMatchObject({ status: 200, body: { value: { status: 'pending', operationId: 'http-start' } } });
+        expect(starts).toEqual([]);
+        for (const [context, operationId] of [[owner, 'http-start'], [agent, 'assistant-start']] as const) {
+            value({ result: await tools.dispatch({ context, call: { name: start.name, input: { pluginId: 'google-ads' }, operationId } }) });
+            const card = value({ result: await tools.card({ context, operationId }) })!;
+            value({ result: await tools.answer({ context: owner, response: { cardId: card.cardId, operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } }) });
+            expect(value({ result: await tools.operation({ context, operationId }) })).toMatchObject({ status: 'completed', output: challenge });
+        }
+        expect(starts).toHaveLength(2);
+        expect(starts[1]).toMatchObject({ principal: owner.principal, runId: agent.runId, scope: agent.scope });
+        expect(await tools.dispatch({ context: agent, call: { name: 'integrations_oauth_status', input: { transactionId: 'sign-in' }, operationId: 'status' } })).toMatchObject({ value: { status: 'completed', output: { status: 'pending' } } });
+        expect(generateOmToolCoverage({ definitions }).find(row => row.tool === start.name)).toMatchObject({ http: routes.integrationOAuthStart.path, policy: 'write', status: 'connected' });
+        expect(ownerRouteDisposition.integrationOAuthCallback).toContain('codes never enter assistant');
+    } finally { await tools.dispose({}); await f.tools.dispose({}); }
 });

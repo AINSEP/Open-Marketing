@@ -1,6 +1,7 @@
 import { addonListSchema, addonSummarySchema, addonUninstallReceiptSchema, integrationListSchema, integrationSummarySchema } from '@open-marketing/contracts';
 /** Owner HTTP mapping shared by the server and CLI. */
 import { z } from "zod";
+import { oauthClientStatusSchema, oauthStartResultSchema, oauthStatusSchema } from '../integration-oauth-contracts.js';
 import {
   assistantSettingsStatusSchema, conversationListSchema, conversationSchema, appErrorSchema, chatMessageSchema, confirmationCardSchema, epochSchema, idSchema, moneySchema, navigationTargetSchema, parseBoundary, runEventSchema,
   toolDescriptorSchema, toolOperationSchema, toolResultSchema,
@@ -36,6 +37,10 @@ export const routes = {
   integrations: { method: 'GET', path: '/api/addons/v1/integrations', schema: integrationListSchema },
   integrationConnect: { method: 'POST', path: '/api/addons/v1/integrations/token', schema: integrationSummarySchema },
   integrationDisconnect: { method: 'POST', path: '/api/addons/v1/integrations/disconnect', schema: integrationSummarySchema },
+  integrationOAuthStart: { method: 'POST', path: '/api/addons/v1/integrations/oauth/start', schema: oauthStartResultSchema },
+  integrationOAuthCallback: { method: 'POST', path: '/api/addons/v1/integrations/oauth/callback', schema: integrationSummarySchema },
+  integrationOAuthStatus: { method: 'GET', path: '/api/addons/v1/integrations/oauth/status', schema: oauthStatusSchema },
+  integrationOAuthClient: { method: 'POST', path: '/api/addons/v1/integrations/oauth/client', schema: oauthClientStatusSchema },
   status: { method: "GET", path: "/api/status", schema: z.strictObject({ ready: z.boolean(), mode: z.enum(["production", "local", "unavailable"]) }) },
   snapshot: { method: "GET", path: "/api/studio/snapshot", schema: studioSnapshot },
   campaigns: { method: "GET", path: "/api/campaigns", schema: campaignsPage },
@@ -115,7 +120,7 @@ interface HttpRequest<T> {
   readonly session: HttpSession;
   readonly route: { readonly method: "GET" | "POST"; readonly path: string; readonly schema: z.ZodType<T> };
   readonly id?: string;
-  readonly query?: { readonly limit: number; readonly cursor?: string; readonly kind?: string } | { readonly after: number };
+  readonly query?: { readonly limit: number; readonly cursor?: string; readonly kind?: string } | { readonly after: number } | { readonly transactionId: string } | { readonly pluginId: string };
   readonly body?: unknown;
   readonly signal?: AbortSignal;
 }
@@ -184,6 +189,8 @@ function transportFailure<T>(required: { method: "GET" | "POST"; code: AppError[
 function queryString(required: { query: NonNullable<HttpRequest<unknown>["query"]> }): string {
   const query = new URLSearchParams();
   if ('after' in required.query) query.set('after', String(required.query.after));
+  else if ('transactionId' in required.query) query.set('transactionId', required.query.transactionId);
+  else if ('pluginId' in required.query) query.set('pluginId', required.query.pluginId);
   else {
     query.set('limit', String(required.query.limit));
     if (required.query.kind !== undefined) query.set('kind', required.query.kind);

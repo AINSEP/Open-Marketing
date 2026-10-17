@@ -17,6 +17,8 @@ import { readLocalOwner } from '../src/composition/local-auth.js';
 import { runOmCli } from '../src/cli/index.js';
 import { createNodeHttpListener, serveStudioAsset } from '../src/inbound/http.js';
 import { migrationManifest } from '../src/composition/migrations.js';
+import { createOAuthUrlGuard } from '@jini-ai/oauth';
+import { oauthCallbackPath } from '../src/integration-oauth-contracts.js';
 
 /** Real native SQLite/HTTP/filesystem, owned temporary assets/state, deterministic injected time. */
 async function createFixture(_required: Record<string, never>) {
@@ -305,3 +307,52 @@ function statusWithHost(required: { url: string; host: string }): Promise<number
         request.end();
     });
 }
+
+it('authenticates OAuth management, approves start once and accepts only the exact browser GET without cookies', async () => {
+    const f = await createFixture({}); let exchanges = 0;
+    try {
+        const result = await f.start({ io: { oauth: { guard: createOAuthUrlGuard({ assertAllowed() {} }, { allowLoopbackHttp: true }), async fetchFn() {
+                exchanges++; return Response.json({ access_token: 'fixture-access', refresh_token: 'fixture-refresh', token_type: 'Bearer', expires_in: 3600 });
+            } } } });
+        if (!result.ok) throw new Error(result.error.message);
+        const origin = new URL(result.value.studioUrl).origin;
+        const local = await readLocalOwner({ fs, stateRoot: f.stateRoot });
+        if (!local.ok) throw new Error(local.error.message);
+        const headers = { authorization: 'Bearer ' + local.value.token, 'content-type': 'application/json', 'idempotency-key': 'oauth-start' };
+        const clientPath = '/api/addons/v1/integrations/oauth/client';
+        expect((await fetch(origin + clientPath, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).status).toBe(401);
+        expect((await fetch(origin + clientPath, { method: 'POST', headers, body: JSON.stringify({ pluginId: 'google-ads', client: { clientId: 'fixture-client', clientSecret: 'fixture-secret' } }) })).status).toBe(200);
+        for (const suffix of ['start', 'callback']) expect((await fetch(origin + '/api/addons/v1/integrations/oauth/' + suffix,
+            { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).status).toBe(401);
+        expect((await fetch(origin + '/api/addons/v1/integrations/oauth/status?transactionId=unknown')).status).toBe(401);
+        expect((await fetch(origin + oauthCallbackPath + '/extra')).status).toBe(401);
+        const pending = await (await fetch(origin + '/api/addons/v1/integrations/oauth/start', { method: 'POST', headers, body: JSON.stringify({ pluginId: 'google-ads' }) })).json();
+        expect(pending).toMatchObject({ ok: true, value: { status: 'pending', operationId: 'oauth-start' } });
+        expect(exchanges).toBe(0);
+        const card = await (await fetch(origin + '/api/safety/approvals/' + pending.value.cardId, { headers })).json();
+        const answer = await fetch(origin + '/api/safety/approvals/' + pending.value.cardId + '/answer', { method: 'POST', headers,
+            body: JSON.stringify({ cardId: card.value.cardId, operationId: 'oauth-start', argumentsDigest: card.value.argumentsDigest, choice: 'allow' }) });
+        expect(answer.status).toBe(200);
+        const operation = await (await fetch(origin + '/api/tools/operations/oauth-start', { headers })).json();
+        expect(operation).toMatchObject({ value: { status: 'completed', output: { transactionId: expect.any(String) } } });
+        const query = new URLSearchParams({ state: new URL(operation.value.output.authorizationUrl).searchParams.get('state')!, code: 'fixture-code' });
+        expect((await fetch(origin + oauthCallbackPath + '?' + query + '&code=duplicate')).status).toBe(400);
+        const callback = await fetch(origin + oauthCallbackPath + '?' + query);
+        expect(callback.status).toBe(200);
+        expect(callback.headers.get('referrer-policy')).toBe('no-referrer');
+        expect(callback.headers.get('cache-control')).toBe('no-store');
+        expect(await callback.text()).not.toMatch(/fixture-code|fixture-access|fixture-refresh/);
+        expect((await fetch(origin + oauthCallbackPath + '?' + query)).status).toBe(400);
+        expect(exchanges).toBe(1);
+        const status = await (await fetch(origin + '/api/addons/v1/integrations/oauth/status?transactionId=' + operation.value.output.transactionId, { headers })).json();
+        expect(status).toMatchObject({ value: { status: 'complete', connection: { status: 'saved' } } });
+        expect(JSON.stringify(f.events)).not.toMatch(/fixture-code|fixture-access|fixture-refresh|fixture-secret/);
+        await result.value.stop({});
+        const restarted = await f.start({});
+        if (!restarted.ok) throw new Error(restarted.error.message);
+        const restartedOrigin = new URL(restarted.value.studioUrl).origin;
+        expect(await (await fetch(restartedOrigin + '/api/addons/v1/integrations/oauth/status?pluginId=google-ads', { headers })).json()).toEqual({ ok: true, value: { configured: true, clientId: 'fixture-client' } });
+        expect((await fetch(restartedOrigin + '/api/addons/v1/integrations', { headers })).status).toBe(200);
+        expect((await fetch(restartedOrigin + oauthCallbackPath + '?' + query)).status).toBe(400);
+    } finally { await f.close(); }
+});

@@ -61,7 +61,7 @@ async function readTokens(required: { dependencies: JiniOAuthDependencies; input
  */
 async function refreshDue(required: { dependencies: JiniOAuthDependencies; input: Parameters<CredentialRefreshPort["refresh"]>[0]; tokens: StoredOAuthTokens }, optional?: CallOptions): Promise<Outcome<SealedSecret>> {
   if (required.input.record.reference.version === 2147483647) return failure({ code: "limit_exceeded" });
-  const resolved = resolveProvider({ providers: required.dependencies.providers, pluginId: required.input.record.summary.pluginId });
+  const resolved = await resolveProvider({ dependencies: required.dependencies, context: required.input.context, pluginId: required.input.record.summary.pluginId }, optional);
   if (!resolved.ok) return resolved;
   const timeout = oauthTimeout({ dependencies: required.dependencies });
   if (!timeout.ok) return timeout;

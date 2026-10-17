@@ -26,6 +26,7 @@
     "@jini-ai/core": "0.4.5",
     "@jini-ai/db": "0.3.2",
     "@jini-ai/diagnostics": "0.5.2",
+    "@jini-ai/oauth": "0.2.2",
     "@jini-ai/platform": "0.5.6",
     "@jini-ai/plugins": "0.5.1",
     "@jini-ai/protocol": "0.4.4",

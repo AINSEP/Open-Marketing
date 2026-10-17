@@ -61,7 +61,7 @@ async function readCurrent(required: { repo: CredentialRepoPort; input: BrokerUs
  * Successful refresh must return sealed next-version data. @complexity O(1) writes plus provider work.
  */
 async function maybeRefresh(required: { dependencies: BrokerDependencies; input: BrokerUse; record: CredentialRecord }, optional?: CallOptions): Promise<Outcome<CredentialRecord>> {
-  if (!required.dependencies.refresh) return { ok: true, value: required.record };
+  if (!required.dependencies.refresh || required.record.reference.connectionId.startsWith("oauth-client.")) return { ok: true, value: required.record };
   const refreshed = await required.dependencies.refresh.refresh({ context: required.input.context, record: required.record }, optional);
   if (!refreshed.ok) {
     const marked = await markFailedRefresh({ dependencies: required.dependencies, context: required.input.context, record: required.record, code: refreshed.error.code });

@@ -12,8 +12,12 @@ import { createAesGcmSecretSealer, createCredentialBroker, createCredentialKeyri
 import type { CredentialRefreshPort, CredentialSqlPort, KeyringConfiguration } from '@open-marketing/credentials';
 import { createIntegrations, resolveProviderKey } from '../src/integrations.js';
 import { handleIntegrationRequest } from '../src/inbound/integrations.js';
-import { bindServerIntegrations } from '../src/composition/index.js';
-import { createNodeBootIo, loadCredentialMaster } from '../src/composition/serve.js';
+import { bindServerIntegrations, loadOAuthProviders } from '../src/composition/index.js';
+import { fileURLToPath } from 'node:url';
+import { createOAuthUrlGuard } from '@jini-ai/oauth';
+import { handleOAuthBrowserCallback } from '../src/inbound/integrations.js';
+import { oauthCallbackPath } from '../src/integration-oauth-contracts.js';
+import { createNodeBootIo, createOAuthHttp, loadCredentialMaster } from '../src/composition/serve.js';
 import type { HttpRequest } from '../src/ports.js';
 
 const owner: CallContext = { scope: { ownerId: 'owner', workspaceId: 'workspace' }, principal: { kind: 'owner', ownerId: 'owner' }, correlationId: 'fixture-correlation', traceId: 'fixture-trace', runId: 'fixture-run' };
@@ -183,4 +187,106 @@ it('provisions one private master key, reuses it and rejects malformed/insecure 
         expect(await loadCredentialMaster({ configuration: config, masterHex: '01'.repeat(32), fs, randomToken: () => 'ef'.repeat(32) })).toEqual({ ok: true, value: new Uint8Array(32).fill(1) });
         expect(await loadCredentialMaster({ configuration: config, masterHex: request.plaintext, fs, randomToken: () => 'ef'.repeat(32) })).toMatchObject({ ok: false, error: { code: 'invalid_input' } });
     } finally { await fs.rm(directory, { recursive: true, force: true }); }
+});
+
+it.each(['google-ads', 'linkedin-ads'])('loads %s metadata, exchanges once, seals tokens and refreshes at plugin access', async pluginId => {
+    const f = fixture({}); let now = 1000; let sequence = 0;
+    const calls: { url: string; init?: RequestInit }[] = [];
+    const io = { ...createNodeBootIo({ projectRoot: fileURLToPath(new URL('../../../', import.meta.url)), studioRoot: '/fixture', ready() {} }),
+        randomToken: () => (++sequence).toString(16).padStart(2, '0').repeat(32),
+        loadCredentialMaster: async () => ({ ok: true as const, value: new Uint8Array(32).fill(3) }),
+        oauth: { guard: createOAuthUrlGuard({ assertAllowed() {} }, { allowLoopbackHttp: true }), async fetchFn(input: { url: string | URL | Request }, init?: RequestInit) {
+            calls.push({ url: String(input.url), init });
+            return Response.json(calls.length === 1 ? { access_token: 'fixture-access', refresh_token: 'fixture-refresh', expires_in: 3600, token_type: 'Bearer', refresh_token_expires_in: 86400 }
+                : { access_token: 'fixture-refreshed', expires_in: 3600, token_type: 'Bearer' });
+        } } };
+    try {
+        const providers = await loadOAuthProviders({ io });
+        const integrations = bindServerIntegrations({ db: f.dependencies.db, clock: { now: () => now }, ids: { next: () => 'oauth-' + ++sequence }, observer: f.dependencies.observer,
+            io, providers, stateRoot: '/fixture', redirectUri: () => 'http://127.0.0.1:43120' + oauthCallbackPath });
+        expect(await integrations.startOAuth({ context: owner, request: { pluginId } })).toMatchObject({ ok: false });
+        unwrap({ result: await integrations.setOAuthClient({ context: owner, request: { pluginId, client: { clientId: 'fixture-client', clientSecret: 'fixture-client-secret' } } }) });
+        const challenge = unwrap({ result: await integrations.startOAuth({ context: owner, request: { pluginId } }) });
+        const url = new URL(challenge.authorizationUrl);
+        expect(url.searchParams.get('code_challenge_method')).toBe('S256');
+        expect(url.searchParams.get('redirect_uri')).toBe('http://127.0.0.1:43120' + oauthCallbackPath);
+        if (pluginId === 'google-ads') { expect(url.searchParams.get('access_type')).toBe('offline'); expect(url.searchParams.get('prompt')).toBe('consent'); }
+        const query = { state: url.searchParams.get('state')!, code: 'fixture-code', scope: 'provider-display-field' };
+        const callback = await handleOAuthBrowserCallback({ context: owner, integrations, request: { method: 'GET', path: oauthCallbackPath, query } });
+        expect(callback).toMatchObject({ status: 200, headers: { 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' } });
+        expect(await integrations.oauthStatus({ context: owner, transactionId: challenge.transactionId })).toMatchObject({ ok: true, value: { status: 'complete', connection: { status: 'saved' } } });
+        expect(await integrations.oauthStatus({ context: { ...owner, scope: { ...owner.scope, workspaceId: 'foreign' } }, transactionId: challenge.transactionId })).toMatchObject({ value: { status: 'expired' } });
+        expect((await handleOAuthBrowserCallback({ context: owner, integrations, request: { method: 'GET', path: oauthCallbackPath, query } })).status).toBe(400);
+        expect(calls).toHaveLength(1);
+        expect(calls[0].init?.redirect).toBe('error');
+        expect(new URLSearchParams(String(calls[0].init?.body)).get('code_verifier')).toBeTruthy();
+        expect(await integrations.access({ context: host, pluginId, connectionId: challenge.transactionId })).toMatchObject({ ok: true, value: { accessToken: 'fixture-access', expiresAt: 3601000 } });
+        now = 3600000;
+        unwrap({ result: await integrations.setOAuthClient({ context: owner, request: { pluginId, client: { clientId: 'fixture-client', clientSecret: 'replacement-secret' } } }) });
+        expect(await integrations.access({ context: host, pluginId, connectionId: challenge.transactionId })).toMatchObject({ ok: true, value: { accessToken: 'fixture-refreshed' } });
+        expect(calls).toHaveLength(2);
+        expect(new URLSearchParams(String(calls[1].init?.body)).get('client_secret')).toBe('replacement-secret');
+        expect(new URLSearchParams(String(calls[1].init?.body)).get('refresh_token')).toBe('fixture-refresh');
+        expect(f.native.prepare('SELECT version FROM om_credential_connection WHERE connection_id = ?').get(challenge.transactionId)).toEqual({ version: 2 });
+        expect(JSON.stringify([callback, f.events, f.native.prepare('SELECT * FROM om_credential_connection').all()])).not.toMatch(/fixture-access|fixture-refresh|fixture-code|fixture-client-secret/);
+        now = 7200000;
+        unwrap({ result: await integrations.access({ context: host, pluginId, connectionId: challenge.transactionId }) });
+        expect(new URLSearchParams(String(calls[2].init?.body)).get('refresh_token')).toBe('fixture-refresh');
+        const denied = unwrap({ result: await integrations.startOAuth({ context: owner, request: { pluginId } }) });
+        const state = new URL(denied.authorizationUrl).searchParams.get('state')!;
+        expect(await integrations.completeOAuth({ context: owner, response: { state, code: 'both', error: 'access_denied' } })).toMatchObject({ ok: false });
+        expect(await integrations.completeOAuth({ context: owner, response: { state, error: 'access_denied', error_description: 'fixture-secret' } })).toMatchObject({ ok: false });
+        expect(await integrations.completeOAuth({ context: owner, response: { state, code: 'replay' } })).toMatchObject({ ok: false });
+        expect(calls).toHaveLength(3);
+        unwrap({ result: await integrations.setOAuthClient({ context: owner, request: { pluginId, client: null } }) });
+        now = 10800000;
+        expect(await integrations.access({ context: host, pluginId, connectionId: challenge.transactionId })).toMatchObject({ ok: false });
+        expect(calls).toHaveLength(3);
+    } finally { f.dispose(); }
+});
+
+it('denies OAuth management before reading unauthenticated bodies and rejects caller endpoints', async () => {
+    const f = fixture({}); let reads = 0;
+    try {
+        for (const path of ['start', 'callback', 'client']) {
+            expect(await handleIntegrationRequest({ context: host, integrations: f.integrations, request: { method: 'POST', path: '/api/addons/v1/integrations/oauth/' + path,
+                async readBody() { reads++; return { ok: true, value: {} }; } } })).toMatchObject({ status: 403 });
+        }
+        expect(reads).toBe(0);
+        expect(await f.http({ method: 'POST', path: '/api/addons/v1/integrations/oauth/start', body: { pluginId: 'google-ads', tokenEndpoint: 'https://attacker.test' } })).toMatchObject({ status: 400 });
+        expect(await f.http({ method: 'GET', path: '/api/addons/v1/integrations/oauth/status', query: { transactionId: 'unknown' } })).toMatchObject({ status: 200, body: { value: { status: 'expired' } } });
+    } finally { f.dispose(); }
+});
+
+it('permits HTTP only for the fixed loopback redirect and rejects token endpoint exceptions', () => {
+    const { guard } = createOAuthHttp({});
+    const raw = 'http://127.0.0.1:43120' + oauthCallbackPath;
+    expect(guard.assertSafeUrl({ raw, label: 'redirect URI' }).href).toBe(raw);
+    expect(() => guard.assertSafeUrl({ raw, label: 'token endpoint' })).toThrow();
+    for (const redirect of [raw + '?code=tainted', raw + '/extra', 'https://attacker.test' + oauthCallbackPath]) {
+        expect(() => guard.assertSafeUrl({ raw: redirect, label: 'redirect URI' })).toThrow();
+    }
+});
+
+it('seals purpose-bound clients, isolates access, and supports clear then set without exposing secrets', async () => {
+    const f = fixture({}); const pluginId = 'google-ads'; const path = '/api/addons/v1/integrations/oauth/client';
+    const client = { clientId: 'fixture-client', clientSecret: 'fixture-client-secret' };
+    try {
+        const saved = await f.http({ method: 'POST', path, body: { pluginId, client } });
+        expect(saved).toMatchObject({ status: 200, body: { ok: true, value: { configured: true, clientId: client.clientId } } });
+        expect(await f.http({ method: 'GET', path: '/api/addons/v1/integrations/oauth/status', query: { pluginId } })).toMatchObject({ body: { value: { configured: true, clientId: client.clientId } } });
+        expect(await f.integrations.oauthStatus({ context: { ...owner, scope: { ...owner.scope, workspaceId: 'other' } }, pluginId })).toEqual({ ok: true, value: { configured: false } });
+        expect(await f.integrations.oauthStatus({ context: owner, pluginId: 'linkedin-ads' })).toEqual({ ok: true, value: { configured: false } });
+        expect(await f.http({ method: 'GET', path: '/api/addons/v1/integrations' })).toMatchObject({ body: { value: { items: [], cursor: null } } });
+        expect(await f.integrations.access({ context: host, pluginId, connectionId: 'oauth-client.' + pluginId })).toMatchObject({ ok: false });
+        expect(await f.integrations.connect({ context: owner, request: { connectionId: 'oauth-client.' + pluginId, pluginId, plaintext: 'overwrite' } })).toMatchObject({ ok: false });
+        expect(await f.integrations.disconnect({ context: owner, request: { connectionId: 'oauth-client.' + pluginId } })).toMatchObject({ ok: false });
+        expect(await f.integrations.oauthStatus({ context: owner, transactionId: 'oauth-client.' + pluginId })).toMatchObject({ value: { status: 'expired' } });
+        for (const invalid of [{ ...client, extra: true }, { clientId: '' }, { clientId: 'x', clientSecret: 'x'.repeat(8193) }]) {
+            expect(await f.http({ method: 'POST', path, body: { pluginId, client: invalid } })).toMatchObject({ status: 400 });
+        }
+        expect(await f.http({ method: 'POST', path, body: { pluginId, client: null } })).toMatchObject({ body: { value: { configured: false } } });
+        expect(await f.http({ method: 'POST', path, body: { pluginId, client: { clientId: 'public-client' } } })).toMatchObject({ body: { value: { configured: true, clientId: 'public-client' } } });
+        expect(JSON.stringify([saved, f.events, f.dependencies.audit.entries({}), f.native.prepare('SELECT * FROM om_credential_connection').all()])).not.toContain(client.clientSecret);
+    } finally { f.dispose(); }
 });

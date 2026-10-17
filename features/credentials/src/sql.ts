@@ -33,6 +33,7 @@ export async function listCredentialConnections(required: {
     if (context.principal.kind === "owner" && context.principal.ownerId !== context.scope.ownerId) return failure({ code: "forbidden" });
     const result = await required.db.query({ text: `SELECT ${summaryColumns} FROM om_credential_connection
       WHERE owner_id = $1 AND workspace_id = $2 AND ($3 IS NULL OR connection_id > $3)
+      AND connection_id NOT LIKE 'oauth-client.%'
       AND ($4 IS NULL OR plugin_id = $4) AND ($5 IS NULL OR status = $5)
       ORDER BY connection_id LIMIT $6`,
       values: [context.scope.ownerId, context.scope.workspaceId, query.cursor ?? null, query.pluginId ?? null, query.status ?? null, query.limit + 1] });

@@ -4,7 +4,8 @@ import { appErrorSchema, callContextSchema, connectIntegrationTokenSchema, disco
     integrationListSchema, integrationSummarySchema, parseBoundary } from '@open-marketing/contracts';
 import type { AppError, CallContext, CallOptions, ConnectIntegrationToken, DisconnectIntegration, IntegrationList,
     IntegrationSummary, ObserverPort, Outcome, PageQuery } from '@open-marketing/contracts';
-import { connectCredentialToken, listCredentialConnections } from '@open-marketing/credentials';
+import { readCredentialOAuthClient, connectCredentialToken, listCredentialConnections, readCredentialAccess } from '@open-marketing/credentials';
+import { oauthClientSetSchema, oauthClientStatusSchema, oauthCallbackSchema, oauthChallengeSchema, oauthStartSchema, oauthStatusQuerySchema, oauthStatusSchema } from './integration-oauth-contracts.js';
 import type { ConnectionSummary, CredentialAuditPort, CredentialBrokerPort, CredentialLockPort,
     CredentialRepoPort, CredentialService, CredentialSqlPort, SecretSealerPort } from '@open-marketing/credentials';
 
@@ -15,12 +16,17 @@ export interface IntegrationDependencies {
     readonly locks: CredentialLockPort;
     readonly audit: CredentialAuditPort;
     readonly broker: CredentialBrokerPort;
-    readonly service: Pick<CredentialService, 'revoke'>;
+    readonly service: CredentialService;
+    readonly redirectUri?: () => string | null;
     readonly db: CredentialSqlPort;
     readonly observer: ObserverPort;
 }
 /** Owner management returns secret-free contracts. access/resolveProviderKey stay server-only. */
 export interface Integrations {
+    setOAuthClient(required: { context: CallContext; request: unknown }, optional?: CallOptions): Promise<Outcome<z.infer<typeof oauthClientStatusSchema>>>;
+    startOAuth(required: { context: CallContext; request: z.infer<typeof oauthStartSchema> }, optional?: CallOptions): Promise<Outcome<z.infer<typeof oauthChallengeSchema>>>;
+    completeOAuth(required: { context: CallContext; response: unknown }, optional?: CallOptions): Promise<Outcome<IntegrationSummary>>;
+    oauthStatus(required: { context: CallContext } & z.infer<typeof oauthStatusQuerySchema>, optional?: CallOptions): Promise<Outcome<z.infer<typeof oauthStatusSchema>>>;
     connect(required: { context: CallContext; request: ConnectIntegrationToken }, optional?: CallOptions): Promise<Outcome<IntegrationSummary>>;
     list(required: { context: CallContext; query: PageQuery }, optional?: CallOptions): Promise<Outcome<IntegrationList>>;
     disconnect(required: { context: CallContext; request: DisconnectIntegration }, optional?: CallOptions): Promise<Outcome<IntegrationSummary>>;
@@ -28,12 +34,51 @@ export interface Integrations {
     resolveProviderKey(required: { context: CallContext; provider: 'anthropic' }, optional?: CallOptions): Promise<Outcome<string>>;
 }
 
-/** Inert operation binding using existing credential lifecycle/sealing. No network calls or caches.
+/** Inert binding to the existing credential lifecycle/sealing; operations use injected I/O, without caches.
  * @example const integrations = createIntegrations({ repo, sealer, locks, audit, broker, service, db, observer });
  * @complexity O(1) instance space; operations use bounded pages or one credential.
  */
 export function createIntegrations(required: IntegrationDependencies): Integrations {
     return {
+        setOAuthClient: (input, options) => integrationBoundary({ dependencies: required, context: input.context, operation: 'integrations.oauth.client.set', run: async () => {
+            const parsed = parseBoundary({ schema: oauthClientSetSchema, input: input.request });
+            if (!parsed.ok) return parsed;
+            const saved = await connectCredentialToken({ ...required, context: input.context, pluginId: parsed.value.pluginId, connectionId: 'oauth-client.' + parsed.value.pluginId,
+                plaintext: JSON.stringify(parsed.value.client), purpose: 'oauth-client' }, options);
+            const client = parsed.value.client as { clientId: string } | null; // Successful credential ingress validates the complete client shape.
+            return saved.ok ? oauthClientSummary({ client }) : saved;
+        } }, options),
+        startOAuth: (input, options) => integrationBoundary({ dependencies: required, context: input.context, operation: 'integrations.oauth.start', run: async () => {
+            const parsed = parseBoundary({ schema: oauthStartSchema, input: input.request });
+            if (!parsed.ok) return parsed;
+            const returnUri = required.redirectUri?.();
+            if (!returnUri) return integrationFailure({ code: 'unavailable' });
+            const challenge = await required.service.beginConnect({ context: input.context, request: { ...parsed.value, returnUri } }, options);
+            return challenge.ok ? parseBoundary({ schema: oauthChallengeSchema, input: challenge.value }) : challenge;
+        } }, options),
+        completeOAuth: (input, options) => integrationBoundary({ dependencies: required, context: input.context, operation: 'integrations.oauth.callback', run: async () => {
+            const parsed = parseBoundary({ schema: oauthCallbackSchema, input: input.response });
+            if (!parsed.ok) return parsed;
+            const redirectUri = required.redirectUri?.();
+            if (!redirectUri) return integrationFailure({ code: 'unavailable' });
+            const completed = await required.service.completeConnect({ callback: { ...parsed.value, redirectUri } }, options);
+            return completed.ok ? publicSummary({ summary: completed.value }) : completed;
+        } }, options),
+        oauthStatus: (input, options) => integrationBoundary({ dependencies: required, context: input.context, operation: 'integrations.oauth.status', run: async () => {
+            const { context, ...query } = input;
+            const parsed = parseBoundary({ schema: oauthStatusQuerySchema, input: query });
+            if (!parsed.ok) return parsed;
+            if ('pluginId' in parsed.value) {
+                if (context.principal.kind !== 'owner' || context.principal.ownerId !== context.scope.ownerId) return integrationFailure({ code: 'forbidden' });
+                const client = await readCredentialOAuthClient({ ...required, pluginId: parsed.value.pluginId, context: { ...context, principal: { kind: 'service', serviceId: 'oauth-client' } } }, options);
+                return client.ok ? oauthClientSummary({ client: client.value }) : client;
+            }
+            if (parsed.value.transactionId.startsWith('oauth-client.')) return { ok: true, value: { status: 'expired' } };
+            const status = await required.service.connectStatus({ context, transactionId: parsed.value.transactionId }, options);
+            if (!status.ok) return status;
+            return parseBoundary({ schema: oauthStatusSchema, input: { status: status.value.status,
+                ...(status.value.connection ? { connection: summaryDto({ summary: status.value.connection }) } : {}) } });
+        } }, options),
         connect: (input, options) => integrationBoundary({ dependencies: required, context: input.context, operation: 'integrations.connect', run: async () => {
             const parsed = parseBoundary({ schema: connectIntegrationTokenSchema, input: input.request });
             if (!parsed.ok) return parsed;
@@ -50,6 +95,7 @@ export function createIntegrations(required: IntegrationDependencies): Integrati
         disconnect: (input, options) => integrationBoundary({ dependencies: required, context: input.context, operation: 'integrations.disconnect', run: async () => {
             const parsed = parseBoundary({ schema: disconnectIntegrationSchema, input: input.request });
             if (!parsed.ok) return parsed;
+            if (parsed.value.connectionId.startsWith('oauth-client.')) return integrationFailure({ code: 'forbidden' });
             return disconnect({ dependencies: required, context: input.context, connectionId: parsed.value.connectionId }, options);
         } }, options),
         access: (input, options) => accessCredential({ ...input, dependencies: required }, options),
@@ -67,6 +113,11 @@ function publicSummary(required: { summary: ConnectionSummary }): Outcome<Integr
     return parseBoundary({ schema: integrationSummarySchema, input: summaryDto(required) });
 }
 
+/** Expose only configured/clientId after credential validation. @complexity O(1). */
+function oauthClientSummary(required: { client: { clientId: string } | null }): Outcome<z.infer<typeof oauthClientStatusSchema>> {
+    return { ok: true, value: required.client ? { configured: true, clientId: required.client.clientId } : { configured: false } };
+}
+
 /** Reuse the credential service's locked revocation/audit sequence; no local duplicate lifecycle.
  * A receipt is validated by that service; an audit failure cannot restore authority. @complexity Fixed indexed I/O.
  */
@@ -80,11 +131,11 @@ async function disconnect(required: { dependencies: IntegrationDependencies; con
 }
 
 /** Trusted host access checks plugin ownership before broker use, then unseals the returned version.
- * Opaque token contents are parsed by the plugin; paste-token connections have no host expiry.
+ * Tagged OAuth payloads are decoded here; refresh material never reaches a plugin.
  * Call immediately before egress. No credential or ciphertext caching is permitted.
  * @tradeoffs Disconnect racing an already authorized in-flight call is accepted on a single server.
  * @example await accessCredential({ context: serviceContext, pluginId, connectionId, dependencies });
- * @complexity O(b) time/space for <=64 KiB token, fixed indexed I/O; no vendor effects.
+ * @complexity O(b) time/space for <=64 KiB token; fixed indexed I/O and at most one bounded refresh.
  */
 export async function accessCredential(required: {
     context: CallContext; pluginId: string; connectionId: string; dependencies: IntegrationDependencies;
@@ -98,12 +149,13 @@ export async function accessCredential(required: {
 }
 
 /** Only matching plugin records reach the broker. The broker's secret.version reflects refresh.
- * @complexity Fixed repository/broker calls and O(b) decryption, <=64 KiB.
+ * @complexity Fixed repository/broker calls, at most one refresh and O(b) decryption, <=64 KiB.
  */
 async function accessCurrent(required: {
     context: CallContext; pluginId: string; connectionId: string; dependencies: IntegrationDependencies;
-}, optional?: CallOptions): Promise<Outcome<{ accessToken: string }>> {
+}, optional?: CallOptions): Promise<Outcome<{ accessToken: string; expiresAt?: number; scopes?: readonly string[] }>> {
     const { dependencies, context, connectionId, pluginId } = required;
+    if (connectionId.startsWith('oauth-client.')) return integrationFailure({ code: 'forbidden' });
     const loaded = await dependencies.repo.getSecret({ context, connectionId }, optional);
     if (!loaded.ok) return loaded;
     if (!loaded.value) return integrationFailure({ code: 'unauthenticated' });
@@ -113,7 +165,7 @@ async function accessCurrent(required: {
     const reference = { scope: context.scope, connectionId, version: used.value.version };
     const opened = await dependencies.sealer.open({ reference, secret: used.value }, optional);
     if (!opened.ok) return opened;
-    return { ok: true, value: { accessToken: opened.value } };
+    return readCredentialAccess({ plaintext: opened.value });
 }
 
 /** Model-broker seam only: select the one saved Anthropic connection in this scope at call time.

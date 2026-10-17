@@ -7,10 +7,14 @@ import type { CliRuntime } from './types.js';
 export type { AddonCliFiles } from './types.js';
 import { createSession, failure, requestOm, routes, terminalText } from './http.js';
 import type { HttpSession } from './http.js';
+import { oauthClientQuerySchema, oauthCallbackSchema, oauthOperationSchema, oauthStartSchema, oauthStatusQuerySchema } from '../integration-oauth-contracts.js';
+import { answerApproval } from './approval.js';
 
 const options = { json: { type: 'boolean' }, help: { type: 'boolean' }, kind: { type: 'string' }, limit: { type: 'string' },
-  cursor: { type: 'string' }, plugin: { type: 'string' }, connection: { type: 'string' }, 'token-stdin': { type: 'boolean' } } as const;
+  cursor: { type: 'string' }, plugin: { type: 'string' }, connection: { type: 'string' }, 'token-stdin': { type: 'boolean' },
+  transaction: { type: 'string' }, 'response-stdin': { type: 'boolean' } } as const;
 const help = 'om addons list [--kind plugin|agent-plugin|skill] [--limit 1..100] [--cursor C]\nom addons install <folder|ZIP> [--kind plugin|agent-plugin|skill]\nom addons enable|disable|uninstall <id> --kind plugin|agent-plugin|skill\nom integrations list [--limit 1..100] [--cursor C]\nom integrations connect --plugin <id> [--connection <id>] --token-stdin\nom integrations disconnect <connection-id>\nAll commands: --json, --help\n';
+const oauthHelp = 'om integrations oauth client set --plugin ID (stdin JSON: clientId, optional clientSecret)\nom integrations oauth client clear --plugin ID\nom integrations oauth start --plugin ID\nom integrations oauth callback --response-stdin (JSON state + code or error)\nom integrations oauth status --transaction ID\n';
 /** Narrow documented native parseArgs ABI; config stays fixed at this input boundary. */
 function nativeArgs(required: { argv: readonly string[] }) {
   return parseArgs({ args: [...required.argv], options, tokens: true, strict: true, allowPositionals: true });
@@ -112,6 +116,7 @@ async function dispatch(required: { args: Args; session: HttpSession; runtime: C
   const key = required.args.positionals.slice(0, 2).join(' ');
   const values = required.args.values;
   switch (key) {
+    case 'integrations oauth': return oauth(required);
     case 'addons list': case 'integrations list': return list({ ...required, key });
     case 'addons install': return install(required);
     case 'addons enable': case 'addons disable': {
@@ -142,6 +147,7 @@ async function run(required: { args: Args; runtime: CliRuntime }): Promise<Outco
     'integrations list': { count: 0, allowed: ['limit', 'cursor'] },
     'integrations connect': { count: 0, allowed: ['plugin', 'connection', 'token-stdin'] },
     'integrations disconnect': { count: 1, allowed: [] },
+    'integrations oauth': { count: required.args.positionals[2] === 'client' ? 2 : 1, allowed: oauthFlags[required.args.positionals[2]] ?? [] },
   };
   if (required.args.positionals.length === 1 && required.args.values.help) return { ok: true, value: { help } };
   const shape = shapes[key];
@@ -167,8 +173,59 @@ export async function runAddonCli(required: { argv: readonly string[]; runtime: 
   catch { result = failure({ code: 'unavailable', message: 'Add-on command failed; refresh server state before another submission' }); }
   const json = required.argv.includes('--json');
   if (json) required.runtime.stdout.write({ text: JSON.stringify(result) + '\n' });
-  else if (result.ok && parsed.ok && parsed.value.values.help) required.runtime.stdout.write({ text: help });
+  else if (result.ok && parsed.ok && parsed.value.values.help) required.runtime.stdout.write({ text: help + oauthHelp });
   else if (result.ok) required.runtime.stdout.write({ text: terminalText({ text: JSON.stringify(result.value) }) + '\n' });
   else required.runtime.stderr.write({ text: result.error.message + '\n' });
   return result.ok ? { ok: true, value: undefined } : result;
+}
+
+const oauthFlags: Record<string, string[]> = { client: ['plugin'], start: ['plugin'], callback: ['response-stdin'], status: ['transaction'] };
+/** Fixed command schemas before stdin/HTTP; callback secrets travel only in the authenticated body.
+ * Start uses the same exact-card terminal continuation as ordinary tool calls; JSON returns its receipt.
+ * @complexity <=64 KiB stdin, one dispatch plus bounded approval continuation; no retries.
+ */
+async function oauth(required: { args: Args; runtime: CliRuntime; session: HttpSession }): Promise<Outcome<unknown>> {
+  const values = required.args.values;
+  switch (required.args.positionals[2]) {
+    case 'client': return oauthClient(required);
+    case 'start': {
+      const body = oauthStartSchema.safeParse({ pluginId: values.plugin });
+      if (!body.success) return failure({ code: 'invalid_input', message: 'Specify --plugin ID' });
+      const result = await requestOm({ session: required.session, route: routes.integrationOAuthStart, body: body.data });
+      if (!result.ok || result.value.status !== 'pending' || values.json || !result.value.cardId) return result;
+      const answered = await answerApproval({ ...required, cardId: result.value.cardId, choice: 'allow' });
+      return answered.ok ? requestOm({ session: required.session, route: { ...routes.toolOperation, schema: oauthOperationSchema }, id: result.value.operationId }) : answered;
+    }
+    case 'status': {
+      const query = oauthStatusQuerySchema.safeParse({ transactionId: values.transaction });
+      return query.success ? requestOm({ session: required.session, route: routes.integrationOAuthStatus, query: query.data }) : failure({ code: 'invalid_input', message: 'Specify --transaction ID' });
+    }
+    case 'callback': {
+      return oauthCallback(required);
+    }
+    default: return failure({ code: 'invalid_input', message: 'Unknown OAuth command; use --help' });
+  }
+}
+
+/** Owner-only client ingress; credentials are bounded stdin JSON, never argv or output. @complexity <=64 KiB, one HTTP call. */
+async function oauthClient(required: { args: Args; runtime: CliRuntime; session: HttpSession }): Promise<Outcome<unknown>> {
+  const plugin = oauthClientQuerySchema.safeParse({ pluginId: required.args.values.plugin });
+  const action = required.args.positionals[3];
+  if (!plugin.success || !['set', 'clear'].includes(action)) return failure({ code: 'invalid_input', message: 'Specify client set|clear --plugin ID' });
+  if (action === 'clear') return requestOm({ session: required.session, route: routes.integrationOAuthClient, body: { ...plugin.data, client: null } });
+  const bytes = await readBytes({ runtime: required.runtime, path: '-', maxBytes: 65536 });
+  if (!bytes.ok) return bytes;
+  try { return requestOm({ session: required.session, route: routes.integrationOAuthClient, body: { ...plugin.data, client: JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes.value)) } }); }
+  catch { return failure({ code: 'invalid_input', message: 'Client stdin must be JSON' }); }
+}
+
+/** Read one bounded JSON response from stdin; tainted errors/codes never reach terminal output. */
+async function oauthCallback(required: { args: Args; runtime: CliRuntime; session: HttpSession }): Promise<Outcome<unknown>> {
+  if (!required.args.values['response-stdin']) return failure({ code: 'invalid_input', message: 'Callback requires --response-stdin' });
+  const bytes = await readBytes({ runtime: required.runtime, path: '-', maxBytes: 65536 });
+  if (!bytes.ok) return bytes;
+  try {
+    const body = oauthCallbackSchema.safeParse(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes.value)));
+    return body.success ? requestOm({ session: required.session, route: routes.integrationOAuthCallback, body: body.data }) : failure({ code: 'invalid_input', message: 'Invalid OAuth response' });
+  } catch { return failure({ code: 'invalid_input', message: 'OAuth stdin must be JSON' }); }
 }

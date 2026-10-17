@@ -5,27 +5,63 @@ import { callContextSchema, connectIntegrationTokenSchema, disconnectIntegration
 import type { CallContext, Outcome } from '@open-marketing/contracts';
 import type { Integrations } from '../integrations.js';
 import type { HttpRequest, HttpResponse } from '../ports.js';
+import type { OmTools } from '../om-tools.js';
+import { oauthCallbackPath, oauthStartSchema, oauthStatusQuerySchema } from '../integration-oauth-contracts.js';
 
-/** Three paste-token routes. Trusted boot supplies authenticated owner scope; never take it from JSON.
+/** Owner integration management. Trusted boot supplies authenticated scope; never take it from JSON.
  * Rechecks the principal before any body read, including direct/test callers.
  * @example handleIntegrationRequest({ request, context: authenticatedOwner, integrations });
  * @complexity Fixed route set, <=100 summaries or <=64 KiB UTF-8 token; no vendor effects.
  */
 export async function handleIntegrationRequest(required: {
-    request: HttpRequest; context: CallContext; integrations: Integrations;
+    request: HttpRequest; context: CallContext; integrations: Integrations; services?: { tools?: Pick<OmTools, 'dispatch'> };
 }): Promise<HttpResponse> {
     const context = callContextSchema.safeParse(required.context);
     if (!context.success) return denied({ code: 'invalid_input' });
     if (context.data.principal.kind !== 'owner' || context.data.principal.ownerId !== context.data.scope.ownerId) return denied({ code: 'forbidden' });
     switch (required.request.method + ' ' + required.request.path) {
+        case 'POST /api/addons/v1/integrations/oauth/client': {
+            const body = await readBody(required);
+            return respond({ outcome: body.ok ? await required.integrations.setOAuthClient({ context: required.context, request: body.value }, { signal: required.request.signal }) : body });
+        }
         case 'GET /api/addons/v1/integrations': return list(required);
         case 'POST /api/addons/v1/integrations/token': return token(required);
         case 'POST /api/addons/v1/integrations/disconnect': return disconnect(required);
+        case 'POST /api/addons/v1/integrations/oauth/start': return startOAuth(required);
+        case 'GET /api/addons/v1/integrations/oauth/status': {
+            const query = parseBoundary({ schema: oauthStatusQuerySchema, input: required.request.query ?? {} });
+            return respond({ outcome: query.ok ? await required.integrations.oauthStatus({ context: required.context, ...query.value }, { signal: required.request.signal }) : query });
+        }
+        case 'POST ' + oauthCallbackPath: {
+            const body = await readBody(required);
+            return respond({ outcome: body.ok ? await required.integrations.completeOAuth({ context: required.context, response: body.value }, { signal: required.request.signal }) : body });
+        }
         default: return { status: 404, body: { ok: false, error: { code: 'not_implemented', message: 'Integration route unavailable', retryable: false } } };
     }
 }
 
 type IntegrationInput = Parameters<typeof handleIntegrationRequest>[0];
+
+/** Policy owns start approval and idempotency; callback continues only its single-use state. */
+async function startOAuth(required: IntegrationInput): Promise<HttpResponse> {
+    const body = await readBody(required);
+    if (!body.ok) return respond({ outcome: body });
+    const input = parseBoundary({ schema: oauthStartSchema, input: body.value });
+    if (!input.ok) return respond({ outcome: input });
+    if (!required.services?.tools) return { status: 503, body: { ok: false, error: { code: 'unavailable', message: 'Sign-in policy unavailable', retryable: false } } };
+    return respond({ outcome: await required.services.tools.dispatch({ context: required.context, signal: required.request.signal,
+        call: { name: 'integrations_oauth_start', input: input.value, operationId: required.request.headers?.['idempotency-key'] ?? required.context.correlationId } }) });
+}
+
+/** Exact cookie-free GET only. Fixed HTML never reflects provider queries, errors or secrets. */
+export async function handleOAuthBrowserCallback(required: IntegrationInput): Promise<HttpResponse> {
+    if (required.request.method !== 'GET' || required.request.path !== oauthCallbackPath) return { status: 404, body: '' };
+    const result = await required.integrations.completeOAuth({ context: required.context, response: required.request.query ?? {} }, { signal: required.request.signal });
+    return { status: result.ok ? 200 : 400, contentType: 'text/html; charset=utf-8',
+        headers: { 'cache-control': 'no-store', 'referrer-policy': 'no-referrer', 'content-security-policy': "default-src 'none'; frame-ancestors 'none'" },
+        body: result.ok ? '<!doctype html><title>Open Marketing</title><p>Sign-in saved. You can close this window.</p>'
+            : '<!doctype html><title>Open Marketing</title><p>Sign-in failed or expired. Return to Open Marketing to try again.</p>' };
+}
 
 async function list(required: IntegrationInput): Promise<HttpResponse> {
     const query = parseBoundary({ schema: z.strictObject({ limit: z.string().regex(/^\d{1,3}$/).default('25').transform(Number), cursor: idSchema.optional() }).pipe(pageQuerySchema), input: required.request.query ?? {} });
