@@ -6,5 +6,11 @@
     "google-ads.reporting.v1",
     "google-ads.stop.v1",
     "google-ads.conversions.v1"
-  ]
+  ],
+  "deployment": {
+    "capabilityId": "google-ads.search.v1",
+    "create": "create_paused",
+    "read": "reconcile",
+    "admitted": false
+  }
 }

@@ -186,6 +186,7 @@ async function sendRequest(required: { dependencies: LinkedInDependencies; prepa
  * @complexity O(b) time/space, b<=1MiB; one request, no redirect or retry.
  */
 export async function requestLinkedIn(required: { fetch: typeof fetch; request: LinkedInWireRequest; credential: Credential; apiVersion: "202609" }, optional?: CallOptions): Promise<Outcome<{ response: Response; body: unknown }>> {
+  if (optional?.signal?.aborted) return failure({ code: "cancelled" });
   if (Buffer.byteLength(required.request.body ?? "") > 65536) return failure({ code: "limit_exceeded" });
   const deadline = AbortSignal.timeout(15000);
   const signal = optional?.signal ? AbortSignal.any([deadline, optional.signal]) : deadline;
@@ -193,7 +194,8 @@ export async function requestLinkedIn(required: { fetch: typeof fetch; request: 
     const response = await required.fetch(required.request.url, {
       method: required.request.method, body: required.request.body, redirect: "error", signal,
       headers: { Authorization: "Bearer " + required.credential.accessToken, "LinkedIn-Version": required.apiVersion,
-        "X-Restli-Protocol-Version": "2.0.0", "X-RestLi-Method": required.request.restliMethod, "Content-Type": "application/json" },
+        "X-Restli-Protocol-Version": "2.0.0", "Content-Type": "application/json",
+        ...(required.request.method === "GET" && !required.request.url.includes("?") ? {} : { "X-RestLi-Method": required.request.restliMethod }) },
     });
     if (response.status >= 400 && response.status < 500) {
       await response.body?.cancel();
@@ -235,7 +237,8 @@ async function readBody(required: { response: Response }): Promise<Outcome<unkno
   } finally { reader.releaseLock(); }
 }
 
-/** 201 + valid created ID acknowledges creates; 204 acknowledges patches. Nothing proves serving state. @complexity O(b). */
+/** Documented create ACKs and 204 patches are acknowledged; group IDs stay candidates.
+ * Nothing proves serving state. @complexity O(b). */
 function decodeResponse(required: { prepared: Prepared; response: Response; body: unknown; retrievedAt: number }): Outcome<LinkedInResult> {
   const { prepared, response } = required;
   if (prepared.invocation.command.kind === "report") return decodeReportResponse({ ...required, command: prepared.invocation.command });
@@ -252,13 +255,12 @@ function decodeReportResponse(required: { prepared: Prepared; response: Response
 function decodeWriteResponse(required: { prepared: Prepared; response: Response }): Outcome<LinkedInResult> {
   const { prepared, response } = required;
   if (["PARTIAL_UPDATE", "UPDATE"].includes(prepared.request.restliMethod) && response.status === 204) return result({ prepared, status: "acknowledged", data: null });
-  // UNVERIFIED: the inspected group docs do not establish the create ACK header/status format.
-  // Creation is supported; preserve an unknown receipt and resolve through separate list readback.
-  if (prepared.invocation.command.kind === "create_campaign_group_draft") return uncertain({ prepared, sent: true });
   if (prepared.request.restliMethod !== "CREATE" || response.status !== 201) return uncertain({ prepared, sent: true });
   const schema = ["create_creative_paused", "create_creative_draft"].includes(prepared.invocation.command.kind) ? creativeUrn : vendorIdSchema;
   const created = schema.safeParse(response.headers.get("x-restli-id"));
   if (!created.success) return uncertain({ prepared, sent: true });
+  // The group endpoint does not document its ACK; retain the candidate for scoped readback.
+  if (prepared.invocation.command.kind === "create_campaign_group_draft") return result({ prepared, status: "unknown", data: { id: created.data } });
   return result({ prepared, status: "acknowledged", data: { id: created.data } });
 }
 

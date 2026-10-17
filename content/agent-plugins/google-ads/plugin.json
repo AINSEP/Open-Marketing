@@ -2,7 +2,7 @@
   "$schema": "https://agent-plugins.org/schemas/1.1.0/plugin.schema.json",
   "name": "google-ads",
   "version": "0.1.0",
-  "description": "Bounded Google Search lifecycle, reports and typed server-only stop/conversion bindings. Disabled pending host admission.",
+  "description": "Atomic PAUSED Google Search creation/readback, reports and typed server-only stop/conversion bindings. Disabled pending host admission.",
   "license": "Apache-2.0",
   "extensions": {
     "io.github.ainsep.openmarketing": {

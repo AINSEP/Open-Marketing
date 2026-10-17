@@ -41,6 +41,7 @@ export interface BillingEvidence {
 export interface Receipt {
   operationId: string; status: "acknowledged" | "unknown";
   campaignId?: string; hierarchy?: Hierarchy; requestId?: string;
+  references?: string[];
 }
 /** ONE server jobs outbox stores these mappings. Claim is atomic; outcomes append.
  * Existing claims never authorize another send, including after timeout/restart. */
@@ -92,5 +93,5 @@ export interface HttpPort {
 export interface CredentialPort {
   /** Host resolves per-advertiser OAuth by binding, verifies granted scope and the
    * owning OAuth Cloud project, and keeps refresh tokens encrypted outside the agent. */
-  access(required: { binding: AccountBinding; requiredScope?: string; cloudProjectId?: string }): Promise<Outcome<{ accessToken: string; loginCustomerId?: string; scopes?: string[]; cloudProjectId?: string }>>;
+  access(required: { binding: AccountBinding; requiredScope?: string; cloudProjectId?: string }): Promise<Outcome<{ accessToken: string; loginCustomerId?: string; developerToken?: string; scopes?: string[]; cloudProjectId?: string }>>;
 }

@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { capabilityEnvelopeSchema } from "@open-marketing/contracts";
 import { pluginDigest } from "./fixtures.js";
@@ -9,6 +10,12 @@ const manifest = JSON.parse(readFileSync(new URL("plugin.json", root), "utf8")) 
 const mcp = JSON.parse(readFileSync(new URL("mcp.json", root), "utf8")) as unknown;
 
 describe("actual packaged Meta manifests and evidence", () => {
+  it("binds closed deployment to its executable schema while keeping admission false", () => {
+    const declarations = JSON.parse(readFileSync(new URL("io.github.ainsep.openmarketing/capabilities.json", root), "utf8"));
+    expect(declarations.deployment).toMatchObject({ capabilityId: "campaign.create-paused.v1", admitted: false, read: "readCampaignDeployment" });
+    const actual = createHash("sha256").update(readFileSync(new URL("io.github.ainsep.openmarketing/src/campaign-deployment.ts", root))).digest("hex");
+    expect(manifest.extensions["io.github.ainsep.openmarketing"].capabilities.find(value => (value as { capabilityId: string }).capabilityId === declarations.deployment.capabilityId)).toMatchObject({ schemaFingerprint: actual });
+  });
   it("uses portable v1.1 with no unverified MCP server configuration", () => {
     expect(manifest.$schema).toBe("https://agent-plugins.org/schemas/1.1.0/plugin.schema.json");
     expect(manifest.name).toBe("meta-ads");

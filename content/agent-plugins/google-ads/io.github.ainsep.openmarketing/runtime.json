@@ -3,7 +3,7 @@
   "minimumNode": "24.2.0",
   "defaultAdmission": "disabled",
   "apiVersion": "v25",
-  "auth": "server-owned OAuth Cloud project, no developer-token header",
+  "auth": "server-owned OAuth Cloud project; optional legacy developer-token header (ignored since 2026-09-09)",
   "backendOnly": [
     "google-ads.stop.v1",
     "google-ads.conversions.v1"

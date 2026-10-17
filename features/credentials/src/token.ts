@@ -7,8 +7,10 @@ import type { ConnectionSummary, CredentialReference } from "./types.js";
 import { withCredentialLock } from "./locks.js";
 import { boundary, failure, sameScope, summarySchema } from "./rules.js";
 
-const tokenSchema = connectIntegrationTokenSchema.extend({ context: callContextSchema, purpose: z.literal("oauth-client").optional() });
+const tokenSchema = connectIntegrationTokenSchema.extend({ context: callContextSchema, purpose: z.enum(["oauth-client", "developer-token"]).optional() });
 const clientPrefix = "om.oauth.client.v1:";
+const developerPrefix = "om.developer-token.v1:";
+const developerSchema = z.string().regex(/^[A-Za-z0-9]{22}$/).nullable();
 const clientSchema = z.strictObject({ clientId: z.string().min(1).max(2048), clientSecret: z.string().min(1).max(8192).optional() }).nullable();
 type TokenInput = z.infer<typeof tokenSchema>;
 type TokenDependencies = { repo: CredentialRepoPort; sealer: SecretSealerPort; locks: CredentialLockPort; audit: CredentialAuditPort };
@@ -38,7 +40,7 @@ async function saveToken(required: { input: TokenInput; reference: CredentialRef
   const existing = await dependencies.repo.get({ context: input.context, connectionId: input.connectionId }, optional);
   if (!existing.ok) return existing;
   if (existing.value && !input.purpose) return failure({ code: "conflict" });
-  const current = input.purpose ? await dependencies.repo.getSecret({ context: { ...input.context, principal: { kind: "service", serviceId: "oauth-client" } }, connectionId: input.connectionId }, optional) : { ok: true as const, value: null };
+  const current = input.purpose ? await dependencies.repo.getSecret({ context: { ...input.context, principal: { kind: "service", serviceId: input.purpose } }, connectionId: input.connectionId }, optional) : { ok: true as const, value: null };
   if (!current.ok) return current;
   const reference = { ...required.reference, version: (current.value?.reference.version ?? 0) + 1 };
   const sealed = await dependencies.sealer.seal({ reference, plaintext: input.plaintext }, optional);
@@ -53,10 +55,37 @@ async function saveToken(required: { input: TokenInput; reference: CredentialRef
 /** Validate the distinct client purpose before sealing; ordinary paste cannot claim it. @complexity O(b), b <=64 KiB. */
 function purposePayload(required: { input: TokenInput }): Outcome<string> {
   const input = required.input;
-  if (!input.purpose) return input.connectionId.startsWith("oauth-client.") || input.plaintext.startsWith(clientPrefix) ? failure({ code: "forbidden" }) : { ok: true, value: input.plaintext };
+  if (!input.purpose) return /^(oauth-client|developer-token)\./.test(input.connectionId) || input.plaintext.startsWith(clientPrefix) || input.plaintext.startsWith("om.developer-token.") ? failure({ code: "forbidden" }) : { ok: true, value: input.plaintext };
+  if (input.purpose === "developer-token") return developerPayload({ input });
   if (input.connectionId !== "oauth-client." + input.pluginId) return failure({ code: "invalid_input" });
   try { return { ok: true, value: clientPrefix + JSON.stringify(clientSchema.parse(JSON.parse(input.plaintext))) }; }
   catch { return failure({ code: "invalid_input" }); }
+}
+
+/** Google-only compatibility configuration; JSON null clears it. @complexity O(b), b<=64 KiB. */
+function developerPayload(required: { input: TokenInput }): Outcome<string> {
+  if (required.input.pluginId !== "google-ads" || required.input.connectionId !== "developer-token.google-ads") return failure({ code: "invalid_input" });
+  try { return { ok: true, value: developerPrefix + JSON.stringify(developerSchema.parse(JSON.parse(required.input.plaintext))) }; }
+  catch { return failure({ code: "invalid_input" }); }
+}
+
+/** Host-only Google configuration decoder; never returns OAuth material. Missing is compatible.
+ * @complexity Fixed audited broker/repository I/O; O(b) crypto/JSON, b<=64 KiB; no vendor call. */
+export async function readCredentialDeveloperToken(required: { context: CallContext; pluginId: string; repo: CredentialRepoPort; broker: CredentialBrokerPort; sealer: SecretSealerPort }, optional?: CallOptions): Promise<Outcome<string | null>> {
+  if (required.pluginId !== "google-ads" || required.context.principal.kind !== "service") return failure({ code: "forbidden" });
+  return boundary({ run: async () => {
+    const loaded = await required.repo.getSecret({ context: required.context, connectionId: "developer-token.google-ads" }, optional);
+    if (!loaded.ok) return loaded;
+    if (!loaded.value) return { ok: true, value: null };
+    if (loaded.value.summary.pluginId !== "google-ads") return failure({ code: "forbidden" });
+    const used = await required.broker.use({ context: required.context, reference: loaded.value.reference, operationId: required.context.correlationId }, optional);
+    if (!used.ok) return used;
+    const opened = await required.sealer.open({ reference: { ...loaded.value.reference, version: used.value.version }, secret: used.value }, optional);
+    if (!opened.ok) return opened;
+    if (!opened.value.startsWith(developerPrefix)) return failure({ code: "protocol_mismatch" });
+    const parsed = developerSchema.safeParse(JSON.parse(opened.value.slice(developerPrefix.length)));
+    return parsed.success ? { ok: true, value: parsed.data } : failure({ code: "protocol_mismatch" });
+  } }, optional);
 }
 
 /** Host-only purpose decoder; null clears configuration without reviving revoked token IDs.

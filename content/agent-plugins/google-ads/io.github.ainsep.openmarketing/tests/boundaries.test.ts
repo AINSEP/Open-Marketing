@@ -92,7 +92,7 @@ test("journal evidence appends, isolates same customer across scopes, and dispos
   const plugin = createGooglePlugin({ ...dependencies, journal });
   const receipt = value<Receipt>({ outcome: await plugin.invoke({ context: fixtureContext, name: "create_paused", arguments: { operationId: "journal-1", plan } }) });
   assert.equal(receipt.status, "acknowledged");
-  assert.equal(journal.history().length, 2);
+  assert.equal(journal.history().length, 3);
   assert.equal(journal.history()[0].receipt.status, "unknown");
   const foreign = await journal.findCampaign({ binding: { ...fixtureBinding, scope: { ...fixtureBinding.scope, ownerId: "foreign-owner" } }, campaignId: "201" });
   assert.deepEqual(foreign, { ok: true, value: null });
@@ -101,4 +101,16 @@ test("journal evidence appends, isolates same customer across scopes, and dispos
   assert.notEqual(journal.records()[0].digest, "changed");
   journal.dispose();
   assert.equal((await journal.claim({ record: stored as OperationRecord })).ok, false);
+});
+test("optional developer token is call-time Google Ads configuration and never reaches Data Manager", async () => {
+  const headers: Record<string, string>[] = [];
+  const transport = createGoogleRestTransport({ binding: fixtureBinding,
+    credentials: { async access() { return success({ value: { accessToken: "fixture-oauth", developerToken: "abcdefghijklmnopqrstuv", loginCustomerId: "1111111111", scopes: ["https://www.googleapis.com/auth/datamanager"], cloudProjectId: "fixture-project" } }); } },
+    http: { async post(input) { headers.push(input.headers); return success({ value: { status: 200, body: {} } }); }, async get() { return success({ value: { status: 200, body: {} } }); } },
+  });
+  const request = { body: {}, context: fixtureContext, operationId: "optional-config" };
+  assert.ok((await transport.request({ ...request, method: "mutate" })).ok);
+  assert.ok((await transport.request({ ...request, method: "ingest", cloudProjectId: "fixture-project" })).ok);
+  assert.equal(headers[0]["developer-token"], "abcdefghijklmnopqrstuv"); assert.equal(headers[0]["login-customer-id"], "1111111111");
+  assert.equal(headers[1]["developer-token"], undefined); assert.equal(headers[1]["login-customer-id"], undefined);
 });

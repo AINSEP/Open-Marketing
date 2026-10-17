@@ -16,7 +16,7 @@
       "capabilityId": "campaign.create-draft.v1",
       "version": 1,
       "pluginId": "linkedin-ads",
-      "schemaFingerprint": "f56a58057716449d4988d787d70e3ac0ded5248a4dbfbbc673b7bf1055a30584",
+      "schemaFingerprint": "c3597c94e001d0d15a43a0702f9e90261c05024cd9da76eb641401a6cbc2d187",
       "admitted": false,
       "effects": [
         "write"
@@ -56,7 +56,7 @@
       "capabilityId": "campaign.stop-only.v1",
       "version": 1,
       "pluginId": "linkedin-ads",
-      "schemaFingerprint": "a1de4b8dce0cd7c8d1858c815a39f00031a1bb4ac236c36928587a831fc6976d",
+      "schemaFingerprint": "5be1aa0d7352d9e21d283d3588c9c30f1694ccba17a18670ffb833e29b751943",
       "admitted": false,
       "effects": [
         "halt_stop"
@@ -241,5 +241,12 @@
       "conversion"
     ],
     "agentTool": false
+  },
+  "deployment": {
+    "capabilityId": "campaign.create-draft.v1",
+    "create": "deployCampaignPaused",
+    "read": "readCampaignDeployment",
+    "planSchema": "campaignDeploymentPlanSchema",
+    "admitted": false
   }
 }

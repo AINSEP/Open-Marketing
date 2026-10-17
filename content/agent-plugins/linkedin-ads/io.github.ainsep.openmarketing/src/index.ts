@@ -1,5 +1,7 @@
 /** Sole public API. Imports and factories start no services and perform no I/O. */
 export { translateCampaign } from "./campaign-translation.js";
+export { deployCampaignPaused, readCampaignDeployment, campaignDeploymentPlanSchema } from "./campaign-deployment.js";
+export type { LinkedInDeploymentResult } from "./campaign-deployment.js";
 export type { CampaignTranslationInput, LinkedInDraftPlan } from "./campaign-translation.js";
 export { createLinkedInAdsAdapter } from "./transport.js";
 export { linkedinAdsTools, commandSchema, encodeLinkedInCommand, linkedInDigest } from "./commands.js";

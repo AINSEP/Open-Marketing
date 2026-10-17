@@ -52,7 +52,8 @@ export const billingSchema = object({ properties: {
 } });
 const receiptSchema = object({ properties: {
   operationId: id, status: { type: "string", enum: ["acknowledged", "unknown"] }, campaignId: numericId, hierarchy: hierarchySchema, requestId: id,
-}, optional: ["campaignId", "hierarchy", "requestId"] });
+  references: array({ items: { type: "string", maxLength: 256, pattern: "^customers/[0-9]{10}/(campaignBudgets|campaigns|adGroups|campaignCriteria|adGroupCriteria|adGroupAds)/[1-9][0-9]*(~[1-9][0-9]*)?$" }, min: 0, max: 256 }),
+}, optional: ["campaignId", "hierarchy", "requestId", "references"] });
 /** Local MCP results are parsed again; plugin replies remain tainted at the host edge. */
 export const resultSchemas: Record<ToolName, Schema> = {
   list_accounts: object({ properties: { customerId: { ...numericId, minLength: 10, maxLength: 10 }, currency, timezone: text, testAccount: bool } }),

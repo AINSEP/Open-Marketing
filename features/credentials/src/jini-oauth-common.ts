@@ -54,6 +54,7 @@ export function readCredentialAccess(required: { plaintext: string }): Outcome<{
 /** A reserved prefix separates OAuth records from arbitrary pasted strings/JSON. @complexity O(payload bytes), cap 64 KiB. */
 export function readStoredTokens(required: { plaintext: string }): Outcome<StoredOAuthTokens | null> {
   if (!required.plaintext || Buffer.byteLength(required.plaintext) > 65536) return failure({ code: "protocol_mismatch" });
+  if (required.plaintext.startsWith("om.developer-token.")) return failure({ code: "protocol_mismatch" });
   if (!required.plaintext.startsWith("om.oauth.")) return { ok: true, value: null };
   if (!required.plaintext.startsWith(oauthPayloadPrefix)) return failure({ code: "protocol_mismatch" });
   try { return parseTokens({ value: JSON.parse(required.plaintext.slice(oauthPayloadPrefix.length)) }); }

@@ -1,7 +1,7 @@
 /** Written-only paste-token acceptance; shared cases exercise memory and native SQLite repositories. */
 import { describe, expect, it } from "vitest";
 import { connectCredentialToken, createAesGcmSecretSealer, createCredentialKeyring, createMemoryCredentialAudit,
-  createMemoryCredentialLock, createMemoryCredentialRepo, createSqlCredentialRepo, listCredentialConnections } from "../index.js";
+  createMemoryCredentialLock, createMemoryCredentialRepo, createSqlCredentialRepo, listCredentialConnections, createCredentialBroker, readCredentialDeveloperToken, readCredentialAccess } from "../index.js";
 import type { CredentialRepoPort } from "../index.js";
 import { clock, configuration, context, hostContext, value } from "./fixtures.js";
 import { createSqlFixture } from "./sql-fixture.js";
@@ -127,4 +127,44 @@ it("fails the whole list on malformed or foreign-scope storage rows", async () =
   expect(await listCredentialConnections({ db, context, query: { limit: 2 } })).toMatchObject({ ok: false, error: { code: "protocol_mismatch" } });
   rows[1].status = "unexpected";
   expect(await listCredentialConnections({ db, context, query: { limit: 2 } })).toMatchObject({ ok: false, error: { code: "protocol_mismatch" } });
+});
+
+describe.each(["memory", "sql"] as const)("Google developer-token purpose via %s", kind => {
+  it("seals, replaces and clears independently, skips OAuth refresh and excludes ordinary listing/access", async () => {
+    const f = fixture({ kind }); let refreshes = 0;
+    try {
+      const broker = createCredentialBroker({ ...f, refresh: { async refresh() { refreshes++; return { ok: true, value: null }; } } });
+      const write = { ...f, context, connectionId: "developer-token.google-ads", pluginId: "google-ads", purpose: "developer-token" as const, plaintext: JSON.stringify("abcdefghijklmnopqrstuv") };
+      const read = { ...f, broker, context: hostContext, pluginId: "google-ads" };
+      expect(await readCredentialDeveloperToken(read)).toEqual({ ok: true, value: null });
+      const summary = value({ outcome: await connectCredentialToken(write) }); expect(JSON.stringify(summary)).not.toContain("abcdefghijklmnopqrstuv");
+      const record = value({ outcome: await f.repo.getSecret({ context: hostContext, connectionId: write.connectionId }) }); if (!record) throw new Error("Missing sealed config");
+      expect(record.secret.ciphertext).not.toContain("abcdefghijklmnopqrstuv");
+      const opened = value({ outcome: await f.sealer.open({ reference: record.reference, secret: record.secret }) }); expect(readCredentialAccess({ plaintext: opened }).ok).toBe(false);
+      expect(await readCredentialDeveloperToken(read)).toEqual({ ok: true, value: "abcdefghijklmnopqrstuv" });
+      value({ outcome: await connectCredentialToken({ ...write, plaintext: JSON.stringify("1234567890123456789012") }) });
+      expect(await readCredentialDeveloperToken(read)).toEqual({ ok: true, value: "1234567890123456789012" });
+      value({ outcome: await connectCredentialToken({ ...write, plaintext: "null" }) }); expect(await readCredentialDeveloperToken(read)).toEqual({ ok: true, value: null });
+      expect(refreshes).toBe(0); expect(JSON.stringify(f.audit.entries({}))).not.toMatch(/abcdefghijklmnopqrstuv|1234567890123456789012/);
+      if (f.sql) expect(value({ outcome: await listCredentialConnections({ db: f.sql.db, context, query: { limit: 10 } }) }).items).toEqual([]);
+      value({ outcome: await f.repo.revoke({ context, connectionId: write.connectionId }) });
+      expect((await readCredentialDeveloperToken(read)).ok).toBe(false); expect((await connectCredentialToken(write)).ok).toBe(false);
+    } finally { f.dispose(); }
+  });
+  it("reserves purpose ID/prefix, denies foreign plugins/owners/scopes and ordinary decoding", async () => {
+    const f = fixture({ kind }); const broker = createCredentialBroker(f);
+    try {
+      const write = { ...f, context, connectionId: "developer-token.google-ads", pluginId: "google-ads", purpose: "developer-token" as const, plaintext: JSON.stringify("abcdefghijklmnopqrstuv") };
+      expect((await connectCredentialToken({ ...write, purpose: undefined })).ok).toBe(false);
+      expect((await connectCredentialToken({ ...write, pluginId: "meta-ads" })).ok).toBe(false);
+      expect((await connectCredentialToken({ ...write, plaintext: JSON.stringify("bad\r\nheader") })).ok).toBe(false);
+      expect((await connectCredentialToken({ ...write, context: hostContext })).ok).toBe(false);
+      value({ outcome: await connectCredentialToken(write) });
+      expect((await readCredentialDeveloperToken({ ...f, broker, context: hostContext, pluginId: "meta-ads" })).ok).toBe(false);
+      expect((await readCredentialDeveloperToken({ ...f, broker, context, pluginId: "google-ads" })).ok).toBe(false);
+      expect(await readCredentialDeveloperToken({ ...f, broker, context: { ...hostContext, scope: { ...context.scope, workspaceId: "other" } }, pluginId: "google-ads" })).toEqual({ ok: true, value: null });
+      expect((await connectCredentialToken({ ...f, ...request, plaintext: "om.developer-token.v1:null" })).ok).toBe(false);
+      expect(readCredentialAccess({ plaintext: "om.developer-token.v2:null" }).ok).toBe(false);
+    } finally { f.dispose(); }
+  });
 });

@@ -7,9 +7,9 @@ import type { CapiFixture, Fixture } from "../fixtures.js";
  */
 export function dispatchSuite(required: { name: string; makeFixture: () => Fixture }): void {
   describe(required.name + " LinkedIn dispatch contract", () => {
-    it("creates DRAFT once and leaves the undocumented group acknowledgement format unknown", async () => {
+    it("creates DRAFT once and retains the candidate group ID with an unknown outcome", async () => {
       const f = required.makeFixture();
-      expect(await f.adapter.invoke(invocation())).toEqual({ ok: true, value: { operationId: "operation", status: "unknown", observedState: "unknown", data: null } });
+      expect(await f.adapter.invoke(invocation())).toEqual({ ok: true, value: { operationId: "operation", status: "unknown", observedState: "unknown", data: { id: "456" } } });
       expect(f.calls).toHaveLength(1);
       expect(f.calls[0].url).toBe("https://api.linkedin.com/rest/adAccounts/123/adCampaignGroups");
       expect(JSON.parse(String(f.calls[0].init.body))).toEqual({ account: "urn:li:sponsoredAccount:123", name: "Fixture group", runSchedule: { start: 1791849600000, end: 1791936000000 }, totalBudget: { amount: "43.21", currencyCode: "USD" }, status: "DRAFT" });

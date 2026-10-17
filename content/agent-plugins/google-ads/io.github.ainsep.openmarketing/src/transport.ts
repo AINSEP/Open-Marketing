@@ -21,12 +21,20 @@ async function restRequest(required: { binding: AccountBinding; credentials: Cre
   if (!credential.ok) return credential;
   const checked = checkCredential({ credential: credential.value, input: required.input, manager });
   if (!checked.ok) return checked;
-  const headers: Record<string, string> = { Authorization: "Bearer " + credential.value.accessToken, "Content-Type": "application/json" };
-  if (!manager && credential.value.loginCustomerId) headers["login-customer-id"] = credential.value.loginCustomerId;
+  const headers = credentialHeaders({ credential: credential.value, manager });
   const response = await sendRequest({ ...required, binding: binding.value, headers });
   if (!response.ok) return response;
   if (response.value.status < 200 || response.value.status >= 300) return failure({ code: "unavailable", message: "Google request failed; reconciliation may be required" });
   return success({ value: response.value.body });
+}
+/** Google Ads compatibility headers never cross into Data Manager. O(1), no I/O. */
+function credentialHeaders(required: { credential: { accessToken: string; loginCustomerId?: string; developerToken?: string }; manager: boolean }): Record<string, string> {
+  const { credential, manager } = required;
+  const headers: Record<string, string> = { Authorization: "Bearer " + credential.accessToken, "Content-Type": "application/json" };
+  if (manager) return headers;
+  if (credential.loginCustomerId) headers["login-customer-id"] = credential.loginCustomerId;
+  if (credential.developerToken) headers["developer-token"] = credential.developerToken;
+  return headers;
 }
 /** Search-only hosts remain valid; ingestion requires a project and GET diagnostics.
  * Returns whether this request needs Data Manager OAuth. O(1) time/space. */
@@ -41,14 +49,17 @@ function checkDataManagerAccess(required: { input: VendorRequest; http: HttpPort
 function checkCredential(required: { credential: unknown; input: VendorRequest; manager: boolean }): Outcome<void> {
   const parsed = parse<{ accessToken: string; loginCustomerId?: string; scopes?: string[]; cloudProjectId?: string }>({ schema: object({ properties: {
     accessToken: { ...text, maxLength: 4096, pattern: "^[^\\r\\n]+$" }, loginCustomerId: { ...numericId, minLength: 10, maxLength: 10 },
+    developerToken: { type: "string", pattern: "^[A-Za-z0-9]{22}$", minLength: 22, maxLength: 22 },
     scopes: { type: "array", items: { ...text, maxLength: 256 }, minItems: 1, maxItems: 32 }, cloudProjectId: id,
-  }, optional: ["loginCustomerId", "scopes", "cloudProjectId"] }), input: required.credential });
+  }, optional: ["loginCustomerId", "developerToken", "scopes", "cloudProjectId"] }), input: required.credential });
   if (!parsed.ok) return parsed;
   if (!required.manager) return success({ value: undefined });
   if (parsed.value.cloudProjectId !== required.input.cloudProjectId || !parsed.value.scopes?.includes(dataManagerScope)) return failure({ code: "forbidden", message: "Data Manager credential scope/project mismatch" });
   return success({ value: undefined });
 }
-/** Exactly one bounded POST or diagnostic GET. URL is never selected by tools. */
+/** Exactly one bounded POST or diagnostic GET. URL is never selected by tools.
+ * POST googleAds:search is read-only by API contract, including reconciliation;
+ * mutation uses the separate googleAds:mutate endpoint. */
 async function sendRequest(required: { binding: AccountBinding; http: HttpPort; input: VendorRequest; headers: Record<string, string> }): Promise<Outcome<{ status: number; body: unknown; requestId?: string }>> {
   const bounds = { headers: required.headers, timeoutMs: 15000, maxBytes: 1048576, context: required.input.context, operationId: required.input.operationId };
   if (required.input.method === "request_status") {

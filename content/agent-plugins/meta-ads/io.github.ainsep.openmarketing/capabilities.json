@@ -6,7 +6,7 @@
       "capabilityId": "campaign.create-paused.v1",
       "version": 1,
       "pluginId": "meta-ads",
-      "schemaFingerprint": "38b1a8bbd7c65f734793afd752727edbda288e3262fe2f05f9f72177fc0136f9",
+      "schemaFingerprint": "f7c4017f5d6cf475f26938bf7a5bbac49c2f1b92d0c0440f05fff89873ef2bca",
       "admitted": false,
       "effects": [
         "write"
@@ -102,5 +102,12 @@
         "read"
       ]
     }
-  ]
+  ],
+  "deployment": {
+    "capabilityId": "campaign.create-paused.v1",
+    "create": "deployCampaignPaused",
+    "read": "readCampaignDeployment",
+    "planSchema": "campaignDeploymentPlanSchema",
+    "admitted": false
+  }
 }

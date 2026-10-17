@@ -40,7 +40,9 @@ export function createMetaInstagramFetchDispatch(required: { fetch: typeof fetch
 /** Keep endpoint/parameter encoding inside the plugin. Credentials cannot be supplied in a URL. */
 function encodeRequest(required: { input: Parameters<MetaInstagramDispatch>[0] }): Outcome<{ url: string; body?: string }> {
   const { input } = required;
-  if (!/^https:\/\/graph\.facebook\.com\/v[1-9][0-9]{0,2}\.[0-9]{1,2}\/(?:me\/accounts|[1-9][0-9]*(?:\/(?:media|media_publish|content_publishing_limit|insights))?)$/.test(input.request.endpoint))
+  const advertisingPath = /^https:\/\/graph\.facebook\.com\/v25\.0\/act_([1-9][0-9]{0,31})\/(campaigns|adsets|ads)$/.exec(input.request.endpoint);
+  const advertising = input.request.method === 'POST' && advertisingPath !== null && advertisingPath[1] === input.effect.accountId;
+  if (!advertising && !/^https:\/\/graph\.facebook\.com\/v[1-9][0-9]{0,2}\.[0-9]{1,2}\/(?:me\/accounts|[1-9][0-9]*(?:\/(?:media|media_publish|content_publishing_limit|insights))?)$/.test(input.request.endpoint))
     return failure({ code: 'forbidden', message: 'Instagram destination outside plugin scope' });
   const parameters = new URLSearchParams(Object.entries(input.request.parameters).map(([key, value]) => [key, String(value)]));
   if (parameters.has('access_token') || parameters.toString().length > 65536) return failure({ code: 'invalid_input', message: 'Instagram parameters invalid or oversized' });

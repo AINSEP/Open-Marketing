@@ -127,21 +127,40 @@ async function write(required: { dependencies: GooglePluginDependencies; context
   const result = await dependencies.authority.dispatch({ context: required.context, binding: dependencies.binding, effect: prepared.value.effect,
     execute: () => sendMutation({ ...required, record, prepared: prepared.value }),
   });
-  if (!result.ok) return result;
-  const appended = await dependencies.journal.append({ record: { ...record, receipt: result.value } });
-  if (!appended.ok) return success({ value: record.receipt });
-  return result;
+  if (!result.ok || result.value.status === "unknown") return result;
+  try {
+    const appended = await dependencies.journal.append({ record: { ...record, receipt: result.value } });
+    if (appended.ok) return result;
+  } catch { /* A checkpoint fault cannot discard acknowledged vendor references. */ }
+  return success({ value: { ...result.value, status: "unknown" } });
 }
+/** Checkpoint validated ACK references before readback; returned or thrown journal faults
+ * return the accumulated unknown receipt and stop. One mutation plus bounded reads. */
 async function sendMutation(required: { dependencies: GooglePluginDependencies; context: CallContext; call: ToolCall; record: OperationRecord; prepared: Prepared }): Promise<Outcome<Receipt>> {
   const { dependencies, call, record, prepared } = required;
   const response = await dependencies.transport.request({ method: "mutate", body: { mutateOperations: prepared.operations, partialFailure: false, validateOnly: false }, context: required.context, operationId: record.operationId });
   if (!response.ok) return success({ value: record.receipt });
   const value = asRecord({ value: response.value });
-  if (value.partialFailureError || !Array.isArray(value.mutateOperationResponses) || value.mutateOperationResponses.length !== prepared.operations.length) return success({ value: record.receipt });
+  const references = mutationReferences({ input: value.mutateOperationResponses, customerId: dependencies.binding.customerId });
+  const receipt: Receipt = { ...record.receipt, references };
+  try {
+    const saved = await dependencies.journal.append({ record: { ...record, receipt } });
+    if (!saved.ok) return success({ value: receipt });
+  } catch { return success({ value: receipt }); }
+  if (value.partialFailureError || !Array.isArray(value.mutateOperationResponses) || value.mutateOperationResponses.length !== prepared.operations.length) return success({ value: receipt });
   const hierarchy = await readHierarchy({ ...required, operationId: record.operationId, campaignId: prepared.hierarchy?.campaignId, marker: record.marker });
-  if (!hierarchy.ok) return success({ value: record.receipt });
-  if (!mutationObserved({ call, record, hierarchy: hierarchy.value })) return success({ value: record.receipt });
-  return success({ value: { operationId: record.operationId, status: "acknowledged", campaignId: hierarchy.value.campaignId, hierarchy: hierarchy.value } });
+  if (!hierarchy.ok) return success({ value: receipt });
+  if (!mutationObserved({ call, record, hierarchy: hierarchy.value })) return success({ value: receipt });
+  return success({ value: { ...receipt, status: "acknowledged", campaignId: hierarchy.value.campaignId, hierarchy: hierarchy.value } });
+}
+/** Adopt only scoped, unique mutation resource names before any readback can fail.
+ * @complexity O(n) time/space, n<=256; malformed entries never become parent IDs. */
+function mutationReferences(required: { input: unknown; customerId: string }): string[] {
+  if (!Array.isArray(required.input) || required.input.length > 256) return [];
+  const kinds = ["campaignBudgetResult", "campaignResult", "adGroupResult", "campaignCriterionResult", "adGroupCriterionResult", "adGroupAdResult"];
+  const names = required.input.flatMap(item => Object.entries(asRecord({ value: item })).filter(([key]) => kinds.includes(key)).map(([, result]) => asRecord({ value: result }).resourceName));
+  const pattern = /^customers\/[0-9]{10}\/(campaignBudgets|campaigns|adGroups|campaignCriteria|adGroupCriteria|adGroupAds)\/[1-9][0-9]*(~[1-9][0-9]*)?$/;
+  return [...new Set(names.filter((name): name is string => typeof name === "string" && name.length <= 256 && name.startsWith(`customers/${required.customerId}/`) && pattern.test(name)))].slice(0, 256);
 }
 function mutationObserved(required: { call: ToolCall; record: OperationRecord; hierarchy: Hierarchy }): boolean {
   const { call, record, hierarchy } = required;
@@ -151,7 +170,8 @@ function mutationObserved(required: { call: ToolCall; record: OperationRecord; h
   if (!("plan" in record.arguments)) return true;
   return hierarchy.planDigest === planDigest({ plan: { ...record.arguments.plan, name: record.marker } });
 }
-/** Reconciliation is read-only, bounded, and never blindly resends missing/partial writes. */
+/** Reconciliation uses POST googleAds:search, read-only by Google's API contract;
+ * it never calls googleAds:mutate or resends missing/partial writes. Bounded reads only. */
 async function reconcile(required: { dependencies: GooglePluginDependencies; context: CallContext; call: ToolCall }): Promise<Outcome<Receipt>> {
   const { dependencies, call } = required;
   const identity = operationIdentity({ binding: dependencies.binding, operationId: call.arguments.operationId });
@@ -165,7 +185,7 @@ async function reconcile(required: { dependencies: GooglePluginDependencies; con
   if (!hierarchy.ok) return success({ value: record.receipt });
   const original: ToolCall = { name: record.name, arguments: record.arguments };
   if (!mutationObserved({ call: original, record, hierarchy: hierarchy.value })) return success({ value: record.receipt });
-  const receipt: Receipt = { operationId: record.operationId, status: "acknowledged", campaignId: hierarchy.value.campaignId, hierarchy: hierarchy.value };
+  const receipt: Receipt = { ...record.receipt, operationId: record.operationId, status: "acknowledged", campaignId: hierarchy.value.campaignId, hierarchy: hierarchy.value };
   const appended = await dependencies.journal.append({ record: { ...record, receipt } });
   if (!appended.ok) return appended;
   return success({ value: receipt });
