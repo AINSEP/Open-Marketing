@@ -4,7 +4,8 @@ import { appErrorSchema, callContextSchema, connectIntegrationTokenSchema, disco
     integrationListSchema, integrationSummarySchema, parseBoundary } from '@open-marketing/contracts';
 import type { AppError, CallContext, CallOptions, ConnectIntegrationToken, DisconnectIntegration, IntegrationList,
     IntegrationSummary, ObserverPort, Outcome, PageQuery } from '@open-marketing/contracts';
-import { readCredentialOAuthClient, connectCredentialToken, listCredentialConnections, readCredentialAccess } from '@open-marketing/credentials';
+import { readCredentialDeveloperToken, readCredentialOAuthClient, connectCredentialToken, listCredentialConnections, readCredentialAccess } from '@open-marketing/credentials';
+import { developerTokenQuerySchema, developerTokenSetSchema } from './integration-oauth-contracts.js';
 import { oauthClientSetSchema, oauthClientStatusSchema, oauthCallbackSchema, oauthChallengeSchema, oauthStartSchema, oauthStatusQuerySchema, oauthStatusSchema } from './integration-oauth-contracts.js';
 import type { ConnectionSummary, CredentialAuditPort, CredentialBrokerPort, CredentialLockPort,
     CredentialRepoPort, CredentialService, CredentialSqlPort, SecretSealerPort } from '@open-marketing/credentials';
@@ -23,6 +24,10 @@ export interface IntegrationDependencies {
 }
 /** Owner management returns secret-free contracts. access/resolveProviderKey stay server-only. */
 export interface Integrations {
+    /** Owner-only paste/clear and secret-free status; resolve is a Google transport-only host seam. */
+    setDeveloperToken(required: { context: CallContext; request: unknown }, optional?: CallOptions): Promise<Outcome<{ configured: boolean }>>;
+    developerTokenStatus(required: { context: CallContext; pluginId: string }, optional?: CallOptions): Promise<Outcome<{ configured: boolean }>>;
+    resolveDeveloperToken(required: { context: CallContext; pluginId: string }, optional?: CallOptions): Promise<Outcome<string | null>>;
     setOAuthClient(required: { context: CallContext; request: unknown }, optional?: CallOptions): Promise<Outcome<z.infer<typeof oauthClientStatusSchema>>>;
     startOAuth(required: { context: CallContext; request: z.infer<typeof oauthStartSchema> }, optional?: CallOptions): Promise<Outcome<z.infer<typeof oauthChallengeSchema>>>;
     completeOAuth(required: { context: CallContext; response: unknown }, optional?: CallOptions): Promise<Outcome<IntegrationSummary>>;
@@ -40,6 +45,21 @@ export interface Integrations {
  */
 export function createIntegrations(required: IntegrationDependencies): Integrations {
     return {
+        setDeveloperToken: (input, options) => integrationBoundary({ dependencies: required, context: input.context, operation: 'integrations.developer-token.set', run: async () => {
+            const parsed = parseBoundary({ schema: developerTokenSetSchema, input: input.request });
+            if (!parsed.ok) return parsed;
+            const saved = await connectCredentialToken({ ...required, context: input.context, pluginId: parsed.value.pluginId, connectionId: 'developer-token.google-ads',
+                plaintext: JSON.stringify(parsed.value.token), purpose: 'developer-token' }, options);
+            return saved.ok ? { ok: true, value: { configured: parsed.value.token !== null } } : saved;
+        } }, options),
+        developerTokenStatus: (input, options) => integrationBoundary({ dependencies: required, context: input.context, operation: 'integrations.developer-token.status', run: async () => {
+            if (input.context.principal.kind !== 'owner' || input.context.principal.ownerId !== input.context.scope.ownerId) return integrationFailure({ code: 'forbidden' });
+            if (!developerTokenQuerySchema.safeParse({ pluginId: input.pluginId }).success) return integrationFailure({ code: 'invalid_input' });
+            const token = await readCredentialDeveloperToken({ ...required, pluginId: input.pluginId, context: { ...input.context, principal: { kind: 'service', serviceId: 'developer-token-status' } } }, options);
+            return token.ok ? { ok: true, value: { configured: token.value !== null } } : token;
+        } }, options),
+        resolveDeveloperToken: (input, options) => integrationBoundary({ dependencies: required, context: input.context, operation: 'integrations.developer-token.resolve',
+            run: () => readCredentialDeveloperToken({ ...required, ...input }, options) }, options),
         setOAuthClient: (input, options) => integrationBoundary({ dependencies: required, context: input.context, operation: 'integrations.oauth.client.set', run: async () => {
             const parsed = parseBoundary({ schema: oauthClientSetSchema, input: input.request });
             if (!parsed.ok) return parsed;
@@ -73,7 +93,7 @@ export function createIntegrations(required: IntegrationDependencies): Integrati
                 const client = await readCredentialOAuthClient({ ...required, pluginId: parsed.value.pluginId, context: { ...context, principal: { kind: 'service', serviceId: 'oauth-client' } } }, options);
                 return client.ok ? oauthClientSummary({ client: client.value }) : client;
             }
-            if (parsed.value.transactionId.startsWith('oauth-client.')) return { ok: true, value: { status: 'expired' } };
+            if (/^(oauth-client|developer-token)\./.test(parsed.value.transactionId)) return { ok: true, value: { status: 'expired' } };
             const status = await required.service.connectStatus({ context, transactionId: parsed.value.transactionId }, options);
             if (!status.ok) return status;
             return parseBoundary({ schema: oauthStatusSchema, input: { status: status.value.status,
@@ -95,7 +115,7 @@ export function createIntegrations(required: IntegrationDependencies): Integrati
         disconnect: (input, options) => integrationBoundary({ dependencies: required, context: input.context, operation: 'integrations.disconnect', run: async () => {
             const parsed = parseBoundary({ schema: disconnectIntegrationSchema, input: input.request });
             if (!parsed.ok) return parsed;
-            if (parsed.value.connectionId.startsWith('oauth-client.')) return integrationFailure({ code: 'forbidden' });
+            if (/^(oauth-client|developer-token)\./.test(parsed.value.connectionId)) return integrationFailure({ code: 'forbidden' });
             return disconnect({ dependencies: required, context: input.context, connectionId: parsed.value.connectionId }, options);
         } }, options),
         access: (input, options) => accessCredential({ ...input, dependencies: required }, options),
@@ -155,7 +175,7 @@ async function accessCurrent(required: {
     context: CallContext; pluginId: string; connectionId: string; dependencies: IntegrationDependencies;
 }, optional?: CallOptions): Promise<Outcome<{ accessToken: string; expiresAt?: number; scopes?: readonly string[] }>> {
     const { dependencies, context, connectionId, pluginId } = required;
-    if (connectionId.startsWith('oauth-client.')) return integrationFailure({ code: 'forbidden' });
+    if (/^(oauth-client|developer-token)\./.test(connectionId)) return integrationFailure({ code: 'forbidden' });
     const loaded = await dependencies.repo.getSecret({ context, connectionId }, optional);
     if (!loaded.ok) return loaded;
     if (!loaded.value) return integrationFailure({ code: 'unauthenticated' });

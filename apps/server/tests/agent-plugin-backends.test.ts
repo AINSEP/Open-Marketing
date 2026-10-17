@@ -9,6 +9,7 @@ import { createRequire } from 'node:module';
 import Database from 'better-sqlite3';
 import { expect, it } from 'vitest';
 import type { CallContext, Outcome, ToolCall } from '@open-marketing/contracts';
+import { boundedJsonSchema } from '@open-marketing/contracts';
 import { createMemoryConfirmationExchange, createMemorySafetyRepo, createMemoryAccountDispatchLock, createMemoryPlatformLimitEvidence,
     createMemorySpendPolicy, createMemorySafetyAudit, createSafetyService, digestArguments } from '@open-marketing/safety';
 import type { SafetyService, EffectRequest, ConfirmationExchangePort } from '@open-marketing/safety';
@@ -19,8 +20,11 @@ import { migrationManifest } from '../src/composition/migrations.js';
 import { createNodeBootIo } from '../src/composition/serve.js';
 import { generateOmToolCoverage } from '../src/om-tool-coverage.js';
 import { createOmTools, toolPolicy } from '../src/om-tools.js';
+import { createMemoryCampaignRepo } from '@open-marketing/campaigns';
+import type { NeutralCampaignLaunch } from '@open-marketing/campaigns';
+import { bindPausedCampaignDeployment } from '../src/composition/campaigns.js';
 
-const context: CallContext = { scope: { ownerId: 'owner', workspaceId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }, principal: { kind: 'owner', ownerId: 'owner' }, correlationId: 'correlation', traceId: 'trace' };
+const context: CallContext = { scope: { ownerId: 'owner', workspaceId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }, principal: { kind: 'owner', ownerId: 'owner' }, correlationId: 'correlation', traceId: 'trace', runId: 'fixture-run' };
 const pluginIds = ['google-ads', 'linkedin-ads', 'tiktok-ads', 'meta-ads'] as const;
 const clock = { now: () => 1000 };
 const observer = { observe() {} };
@@ -42,7 +46,7 @@ function loadFixtureModule(required: { moduleUrl: string }): object {
     }
 }
 
-async function fixture(required: { admitted?: boolean; only?: string; safety?: SafetyService; confirmations?: ConfirmationExchangePort } = {}) {
+async function fixture(required: { admitted?: boolean; only?: string; safety?: SafetyService; confirmations?: ConfirmationExchangePort; fetch?: typeof fetch } = {}) {
     const native = new Database(':memory:');
     native.pragma('foreign_keys = ON');
     for (const entry of migrationManifest) native.exec(readFileSync(new URL('../../../' + entry.path, import.meta.url), 'utf8'));
@@ -64,7 +68,7 @@ async function fixture(required: { admitted?: boolean; only?: string; safety?: S
     let bundleDigest = 'd'.repeat(64);
     let halted = false;
     const safetyRepo = createMemorySafetyRepo({ clock, ids, ownerTimezone: 'UTC' });
-    const binding = bindAgentPluginBackends({ projectRoot: fileURLToPath(new URL('../../../', import.meta.url)), clock, observer,
+    const ports: Parameters<typeof bindAgentPluginBackends>[0] = { projectRoot: fileURLToPath(new URL('../../../', import.meta.url)), clock, observer,
         jobs, mode: 'sandbox', safety: required.safety, confirmations: required.confirmations, accountLocks: createMemoryAccountDispatchLock({ ids }),
         async state({ pluginId }) {
             if (failure?.stage === 'state' && failure.pluginId === pluginId) throw new Error('Fixture metadata missing');
@@ -79,15 +83,17 @@ async function fixture(required: { admitted?: boolean; only?: string; safety?: S
         },
         async wait() { return { ok: true, value: undefined }; },
         fetch: async (url, options) => {
+            expect(native.inTransaction).toBe(false);
             calls.push({ url: String(url), options });
             const body = String(url).includes('linkedin') ? { elements: [] } : String(url).includes('facebook') ? { data: [] } : {};
-            return new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } });
+            return required.fetch ? required.fetch(url, options) : new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } });
         },
         integrations: { async access(input) { accesses.push(input); await beforeCredential(); return { ok: true, value: { accessToken: 'fixture-token-for-' + input.pluginId } }; } },
         accounts: { async find({ externalAccountId }) { return { ok: true, value: { id: 'binding', scope: context.scope, connectionId: 'connection', externalAccountId } }; } },
         safetyRepo: { async snapshot(input) { const result = await safetyRepo.snapshot(input); return result.ok ? { ok: true, value: { ...result.value, halted } } : result; } },
-    });
-    return { native, binding, states, jobs, calls, accesses, ids, safetyRepo, loads,
+    };
+    const binding = bindAgentPluginBackends(ports);
+    return { native, binding, ports, unit: database.unit, states, jobs, calls, accesses, ids, safetyRepo, loads,
         changeBundle() { bundleDigest = 'e'.repeat(64); },
         setFailure(input: NonNullable<typeof failure>) { failure = input; },
         setBeforeCredential(input: { callback(): Promise<void> }) { beforeCredential = input.callback; },
@@ -347,4 +353,285 @@ it('native bundle digests cover actual bytes, change on rebuild, and reject over
         await writeFile(path, 'x'.repeat(8388609));
         await expect(io.agentPlugins!.moduleDigest({ moduleUrl })).rejects.toThrow();
     } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+/** Actual plugin transports against a bounded synthetic social account, never native fetch. */
+function socialVendor(required: { failLinkedIn?: boolean; failRead?: boolean } = {}) {
+    const rows = new Map<string, Record<string, unknown>>(); let meta = 200, linkedin = 400;
+    const fetchFixture: typeof fetch = async (url, init) => {
+        const uri = new URL(String(url)); const isMeta = uri.hostname === 'graph.facebook.com';
+        const key = decodeURIComponent(uri.pathname.split('/').at(-1)!);
+        if (init?.method === 'GET') {
+            if (required.failRead) throw new Error('Fixture read unavailable');
+            return Response.json(rows.get(key) ?? {});
+        }
+        if (!isMeta) return linkedInCreate({ key, body: String(init?.body), rows, id: String(++linkedin), fail: required.failLinkedIn });
+        const fields: Record<string, unknown> = Object.fromEntries(new URLSearchParams(String(init?.body)));
+        const id = String(++meta);
+        for (const field of ['targeting', 'special_ad_categories', 'creative']) if (typeof fields[field] === 'string') fields[field] = JSON.parse(String(fields[field]));
+        if (fields.creative) fields.creative = { id: (fields.creative as { creative_id: string }).creative_id };
+        rows.set(id, { ...fields, id, account_id: '123', configured_status: 'PAUSED' });
+        return Response.json({ id });
+    };
+    return { fetch: fetchFixture, rows };
+}
+function linkedInCreate(required: { key: string; body: string; rows: Map<string, Record<string, unknown>>; id: string; fail?: boolean }): Response {
+    if (required.fail && required.key === 'adCampaigns') throw new Error('Fixture ambiguous creation');
+    const id = required.key === 'creatives' ? 'urn:li:sponsoredCreative:' + required.id : required.id;
+    const body = JSON.parse(required.body);
+    required.rows.set(id, { ...body, id, account: 'urn:li:sponsoredAccount:123', isServing: false });
+    return new Response(null, { status: 201, headers: { 'x-restli-id': id } });
+}
+const socialCampaign: NeutralCampaignLaunch = { operationId: 'social-draft', name: 'Traffic', objective: 'traffic',
+    schedule: { window: { start: 1791849600000, end: 1792022400000 }, timezone: 'UTC' }, audience: { countries: ['US'] }, creativeIds: ['creative'], creativeDigest: 'a'.repeat(64),
+    targets: ['meta-ads', 'linkedin-ads'].map(pluginId => ({ pluginId, connectionId: 'connection', accountId: '123', dailyBudget: { currency: 'USD', minorUnits: 4321 }, expectedExposure: { currency: 'USD', minorUnits: 10000 } })) };
+function socialMetadata(required: { pluginId: string }) {
+    const common = { accountId: '123', currency: 'USD', currencyExponent: 2, timezone: 'UTC', creativeId: 'creative', creativeDigest: 'a'.repeat(64) };
+    return { scope: context.scope, connectionId: 'connection', resolved: required.pluginId === 'meta-ads'
+        ? { ...common, vendorCreativeId: '987', ageMin: 18, ageMax: 65, specialAdCategories: [] }
+        : { ...common, reference: 'urn:li:share:987', organizationId: '789', locale: { country: 'US', language: 'en' }, politicalIntent: 'NOT_POLITICAL', unitCost: { currency: 'USD', minorUnits: 237 }, locations: [{ country: 'US', id: '103644278' }] } };
+}
+/** Real grouped safety, real SQL outbox and actual plugin modules; fixture network only. */
+async function deploymentFixture(required: Parameters<typeof socialVendor>[0] = {}) {
+    const vendor = socialVendor(required); const f = await fixture({ admitted: true, fetch: vendor.fetch });
+    for (const [pluginId, state] of f.states) { state.enabled = ['meta-ads', 'linkedin-ads'].includes(pluginId); state.metadata = { ...state.metadata, campaignFixture: socialMetadata({ pluginId }) }; }
+    const confirmations = createMemoryConfirmationExchange({ clock, ids: f.ids });
+    const prepared = value({ result: await f.binding.prepareCampaign({ context, campaign: socialCampaign, operationId: 'social-launch' }) });
+    const safety = createSafetyService({ repo: f.safetyRepo, confirmations, clock, ids: f.ids, accountLocks: f.ports.accountLocks, policy: createMemorySpendPolicy({}), platformLimits: createMemoryPlatformLimitEvidence({}), audit: createMemorySafetyAudit({}),
+        effects: { async resolve({ request }) { const known = prepared.find(call => value({ result: digestArguments({ arguments: call }) }) === value({ result: digestArguments({ arguments: request }) })); return known ? { ok: true, value: known.envelope } : { ok: false, error: { code: 'forbidden', message: 'Unverified fixture', retryable: false } }; }, async verifyGenerationQuote() { throw new Error('Not generation'); }, async verifyHaltStop() { throw new Error('Not stop'); } } });
+    const binding = bindAgentPluginBackends({ ...f.ports, confirmations, safety });
+    const repo = createMemoryCampaignRepo({}); const draft = value({ result: await repo.saveNeutral({ context, campaign: socialCampaign }) });
+    const definition = bindPausedCampaignDeployment({ unit: f.unit, repo, clock, ids: f.ids, observer, safety, confirmations,
+        prepare: binding.prepareCampaign, definitions: binding.definitions, execute: binding.executeCampaign, read: binding.readCampaign });
+    const tools = createOmTools({ clock, observer, confirmations, definitions: async () => ({ ok: true, value: [definition, ...value({ result: await binding.definitions({ context }) })] }), authorize: () => ({ ok: true, value: undefined }) });
+    async function approve() {
+        expect(value({ result: await tools.dispatch({ context, call: { name: definition.name, operationId: 'social-launch', input: { campaignId: draft.campaignId } } }) }).status).toBe('pending');
+        const card = value({ result: await tools.card({ context, operationId: 'social-launch' }) })!;
+        expect(card.allowedChoices).toEqual(['allow', 'cancel']); expect(f.calls).toEqual([]);
+        value({ result: await tools.answer({ context, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } }) });
+    }
+    return { ...f, binding, tools, confirmations, approve, vendor, async closeAll() { await tools.dispose({}); f.close(); } };
+}
+it('executes both social hierarchies under one card/job and reconciles through the read-only catalog', async () => {
+    const f = await deploymentFixture();
+    try {
+        await f.approve();
+        expect(value({ result: await f.tools.operation({ context, operationId: 'social-launch' }) })).toMatchObject({ status: 'completed', output: { status: 'submitted' } });
+        expect(f.native.prepare('SELECT state FROM job').all()).toEqual([{ state: 'succeeded' }]);
+        expect(f.calls.filter(call => call.options?.method === 'POST')).toHaveLength(6);
+        const before = f.calls.length;
+        const read = await f.tools.dispatch({ context, call: { name: 'om_campaign_reconcile_deployment', operationId: 'read-deployment', input: { operationId: 'social-launch' } } });
+        expect(read).toMatchObject({ ok: true, value: { status: 'completed', output: { complete: true, outcomes: [{ result: { references: { campaign: '201', adset: '202', ad: '203' } } }, { result: { references: { group: '401', campaign: '402', creative: 'urn:li:sponsoredCreative:403' } } }] } } });
+        expect(f.calls.slice(before).map(call => call.options?.method)).toEqual(Array(6).fill('GET'));
+        expect(f.native.prepare('SELECT id FROM job').all()).toHaveLength(1);
+    } finally { await f.closeAll(); }
+});
+it('keeps Meta success and LinkedIn partial references after failure/restart without replay or rollback', async () => {
+    const f = await deploymentFixture({ failLinkedIn: true });
+    try {
+        await f.approve(); expect(value({ result: await f.tools.operation({ context, operationId: 'social-launch' }) })).toMatchObject({ status: 'unknown' });
+        expect(f.native.prepare('SELECT state FROM job').all()).toEqual([{ state: 'reconcile' }]);
+        const evidence = JSON.stringify(f.native.prepare('SELECT evidence_id FROM job_attempt').all());
+        expect(evidence).toContain('203'); expect(evidence).toContain('401');
+        const before = f.calls.length;
+        const restored = bindAgentPluginBackends(f.ports);
+        const read = value({ result: await restored.definitions({ context }) }).find(tool => tool.name === 'om_campaign_reconcile_deployment')!;
+        expect(await read.invoke({ context, input: { operationId: 'social-launch' } })).toMatchObject({ ok: true, value: { complete: false, outcomes: [{ result: { status: 'acknowledged' } }, { result: { status: 'unknown', references: { group: '401' } } }] } });
+        expect(f.calls.slice(before).every(call => call.options?.method === 'GET')).toBe(true);
+        expect(await read.invoke({ context: { ...context, scope: { ...context.scope, workspaceId: 'other' } }, input: { operationId: 'social-launch' } })).toMatchObject({ ok: false });
+        expect(f.native.prepare('SELECT id FROM job').all()).toHaveLength(1);
+    } finally { await f.closeAll(); }
+});
+it.each(['admission', 'binding', 'halt', 'approval', 'revision', 'cancel'] as const)('denies deployment egress when %s changes during credential resolution', async change => {
+    const f = await deploymentFixture();
+    try {
+        f.setBeforeCredential({ async callback() {
+            if (change === 'admission') f.states.get('meta-ads')!.admitted = false;
+            if (change === 'binding') f.ports.accounts.find = async () => ({ ok: true, value: null });
+            if (change === 'halt') f.halt();
+            if (change === 'revision') f.changeBundle();
+            if (change === 'cancel') await f.tools.cancel({ context, runId: context.runId! });
+            if (change === 'approval') { const card = value({ result: await f.tools.card({ context, operationId: 'social-launch' }) })!; value({ result: await f.confirmations.revoke({ context, cardId: card.cardId }) }); }
+        } });
+        await f.approve(); expect(f.calls).toEqual([]);
+        expect(f.native.prepare('SELECT id FROM job').all()).toHaveLength(1);
+    } finally { await f.closeAll(); }
+});
+
+it('sends nothing when the owning run is cancelled during the final awaited approval verification', async () => {
+    const f = await deploymentFixture();
+    const verify = f.confirmations.verify;
+    let finalChecks = 0;
+    f.confirmations.verify = async input => {
+        const result = await verify(input);
+        if (f.accesses.length > 0) {
+            finalChecks++;
+            await f.tools.cancel({ context, runId: context.runId! });
+        }
+        return result;
+    };
+    try {
+        await f.approve();
+        expect(finalChecks).toBe(1); expect(f.accesses).toHaveLength(1);
+        expect(f.calls).toEqual([]);
+        expect(f.native.prepare('SELECT state FROM job').all()).toEqual([{ state: 'reconcile' }]);
+    } finally { await f.closeAll(); }
+});
+
+it('propagates owning cancellation into an in-flight Google request alongside its transport timeout', async () => {
+    const controller = new AbortController();
+    let transportSignal: AbortSignal | null | undefined;
+    const f = await fixture({ admitted: true, only: 'google-ads', fetch: async (_url, init) => {
+        transportSignal = init?.signal;
+        controller.abort();
+        if (transportSignal?.aborted) throw new Error('Fixture request cancelled');
+        return Response.json({ results: [] });
+    } });
+    try {
+        const tool = value({ result: await f.binding.definitions({ context }) }).find(tool => tool.name === readNames['google-ads'])!;
+        const result = await tool.invoke({ context, input: selection({ pluginId: 'google-ads' }), signal: controller.signal });
+        expect(f.calls).toHaveLength(1); expect(f.accesses).toHaveLength(1);
+        expect(transportSignal).toBeDefined(); expect(transportSignal).not.toBe(controller.signal);
+        expect(transportSignal?.aborted).toBe(true); expect(result.ok).toBe(false);
+    } finally { f.close(); }
+});
+
+it.each([false, true])('preserves the latest validated receipt across repeated failed reconciliation (malformed later receipt: %s)', async malformed => {
+    const f = await deploymentFixture({ failLinkedIn: true });
+    try {
+        await f.approve();
+        const history = value({ result: await f.jobs.history({ context, operationId: 'social-launch' }) });
+        const call = value({ result: await f.binding.prepareCampaign({ context, campaign: socialCampaign, operationId: 'social-launch' }) })[1];
+        if (malformed) value({ result: await f.jobs.checkpoint({ context, jobId: history.jobId, event: 'campaign_result', evidence: {
+            operationId: call.envelope.operationId, result: { status: 'acknowledged', entityIds: ['forged'], references: { group: 42 } },
+        } }) });
+        f.states.get('linkedin-ads')!.admitted = false;
+        const read = value({ result: await f.binding.definitions({ context }) }).find(tool => tool.name === 'om_campaign_reconcile_deployment')!;
+        const before = f.calls.length;
+        for (let attempt = 0; attempt < 2; attempt++) {
+            expect(await read.invoke({ context, input: { operationId: 'social-launch' } })).toMatchObject({ ok: true, value: { complete: false, outcomes: [
+                { result: { status: 'acknowledged' } }, { result: { status: 'unknown', entityIds: ['401'], references: { group: '401' } } },
+            ] } });
+        }
+        expect(f.calls.slice(before).map(call => call.options?.method)).toEqual(Array(6).fill('GET'));
+        expect(f.native.prepare('SELECT id FROM job').all()).toHaveLength(1);
+        const observations = f.native.prepare("SELECT evidence_id FROM job_attempt WHERE event_type='campaign_result' ORDER BY sequence DESC LIMIT 2").all();
+        expect(JSON.stringify(observations)).toContain('401'); expect(JSON.stringify(observations)).not.toContain('forged');
+    } finally { await f.closeAll(); }
+});
+
+it.each(['ad', 'creative'])('recovers all receipt IDs after the %s acknowledgement checkpoint fails, without replay', async step => {
+    const f = await deploymentFixture();
+    try {
+        f.native.exec(`CREATE TEMP TRIGGER fail_ack BEFORE INSERT ON job_attempt
+            WHEN json_extract(NEW.evidence_id,'$.phase')='acknowledged' AND json_extract(NEW.evidence_id,'$.step')='${step}'
+            BEGIN SELECT RAISE(FAIL,'Fixture acknowledgement checkpoint unavailable'); END`);
+        await f.approve();
+        expect(value({ result: await f.tools.operation({ context, operationId: 'social-launch' }) })).toMatchObject({ status: 'unknown' });
+        const before = f.calls.length;
+        const read = value({ result: await f.binding.definitions({ context }) }).find(tool => tool.name === 'om_campaign_reconcile_deployment')!;
+        const result = await read.invoke({ context, input: { operationId: 'social-launch' } });
+        const meta = { result: { status: 'acknowledged', entityIds: ['201', '202', '203'], references: { campaign: '201', adset: '202', ad: '203' } } };
+        const linkedin = step === 'ad' ? { result: { status: 'not_attempted' } }
+            : { result: { status: 'acknowledged', entityIds: ['401', '402', 'urn:li:sponsoredCreative:403'], references: { group: '401', campaign: '402', creative: 'urn:li:sponsoredCreative:403' } } };
+        expect(result).toMatchObject({ ok: true, value: { complete: step === 'creative', outcomes: [meta, linkedin] } });
+        expect(f.calls.slice(before).map(call => call.options?.method)).toEqual(Array(step === 'ad' ? 3 : 6).fill('GET'));
+        expect(f.calls.filter(call => call.options?.method === 'POST')).toHaveLength(step === 'ad' ? 3 : 6);
+        expect(f.native.prepare('SELECT id FROM job').all()).toHaveLength(1);
+    } finally { await f.closeAll(); }
+});
+
+it('deduplicates checkpoint aliases by vendor ID and ignores malformed later references during social recovery', async () => {
+    const f = await deploymentFixture();
+    try {
+        await f.approve();
+        const history = value({ result: await f.jobs.history({ context, operationId: 'social-launch' }) });
+        const call = value({ result: await f.binding.prepareCampaign({ context, campaign: socialCampaign, operationId: 'social-launch' }) })[0];
+        const event = { context, jobId: history.jobId, event: 'campaign_observation' };
+        value({ result: await f.jobs.checkpoint({ ...event, evidence: { operationId: call.envelope.operationId, references: { duplicate: '201', campaign: '201', adset: '202', ad: '203' } } }) });
+        value({ result: await f.jobs.checkpoint({ ...event, evidence: { operationId: call.envelope.operationId, references: { campaign: 42 } } }) });
+        const before = f.calls.length;
+        const read = value({ result: await f.binding.definitions({ context }) }).find(tool => tool.name === 'om_campaign_reconcile_deployment')!;
+        expect(await read.invoke({ context, input: { operationId: 'social-launch' } })).toMatchObject({ ok: true, value: { complete: true, outcomes: [
+            { result: { status: 'acknowledged', entityIds: ['201', '202', '203'], references: { campaign: '201', adset: '202', ad: '203' } } },
+            { result: { status: 'acknowledged' } },
+        ] } });
+        expect(f.calls.slice(before).map(call => call.options?.method)).toEqual(Array(6).fill('GET'));
+        expect(f.native.prepare('SELECT id FROM job').all()).toHaveLength(1);
+    } finally { await f.closeAll(); }
+});
+
+it.each([null, 'A'.repeat(22)])('Google journals mutation IDs in the owning job and sends its optional secret only as a plugin header (%s)', async token => {
+    const f = await fixture({ admitted: true, only: 'google-ads', fetch: async (url, init) => {
+        const body = JSON.parse(String(init?.body));
+        if (String(url).endsWith('googleAds:mutate')) {
+            expect(body.partialFailure).toBe(false); expect(body.validateOnly).toBe(false);
+            const keys = ['campaignBudgetResult', 'campaignResult', 'adGroupResult', 'campaignCriterionResult', 'adGroupCriterionResult', 'adGroupAdResult'];
+            const paths = ['campaignBudgets/101', 'campaigns/201', 'adGroups/301', 'campaignCriteria/201~2840', 'adGroupCriteria/301~501', 'adGroupAds/301~401'];
+            return Response.json({ mutateOperationResponses: keys.map((key, index) => ({ [key]: { resourceName: 'customers/1234567890/' + paths[index] } })) });
+        }
+        return Response.json({ results: String(body.query).endsWith('FROM customer') ? [{ customer: { id: '1234567890', currencyCode: 'USD', timeZone: 'UTC', testAccount: true } }] : [] });
+    } });
+    const confirmations = createMemoryConfirmationExchange({ clock, ids: f.ids });
+    const state = f.states.get('google-ads')!; state.metadata.loginCustomerId = '9999999999';
+    const campaign = { ...socialCampaign, audience: { countries: ['US'], searchTerms: ['marketing tools'] }, targets: [{ ...socialCampaign.targets[0], pluginId: 'google-ads', accountId: '1234567890' }] };
+    state.metadata.campaignFixture = { scope: context.scope, connectionId: 'connection', resolved: {
+        binding: { scope: context.scope, connectionId: 'connection', customerId: '1234567890', currency: 'USD', timezone: 'UTC', mode: 'sandbox', pluginDigest: 'a'.repeat(64), schemaFingerprint: 'b'.repeat(64) },
+        currencyExponent: 2, creativeId: 'creative', creativeDigest: campaign.creativeDigest, locations: [{ country: 'US', id: '2840' }], cpcBidMicros: '2370000',
+        headlines: ['Open Marketing', 'Plan Search Campaigns', 'See Clear Reports'], descriptions: ['Plan paused Search campaigns.', 'Review each exact spend call.'], finalUrl: 'https://example.test/landing', euPoliticalAdvertising: 'DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING' } };
+    let tokenReads = 0;
+    const binding = bindAgentPluginBackends({ ...f.ports, confirmations, integrations: { ...f.ports.integrations, async resolveDeveloperToken(input) { expect(input.pluginId).toBe('google-ads'); tokenReads++; return { ok: true, value: token }; } } });
+    try {
+        const calls = value({ result: await binding.prepareCampaign({ context, campaign, operationId: 'google-launch' }) });
+        const rootArgs = { calls }; const root: EffectRequest = { arguments: rootArgs, pausedCampaignCalls: calls, pluginDigest: 'a'.repeat(64), schemaFingerprint: 'b'.repeat(64),
+            envelope: { ...calls[0].envelope, operationId: 'google-launch', accountId: null, effects: ['ad_spend'], argumentsDigest: value({ result: digestArguments({ arguments: rootArgs }) }) } };
+        const card = value({ result: await confirmations.present({ context, request: root }) });
+        value({ result: await confirmations.confirm({ context, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } }) });
+        const authorization = { ...calls[0], approvalId: card.cardId, policyRevision: 0, campaignApproval: { operationId: 'google-launch', argumentsDigest: card.argumentsDigest, index: 0 } };
+        const result = await f.jobs.dispatch({ context, pluginId: 'om-campaigns', input: { operationId: 'google-launch', connectionId: 'om_campaign_deploy_paused', accountId: null, arguments: { intent: 'deploy-paused', request: boundedJsonSchema.parse(root) } },
+            execute: async ({ jobId }) => binding.executeCampaign({ context, call: calls[0], authorization, permit: { operationId: calls[0].envelope.operationId, argumentsDigest: calls[0].envelope.argumentsDigest, approvalId: card.cardId, expiresAt: 300000, reservationId: 'fixture-permit' },
+                checkpoint: item => f.jobs.checkpoint({ context, jobId, event: 'google-step.' + item.step, evidence: { ...item, operationId: calls[0].envelope.operationId } }) }) });
+        expect(result).toMatchObject({ ok: true, value: { status: 'unknown', entityIds: expect.arrayContaining(['customers/1234567890/campaigns/201']) } });
+        expect(f.native.prepare('SELECT state FROM job').all()).toEqual([{ state: 'reconcile' }]);
+        expect(JSON.stringify(f.native.prepare('SELECT evidence_id FROM job_attempt').all())).toContain('customers/1234567890/campaigns/201');
+        expect(tokenReads).toBe(f.calls.length);
+        for (const call of f.calls) { const headers = new Headers(call.options?.headers); expect(headers.get('developer-token')).toBe(token); expect(headers.get('login-customer-id')).toBe('9999999999'); }
+        const before = f.calls.length;
+        const read = value({ result: await binding.definitions({ context }) }).find(tool => tool.name === 'om_campaign_reconcile_deployment')!;
+        await read.invoke({ context, input: { operationId: 'google-launch' } });
+        expect(f.calls.slice(before).every(call => call.url.endsWith('googleAds:search'))).toBe(true);
+        expect(f.calls.filter(call => call.url.endsWith('googleAds:mutate'))).toHaveLength(1);
+        if (token) expect(JSON.stringify([result, f.native.prepare('SELECT * FROM job_attempt').all()])).not.toContain(token);
+    } finally { f.close(); }
+});
+it('unadmitted preparation/dispatch and unresolved or incompatible metadata perform no credential access', async () => {
+    const f = await fixture({ only: 'meta-ads' });
+    try {
+        expect(await f.binding.prepareCampaign({ context, campaign: { ...socialCampaign, targets: [socialCampaign.targets[0]] }, operationId: 'unadmitted' })).toMatchObject({ ok: false });
+        f.states.get('meta-ads')!.admitted = true;
+        expect(await f.binding.prepareCampaign({ context, campaign: { ...socialCampaign, targets: [socialCampaign.targets[0]] }, operationId: 'missing' })).toMatchObject({ ok: false, error: { code: 'not_implemented' } });
+        f.states.get('meta-ads')!.metadata.campaignFixture = socialMetadata({ pluginId: 'meta-ads' });
+        const call = value({ result: await f.binding.prepareCampaign({ context, campaign: { ...socialCampaign, targets: [socialCampaign.targets[0]] }, operationId: 'ready' }) })[0];
+        f.states.get('meta-ads')!.admitted = false;
+        expect(await f.binding.executeCampaign({ context, call, evidence: [], checkpoint: async () => ({ ok: true, value: undefined }) })).toMatchObject({ ok: false });
+        f.states.get('meta-ads')!.admitted = true;
+        expect(await f.binding.prepareCampaign({ context, campaign: { ...socialCampaign, audience: { countries: ['US'], searchTerms: ['cannot discard'] }, targets: [socialCampaign.targets[0]] }, operationId: 'incompatible' })).toMatchObject({ ok: false, error: { code: 'not_implemented' } });
+        expect(f.accesses).toEqual([]); expect(f.calls).toEqual([]); expect(f.native.prepare('SELECT id FROM job').all()).toEqual([]);
+    } finally { f.close(); }
+});
+it('rejects duplicate step dispatch and foreign/oversized checkpoints in the owning journal', async () => {
+    const f = await fixture(); let jobId = '';
+    try {
+        await f.jobs.dispatch({ context, pluginId: 'fixture', input: selection({ pluginId: 'linkedin-ads', operationId: 'checkpoint' }), async execute(input) {
+            jobId = input.jobId;
+            const event = { context, jobId, event: 'campaign-step', evidence: { phase: 'dispatch', operationId: 'child' } };
+            expect(await f.jobs.checkpoint(event)).toEqual({ ok: true, value: undefined });
+            expect(await f.jobs.checkpoint(event)).toMatchObject({ ok: false, error: { code: 'conflict' } });
+            expect(await f.jobs.checkpoint({ ...event, context: { ...context, scope: { ...context.scope, workspaceId: 'other' } } })).toMatchObject({ ok: false, error: { code: 'forbidden' } });
+            return { ok: true, value: { status: 'unknown' } };
+        } });
+        expect(await f.jobs.checkpoint({ context, jobId, event: 'too-large', evidence: { data: 'x'.repeat(65537) } })).toMatchObject({ ok: false, error: { code: 'limit_exceeded' } });
+        expect(await f.jobs.checkpoint({ context, jobId, event: 'later-step', evidence: { phase: 'dispatch' } })).toMatchObject({ ok: false, error: { code: 'conflict' } });
+        expect(f.native.prepare("SELECT event_type FROM job_attempt WHERE event_type='campaign-step'").all()).toHaveLength(1);
+    } finally { f.close(); }
 });

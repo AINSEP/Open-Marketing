@@ -18,6 +18,10 @@ export const oauthStatusSchema = z.union([z.strictObject({ status: z.enum(['pend
 export const oauthStartResultSchema = toolResultSchema.refine(value => value.status !== 'completed' || oauthChallengeSchema.safeParse(value.output).success);
 export const oauthOperationSchema = toolOperationSchema.refine(value => value.status !== 'completed' || oauthChallengeSchema.safeParse(value.output).success);
 export const oauthClientSetSchema = oauthClientQuerySchema.extend({ client: z.unknown().refine(value => value !== undefined) });
+/** Google-only compatibility secret. These ingress schemas are never assistant tool arguments. */
+export const developerTokenQuerySchema = z.strictObject({ pluginId: z.literal('google-ads') });
+export const developerTokenSetSchema = developerTokenQuerySchema.extend({ token: z.string().regex(/^[A-Za-z0-9]{22}$/).nullable() });
+export const developerTokenStatusSchema = z.strictObject({ configured: z.boolean() });
 export const oauthMetadataSchema = z.strictObject({
     provider: z.strictObject({ providerId: idSchema, label: z.string().min(1).max(256), supportedGrants: z.tuple([z.literal('authorization_code')]),
         authorizationEndpoint: z.url().max(2048), tokenEndpoint: z.url().max(2048), defaultScopes: z.array(z.string().min(1).max(128)).min(1).max(64),

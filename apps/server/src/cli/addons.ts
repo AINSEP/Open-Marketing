@@ -9,6 +9,7 @@ import { createSession, failure, requestOm, routes, terminalText } from './http.
 import type { HttpSession } from './http.js';
 import { oauthClientQuerySchema, oauthCallbackSchema, oauthOperationSchema, oauthStartSchema, oauthStatusQuerySchema } from '../integration-oauth-contracts.js';
 import { answerApproval } from './approval.js';
+import { developerTokenQuerySchema, developerTokenSetSchema, developerTokenStatusSchema } from '../integration-oauth-contracts.js';
 
 const options = { json: { type: 'boolean' }, help: { type: 'boolean' }, kind: { type: 'string' }, limit: { type: 'string' },
   cursor: { type: 'string' }, plugin: { type: 'string' }, connection: { type: 'string' }, 'token-stdin': { type: 'boolean' },
@@ -117,6 +118,7 @@ async function dispatch(required: { args: Args; session: HttpSession; runtime: C
   const values = required.args.values;
   switch (key) {
     case 'integrations oauth': return oauth(required);
+    case 'integrations developer-token': return developerToken(required);
     case 'addons list': case 'integrations list': return list({ ...required, key });
     case 'addons install': return install(required);
     case 'addons enable': case 'addons disable': {
@@ -147,6 +149,7 @@ async function run(required: { args: Args; runtime: CliRuntime }): Promise<Outco
     'integrations list': { count: 0, allowed: ['limit', 'cursor'] },
     'integrations connect': { count: 0, allowed: ['plugin', 'connection', 'token-stdin'] },
     'integrations disconnect': { count: 1, allowed: [] },
+    'integrations developer-token': { count: 1, allowed: ['plugin'] },
     'integrations oauth': { count: required.args.positionals[2] === 'client' ? 2 : 1, allowed: oauthFlags[required.args.positionals[2]] ?? [] },
   };
   if (required.args.positionals.length === 1 && required.args.values.help) return { ok: true, value: { help } };
@@ -173,13 +176,30 @@ export async function runAddonCli(required: { argv: readonly string[]; runtime: 
   catch { result = failure({ code: 'unavailable', message: 'Add-on command failed; refresh server state before another submission' }); }
   const json = required.argv.includes('--json');
   if (json) required.runtime.stdout.write({ text: JSON.stringify(result) + '\n' });
-  else if (result.ok && parsed.ok && parsed.value.values.help) required.runtime.stdout.write({ text: help + oauthHelp });
+  else if (result.ok && parsed.ok && parsed.value.values.help) required.runtime.stdout.write({ text: help + oauthHelp + 'om integrations developer-token set|clear|status --plugin google-ads (set reads the token from stdin)\n' });
   else if (result.ok) required.runtime.stdout.write({ text: terminalText({ text: JSON.stringify(result.value) }) + '\n' });
   else required.runtime.stderr.write({ text: result.error.message + '\n' });
   return result.ok ? { ok: true, value: undefined } : result;
 }
 
 const oauthFlags: Record<string, string[]> = { client: ['plugin'], start: ['plugin'], callback: ['response-stdin'], status: ['transaction'] };
+/** Owner-only Google compatibility secret; bounded UTF-8 stdin, no argv secret or echo. */
+async function developerToken(required: { args: Args; runtime: CliRuntime; session: HttpSession }): Promise<Outcome<unknown>> {
+  const query = developerTokenQuerySchema.safeParse({ pluginId: required.args.values.plugin });
+  const action = required.args.positionals[2];
+  if (!query.success || !['set', 'clear', 'status'].includes(action)) return failure({ code: 'invalid_input', message: 'Specify developer-token set|clear|status --plugin google-ads' });
+  const route = { path: '/api/addons/v1/integrations/developer-token', schema: developerTokenStatusSchema };
+  if (action === 'status') return requestOm({ session: required.session, route: { ...route, method: 'GET' }, query: query.data });
+  let token: string | null = null;
+  if (action === 'set') {
+    const bytes = await readBytes({ runtime: required.runtime, path: '-', maxBytes: 64 });
+    if (!bytes.ok) return bytes;
+    try { token = new TextDecoder('utf-8', { fatal: true }).decode(bytes.value).replace(/\r?\n$/, ''); }
+    catch { return failure({ code: 'invalid_input', message: 'Token stdin must be UTF-8' }); }
+  }
+  const body = developerTokenSetSchema.safeParse({ ...query.data, token });
+  return body.success ? requestOm({ session: required.session, route: { ...route, method: 'POST' }, body: body.data }) : failure({ code: 'invalid_input', message: 'Invalid developer token' });
+}
 /** Fixed command schemas before stdin/HTTP; callback secrets travel only in the authenticated body.
  * Start uses the same exact-card terminal continuation as ordinary tool calls; JSON returns its receipt.
  * @complexity <=64 KiB stdin, one dispatch plus bounded approval continuation; no retries.

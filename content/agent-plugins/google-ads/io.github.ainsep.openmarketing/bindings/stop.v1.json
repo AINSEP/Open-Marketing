@@ -2,7 +2,7 @@
   "capabilityId": "google-ads.stop.v1",
   "version": 1,
   "pluginId": "google-ads",
-  "schemaFingerprint": "74348087c63961e7d683e8466faea748acb6790a862af5aec6facebea7a3c1b7",
+  "schemaFingerprint": "18ce6c10d760ebeeaf7e6b807c6656b1c1a83dfaeae1bc9990a63a70287a3af8",
   "admitted": false,
   "effects": [
     "halt_stop"

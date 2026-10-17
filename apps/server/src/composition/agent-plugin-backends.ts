@@ -3,9 +3,9 @@ import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
-import { addonToolEffectsSchema, boundedJsonSchema, dailyLimitRequirementSchema, haltStopRequestSchema, idSchema, moneyExposureSchema, parseBoundary, toolDescriptorSchema } from '@open-marketing/contracts';
+import { addonToolEffectsSchema, boundedJsonSchema, dailyLimitRequirementSchema, haltStopRequestSchema, idSchema, moneyExposureSchema, parseBoundary, scopeSchema, toolDescriptorSchema } from '@open-marketing/contracts';
 import type { CallContext, CallOptions, ClockPort, HaltStopPermit, IdPort, ObserverPort, Outcome, UnitOfWork } from '@open-marketing/contracts';
-import { digestArguments } from '@open-marketing/safety';
+import { digestArguments, effectRequestSchema } from '@open-marketing/safety';
 import type { AccountDispatchLockPort, SafetyRepoPort, SafetyService } from '@open-marketing/safety';
 import type { CampaignConstituent, ConfirmationExchangePort, DispatchPermit, FrozenDispatchRequest } from '@open-marketing/safety';
 import type { NeutralCampaignLaunch } from '@open-marketing/campaigns';
@@ -31,7 +31,7 @@ export type AgentPluginEffects = { fetch: typeof fetch; loadModule(required: { m
 type ConversionStorage = { unit: UnitOfWork; policyForTransaction(required: { unit: UnitOfWork }): PolicyService };
 type Dependencies = AgentPluginEffects & { projectRoot: string; clock: ClockPort; observer: ObserverPort;
     state(required: { context: CallContext; pluginId: string }): Promise<AgentPluginState | null>;
-    integrations: Pick<Integrations, 'access'>; accounts: AccountBindingLookupPort; safetyRepo: Pick<SafetyRepoPort, 'snapshot'>;
+    integrations: Pick<Integrations, 'access'> & Partial<Pick<Integrations, 'resolveDeveloperToken'>>; accounts: AccountBindingLookupPort; safetyRepo: Pick<SafetyRepoPort, 'snapshot'>;
     jobs: ReturnType<typeof bindAgentPluginJobs>; safety?: SafetyService; confirmations?: ConfirmationExchangePort; accountLocks: AccountDispatchLockPort }
     & ({ mode: 'production' } & ConversionStorage | { mode: 'read_only' | 'sandbox' } & Partial<ConversionStorage>);
 type Namespace = Record<string, unknown>;
@@ -44,7 +44,9 @@ const selectionSchema = z.strictObject({ operationId: idSchema, connectionId: id
     arguments: z.record(z.string(), boundedJsonSchema), moneyExposure: moneyExposureSchema.nullable().optional(), requiredLimit: dailyLimitRequirementSchema.nullable().optional() });
 type Selection = z.infer<typeof selectionSchema>;
 type Invocation = Parameters<OmToolDefinition['invoke']>[0];
-type Execution = { dependencies: Dependencies; context: CallContext; pluginId: string; state: AgentPluginState; module: Namespace; contribution: Contribution; input: Selection; signal?: AbortSignal; stopPermit?: HaltStopPermit; authorization?: FrozenDispatchRequest; dispatchPermit?: DispatchPermit };
+type Execution = { dependencies: Dependencies; context: CallContext; pluginId: string; state: AgentPluginState; module: Namespace; contribution: Contribution; input: Selection; signal?: AbortSignal; stopPermit?: HaltStopPermit; authorization?: FrozenDispatchRequest; dispatchPermit?: DispatchPermit; checkpoint?: DeploymentCheckpoint; evidence?: Record<string, unknown>[] };
+type DeploymentCheckpoint = (input: { step: string; phase: string; references?: unknown; record?: unknown }) => Promise<Outcome<void>>;
+const deploymentName = 'campaign_deploy_paused';
 
 /** Read enabled bundled modules on catalog discovery; namespaces contain no retained credentials.
  * Each call resolves lifecycle/account state again. A broken plugin contributes only an unavailable
@@ -54,15 +56,19 @@ type Execution = { dependencies: Dependencies; context: CallContext; pluginId: s
  */
 export function bindAgentPluginBackends(required: Dependencies) {
     return {
-        /** Neutral creation stays unavailable until plugins expose verified executable call plans.
-         * Admission is checked before any adapter/credentials. No guessed parent-ID substitutions. */
+        /** Resolve all finite plugin plans before approval. Only explicit scoped sandbox metadata
+         * is supported; real account/assets/declarations remain NEEDS. No credentials or egress. */
         async prepareCampaign(input: { context: CallContext; campaign: NeutralCampaignLaunch; operationId: string }): Promise<Outcome<readonly CampaignConstituent[]>> {
+            const calls: CampaignConstituent[] = [];
             for (const target of input.campaign.targets) {
-                const state = await required.state({ context: input.context, pluginId: target.pluginId });
-                if (!state?.enabled || !state.admitted) return localFailure({ message: 'Plugin unadmitted: ' + target.pluginId });
+                const prepared = await pluginJobBoundary({ ...required, context: input.context, execute: () => prepareDestination({ dependencies: required, ...input, target }) });
+                if (!prepared.ok) return prepared;
+                calls.push(prepared.value);
             }
-            return localFailure({ code: 'not_implemented', message: 'NEEDS: plugin-owned exact creation calls, resolved assets, parent slots and complete non-serving readback' });
+            return { ok: true, value: calls };
         },
+        executeCampaign: (input: CampaignExecution) => pluginJobBoundary({ ...required, context: input.context, execute: () => executeCampaign({ dependencies: required, ...input }) }),
+        readCampaign: (input: { context: CallContext; request: FrozenDispatchRequest }) => pluginJobBoundary({ ...required, context: input.context, execute: () => campaignEvidence({ dependencies: required, context: input.context, operationId: input.request.envelope.operationId }) }),
         /** Measure owns inbox verification, transient contacts identifiers, durable claims and consent.
          * Incompatible plugin DTOs fail closed instead of inferring event categories or grant scope. */
         conversions(input: Omit<Parameters<typeof createConversionDispatcher>[0], 'delivery'> & { authority: ConversionAuthorityFactory }) {
@@ -72,9 +78,135 @@ export function bindAgentPluginBackends(required: Dependencies) {
         async definitions({ context }: { context: CallContext }): Promise<Outcome<readonly OmToolDefinition[]>> {
             const definitions: OmToolDefinition[] = [];
             for (const pluginId of pluginIds) definitions.push(...await pluginDefinitions({ dependencies: required, context, pluginId }));
+            definitions.push(campaignReconciliation({ dependencies: required }));
             return { ok: true, value: definitions };
         },
     };
+}
+
+/** One reviewed constituent per target; translators own all vendor fields and fixed parent slots.
+ * @complexity One bounded bundle/catalog read; fixture metadata <=64 KiB. */
+async function prepareDestination(required: { dependencies: Dependencies; context: CallContext; campaign: NeutralCampaignLaunch; operationId: string; target: NeutralCampaignLaunch['targets'][number] }): Promise<Outcome<CampaignConstituent>> {
+    const { dependencies, context, target } = required;
+    const state = await dependencies.state({ context, pluginId: target.pluginId });
+    if (!state?.enabled || !state.admitted) return localFailure({ message: 'Plugin unadmitted: ' + target.pluginId });
+    const fixture = z.object({ scope: scopeSchema, connectionId: idSchema, resolved: boundedJsonSchema }).safeParse(state.metadata.campaignFixture);
+    if (dependencies.mode !== 'sandbox' || !fixture.success) return localFailure({ code: 'not_implemented', message: 'NEEDS: scoped campaign account, creative and declaration metadata' });
+    if (fixture.data.scope.ownerId !== context.scope.ownerId || fixture.data.scope.workspaceId !== context.scope.workspaceId || fixture.data.connectionId !== target.connectionId) return localFailure({ code: 'forbidden', message: 'Campaign metadata outside scope' });
+    const definitions = await pluginDefinitions({ dependencies, context, pluginId: target.pluginId });
+    const definition = definitions.find(tool => tool.name.endsWith('_' + deploymentName));
+    if (!definition || definition.unavailableReason) return localFailure({ message: 'Campaign deployment unavailable' });
+    const module = { ...await dependencies.loadModule({ moduleUrl: bundledModuleUrl({ dependencies, pluginId: target.pluginId }) + '?revision=' + definition.revision }) };
+    const translated = exported<(input: Record<string, unknown>) => Outcome<unknown>>({ module, name: 'translateCampaign' })({ campaign: required.campaign, target, resolved: fixture.data.resolved });
+    if (!translated.ok) return translated;
+    const args = { tool: definition.name, input: { operationId: hash({ value: [required.operationId, target] }), connectionId: target.connectionId, accountId: target.accountId,
+        currency: target.dailyBudget.currency, timezone: required.campaign.schedule.timezone, arguments: { plan: translated.value } } };
+    const valid = definition.parse({ input: args.input });
+    if (!valid.ok) return valid;
+    return { ok: true, value: { arguments: boundedJsonSchema.parse(args) as CampaignConstituent['arguments'], pluginDigest: definition.revision,
+        schemaFingerprint: canonicalDigest({ value: definition.inputSchema }),
+        envelope: { operationId: args.input.operationId, connectionId: target.connectionId, accountId: target.accountId, effects: ['write'], argumentsDigest: canonicalDigest({ value: args }), moneyExposure: null, requiredLimit: null } } };
+}
+function canonicalDigest(required: { value: unknown }): string { const result = digestArguments({ arguments: required.value }); if (!result.ok) throw new Error('Invalid campaign digest'); return result.value; }
+
+/** Reuse each plugin's closed plan parser, never a host-owned vendor schema. */
+function deploymentContribution(required: { pluginId: string; module: Namespace }): Contribution[] {
+    if (!['google-ads', 'meta-ads', 'linkedin-ads'].includes(required.pluginId)) return [];
+    const google = required.pluginId === 'google-ads';
+    const schema = required.module.campaignDeploymentPlanSchema as z.ZodType;
+    const plan = google ? required.module.planSchema as Record<string, unknown> : z.toJSONSchema(schema, { io: 'input' });
+    return [{ name: deploymentName, description: 'Fixed PAUSED/DRAFT creation sequence; owning campaign approval required', effects: ['write'],
+        inputSchema: { type: 'object', properties: { plan }, required: ['plan'], additionalProperties: false },
+        parse: input => { const parsed = z.strictObject({ plan: boundedJsonSchema }).safeParse(input.input);
+            if (!parsed.success) return localFailure({ code: 'invalid_input', message: 'Invalid deployment plan' });
+            return google ? exported<(input: Record<string, unknown>) => Outcome<unknown>>({ module: required.module, name: 'parse' })({ schema: plan, input: parsed.data.plan }) : parseBoundary({ schema, input: parsed.data.plan }); } }];
+}
+type CampaignExecution = { context: CallContext; call: CampaignConstituent; authorization?: FrozenDispatchRequest; permit?: DispatchPermit; checkpoint: DeploymentCheckpoint; evidence?: Record<string, unknown>[]; signal?: AbortSignal };
+/** The caller holds the owning safety lock and job; this path never claims another job/lock. */
+async function executeCampaign(required: CampaignExecution & { dependencies: Dependencies }): Promise<Outcome<unknown>> {
+    const authority = campaignExecutionAuthority(required);
+    if (!authority.ok) return authority;
+    const args = z.object({ tool: idSchema, input: selectionSchema }).parse(required.call.arguments);
+    const pluginId = pluginIds.find(id => args.tool === 'vendor_' + id.replaceAll('-', '_') + '_' + deploymentName);
+    if (!pluginId) return localFailure({ code: 'forbidden', message: 'Invalid campaign executable' });
+    const state = await required.dependencies.state({ context: required.context, pluginId });
+    if (!state?.admitted || !state.enabled || !state.bundled) return localFailure({ message: 'Campaign plugin unadmitted' });
+    const revision = await executableRevision({ ...required, pluginId, state });
+    if (revision !== required.call.pluginDigest) return localFailure({ code: 'conflict', message: 'Campaign executable changed' });
+    const module = { ...await required.dependencies.loadModule({ moduleUrl: bundledModuleUrl({ ...required, pluginId }) + '?revision=' + revision }) };
+    const contribution = deploymentContribution({ pluginId, module })[0]!;
+    if (required.evidence) contribution.effects = ['read'];
+    const execution: Execution = { ...required, state: { ...state, revision }, module, pluginId, contribution, input: args.input, dispatchPermit: required.permit };
+    if (canonicalDigest({ value: definition(execution).inputSchema }) !== required.call.schemaFingerprint) return localFailure({ code: 'conflict', message: 'Campaign schema changed' });
+    if (!await bindingCurrent(execution) || !await campaignAuthorityCurrent(execution)) return localFailure({ code: 'forbidden', message: 'Campaign authority changed' });
+    return pluginJobBoundary({ ...required.dependencies, context: required.context, execute: () => deployment(execution) });
+}
+/** Writes need the owning sandbox authority and exact frozen arguments; reads never borrow it. */
+function campaignExecutionAuthority(required: CampaignExecution & { dependencies: Dependencies }): Outcome<void> {
+    if (required.evidence) return { ok: true, value: undefined };
+    if (required.dependencies.mode !== 'sandbox') return localFailure({ code: 'forbidden', message: 'NEEDS: verified production campaign binding; local mode is read-only' });
+    if (!required.permit || !required.authorization?.campaignApproval) return localFailure({ code: 'forbidden', message: 'Owning campaign authority required' });
+    if (canonicalDigest({ value: required.call.arguments }) !== canonicalDigest({ value: required.authorization.arguments })) return localFailure({ code: 'conflict', message: 'Campaign arguments changed' });
+    return { ok: true, value: undefined };
+}
+
+/** Recovery loads only scoped immutable intent and saved IDs/markers. Never dispatches creation.
+ * @complexity <=4 destinations, <=128 bounded journal records; vendor reads use plugin timeouts. */
+function campaignReconciliation(required: { dependencies: Dependencies }): OmToolDefinition {
+    const schema = z.strictObject({ operationId: idSchema });
+    return { name: 'om_campaign_reconcile_deployment', capability: 'Campaign deployment read-only reconciliation', description: 'Read saved deployment references/markers and append observations. Never creates, retries or resumes a campaign.',
+        effects: ['read'], policy: 'read', revision: '1', inputSchema: toolDescriptorSchema.shape.inputSchema.parse(z.toJSONSchema(schema)), parse: input => parseBoundary({ schema, input: input.input }),
+        invoke: input => pluginJobBoundary({ ...required.dependencies, context: input.context, execute: async () => {
+            const key = schema.parse(input.input);
+            const saved = await required.dependencies.jobs.history({ context: input.context, ...key });
+            if (!saved.ok) return saved;
+            const payload = z.object({ payload: z.object({ pluginId: z.literal('om-campaigns'), input: z.object({ arguments: z.object({ intent: z.literal('deploy-paused'), request: effectRequestSchema.passthrough() }) }) }) }).parse(saved.value.payload);
+            const calls = payload.payload.input.arguments.request.pausedCampaignCalls ?? [];
+            for (const call of calls) {
+                const evidence = saved.value.evidence.filter(item => item.operationId === call.envelope.operationId);
+                if (!evidence.some(item => item.status !== 'not_attempted')) continue;
+                const result = await executeCampaign({ ...required, context: input.context, call, evidence, signal: input.signal,
+                    checkpoint: item => required.dependencies.jobs.checkpoint({ context: input.context, jobId: saved.value.jobId, event: 'campaign_observation', evidence: { ...item, operationId: call.envelope.operationId } }) });
+                const observation = reconciliationObservation({ result, evidence });
+                const appended = await required.dependencies.jobs.checkpoint({ context: input.context, jobId: saved.value.jobId, event: 'campaign_result', evidence: { operationId: call.envelope.operationId, result: observation } });
+                if (!appended.ok) return appended;
+            }
+            return campaignEvidence({ ...required, context: input.context, ...key });
+        } }) };
+}
+const deploymentReferencesSchema = z.record(idSchema, idSchema).refine(refs => Object.keys(refs).length <= 500);
+const deploymentReceiptSchema = z.object({ status: z.enum(['acknowledged', 'unknown']), entityIds: z.array(idSchema).max(500),
+    references: z.union([z.array(idSchema).max(500), deploymentReferencesSchema]).optional() }).passthrough();
+/** Select a receipt, never its Outcome wrapper or malformed later evidence.
+ * @complexity O(n*b) time, O(n+b) space; <=128 entries of <=64 KiB each, no I/O. */
+function latestDeploymentReceipt(required: { evidence: Record<string, unknown>[] }): z.infer<typeof deploymentReceiptSchema> | undefined {
+    for (const entry of required.evidence.slice().reverse()) {
+        const receipt = deploymentReceiptSchema.safeParse(entry.result);
+        if (receipt.success) return receipt.data;
+    }
+    return undefined;
+}
+/** A failed read cannot erase validated references or claim they are current. O(n) bounded history. */
+function reconciliationObservation(required: { result: Outcome<unknown>; evidence: Record<string, unknown>[] }): unknown {
+    if (required.result.ok) return required.result.value;
+    return { ...latestDeploymentReceipt(required), status: 'unknown' };
+}
+/** Summarize saved verified receipts; incomplete/missing references never establish success. */
+async function campaignEvidence(required: { dependencies: Dependencies; context: CallContext; operationId: string }): Promise<Outcome<unknown>> {
+    const saved = await required.dependencies.jobs.history(required);
+    if (!saved.ok) return saved;
+    const payload = z.object({ payload: z.object({ pluginId: z.literal('om-campaigns'), input: z.object({ arguments: z.object({ request: effectRequestSchema.passthrough() }) }) }) }).parse(saved.value.payload);
+    const calls = payload.payload.input.arguments.request.pausedCampaignCalls ?? [];
+    const outcomes = calls.map(call => {
+        const entries = saved.value.evidence.filter(item => item.operationId === call.envelope.operationId);
+        const receipt = latestDeploymentReceipt({ evidence: entries });
+        return { operationId: call.envelope.operationId, tool: String(call.arguments.tool), connectionId: call.envelope.connectionId, accountId: call.envelope.accountId,
+            result: receipt ?? { status: entries.some(item => item.status !== 'not_attempted') ? 'unknown' : 'not_attempted' } };
+    });
+    const entities = outcomes.flatMap((item, index) => z.object({ status: z.literal('acknowledged'), entityIds: z.array(idSchema).min(1).max(500) }).safeParse(item.result).success
+        ? (item.result as { entityIds: string[] }).entityIds.map(entityId => ({ operationId: item.operationId, entityId, state: String(calls[index]!.arguments.tool).startsWith('vendor_linkedin_ads_') ? 'draft' : 'paused' })) : []);
+    const complete = outcomes.length > 0 && outcomes.every(item => z.object({ status: z.literal('acknowledged') }).safeParse(item.result).success);
+    return { ok: true, value: { complete, entities, outcomes } };
 }
 
 type ConversionAuthority = Pick<Parameters<typeof createConversionDispatcher>[0], 'policy' | 'grants' | 'audit'>;
@@ -180,7 +312,7 @@ async function pluginDefinitions(required: { dependencies: Dependencies; context
         const moduleUrl = new URL(bundledModuleUrl({ dependencies, pluginId }));
         moduleUrl.searchParams.set('revision', state.revision);
         const module = z.record(z.string(), z.unknown()).parse({ ...await dependencies.loadModule({ moduleUrl: moduleUrl.href }) });
-        return contributions({ pluginId, module, state }).map(contribution => definition({ dependencies, context, pluginId, state, module, contribution }));
+        return [...contributions({ pluginId, module, state }), ...deploymentContribution({ pluginId, module })].map(contribution => definition({ dependencies, context, pluginId, state, module, contribution }));
     } catch {
         const message = 'Bundled agent-plugin unavailable; check installed metadata and run om:build-plugins';
         return [{ name: 'vendor_' + pluginId.replaceAll('-', '_') + '_unavailable', description: pluginId + ': ' + message,
@@ -243,7 +375,7 @@ function definition(required: Omit<Execution, 'input' | 'signal'>): OmToolDefini
     const inputSchema = z.toJSONSchema(selectionSchema, { io: 'input' });
     (inputSchema.properties as Record<string, unknown>).arguments = contribution.inputSchema;
     const name = 'vendor_' + pluginId.replaceAll('-', '_') + '_' + contribution.name.replaceAll('.', '_');
-    const unavailableReason = unavailable({ dependencies, pluginId, state, policy });
+    const unavailableReason = unavailable({ dependencies, pluginId, state, policy, name: contribution.name });
     return { name, description: contribution.description, capability: pluginId + ': ' + contribution.name,
         effects, policy, revision: state.revision, inputSchema: toolDescriptorSchema.shape.inputSchema.parse(inputSchema), unavailableReason,
         safety: dependencies.safety,
@@ -263,9 +395,9 @@ function definition(required: Omit<Execution, 'input' | 'signal'>): OmToolDefini
         invoke: input => invoke({ ...required, invocation: input }),
     };
 }
-function unavailable(required: { dependencies: Dependencies; pluginId: string; state: AgentPluginState; policy: string }): string | undefined {
+function unavailable(required: { dependencies: Dependencies; pluginId: string; state: AgentPluginState; policy: string; name?: string }): string | undefined {
     if (!required.state.admitted) return 'Plugin unadmitted: vendor network access is disabled';
-    if (required.pluginId === 'google-ads' && required.policy !== 'read') return 'NEEDS: Google durable controlled-plan journal and verified billing evidence';
+    if (required.pluginId === 'google-ads' && required.policy !== 'read' && required.name !== deploymentName) return 'NEEDS: Google durable controlled-plan journal and verified billing evidence';
     if (required.policy !== 'read' && required.dependencies.mode === 'read_only') return 'Local vendor account mode is read-only';
     if (required.policy === 'spend' && !required.dependencies.safety) return 'NEEDS: verified vendor financial safety binding';
     return undefined;
@@ -315,6 +447,7 @@ function guardedFetch(required: Execution): typeof fetch {
             if (!snapshot.ok || snapshot.value.halted) throw new Error('Account halted');
         }
         if (!await campaignAuthorityCurrent(required)) throw new Error('Campaign authority expired or revoked');
+        if (required.signal?.aborted || options?.signal?.aborted) throw new Error('Plugin cancelled');
         return required.dependencies.fetch(url, options);
     };
 }
@@ -327,7 +460,7 @@ async function campaignAuthorityCurrent(required: Execution): Promise<boolean> {
     return authority.ok && required.dispatchPermit.expiresAt > required.dependencies.clock.now({});
 }
 function credentials(required: Execution) {
-    return { async access(input: { connectionId?: string; accountId?: string | null } = {}) {
+    return { async access(input: { connectionId?: string; accountId?: string | null } = {}): Promise<Outcome<{ accessToken: string; expiresAt?: number }>> {
         if (input.connectionId !== undefined && input.connectionId !== required.input.connectionId) return localFailure({ code: 'forbidden', message: 'Plugin credential connection mismatch' });
         if (input.accountId != null && input.accountId !== required.input.accountId) return localFailure({ code: 'forbidden', message: 'Plugin credential account mismatch' });
         if (!await bindingCurrent(required)) return localFailure({ message: 'Plugin unavailable before credential access' });
@@ -345,14 +478,15 @@ async function invoke(required: Omit<Execution, 'input' | 'signal'> & { invocati
     const execution: Execution = { ...required, context: required.invocation.context, input: parsed.value, signal: required.invocation.signal, authorization: required.invocation.authorization, dispatchPermit: required.invocation.permit };
     try {
         if (!await bindingCurrent(execution)) return localFailure({ message: 'Plugin unadmitted, disabled or account binding unavailable' });
-        const reason = unavailable({ ...required, policy: toolPolicy({ effects: required.contribution.effects }) });
+        if (required.contribution.name === deploymentName) return localFailure({ code: 'forbidden', message: 'Use the owning exact campaign launch' });
+        const reason = unavailable({ ...required, policy: toolPolicy({ effects: required.contribution.effects }), name: required.contribution.name });
         if (reason) return localFailure({ message: reason });
         const execute = () => executePlugin(execution);
         if (toolPolicy({ effects: required.contribution.effects }) === 'read') return await execute();
         if (toolPolicy({ effects: required.contribution.effects }) === 'spend' && !required.invocation.permit)
             return localFailure({ code: 'forbidden', message: 'Spend requires the dispatcher safety permit' });
         const dispatch = () => required.dependencies.jobs.dispatch({ context: execution.context, pluginId: required.pluginId, input: parsed.value, execute });
-        if (required.invocation.permit && required.invocation.authorization?.campaignApproval) return await dispatch();
+        if (required.invocation.permit && required.invocation.authorization?.campaignApproval) return await execute();
         return await writeWithBarrier({ execution, execute: dispatch });
     } catch { return localFailure({ message: 'Plugin binding failed; reconcile any submitted operation' }); }
 }
@@ -446,10 +580,63 @@ async function instagram(required: Execution & { fetch: typeof fetch; credential
 function googleTransport(required: Execution & { fetch: typeof fetch; credential: ReturnType<typeof credentials> }) {
     const binding = { scope: required.context.scope, connectionId: required.input.connectionId, customerId: required.input.accountId,
         currency: required.input.currency ?? required.state.metadata.currency, timezone: required.input.timezone ?? required.state.metadata.timezone,
-        mode: 'read_only', pluginDigest: required.state.revision, schemaFingerprint: hash({ value: required.contribution.inputSchema }) };
-    const http = exported<Factory<unknown>>({ module: required.module, name: 'createHttpAdapter' })({ fetch: required.fetch, observer: required.dependencies.observer });
-    const transport = exported<Factory<unknown>>({ module: required.module, name: 'createGoogleRestTransport' })({ binding, http, credentials: required.credential });
+        mode: required.checkpoint && !required.evidence ? required.dependencies.mode : 'read_only', pluginDigest: required.state.revision, schemaFingerprint: hash({ value: required.contribution.inputSchema }) };
+    const http = exported<Factory<unknown>>({ module: required.module, name: 'createHttpAdapter' })({ fetch: required.fetch, observer: required.dependencies.observer, signal: required.signal });
+    const transport = exported<Factory<unknown>>({ module: required.module, name: 'createGoogleRestTransport' })({ binding, http, credentials: { async access() {
+        const accessed = await required.credential.access();
+        if (!accessed.ok || !await bindingCurrent(required)) return localFailure({ message: 'Google credentials unavailable' });
+        const token = await required.dependencies.integrations.resolveDeveloperToken?.({ context: { ...required.context, principal: { kind: 'service', serviceId: 'google-ads-transport' } }, pluginId: 'google-ads' }, { signal: required.signal });
+        if (token && !token.ok) return token;
+        const manager = z.string().regex(/^[0-9]{10}$/).optional().parse(required.state.metadata.loginCustomerId);
+        return { ok: true, value: { ...accessed.value, ...(manager ? { loginCustomerId: manager } : {}), ...(token?.value ? { developerToken: token.value } : {}) } };
+    } } });
     return { binding, transport };
+}
+/** Fixed plugin sequence with owning-job checkpoints. Google keeps billing authority unavailable.
+ * @complexity At most one atomic Google mutate or three social creates, bounded plugin readback. */
+async function deployment(required: Execution): Promise<Outcome<unknown>> {
+    const common = { context: required.context, operationId: required.input.operationId, plan: required.input.arguments.plan, checkpoint: required.checkpoint };
+    if (required.pluginId === 'google-ads') return googleDeployment(required);
+    const dependencies = required.pluginId === 'meta-ads'
+        ? { admitted: true, dispatch: exported<Factory<unknown>>({ module: required.module, name: 'createMetaInstagramFetchDispatch' })({ fetch: guardedFetch(required), credentials: credentials(required) }) }
+        : { admitted: true, clock: required.dependencies.clock, observer: required.dependencies.observer, fetch: guardedFetch(required), credentials: credentials(required),
+            configuration: { scope: required.context.scope, connectionId: required.input.connectionId, accountId: required.input.accountId, pluginDigest: required.state.revision, currency: required.input.currency, apiVersion: '202609', bindingId: 'campaign.create-draft.v1' } };
+    const read = required.evidence !== undefined;
+    const references = savedDeploymentReferences({ evidence: required.evidence ?? [] });
+    return exported<(input: Record<string, unknown>, optional?: CallOptions) => Promise<Outcome<unknown>>>({ module: required.module, name: read ? 'readCampaignDeployment' : 'deployCampaignPaused' })({ ...common, connectionId: required.input.connectionId, accountId: required.input.accountId, dependencies, references }, { signal: required.signal });
+}
+/** Recover an ID whose acknowledgement checkpoint failed but whose receipt was saved.
+ * Receipt references supplement the latest valid checkpoint; duplicate vendor IDs occur once.
+ * @complexity O(n*b+r) time, O(n+b+r) space; <=128 bounded entries, <=1000 merged references, no I/O. */
+function savedDeploymentReferences(required: { evidence: Record<string, unknown>[] }): Record<string, string> {
+    let checkpoint: Record<string, string> = {};
+    for (const entry of required.evidence) {
+        const parsed = deploymentReferencesSchema.safeParse(entry.references);
+        if (parsed.success) checkpoint = parsed.data;
+    }
+    const receipt = deploymentReferencesSchema.safeParse(latestDeploymentReceipt(required)?.references);
+    const references = new Map(Object.entries(checkpoint));
+    for (const [step, id] of Object.entries(receipt.success ? receipt.data : {})) {
+        references.delete(step);
+        references.set(step, id);
+    }
+    const byVendorId = new Map([...references].map(([step, id]) => [id, [step, id]] as const));
+    return Object.fromEntries(byVendorId.values());
+}
+/** Adapt Google's journal into append-only evidence of the SAME job; never enqueue/lock here. */
+async function googleDeployment(required: Execution): Promise<Outcome<unknown>> {
+    const { binding, transport } = googleTransport({ ...required, fetch: guardedFetch(required), credential: credentials(required) });
+    let record = required.evidence?.filter(item => item.record).at(-1)?.record;
+    const unavailable = async () => localFailure({ message: 'NEEDS: Google billing authority' });
+    const adapter = exported<Factory<Adapter>>({ module: required.module, name: 'createGooglePlugin' })({ binding, transport, clock: required.dependencies.clock,
+        journal: { async claim(input: { record: unknown }) { const saved = await required.checkpoint!({ step: 'google', phase: 'dispatch', record: input.record }); if (!saved.ok) return saved; record = input.record; return { ok: true, value: { acquired: true, record } }; },
+            async append(input: { record: unknown }) { const saved = await required.checkpoint!({ step: 'google', phase: 'observation', record: input.record }); if (saved.ok) record = input.record; return saved; },
+            async get() { return { ok: true, value: record ?? null }; }, findCampaign: unavailable },
+        authority: { dispatch: (input: { execute(): Promise<Outcome<unknown>> }) => input.execute(), billing: unavailable } });
+    const result = await adapter.invoke({ context: { ...required.context, principal: { kind: 'service', serviceId: 'om-campaign-deployment' } }, name: required.evidence ? 'reconcile' : 'create_paused', arguments: { operationId: required.input.operationId, ...(required.evidence ? {} : { plan: required.input.arguments.plan }) } });
+    if (!result.ok) return result;
+    const receipt = z.object({ status: z.enum(['unknown', 'acknowledged']), references: z.array(idSchema).max(256).optional() }).parse(result.value);
+    return { ok: true, value: { ...receipt, entityIds: receipt.references ?? [] } };
 }
 async function google(required: Execution & { fetch: typeof fetch; credential: ReturnType<typeof credentials> }): Promise<Outcome<unknown>> {
     const { binding, transport } = googleTransport(required);
@@ -494,7 +681,36 @@ export function bindAgentPluginJobs(required: { unit: UnitOfWork; clock: ClockPo
         if (!finished) return localFailure({ code: 'conflict', message: 'Plugin completion lost its lease; reconcile' });
         return checked;
     }
-    return { dispatch: (input: Parameters<typeof dispatch>[0]) => pluginJobBoundary({ ...required, context: input.context, execute: () => dispatch(input) }) };
+    /** Append scoped bounded evidence. A duplicate step dispatch can never authorize another send.
+     * Transactions commit before plugin I/O; observations may append after completion. */
+    async function checkpoint(input: { context: CallContext; jobId: string; event: string; evidence: Record<string, unknown> }): Promise<Outcome<void>> {
+        const evidence = boundedJsonSchema.safeParse(input.evidence);
+        if (!evidence.success) return localFailure({ code: 'limit_exceeded', message: 'Campaign evidence exceeds bounds' });
+        return database.transaction({ context: input.context, execute: async ({ session }) => {
+            const job = await session.query({ sql: 'SELECT state FROM job WHERE id=$1 AND tenant_id=$2', parameters: [input.jobId, jobTenant(input)] });
+            if (!job.rows.length) return localFailure({ code: 'forbidden', message: 'Owning job unavailable' });
+            if (input.evidence.phase === 'dispatch') {
+                const prior = await session.query({ sql: 'SELECT evidence_id FROM job_attempt WHERE job_id=$1 AND tenant_id=$2 AND event_type=$3 LIMIT 129', parameters: [input.jobId, jobTenant(input), input.event] });
+                if (job.rows[0]!.state !== 'dispatching' || prior.rows.length >= 128 || prior.rows.some(row => JSON.parse(String(row.evidence_id)).phase === 'dispatch')) return localFailure({ code: 'conflict', message: 'Campaign step already dispatched or job ended' });
+            }
+            await session.query({ sql: 'INSERT INTO job_attempt (job_id,sequence,tenant_id,attempt,event_type,state,observed_at,evidence_id) SELECT $1,COALESCE(MAX(sequence),0)+1,$2,1,$3,$4,$5,$6 FROM job_attempt WHERE job_id=$1',
+                parameters: [input.jobId, jobTenant(input), input.event, job.rows[0]!.state, required.clock.now({}), JSON.stringify(evidence.data)] });
+            return { ok: true, value: undefined };
+        } });
+    }
+    /** Scoped immutable intent plus bounded append history for read-only recovery. No claim/replay. */
+    async function history(input: { context: CallContext; operationId: string }): Promise<Outcome<{ jobId: string; payload: unknown; evidence: Record<string, unknown>[] }>> {
+        return database.transaction({ context: input.context, execute: async ({ session }) => {
+            const found = await session.query({ sql: 'SELECT id,payload FROM job WHERE tenant_id=$1 AND idempotency_key=$2', parameters: [jobTenant(input), 'agent-plugin:' + hash({ value: input.operationId })] });
+            if (!found.rows[0]) return localFailure({ code: 'forbidden', message: 'Campaign job unavailable in scope' });
+            const rows = await session.query({ sql: 'SELECT evidence_id FROM job_attempt WHERE job_id=$1 AND tenant_id=$2 AND evidence_id IS NOT NULL ORDER BY sequence LIMIT 129', parameters: [found.rows[0].id, jobTenant(input)] });
+            if (rows.rows.length > 128) return localFailure({ code: 'limit_exceeded', message: 'Campaign history exceeds recovery bound' });
+            return { ok: true, value: { jobId: String(found.rows[0].id), payload: boundedJsonSchema.parse(JSON.parse(String(found.rows[0].payload))), evidence: rows.rows.map(row => z.record(z.string(), boundedJsonSchema).parse(JSON.parse(String(row.evidence_id)))) } };
+        } });
+    }
+    return { dispatch: (input: Parameters<typeof dispatch>[0]) => pluginJobBoundary({ ...required, context: input.context, execute: () => dispatch(input) }),
+        checkpoint: (input: Parameters<typeof checkpoint>[0]) => pluginJobBoundary({ ...required, context: input.context, execute: () => checkpoint(input) }),
+        history: (input: Parameters<typeof history>[0]) => pluginJobBoundary({ ...required, context: input.context, execute: () => history(input) }) };
 }
 /** An absent/invalid acknowledgement cannot turn a durable claim into observed success. */
 function jobCompletion(required: { result: Outcome<unknown> }): { state: 'reconcile' | 'failed' | 'succeeded' } {
@@ -504,8 +720,8 @@ function jobCompletion(required: { result: Outcome<unknown> }): { state: 'reconc
     return { state: 'succeeded' };
 }
 /** Storage exceptions are explicit failures; diagnostics contain only outcome and trace identity. */
-async function pluginJobBoundary(required: { context: CallContext; observer: ObserverPort; execute(): Promise<Outcome<unknown>> }): Promise<Outcome<unknown>> {
-    let result: Outcome<unknown>;
+async function pluginJobBoundary<T>(required: { context: CallContext; observer: ObserverPort; execute(): Promise<Outcome<T>> }): Promise<Outcome<T>> {
+    let result: Outcome<T>;
     try { result = await required.execute(); }
     catch { result = localFailure({ message: 'Plugin outbox unavailable; reconcile any submitted operation' }); }
     try { required.observer.observe({ operation: 'server.agent-plugin.jobs', outcome: result.ok ? 'ok' : result.error.code,

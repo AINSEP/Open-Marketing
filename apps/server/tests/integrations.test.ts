@@ -290,3 +290,38 @@ it('seals purpose-bound clients, isolates access, and supports clear then set wi
         expect(JSON.stringify([saved, f.events, f.dependencies.audit.entries({}), f.native.prepare('SELECT * FROM om_credential_connection').all()])).not.toContain(client.clientSecret);
     } finally { f.dispose(); }
 });
+
+it('seals/replaces/clears the optional Google developer token with configured-only HTTP status', async () => {
+    const f = fixture({}); const path = '/api/addons/v1/integrations/developer-token'; const pluginId = 'google-ads';
+    const token = 'A'.repeat(22), replacement = 'B'.repeat(22);
+    try {
+        expect(await f.http({ method: 'GET', path, query: { pluginId } })).toMatchObject({ status: 200, body: { value: { configured: false } } });
+        expect(await f.integrations.resolveDeveloperToken({ context: host, pluginId })).toEqual({ ok: true, value: null });
+        const saved = await f.http({ method: 'POST', path, body: { pluginId, token } });
+        expect(saved).toMatchObject({ status: 200, body: { ok: true, value: { configured: true } } });
+        expect(await f.http({ method: 'POST', path, body: { pluginId, token: replacement } })).toMatchObject({ body: { value: { configured: true } } });
+        expect(await f.integrations.resolveDeveloperToken({ context: host, pluginId })).toEqual({ ok: true, value: replacement });
+        expect(await f.integrations.resolveDeveloperToken({ context: host, pluginId: 'meta-ads' })).toMatchObject({ ok: false, error: { code: 'forbidden' } });
+        expect(await f.integrations.resolveDeveloperToken({ context: owner, pluginId })).toMatchObject({ ok: false, error: { code: 'forbidden' } });
+        expect(await f.integrations.access({ context: host, pluginId, connectionId: 'developer-token.google-ads' })).toMatchObject({ ok: false });
+        expect(await f.integrations.disconnect({ context: owner, request: { connectionId: 'developer-token.google-ads' } })).toMatchObject({ ok: false });
+        expect(await f.integrations.oauthStatus({ context: owner, transactionId: 'developer-token.google-ads' })).toMatchObject({ value: { status: 'expired' } });
+        expect(await f.http({ method: 'GET', path: '/api/addons/v1/integrations' })).toMatchObject({ body: { value: { items: [] } } });
+        expect(await f.http({ method: 'GET', path, query: { pluginId, token } })).toMatchObject({ status: 400 });
+        expect(await f.http({ method: 'POST', path, body: { pluginId, token: 'bad\r\nvalue' } })).toMatchObject({ status: 400 });
+        expect(await f.http({ method: 'POST', path, body: { pluginId: 'linkedin-ads', token } })).toMatchObject({ status: 400 });
+        expect(await f.integrations.developerTokenStatus({ context: { ...owner, scope: { ...owner.scope, workspaceId: 'other' } }, pluginId })).toEqual({ ok: true, value: { configured: false } });
+        const cleared = await f.http({ method: 'POST', path, body: { pluginId, token: null } });
+        expect(cleared).toMatchObject({ status: 200, body: { value: { configured: false } } });
+        expect(await f.integrations.resolveDeveloperToken({ context: host, pluginId })).toEqual({ ok: true, value: null });
+        expect(JSON.stringify([saved, cleared, f.events, f.dependencies.audit.entries({}), f.native.prepare('SELECT * FROM om_credential_connection').all()])).not.toMatch(new RegExp(token + '|' + replacement));
+    } finally { f.dispose(); }
+});
+it('refuses developer-token bodies before reading them for non-owners', async () => {
+    const f = fixture({}); let reads = 0;
+    try {
+        expect(await handleIntegrationRequest({ context: host, integrations: f.integrations, request: { method: 'POST', path: '/api/addons/v1/integrations/developer-token',
+            async readBody() { reads++; return { ok: true, value: { pluginId: 'google-ads', token: 'A'.repeat(22) } }; } } })).toMatchObject({ status: 403 });
+        expect(reads).toBe(0);
+    } finally { f.dispose(); }
+});

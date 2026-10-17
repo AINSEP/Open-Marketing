@@ -187,3 +187,25 @@ it('sets OAuth client JSON from stdin and clears without stdin, returning only c
   expect((await runOmCli({ argv: ['integrations', 'oauth', 'client', 'clear', '--plugin', 'google-ads'], runtime: clear.runtime })).ok).toBe(true);
   expect(clear.reads).toEqual([]); expect(clear.calls[0].body).toEqual({ pluginId: 'google-ads', client: null });
 });
+
+it('sets the Google developer token from stdin and exposes only configured status', async () => {
+  const token = 'A'.repeat(22); const f = fixture({ value: { configured: true } });
+  const runtime = { ...f.runtime, async *readPrompt() { f.reads.push('-'); yield Buffer.from(token + '\n'); } };
+  expect((await runOmCli({ argv: ['integrations', 'developer-token', 'set', '--plugin', 'google-ads', '--json'], runtime })).ok).toBe(true);
+  expect(f.reads).toEqual(['-']); expect(f.calls[0].url).toBe('http://fixture.test/api/addons/v1/integrations/developer-token');
+  expect(f.calls[0].body).toEqual({ pluginId: 'google-ads', token }); expect(f.stdout.join('') + f.stderr.join('')).not.toContain(token);
+  for (const action of ['clear', 'status']) {
+    const next = fixture({ value: { configured: false } });
+    expect((await runOmCli({ argv: ['integrations', 'developer-token', action, '--plugin', 'google-ads', '--json'], runtime: next.runtime })).ok).toBe(true);
+    expect(next.reads).toEqual([]); expect(next.calls[0].init?.method).toBe(action === 'status' ? 'GET' : 'POST');
+    expect(next.calls[0].body).toEqual(action === 'status' ? undefined : { pluginId: 'google-ads', token: null });
+  }
+});
+it.each([
+  ['integrations', 'developer-token', 'set', '--plugin', 'google-ads', '--token', 'secret-argv'],
+  ['integrations', 'developer-token', 'set', '--plugin', 'google-ads', 'secret-argv'],
+  ['integrations', 'developer-token', 'set', '--plugin', 'meta-ads'],
+])('rejects developer-token argv secrets and other plugins before I/O: %s', async (...argv) => {
+  const f = fixture({}); expect((await runOmCli({ argv, runtime: f.runtime })).ok).toBe(false);
+  expect(f.calls).toEqual([]); expect(f.reads).toEqual([]); expect(f.stdout.join('') + f.stderr.join('')).not.toContain('secret-argv');
+});

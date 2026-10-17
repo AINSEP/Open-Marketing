@@ -8,7 +8,7 @@ import type { NeutralCampaignLaunch } from '@open-marketing/campaigns';
 import type { CampaignRepoPort, CampaignJobPort, CampaignJob, CampaignSafetyPort, CampaignCapabilityPort } from '@open-marketing/campaigns';
 import { createSqlJobRepo, jobTenant, JobStoreError } from '@open-marketing/jobs';
 import type { JobsSqlSession } from '@open-marketing/jobs';
-import type { CampaignConstituent, ConfirmationExchangePort, EffectRequest, FrozenDispatchRequest, SafetyRepoPort, SafetyService } from '@open-marketing/safety';
+import type { CampaignConstituent, ConfirmationExchangePort, DispatchPermit, EffectRequest, FrozenDispatchRequest, SafetyRepoPort, SafetyService } from '@open-marketing/safety';
 import { digestArguments, effectRequestSchema } from '@open-marketing/safety';
 import type { AuditService } from '@open-marketing/audit';
 import { catalogAuditPort } from './catalog.js';
@@ -155,24 +155,26 @@ export function bindSandboxCampaigns(required: { unit: UnitOfWork; repo: Campaig
 const deploymentInput = z.strictObject({ campaignId: idSchema });
 const childArguments = z.strictObject({ tool: idSchema, input: z.record(z.string(), boundedJsonSchema) });
 const childSelection = z.object({ operationId: idSchema, connectionId: idSchema, accountId: idSchema });
-const hierarchyEvidence = z.strictObject({ complete: z.literal(true), entities: z.array(z.strictObject({ operationId: idSchema, entityId: idSchema, state: z.enum(['paused', 'draft']) })).min(1).max(500) });
+const hierarchyEvidence = z.strictObject({ complete: z.literal(true), entities: z.array(z.strictObject({ operationId: idSchema, entityId: idSchema, state: z.enum(['paused', 'draft']) })).min(1).max(500), outcomes: z.array(boundedJsonSchema).max(4).optional() });
 const acknowledgement = z.object({ entityIds: z.array(idSchema).min(1).max(500).refine(ids => new Set(ids).size === ids.length) });
 
 /** Bind the neutral deployment to the existing catalog, exact confirmations and ONE outbox.
- * Only finalized plugin-owned calls are accepted; unresolved parent slots fail in preparation.
+ * Only closed plugin-owned sequences are accepted; fixed parent slots stay inside each plugin.
  * No implicit activation, rollback, replay, metadata resolver or worker is constructed.
  * @example services.campaignDeployment = bindPausedCampaignDeployment({ ...ports, prepare, definitions, read });
- * @complexity <=16 sequential calls and <=500 evidence entities, total review <=64KiB. */
+ * @complexity <=4 sequential destinations and <=500 evidence entities, total review <=64KiB. */
 export function bindPausedCampaignDeployment(required: {
     unit: UnitOfWork; repo: CampaignRepoPort; safety: SafetyService; confirmations: ConfirmationExchangePort; clock: ClockPort; ids: IdPort; observer: ObserverPort;
     prepare(input: { context: CallContext; campaign: NeutralCampaignLaunch; operationId: string }): Promise<Outcome<readonly CampaignConstituent[]>>;
     definitions(input: { context: CallContext }): Promise<Outcome<readonly OmToolDefinition[]>>;
-    read(input: { context: CallContext; request: FrozenDispatchRequest }): Promise<Outcome<unknown>>;
+    execute(input: { context: CallContext; call: CampaignConstituent; authorization: FrozenDispatchRequest; permit: DispatchPermit; signal?: AbortSignal;
+        checkpoint(input: { step: string; phase: string; references?: unknown; record?: unknown }): Promise<Outcome<void>> }): Promise<Outcome<unknown>>;
+    read(input: { context: CallContext; request: FrozenDispatchRequest; jobId: string }): Promise<Outcome<unknown>>;
 }): OmToolDefinition {
     const jobs = bindAgentPluginJobs(required);
     const name = 'om_campaign_deploy_paused';
     /** All destinations must prepare before the owning review; snapshot every executable/schema.
-     * @complexity <=4 targets/16 definitions, no credentials or egress in preparation. */
+     * @complexity <=4 targets, no credentials or egress in preparation. */
     async function prepareEffect(input: { context: CallContext; call: import('@open-marketing/contracts').ToolCall }): Promise<Outcome<EffectRequest>> {
         const parsed = deploymentInput.safeParse(input.call.input);
         if (!parsed.success) return localFailure({ code: 'invalid_input', message: 'Invalid neutral campaign key' });
@@ -194,13 +196,13 @@ export function bindPausedCampaignDeployment(required: {
         return boundedJsonSchema.safeParse(effect).success ? { ok: true, value: effect } : localFailure({ code: 'limit_exceeded', message: 'Prepared campaign exceeds operation payload bounds' });
     }
     /** Require every target to have a call and every call to name a reviewed target and current tool.
-     * @complexity <=16 lookups, no external I/O beyond bounded catalog discovery. */
+     * @complexity <=4 lookups, no external I/O beyond bounded catalog discovery. */
     async function checkCalls(input: { context: CallContext; campaign: NeutralCampaignLaunch; calls: readonly CampaignConstituent[] }): Promise<Outcome<void>> {
-        if (input.calls.length < 1 || input.calls.length > 16) return localFailure({ code: 'invalid_input', message: 'Campaign requires 1..16 exact calls' });
+        if (input.calls.length !== input.campaign.targets.length) return localFailure({ code: 'invalid_input', message: 'Campaign requires one sequence per destination' });
         const covered = new Set<string>();
         for (const call of input.calls) {
-            const target = input.campaign.targets.find(target => target.connectionId === call.envelope.connectionId && target.accountId === call.envelope.accountId);
-            if (!target || !targetsPlugin({ call, pluginId: target.pluginId })) return localFailure({ code: 'forbidden', message: 'Constituent outside neutral destinations' });
+            const target = input.campaign.targets.find(target => target.connectionId === call.envelope.connectionId && target.accountId === call.envelope.accountId && targetsPlugin({ call, pluginId: target.pluginId }));
+            if (!target) return localFailure({ code: 'forbidden', message: 'Constituent outside neutral destinations' });
             const definition = await currentDefinition({ context: input.context, call });
             if (!definition.ok) return definition;
             covered.add(JSON.stringify([target.pluginId, target.connectionId, target.accountId]));
@@ -243,19 +245,28 @@ export function bindPausedCampaignDeployment(required: {
                 const expected: string[] = [];
                 for (const [index, call] of request.pausedCampaignCalls!.entries()) {
                     const result = await dispatchChild({ context: input.context, request, call, index, jobId, signal: input.signal });
-                    if (!result.ok) return result;
+                    await checkpoint({ context: input.context, jobId, event: 'campaign_outcome', evidence: { operationId: call.envelope.operationId, result } });
+                    if (!result.ok) {
+                        await recordRemaining({ context: input.context, jobId, calls: request.pausedCampaignCalls!.slice(index + 1) });
+                        return result;
+                    }
                     const ack = acknowledgement.parse(result.value);
                     expected.push(...ack.entityIds.map(entityId => JSON.stringify([call.envelope.operationId, entityId])));
                     if (expected.length > 500) return localFailure({ code: 'limit_exceeded', message: 'Campaign hierarchy exceeds evidence bound; reconcile only' });
                 }
-                const read = await required.read({ context: input.context, request });
+                const read = await required.read({ context: input.context, request, jobId });
                 if (!read.ok) return read;
                 const evidence = hierarchyEvidence.safeParse(read.value);
                 if (!evidence.success) return localFailure({ message: 'Complete non-serving hierarchy evidence required; reconcile only' });
                 const observed = new Set(evidence.data.entities.map(entity => JSON.stringify([entity.operationId, entity.entityId])));
                 if (observed.size !== evidence.data.entities.length || observed.size !== expected.length || !expected.every(key => observed.has(key))) return localFailure({ message: 'Hierarchy evidence differs from acknowledged references; reconcile only' });
-                return { ok: true, value: { status: 'submitted', operationId: request.envelope.operationId, hierarchy: evidence.data } };
+                const outcomes = evidence.data.outcomes ?? [];
+                return { ok: true, value: { status: 'submitted', operationId: request.envelope.operationId, hierarchy: evidence.data, outcomes } };
             } });
+    }
+    /** Record destinations deliberately skipped after the first failure; never schedule them. */
+    async function recordRemaining(input: { context: CallContext; jobId: string; calls: readonly CampaignConstituent[] }): Promise<void> {
+        for (const call of input.calls) await checkpoint({ ...input, event: 'campaign_outcome', evidence: { operationId: call.envelope.operationId, status: 'not_attempted' } });
     }
     /** Existing safety holds the account halt barrier and rechecks the owning card at every handoff.
      * Durable dispatch and acknowledgement checkpoints survive cancellation and restart. */
@@ -268,11 +279,13 @@ export function bindPausedCampaignDeployment(required: {
         if (!definition.ok) return definition;
         await checkpoint({ ...input, event: 'campaign_dispatch', evidence: { operationId: input.call.envelope.operationId } });
         return required.safety.withDispatch({ context: input.context, request: authority, dispatch: async ({ permit, request: verified }) => {
-            const args = childArguments.parse(input.call.arguments);
-            const result = await definition.value.invoke({ context: input.context, input: args.input, authorization: verified, permit, signal: input.signal });
+            const result = await required.execute({ context: input.context, call: input.call, authorization: verified, permit, signal: input.signal,
+                checkpoint: evidence => jobs.checkpoint({ context: input.context, jobId: input.jobId, event: 'campaign_step.' + input.call.envelope.operationId + '.' + evidence.step, evidence: { ...evidence, operationId: input.call.envelope.operationId } }) });
             if (!result.ok) return result;
             const bounded = boundedJsonSchema.safeParse(result.value);
-            if (!bounded.success || z.object({ status: z.enum(['unknown', 'failed', 'pending']) }).safeParse(bounded.data).success) return localFailure({ message: 'Constituent outcome uncertain; stop and reconcile only' });
+            if (!bounded.success) return localFailure({ message: 'Constituent evidence exceeds bounds; reconcile only' });
+            await checkpoint({ ...input, event: 'campaign_result', evidence: { operationId: input.call.envelope.operationId, result: bounded.data } });
+            if (z.object({ status: z.enum(['unknown', 'failed', 'pending']) }).safeParse(bounded.data).success) return localFailure({ message: 'Constituent outcome uncertain; stop and reconcile only' });
             await checkpoint({ ...input, event: 'campaign_ack', evidence: { operationId: input.call.envelope.operationId, result: bounded.data } });
             if (!acknowledgement.safeParse(bounded.data).success) return localFailure({ message: 'Acknowledged hierarchy references unavailable; reconcile only' });
             return result;

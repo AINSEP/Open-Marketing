@@ -7,6 +7,7 @@ import type { Integrations } from '../integrations.js';
 import type { HttpRequest, HttpResponse } from '../ports.js';
 import type { OmTools } from '../om-tools.js';
 import { oauthCallbackPath, oauthStartSchema, oauthStatusQuerySchema } from '../integration-oauth-contracts.js';
+import { developerTokenQuerySchema } from '../integration-oauth-contracts.js';
 
 /** Owner integration management. Trusted boot supplies authenticated scope; never take it from JSON.
  * Rechecks the principal before any body read, including direct/test callers.
@@ -20,6 +21,10 @@ export async function handleIntegrationRequest(required: {
     if (!context.success) return denied({ code: 'invalid_input' });
     if (context.data.principal.kind !== 'owner' || context.data.principal.ownerId !== context.data.scope.ownerId) return denied({ code: 'forbidden' });
     switch (required.request.method + ' ' + required.request.path) {
+        case 'POST /api/addons/v1/integrations/developer-token': {
+            return setDeveloperToken(required);
+        }
+        case 'GET /api/addons/v1/integrations/developer-token': return developerTokenStatus(required);
         case 'POST /api/addons/v1/integrations/oauth/client': {
             const body = await readBody(required);
             return respond({ outcome: body.ok ? await required.integrations.setOAuthClient({ context: required.context, request: body.value }, { signal: required.request.signal }) : body });
@@ -41,6 +46,17 @@ export async function handleIntegrationRequest(required: {
 }
 
 type IntegrationInput = Parameters<typeof handleIntegrationRequest>[0];
+
+/** Owner authentication precedes this lazy secret body read; service validates and seals it. */
+async function setDeveloperToken(required: IntegrationInput): Promise<HttpResponse> {
+    const body = await readBody(required);
+    return respond({ outcome: body.ok ? await required.integrations.setDeveloperToken({ context: required.context, request: body.value }, { signal: required.request.signal }) : body });
+}
+/** Strict Google-only query; status contains a boolean and no credential material. */
+async function developerTokenStatus(required: IntegrationInput): Promise<HttpResponse> {
+    const query = parseBoundary({ schema: developerTokenQuerySchema, input: required.request.query ?? {} });
+    return respond({ outcome: query.ok ? await required.integrations.developerTokenStatus({ context: required.context, ...query.value }, { signal: required.request.signal }) : query });
+}
 
 /** Policy owns start approval and idempotency; callback continues only its single-use state. */
 async function startOAuth(required: IntegrationInput): Promise<HttpResponse> {

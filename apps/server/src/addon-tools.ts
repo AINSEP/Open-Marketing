@@ -8,15 +8,17 @@ import type { AddonSummary, AddonToolSource, CallContext, CallOptions, ObserverP
 import type { Addons } from './addons.js';
 import { addonBoundary, addonFailure } from './addons.js';
 import type { Integrations } from './integrations.js';
+import { developerTokenQuerySchema } from './integration-oauth-contracts.js';
 import { oauthStartSchema, oauthStatusQuerySchema } from './integration-oauth-contracts.js';
 
-export type AddonToolDependencies = { addons: Addons; integrations: Pick<Integrations, 'list' | 'disconnect'> & Partial<Pick<Integrations, 'startOAuth' | 'oauthStatus'>>; observer: ObserverPort };
+export type AddonToolDependencies = { addons: Addons; integrations: Pick<Integrations, 'list' | 'disconnect'> & Partial<Pick<Integrations, 'startOAuth' | 'oauthStatus' | 'developerTokenStatus'>>; observer: ObserverPort };
 const definitionSchemas = {
     addons_list: addonListRequestSchema,
     addons_install: installAddonSchema,
     addons_set_enabled: setAddonEnabledSchema,
     addons_uninstall: uninstallAddonSchema,
     integrations_list: pageQuerySchema,
+    integrations_developer_token_status: developerTokenQuerySchema,
     integrations_disconnect: disconnectIntegrationSchema,
     integrations_oauth_start: oauthStartSchema,
     integrations_oauth_status: oauthStatusQuerySchema,
@@ -38,6 +40,7 @@ export const addonManagementTools = [
 
 /** Browser sign-in tools expose challenges and progress, never callback codes or tokens. */
 export const integrationOAuthTools = [
+    { name: 'integrations_developer_token_status', description: 'Check whether the optional Google developer token is configured. Paste secrets in owner settings or CLI stdin, never chat.', effects: ['read'] },
     { name: 'integrations_oauth_start', description: 'Start browser sign-in for a configured Google or LinkedIn app. Returns a URL and transaction ID; unavailable apps need server configuration. Never request codes in chat.', effects: ['write'] },
     { name: 'integrations_oauth_status', description: 'Check sign-in progress by transactionId, or client configuration by pluginId (configured and clientId only). Paste client secrets in owner settings or CLI stdin, never chat.', effects: ['read'] },
 ].map(definition => ({ ...definition, inputSchema: z.toJSONSchema(definitionSchemas[definition.name as AddonManagementToolName], { io: 'input' }) }));
@@ -62,6 +65,8 @@ export async function invokeAddonManagementTool(required: { context: CallContext
                 invoke: ({ value: request }) => required.dependencies.addons.uninstall({ context: required.context, request }, optional) });
             case 'integrations_list': return parseAndInvoke({ schema: pageQuerySchema, input: required.input,
                 invoke: ({ value: query }) => required.dependencies.integrations.list({ context: required.context, query }, optional) });
+            case 'integrations_developer_token_status': return parseAndInvoke({ schema: developerTokenQuerySchema, input: required.input,
+                invoke: async ({ value }) => required.dependencies.integrations.developerTokenStatus?.({ context: { ...required.context, principal: { kind: 'owner', ownerId: required.context.scope.ownerId } }, ...value }, optional) ?? addonFailure({ code: 'unavailable' }) });
             case 'integrations_disconnect': return parseAndInvoke({ schema: disconnectIntegrationSchema, input: required.input,
                 invoke: ({ value: request }) => required.dependencies.integrations.disconnect({ context: required.context, request }, optional) });
             // Dispatcher already checked current agent authority and the owner's write grant.

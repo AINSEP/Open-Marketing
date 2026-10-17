@@ -43,7 +43,7 @@ async function fixture() {
             expect(input.permit).toBeDefined(); expect(input.authorization?.campaignApproval?.index).toBe(index);
             sends.push(target.accountId);
             if (sends.length === 1) await afterFirst();
-            return { ok: true, value: uncertain && index === 1 ? { status: 'unknown' } : { entityIds: ['entity-' + index] } };
+            return { ok: true, value: uncertain && index === 1 ? { status: 'unknown', entityIds: ['partial-child'], references: { campaign: 'partial-child' } } : { entityIds: ['entity-' + index] } };
         } }));
     const calls: CampaignConstituent[] = campaign.targets.map((target, index) => {
         const args = { tool: children[index].name, input: { operationId: 'launch-child-' + index, connectionId: target.connectionId, accountId: target.accountId, arguments: { kind: 'create-draft', name: campaign.name } } };
@@ -52,6 +52,7 @@ async function fixture() {
     const safety = createSafetyService({ repo: safetyRepo, confirmations, clock, ids, policy: createMemorySpendPolicy({}), accountLocks: createMemoryAccountDispatchLock({ ids }), platformLimits: createMemoryPlatformLimitEvidence({}), audit: createMemorySafetyAudit({}),
         effects: { async resolve({ request }) { const matched = calls.find(call => digest({ value: call }) === digest({ value: request })); return matched ? { ok: true, value: matched.envelope } : { ok: false, error: { code: 'forbidden', message: 'Not a verified fixture', retryable: false } }; }, async verifyGenerationQuote() { throw new Error('No generation'); }, async verifyHaltStop() { throw new Error('No halt stop'); } } });
     const ports = { unit: database.unit, repo, safety, confirmations, clock, ids, observer,
+        async execute(input: Parameters<Parameters<typeof bindPausedCampaignDeployment>[0]['execute']>[0]) { const args = input.call.arguments as { tool: string; input: Record<string, unknown> }; return children.find(child => child.name === args.tool)!.invoke({ ...input, input: args.input }); },
         async prepare(): Promise<Outcome<readonly CampaignConstituent[]>> { return unavailable ? { ok: false, error: { code: 'unavailable', message: 'Plugin unadmitted: fixture', retryable: false } } : { ok: true, value: structuredClone(calls) }; },
         async definitions(): Promise<Outcome<readonly OmToolDefinition[]>> { return { ok: true, value: children.map(child => changedRevision ? { ...child, revision: 'c'.repeat(64) } : child) }; },
         async read(): Promise<Outcome<unknown>> { return { ok: true, value: { complete: true, entities: calls.map((call, index) => ({ operationId: call.envelope.operationId, entityId: badEvidence ? 'unrelated' : 'entity-' + index, state: index === 1 ? 'draft' : 'paused' })) } }; } };
@@ -87,11 +88,27 @@ it('one exact card reviews every destination and executes only non-serving const
         expect(value({ result: await f.tools.operation({ context, operationId: 'launch' }) })).toMatchObject({ status: 'completed', output: { status: 'submitted' } });
         expect(f.sends).toEqual(['1', '2', '3']);
         expect(f.native.prepare('SELECT state FROM job').all()).toEqual([{ state: 'succeeded' }]);
-        expect(f.native.prepare("SELECT event_type FROM job_attempt WHERE event_type LIKE 'campaign_%' ORDER BY sequence").all()).toEqual(Array.from({ length: 3 }, () => [{ event_type: 'campaign_dispatch' }, { event_type: 'campaign_ack' }]).flat());
+        expect(f.native.prepare("SELECT event_type FROM job_attempt WHERE event_type LIKE 'campaign_%' ORDER BY sequence").all()).toEqual(Array.from({ length: 3 }, () => ['campaign_dispatch', 'campaign_result', 'campaign_ack', 'campaign_outcome'].map(event_type => ({ event_type }))).flat());
         const payload = String((f.native.prepare('SELECT payload FROM job').get() as { payload: string }).payload);
         expect(payload).toContain('deploy-paused'); expect(payload).toContain(card.cardId);
         expect(value({ result: await f.tools.dispatch({ context, call: f.call }) })).toMatchObject({ status: 'completed' });
         expect(f.sends).toHaveLength(3);
+    } finally { await f.close(); }
+});
+
+it('accepts bounded per-destination outcomes alongside strict complete hierarchy evidence', async () => {
+    const f = await fixture();
+    const read = f.ports.read;
+    const outcomes = f.calls.map(call => ({ operationId: call.envelope.operationId, result: { status: 'acknowledged' } }));
+    f.ports.read = async () => {
+        const result = await read();
+        return result.ok ? { ok: true, value: { ...(result.value as Record<string, unknown>), outcomes } } : result;
+    };
+    try {
+        await f.approve();
+        expect(value({ result: await f.tools.operation({ context, operationId: 'launch' }) })).toMatchObject({ status: 'completed', output: { status: 'submitted', outcomes } });
+        expect(f.native.prepare('SELECT state FROM job').all()).toEqual([{ state: 'succeeded' }]);
+        expect(f.sends).toEqual(['1', '2', '3']);
     } finally { await f.close(); }
 });
 
@@ -117,6 +134,8 @@ it.each(['unknown', 'halt', 'revoke', 'expire', 'revision'] as const)('stops aft
         expect(await bindPausedCampaignDeployment(f.ports).invoke({ context, input: f.call.input, authorization })).toMatchObject({ ok: false });
         expect(f.sends).toHaveLength(mode === 'unknown' ? 2 : 1);
         if (mode === 'unknown') {
+            expect(JSON.stringify(f.native.prepare("SELECT evidence_id FROM job_attempt WHERE event_type='campaign_result'").all())).toContain('partial-child');
+            expect(JSON.stringify(f.native.prepare("SELECT evidence_id FROM job_attempt WHERE event_type='campaign_outcome'").all())).toContain('not_attempted');
             const restored = createOmTools(f.toolPorts);
             try { value({ result: await restored.restore({ context }) }); expect(await restored.dispatch({ context, call: f.call })).toMatchObject({ ok: false, error: { retryable: false } }); }
             finally { await restored.dispose({}); }

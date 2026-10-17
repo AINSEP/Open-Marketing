@@ -79,11 +79,11 @@ function endpoint(required: { binding: AccountBinding; method: Exclude<VendorReq
     default: { const exhaustive: never = required.method; return exhaustive; }
   }
 }
-/** Inject fetch; redirects, retries and secret logging are disabled. Both methods
- * use 15s/1MiB ceilings and emit sanitized correlation/trace/run observations.
+/** Inject fetch and the owning job's cancellation signal; redirects, retries and secret logging
+ * are disabled. Both methods combine cancellation with 15s/1MiB ceilings and emit sanitized observations.
  * @complexity O(b), b<=1MiB time/space; one request, no polling.
  * @example createHttpAdapter({ fetch: hostFetch, observer }) */
-export function createHttpAdapter(required: { fetch: typeof fetch; observer: ObserverPort }): HttpPort {
+export function createHttpAdapter(required: { fetch: typeof fetch; observer: ObserverPort; signal?: AbortSignal }): HttpPort {
   return {
     post: input => httpRequest({ ...required, input }, { method: "POST" }),
     get: input => httpRequest({ ...required, input }, { method: "GET" }),
@@ -98,14 +98,16 @@ function permittedDestination(required: { url: string; method: "POST" | "GET" })
   return parse({ schema: id, input: url.searchParams.get("requestId") }).ok;
 }
 /** Catch fetch/JSON failures only at the real adapter edge, preserving typed errors. */
-async function httpRequest(required: { fetch: typeof fetch; observer: ObserverPort; input: HttpRequest & { body?: string } }, optional: { method: "POST" | "GET" }): Promise<Outcome<{ status: number; body: unknown; requestId?: string }>> {
+async function httpRequest(required: { fetch: typeof fetch; observer: ObserverPort; signal?: AbortSignal; input: HttpRequest & { body?: string } }, optional: { method: "POST" | "GET" }): Promise<Outcome<{ status: number; body: unknown; requestId?: string }>> {
   const { input } = required;
   if (!permittedDestination({ url: input.url, method: optional.method })) return failure({ code: "forbidden", message: "HTTP destination is outside Google plugin scope" });
   const maxBytes = Math.min(input.maxBytes, 1048576);
   if (Buffer.byteLength(input.body ?? "") > maxBytes) return failure({ code: "limit_exceeded", message: "Vendor request exceeds payload bound" });
   let outcome: Outcome<{ status: number; body: unknown; requestId?: string }>;
   try {
-    const response = await required.fetch(input.url, { method: optional.method, headers: input.headers, body: input.body, redirect: "error", signal: AbortSignal.timeout(Math.min(input.timeoutMs, 15000)) });
+    const timeout = AbortSignal.timeout(Math.min(input.timeoutMs, 15000));
+    const signal = required.signal ? AbortSignal.any([required.signal, timeout]) : timeout;
+    const response = await required.fetch(input.url, { method: optional.method, headers: input.headers, body: input.body, redirect: "error", signal });
     const body = await readBody({ response, maxBytes });
     if (!body.ok) outcome = body;
     else outcome = success({ value: { status: response.status, body: body.value, ...requestId({ value: response.headers.get("request-id") }) } });
