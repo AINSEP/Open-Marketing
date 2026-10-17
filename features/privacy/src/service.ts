@@ -36,7 +36,8 @@ export function createPrivacyService(required: Dependencies): PrivacyService {
     },
   };
 }
-/** Persist the frozen inventory before blocking. A block failure leaves a discoverable pending row. */
+/** Block the pre-generated request identity before persistence. A storage failure leaves an
+ * orphan suppression deliberately: processing must stay closed until erasure can be retried. */
 async function requestErasure(required: Dependencies & { context: CallContext; subjectId: string; options?: CallOptions }): Promise<Outcome<ErasureRequest>> {
   const listed = required.participants.list({});
   if (!listed.ok) return listed;
@@ -44,10 +45,9 @@ async function requestErasure(required: Dependencies & { context: CallContext; s
   const request: ErasureRequest = { scope: structuredClone(required.context.scope), requestId: required.ids.next({}), subjectId: required.subjectId, requestedAt: required.clock.now({}), phase: "plan", status: "pending", participants: listed.value.map(participant => ({ participantId: participant.id, phase: "plan", status: "pending", removedCount: 0 })), retainedSuppression: [] };
   const parsed = parseRequest({ context: required.context, request });
   if (!parsed.ok) return parsed;
-  const created = await persistRequest({ ...required, request: parsed.value, operation: "create" });
-  if (!created.ok) return created;
   const blocked = await ensureBlock({ ...required, request: parsed.value });
-  return blocked.ok ? { ok: true, value: parsed.value } : blocked;
+  if (!blocked.ok) return blocked;
+  return persistRequest({ ...required, request: parsed.value, operation: "create" });
 }
 /** Validate injected storage responses as well as SQL payloads before invoking participants. */
 async function loadRequest(required: { repo: PrivacyRepoPort; context: CallContext; requestId: string; options?: CallOptions }): Promise<Outcome<ErasureRequest>> {

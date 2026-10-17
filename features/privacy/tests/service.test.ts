@@ -32,16 +32,27 @@ describe("erasure orchestration", () => {
     expect(fixture.blocked.has(JSON.stringify([context.scope, "subject"]))).toBe(true);
     expect(fixture.blockCalls).toHaveLength(6);
   });
-  it("persists the request on block failure and requires a successful block before advancing", async () => {
+  it("does not persist an erasure until its processing block succeeds", async () => {
     const fixture = serviceFixture({});
     fixture.controls.failBlock = true;
     expect(await fixture.service.requestErasure({ context, subjectId: "subject" })).toEqual(unavailable);
-    expect(await fixture.service.status({ context, requestId: "request-1" })).toMatchObject({ ok: true, value: { phase: "plan", status: "pending" } });
-    expect(await fixture.service.advance({ context, requestId: "request-1" })).toEqual(unavailable);
+    expect(await fixture.repo.get({ context, requestId: "request-1" })).toEqual({ ok: true, value: null });
     expect(fixture.members[0].calls).toEqual([]);
     fixture.controls.failBlock = false;
-    expect(await fixture.service.advance({ context, requestId: "request-1" })).toMatchObject({ ok: true, value: { phase: "externalRemoval" } });
-    expect(fixture.members[0].calls.map(call => call.phase)).toEqual(["plan"]);
+    expect(await fixture.service.requestErasure({ context, subjectId: "subject" })).toMatchObject({ ok: true, value: { requestId: "request-2" } });
+    expect(fixture.blocked.size).toBe(1);
+  });
+  it("blocks before request persistence and keeps the block when persistence fails", async () => {
+    const base = createMemoryPrivacyRepo({});
+    const fixture = serviceFixture({ repo: { ...base, async create() {
+      expect(fixture.blocked.has(JSON.stringify([context.scope, "subject"]))).toBe(true);
+      expect(fixture.blockCalls[0]).toMatchObject({ requestId: "request-1", subjectId: "subject" });
+      return unavailable;
+    } } });
+    expect(await fixture.service.requestErasure({ context, subjectId: "subject" })).toEqual(unavailable);
+    expect(fixture.blocked.size).toBe(1);
+    expect(await base.get({ context, requestId: "request-1" })).toEqual({ ok: true, value: null });
+    expect(fixture.members[0].calls).toEqual([]);
   });
   it("keeps pending external removal blocked and does not purge or attest until it finishes", async () => {
     const member = memoryParticipant({ id: "contacts", suppression: [digest] });

@@ -12,11 +12,13 @@ import { createSqlJobRepo, jobTenant } from '@open-marketing/jobs';
 import type { JobsSqlSession } from '@open-marketing/jobs';
 import { createConversionDispatcher } from '@open-marketing/measure';
 import type { ConversionDeliveryPort } from '@open-marketing/measure';
+import type { PolicyService } from '@open-marketing/policy';
 import type { Integrations } from '../integrations.js';
 import { toolPolicy } from '../om-tools.js';
 import type { OmToolDefinition } from '../om-tools.js';
 import { jobsDatabase, formRetryPolicy } from './forms.js';
 import { localFailure } from './local-auth.js';
+import { processingAllowed } from './identity.js';
 
 /** Internal lifecycle projection; admission is read from installed manifest/capabilities, never chat. */
 export type AgentPluginState = { enabled: boolean; bundled: boolean; admitted: boolean; revision: string; metadata: Record<string, unknown>; effects?: string[] };
@@ -24,10 +26,12 @@ export type AgentPluginState = { enabled: boolean; bundled: boolean; admitted: b
 export type AgentPluginEffects = { fetch: typeof fetch; loadModule(required: { moduleUrl: string }): Promise<object>;
     moduleDigest(required: { moduleUrl: string }): Promise<string>;
     wait(required: { milliseconds: number }, optional?: CallOptions): Promise<Outcome<void>> };
+type ConversionStorage = { unit: UnitOfWork; policyForTransaction(required: { unit: UnitOfWork }): PolicyService };
 type Dependencies = AgentPluginEffects & { projectRoot: string; clock: ClockPort; observer: ObserverPort;
     state(required: { context: CallContext; pluginId: string }): Promise<AgentPluginState | null>;
     integrations: Pick<Integrations, 'access'>; accounts: AccountBindingLookupPort; safetyRepo: Pick<SafetyRepoPort, 'snapshot'>;
-    jobs: ReturnType<typeof bindAgentPluginJobs>; mode: 'read_only' | 'sandbox' | 'production'; safety?: SafetyService; accountLocks: AccountDispatchLockPort };
+    jobs: ReturnType<typeof bindAgentPluginJobs>; safety?: SafetyService; accountLocks: AccountDispatchLockPort }
+    & ({ mode: 'production' } & ConversionStorage | { mode: 'read_only' | 'sandbox' } & Partial<ConversionStorage>);
 type Namespace = Record<string, unknown>;
 type Adapter = { invoke(required: Record<string, unknown>, optional?: CallOptions): Promise<Outcome<unknown>> };
 type Factory<T> = (required: Record<string, unknown>) => T;
@@ -50,8 +54,8 @@ export function bindAgentPluginBackends(required: Dependencies) {
     return {
         /** Measure owns inbox verification, transient contacts identifiers, durable claims and consent.
          * Incompatible plugin DTOs fail closed instead of inferring event categories or grant scope. */
-        conversions(input: Omit<Parameters<typeof createConversionDispatcher>[0], 'delivery'>) {
-            return createConversionDispatcher({ ...input, delivery: conversionDelivery({ dependencies: required, authority: input }) }, { observer: required.observer });
+        conversions(input: Omit<Parameters<typeof createConversionDispatcher>[0], 'delivery'> & { authority: ConversionAuthorityFactory }) {
+            return createConversionDispatcher({ ...input, delivery: conversionDelivery({ dependencies: required, authority: input, bindAuthority: input.authority }) }, { observer: required.observer });
         },
         haltStop: (input: { context: CallContext; pluginId: string; permit: HaltStopPermit }) => haltStop({ dependencies: required, ...input }),
         async definitions({ context }: { context: CallContext }): Promise<Outcome<readonly OmToolDefinition[]>> {
@@ -63,19 +67,21 @@ export function bindAgentPluginBackends(required: Dependencies) {
 }
 
 type ConversionAuthority = Pick<Parameters<typeof createConversionDispatcher>[0], 'policy' | 'grants' | 'audit'>;
+/** Bind ALL final authority ports to the supplied unit; never capture a root DB inside it. */
+type ConversionAuthorityFactory = (required: { unit: UnitOfWork }) => ConversionAuthority;
 /** LinkedIn's existing backend matches measure's open definition contract. The other vendor
  * packages require owner-supplied mappings/evidence; no vendor codecs or guessed values live here.
  * Recheck grant/consent after the plugin resolves credentials and immediately before its fetch.
  * Final authorization and egress share haltAccount's injected account barrier.
  * @complexity One bundle load and bounded measure/plugin gates; no token cache or retries. */
-function conversionDelivery(required: { dependencies: Dependencies; authority: ConversionAuthority }): ConversionDeliveryPort {
+function conversionDelivery(required: { dependencies: Dependencies; authority: ConversionAuthority; bindAuthority: ConversionAuthorityFactory }): ConversionDeliveryPort {
     return { deliver: (input, options) => conversionCall({ ...required, input, action: 'deliver', signal: options?.signal }),
         reconcile: (input, options) => conversionCall({ ...required, input, action: 'reconcile', signal: options?.signal }) };
 }
 /** Bind one plugin call; its foreign fetch ABI holds the shared halt barrier through egress.
  * Gate failures throw only inside the plugin's typed transport boundary.
  * @complexity O(b) bounded bundle hashing time/space; one send, no retries. */
-async function conversionCall(required: { dependencies: Dependencies; authority: ConversionAuthority; input: Parameters<ConversionDeliveryPort['deliver']>[0]; action: 'deliver' | 'reconcile'; signal?: AbortSignal }): Promise<Outcome<{ status: 'delivered' | 'unknown' }>> {
+async function conversionCall(required: { dependencies: Dependencies; authority: ConversionAuthority; bindAuthority: ConversionAuthorityFactory; input: Parameters<ConversionDeliveryPort['deliver']>[0]; action: 'deliver' | 'reconcile'; signal?: AbortSignal }): Promise<Outcome<{ status: 'delivered' | 'unknown' }>> {
     const { input, dependencies } = required;
     if (!input.deliveryId) return localFailure({ code: 'invalid_input', message: 'Conversion delivery identity required' });
     if (dependencies.mode !== 'production') return localFailure({ code: 'forbidden', message: 'Conversions denied in local sandbox' });
@@ -100,8 +106,9 @@ async function conversionCall(required: { dependencies: Dependencies; authority:
             // The earlier guardedFetch snapshot may predate a committed halt.
             const snapshot = await dependencies.safetyRepo.snapshot({ context, accountId: input.grant.accountId }, { signal: required.signal });
             if (!snapshot.ok || snapshot.value.halted) throw new Error('Account halted');
-            const authorized = await conversionCurrent({ ...required, execution });
+            const authorized = await admitConversion({ ...required, execution });
             if (!authorized.ok) throw new Error('Conversion authority withdrawn');
+            if (!await bindingCurrent(execution) || required.signal?.aborted) throw new Error('Conversion binding changed');
             return await dependencies.fetch(url, options);
         } finally {
             const released = await dependencies.accountLocks.release({ lockId: lock.value.lockId });
@@ -118,10 +125,28 @@ async function conversionCall(required: { dependencies: Dependencies; authority:
     if (required.action === 'reconcile') return backend.reconcile({ ...input, deliveryId: input.deliveryId }, { signal: required.signal });
     return backend.deliver(input, { signal: required.signal });
 }
-/** Recheck grant/consent, then lifecycle authority after those awaits; refusals stay typed.
- * @complexity Bounded authority reads and O(b) bundle hashing time/space; no retries. */
+/** Reuse the existing grant/consent recheck in a writer transaction with the erasure barrier
+ * and redacted admission evidence. COMMIT precedes fetch; the halt barrier stays unchanged.
+ * SQLite serializes writers. Postgres needs SERIALIZABLE or a shared subject-row lock.
+ * @complexity Bounded policy/grant reads and one append; no transaction across network I/O. */
+async function admitConversion(required: { dependencies: Dependencies; bindAuthority: ConversionAuthorityFactory; input: Parameters<ConversionDeliveryPort['deliver']>[0]; execution: Execution; signal?: AbortSignal }): Promise<Outcome<void>> {
+    const { dependencies } = required;
+    if (dependencies.mode !== 'production') return localFailure({ code: 'forbidden', message: 'Conversion storage unavailable' });
+    return dependencies.unit.transaction({ work: async ({ session }) => {
+        const unit: UnitOfWork = { transaction: ({ work }) => work({ session }) };
+        const authority = required.bindAuthority({ unit });
+        const processing = await processingAllowed({ policy: dependencies.policyForTransaction({ unit }), context: required.execution.context, subjectId: required.input.event.subjectId });
+        if (!processing.ok) return processing;
+        if (!processing.value) return localFailure({ code: 'forbidden', message: 'Conversion subject blocked' });
+        const authorized = await conversionCurrent({ ...required, authority });
+        if (!authorized.ok) return authorized;
+        return authority.audit.record({ context: required.execution.context, operationId: required.input.deliveryId!, outcome: 'egress_admitted' }, { signal: required.signal });
+    } });
+}
+/** Grant/consent checks use supplied ports only; lifecycle checks surround admission outside
+ * the DB transaction so their root adapters never nest a transaction. @complexity Bounded reads. */
 async function conversionCurrent(required: { authority: ConversionAuthority; input: Parameters<ConversionDeliveryPort['deliver']>[0]; execution: Execution; signal?: AbortSignal }): Promise<Outcome<void>> {
-    if (!await bindingCurrent(required.execution) || required.signal?.aborted) return localFailure({ code: 'forbidden', message: 'Conversion binding changed' });
+    if (required.signal?.aborted) return localFailure({ code: 'forbidden', message: 'Conversion cancelled' });
     const grant = await required.authority.grants.current({ context: required.input.context, grantId: required.input.grant.grantId }, { signal: required.signal });
     if (!grant.ok) return grant;
     if (hash({ value: grant.value }) !== hash({ value: required.input.grant }) || grant.value.revoked
@@ -129,7 +154,7 @@ async function conversionCurrent(required: { authority: ConversionAuthority; inp
     const consent = await required.authority.policy.assess({ context: required.execution.context, event: required.input.event }, { signal: required.signal });
     if (!consent.ok) return consent;
     if (!consent.value.allowed) return localFailure({ code: 'forbidden', message: 'Conversion consent withdrawn' });
-    return await current(required.execution) ? { ok: true, value: undefined } : localFailure({ code: 'forbidden', message: 'Conversion binding changed' });
+    return { ok: true, value: undefined };
 }
 
 /** Isolate installed metadata, module evaluation and descriptor validation per plugin.

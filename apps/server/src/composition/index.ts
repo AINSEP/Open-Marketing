@@ -295,6 +295,7 @@ export async function bootServer(required: {
         services.runs = resources.agent.owner;
         const accountLocks = createMemoryAccountDispatchLock({ ids: required.ids });
         const pluginBackends = bindBootPluginBackends({ io: required.io, addons: resources.addons, services, integrations, accountLocks,
+            policyForTransaction: ({ unit }) => bindIdentity({ unit, clock: required.clock, ids: required.ids, observer: required.observer, digestKey, tokens: visits.tokens }).policy,
             unit: database.unit, clock: required.clock, ids: required.ids, observer: required.observer });
         const halt = bindBootHalt({ ...required, unit: database.unit, services, audit, accountLocks, confirmations: resources.confirmations, pluginBackends });
         Object.assign(services, { safety: { ...services.safety, halt: halt.halt } });
@@ -419,9 +420,11 @@ function createModelUpstream(required: { fetch: typeof fetch }): ModelUpstream {
 /** Local boot supplies read-only account authority; fixture compositions inject financial safety
  * separately. Missing host effects leave vendor definitions absent, without constructing services. */
 function bindBootPluginBackends(required: { io: ServerBootIo; addons: ReturnType<typeof bindBootAddons>; services: OwnerServices & OmFeatureServices;
+    policyForTransaction: NonNullable<Parameters<typeof bindAgentPluginBackends>[0]['policyForTransaction']>;
     integrations: Integrations; unit: UnitOfWork; clock: ClockPort; ids: IdPort; observer: ObserverPort; accountLocks: AccountDispatchLockPort }): ReturnType<typeof bindAgentPluginBackends> | undefined {
     if (!required.io.agentPlugins || !required.addons || !required.services.accountBindings) return undefined;
     return bindAgentPluginBackends({ ...required.io.agentPlugins, projectRoot: required.io.projectRoot, clock: required.clock, observer: required.observer,
+        unit: required.unit, policyForTransaction: required.policyForTransaction,
         state: required.addons.agentPluginState, integrations: required.integrations, accounts: required.services.accountBindings, safetyRepo: required.services.safety,
         jobs: bindAgentPluginJobs(required), mode: 'read_only', accountLocks: required.accountLocks });
 }
