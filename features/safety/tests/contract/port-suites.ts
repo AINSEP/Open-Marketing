@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import type { AccountDispatchLockPort, ConfirmationExchangePort, PlatformLimitEvidencePort, SafetyAuditPort, SafetyRepoPort, SpendPolicyPort, VerifiedEffectResolverPort } from "../../index.js";
 import { context, otherContext, spendRequest, capEvidence, timing, unwrap, generationRequest, NOW } from "../fixtures.js";
+import { digestArguments } from "../../index.js";
+import type { CampaignConstituent, EffectRequest, FrozenDispatchRequest } from "../../index.js";
 /** B1 behavioral suite; both memory and SQL MUST preserve the same accounting semantics. */
 export function SafetyRepoPortSuite(required: { create: () => { repo: SafetyRepoPort; time: ReturnType<typeof timing>; close: () => void } }) {
  describe("SafetyRepoPort B1", () => {
@@ -91,6 +93,27 @@ export function SpendPolicyPortSuite(required: { create: () => SpendPolicyPort }
 /** Explicit response, scope and exact arguments are tested against every confirmation adapter. */
 export function ConfirmationExchangePortSuite(required: { create: () => ConfirmationExchangePort; reopen?: (required: { port: ConfirmationExchangePort }) => ConfirmationExchangePort }) {
  describe("ConfirmationExchangePort B1", () => {
+  it("binds one owning card to exact constituents after reopen, denying extra calls, drift, scope and revocation", async () => {
+   const first = required.create();
+   const seed = spendRequest();
+   const args = { tool: 'vendor_fixture_create', input: { name: 'Paused' } };
+   const call: CampaignConstituent = { arguments: args, pluginDigest: seed.pluginDigest, schemaFingerprint: seed.schemaFingerprint,
+    envelope: { ...seed.envelope, operationId: 'child', effects: ['write'], moneyExposure: null, requiredLimit: null, argumentsDigest: unwrap({ outcome: digestArguments({ arguments: args }) }) } };
+   const reviewed = { calls: [call] };
+   const request: EffectRequest = { arguments: reviewed, pluginDigest: seed.pluginDigest, schemaFingerprint: seed.schemaFingerprint, pausedCampaignCalls: [call],
+    envelope: { ...seed.envelope, effects: ['ad_spend'], accountId: null, moneyExposure: null, requiredLimit: null, argumentsDigest: unwrap({ outcome: digestArguments({ arguments: reviewed }) }) } };
+   const card = unwrap({ outcome: await first.present({ context, request }) });
+   expect(card.allowedChoices).toEqual(['allow', 'cancel']);
+   unwrap({ outcome: await first.confirm({ context, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } }) });
+   const port = required.reopen?.({ port: first }) ?? first;
+   const dispatch: FrozenDispatchRequest = { ...call, approvalId: card.cardId, policyRevision: 0, campaignApproval: { operationId: card.operationId, argumentsDigest: card.argumentsDigest, index: 0 } };
+   expect(await port.verify({ context, request: dispatch, classification: 'write' })).toMatchObject({ ok: true });
+   for (const changed of [{ ...dispatch, pluginDigest: 'e'.repeat(64) }, { ...dispatch, arguments: { ...args, injected: true } }, { ...dispatch, campaignApproval: { ...dispatch.campaignApproval!, index: 1 } }, { ...dispatch, envelope: { ...dispatch.envelope, accountId: 'other' } }])
+    expect(await port.verify({ context, request: changed, classification: 'write' })).toMatchObject({ ok: false });
+   expect(await port.verify({ context: otherContext, request: dispatch, classification: 'write' })).toMatchObject({ ok: false });
+   unwrap({ outcome: await port.revoke({ context, cardId: card.cardId }) });
+   expect(await port.verify({ context, request: dispatch, classification: 'write' })).toMatchObject({ ok: false });
+  });
   it("reopens exact pending cards, preserves immutable answers and scopes revocation", async () => {
    const original = required.create();
    const request = spendRequest();

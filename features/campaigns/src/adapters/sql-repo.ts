@@ -4,6 +4,7 @@ import type { CampaignRepoPort, CampaignSqlPort, CampaignObserverPort } from "..
 import type { CampaignRecord, LaunchProposal } from "../types.js";
 import { campaignId, createInputSchema, fail, parseBoundary, recordSchema, proposalBinding, proposalSchema, success, digest, observationSchema } from "../rules.js";
 import { boundRecord, checkCancelled, existingDraft, existingProposal, getInputSchema, listInputSchema, observeInputSchema, proposalInputSchema, proposalGetSchema, proposalForRecord, withObservation } from "../repo-rules.js";
+import { neutralCampaignRecordSchema, saveNeutralCampaignSchema, type NeutralCampaignRecord } from "../neutral-launch.js";
 
 interface Dependencies { db: CampaignSqlPort; observer?: CampaignObserverPort }
 const recordQuery = `SELECT c.campaign_id, c.operation_id, c.record_json, (SELECT r.observation_json FROM campaign_revision r
@@ -20,12 +21,28 @@ const recordQuery = `SELECT c.campaign_id, c.operation_id, c.record_json, (SELEC
 export function createSqlCampaignRepo(required: { db: CampaignSqlPort }, optional: { observer?: CampaignObserverPort } = {}): CampaignRepoPort {
   const dependencies: Dependencies = { ...required, ...optional };
   return {
+    saveNeutral(input, options) { return sqlBoundary({ dependencies, context: input?.context, operation: "campaigns.repo.saveNeutral", execute: async () => {
+      const parsed = parseBoundary({ schema: saveNeutralCampaignSchema, input });
+      if (!parsed.ok) return parsed;
+      const { context, campaign } = parsed.value;
+      const id = "neutral-" + campaignId({ operationId: campaign.operationId });
+      const record: NeutralCampaignRecord = { scope: context.scope, campaignId: id, campaign };
+      await dependencies.db.query({ text: "INSERT INTO campaign (owner_id,workspace_id,campaign_id,operation_id,record_json) VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING", values: [context.scope.ownerId, context.scope.workspaceId, id, "neutral:" + campaign.operationId, JSON.stringify(record)] });
+      const saved = await readNeutral({ dependencies, context, campaignId: id });
+      if (!saved.ok) return saved;
+      if (!saved.value || digest({ value: saved.value.campaign }) !== digest({ value: campaign })) return fail({ code: "conflict", message: "Neutral operation reused with changed intent" });
+      return success({ value: saved.value });
+    } }, options); },
+    getNeutral(input, options) { return sqlBoundary({ dependencies, context: input?.context, operation: "campaigns.repo.getNeutral", execute: async () => {
+      const parsed = parseBoundary({ schema: getInputSchema, input });
+      return parsed.ok ? readNeutral({ dependencies, ...parsed.value }) : parsed;
+    } }, options); },
     /** One scoped keyset query, <=101 rows; correlated latest-observation read uses its index. */
     list(input, options) { return sqlBoundary({ dependencies, context: input?.context, operation: "campaigns.repo.list", execute: async () => {
       const parsed = parseBoundary({ schema: listInputSchema, input });
       if (!parsed.ok) return parsed;
       const { context, query } = parsed.value;
-      const result = await dependencies.db.query({ text: recordQuery.replace("c.campaign_id=$3", "c.campaign_id>$3 ORDER BY c.campaign_id LIMIT $4"),
+      const result = await dependencies.db.query({ text: recordQuery.replace("c.campaign_id=$3", "c.campaign_id>$3 AND c.campaign_id NOT LIKE 'neutral-campaign-%' ORDER BY c.campaign_id LIMIT $4"),
         values: [context.scope.ownerId, context.scope.workspaceId, query.cursor ?? "", query.limit + 1] });
       const items: CampaignRecord[] = [];
       for (const row of result.rows.slice(0, query.limit)) {
@@ -88,6 +105,20 @@ export function createSqlCampaignRepo(required: { db: CampaignSqlPort }, optiona
       return readProposal({ dependencies, ...parsed.value });
     } }, options); },
   };
+}
+/** Reuse the campaign JSON row for local neutral data; validate scope and both stored identities.
+ * @complexity One indexed query and O(b) parsing, b<=64KiB neutral input; no remote effects. */
+async function readNeutral(required: { dependencies: Dependencies; context: CallContext; campaignId: string }): Promise<Outcome<NeutralCampaignRecord | null>> {
+  const { context, campaignId: id, dependencies } = required;
+  const result = await dependencies.db.query({ text: "SELECT operation_id,record_json FROM campaign WHERE owner_id=$1 AND workspace_id=$2 AND campaign_id=$3", values: [context.scope.ownerId, context.scope.workspaceId, id] });
+  if (!result.rows[0]) return success({ value: null });
+  const parsed = parseStored({ schema: neutralCampaignRecordSchema, value: result.rows[0].record_json });
+  if (!parsed.ok) return parsed;
+  const record = parsed.value;
+  if (record.scope.ownerId !== context.scope.ownerId || record.scope.workspaceId !== context.scope.workspaceId) return fail({ code: "forbidden", message: "Neutral scope mismatch" });
+  const expected = "neutral-" + campaignId({ operationId: record.campaign.operationId });
+  if (record.campaignId !== id || id !== expected || result.rows[0].operation_id !== "neutral:" + record.campaign.operationId) return fail({ code: "conflict", message: "Neutral identity mismatch" });
+  return parsed;
 }
 /** Read the latest append-only observation and bind every nested identity to its row key.
  * @complexity One indexed SQL query plus O(n) bounded JSON/schema validation.

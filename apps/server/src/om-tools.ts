@@ -22,7 +22,7 @@ import { webEventSnippetSource } from '@open-marketing/web-events';
 import type { WebEventService } from '@open-marketing/web-events';
 import type { PrivacyService } from '@open-marketing/privacy';
 import type { MeasureService } from '@open-marketing/measure';
-import type { CampaignService } from '@open-marketing/campaigns';
+import { neutralCampaignLaunchSchema, type CampaignService } from '@open-marketing/campaigns';
 import type { AccountBindingLookupPort, WorkspaceListing } from '@open-marketing/workspaces';
 import type { ScopedJobs } from '@open-marketing/jobs';
 import { paidSendingAllowanceSchema } from '@open-marketing/safety';
@@ -87,6 +87,12 @@ function operationKey(required: { context: CallContext; operationId: string }): 
 }
 function sameRun(required: { context: CallContext; operation: Operation }): boolean {
     return required.context.principal.kind === 'owner' || required.context.runId === required.operation.context.runId;
+}
+/** A neutral deployment adds its frozen review to the original tool/input; all other financial
+ * bindings must still equal the original arguments exactly. @complexity O(1), pure projection. */
+function financialToolInput(required: { request: EffectRequest; operation: Operation }): Readonly<Record<string, unknown>> {
+    if (!required.request.pausedCampaignCalls || required.operation.call.name !== 'om_campaign_deploy_paused') return required.request.arguments;
+    return { tool: required.request.arguments.tool, input: required.request.arguments.input };
 }
 /** Process-owned bounded operation records. Existing durable run events retain card/result evidence.
  * Boot restores snapshots without effects; pending cards use fresh owner authority.
@@ -312,8 +318,9 @@ export function createOmTools(required: Dependencies): OmTools {
         const prepared = await definition.prepareEffect({ context: operation.context, call: structuredClone(operation.call) });
         if (!prepared.ok) return prepared;
         const request = prepared.value;
-        if (request.envelope.operationId !== operation.call.operationId || request.envelope.argumentsDigest !== operation.request.envelope.argumentsDigest
-            || checkedDigest({ value: request.arguments }) !== operation.request.envelope.argumentsDigest
+        const reviewed = financialToolInput({ request, operation });
+        if (request.envelope.operationId !== operation.call.operationId || checkedDigest({ value: reviewed }) !== operation.request.envelope.argumentsDigest
+            || checkedDigest({ value: request.arguments }) !== request.envelope.argumentsDigest
             || toolPolicy({ effects: request.envelope.effects }) !== operation.policy)
             return localFailure({ code: 'conflict', message: 'Financial binding differs from the frozen tool call' });
         operation.request = structuredClone(request);
@@ -334,6 +341,8 @@ export function createOmTools(required: Dependencies): OmTools {
         if (operation.policy !== 'spend' && operation.policy !== 'generation') return definition.invoke({ context: input.context, input: structuredClone(operation.call.input), signal: input.signal });
         if (!definition.safety || !operation.approvalId) return localFailure({ code: 'forbidden', message: 'Financial authority is unavailable' });
         const request = { ...operation.request, approvalId: operation.approvalId, policyRevision: 0 };
+        if (request.pausedCampaignCalls && operation.call.name === 'om_campaign_deploy_paused')
+            return definition.invoke({ context: input.context, input: structuredClone(operation.call.input), authorization: request, signal: input.signal });
         return definition.safety.withDispatch({ context: input.context, request,
             dispatch: async ({ permit }) => {
                 const current = admitted({ context: operation.context, signal: input.signal });
@@ -655,6 +664,7 @@ export interface OmFeatureServices {
     privacy?: PrivacyService;
     measure?: MeasureService;
     campaignWorkflow?: CampaignService;
+    campaignDeployment?: OmToolDefinition;
     accountBindings?: AccountBindingLookupPort;
     audit?: AuditService;
     workspaces?: WorkspaceListing;
@@ -777,6 +787,10 @@ function measureDefinitions(required: { measure: MeasureService }): OmToolDefini
 function campaignDefinitions(required: { campaignWorkflow: CampaignService }): OmToolDefinition[] {
     const service = required.campaignWorkflow;
     return [
+        serviceDefinition({ name: 'om_campaign_save_local', capability: 'Neutral campaign local draft', policy: 'write', schema: neutralCampaignLaunchSchema,
+            invoke: ({ context, value: campaign, signal }) => service.saveLocal({ context, campaign }, { signal }) }),
+        serviceDefinition({ name: 'om_campaign_get_local', capability: 'Neutral campaign draft lookup', policy: 'read', schema: z.strictObject({ campaignId: idSchema }),
+            invoke: ({ context, value, signal }) => service.getLocal({ context, ...value }, { signal }) }),
         serviceDefinition({ name: 'om_campaign_create_paused', capability: 'Paused/draft campaign creation (local sandbox-account / sandbox-campaigns / sandbox-creative)', policy: 'write', schema: z.strictObject({ operationId: idSchema, connectionId: idSchema, accountId: idSchema, name: z.string().min(1).max(200), objective: idSchema, creativeIds: idSchema.array().min(1).max(100), creativeDigest: digestSchema, placements: idSchema.array().min(1).max(100) }),
             invoke: ({ context, value: draft, signal }) => service.createPaused({ context, draft }, { signal }) }),
         serviceDefinition({ name: 'om_campaign_propose_launch', capability: 'Launch proposal', policy: 'write', schema: z.strictObject({ campaignId: idSchema, flight: z.strictObject({ window: timeWindowSchema, expectedExposure: moneySchema, timezone: idSchema }) }),
@@ -798,6 +812,7 @@ function featureDefinitions(required: { services: OmFeatureServices }): OmToolDe
     if (services.privacy) definitions.push(...privacyDefinitions({ privacy: services.privacy }));
     if (services.measure) definitions.push(...measureDefinitions({ measure: services.measure }));
     if (services.campaignWorkflow) definitions.push(...campaignDefinitions({ campaignWorkflow: services.campaignWorkflow }));
+    if (services.campaignDeployment) definitions.push(services.campaignDeployment);
     if (services.accountBindings) definitions.push(serviceDefinition({ name: 'om_account_binding_get', capability: 'Account binding lookup', policy: 'read', schema: z.strictObject({ externalAccountId: idSchema }),
         invoke: ({ context, value, signal }) => services.accountBindings!.find({ context, ...value }, { signal }) }));
     if (services.audit) definitions.push(serviceDefinition({ name: 'om_audit_list', capability: 'Audit list', policy: 'read', schema: pageQuerySchema.extend({ operationId: idSchema.optional() }),

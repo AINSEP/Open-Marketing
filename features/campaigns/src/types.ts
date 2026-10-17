@@ -1,4 +1,5 @@
 import type { Outcome, CallContext, CallOptions, Scope, Money, TimeWindow, EffectEnvelope } from "@open-marketing/contracts";
+import type { NeutralCampaignLaunch, NeutralCampaignRecord } from "./neutral-launch.js";
 
 /** Immutable paused-only plan. No activation/budget fields are admitted. */
 export type CampaignDraft = { readonly operationId: string; readonly connectionId: string; readonly accountId: string; readonly name: string; readonly objective: string; readonly creativeIds: readonly string[]; readonly creativeDigest: string; readonly placements: readonly string[] };
@@ -25,6 +26,9 @@ export type CampaignIntent = { readonly kind: "create"; readonly campaignId: str
 /** A dispatch claim is never automatically retried, including after a crash. */
 export type CampaignJob = { readonly jobId: string; readonly scope: Scope; readonly operationId: string; readonly argumentsDigest: string; readonly intent: CampaignIntent; readonly status: "queued" | "dispatching" | "submitted" | "unknown" };
 export interface CampaignService {
+  /** Persist neutral intent locally. Does not resolve credentials, create remote objects or enqueue. */
+  saveLocal(required: { context: CallContext; campaign: NeutralCampaignLaunch }, optional?: CallOptions): Promise<Outcome<NeutralCampaignRecord>>;
+  getLocal(required: { context: CallContext; campaignId: string }, optional?: CallOptions): Promise<Outcome<NeutralCampaignRecord | null>>;
   createPaused(required: { context: CallContext; draft: CampaignDraft }, optional?: CallOptions): Promise<Outcome<CampaignReceipt>>;
   proposeLaunch(required: { context: CallContext; campaignId: string; flight: FlightProposal }, optional?: CallOptions): Promise<Outcome<LaunchProposal>>;
   launch(required: { context: CallContext; request: ApprovedLaunchRequest }, optional?: CallOptions): Promise<Outcome<LaunchReceipt>>;

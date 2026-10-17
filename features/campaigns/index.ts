@@ -1,6 +1,6 @@
 /** Vendor-neutral paused drafts and exact launch orchestration. Public imports use this entry. */
 export { neutralCampaignLaunchSchema } from "./src/neutral-launch.js";
-export type { NeutralCampaignLaunch } from "./src/neutral-launch.js";
+export type { NeutralCampaignLaunch, NeutralCampaignRecord } from "./src/neutral-launch.js";
 export { createCampaignService } from "./src/service.js";
 export type { CampaignDependencies } from "./src/dependencies.js";
 export type { CampaignDraft, CampaignReceipt, FlightProposal, LaunchArguments, LaunchProposal, ApprovedLaunchRequest, LaunchReceipt, ObservedCampaignState, CampaignReadback, CampaignRecord, CampaignIntent, CampaignJob, CampaignService } from "./src/types.js";

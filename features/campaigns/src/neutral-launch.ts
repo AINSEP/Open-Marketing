@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { digestSchema, idSchema, moneySchema, timeWindowSchema } from "@open-marketing/contracts";
+import { callContextSchema, digestSchema, idSchema, moneySchema, scopeSchema, timeWindowSchema } from "@open-marketing/contracts";
 
 const positiveMoney = moneySchema.refine(value => value.minorUnits > 0);
 const countries = z.array(z.string().regex(/^[A-Z]{2}$/)).min(1).max(20).refine(values => new Set(values).size === values.length);
@@ -23,6 +23,11 @@ export const neutralCampaignLaunchSchema = z.preprocess((value, context) => boun
 
 /** Canonical input for plugin-owned translations. Existing activation contracts are unchanged. */
 export type NeutralCampaignLaunch = z.infer<typeof neutralCampaignLaunchSchema>;
+
+/** A local intent is never evidence of a remotely created or serving campaign. */
+export const neutralCampaignRecordSchema = z.strictObject({ scope: scopeSchema, campaignId: idSchema, campaign: neutralCampaignLaunchSchema });
+export type NeutralCampaignRecord = z.infer<typeof neutralCampaignRecordSchema>;
+export const saveNeutralCampaignSchema = z.strictObject({ context: callContextSchema, campaign: neutralCampaignLaunchSchema });
 
 /** Bound JSON before schema traversal; Zod's contextual callback forwards its ABI as an object.
  * Invalid JSON or oversized input adds a validation issue and returns z.NEVER.

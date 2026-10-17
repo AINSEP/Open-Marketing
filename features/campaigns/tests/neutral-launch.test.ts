@@ -4,6 +4,7 @@ import type { NeutralCampaignLaunch } from "../index.js";
 import type { CampaignTranslationInput as MetaTranslationInput } from "../../../content/agent-plugins/meta-ads/io.github.ainsep.openmarketing/src/index.js";
 import type { CampaignTranslationInput as LinkedInTranslationInput } from "../../../content/agent-plugins/linkedin-ads/io.github.ainsep.openmarketing/src/index.js";
 import type { CampaignTranslationInput as TikTokTranslationInput } from "../../../content/agent-plugins/tiktok-ads/io.github.ainsep.openmarketing/src/index.js";
+import type { CampaignTranslationInput as GoogleTranslationInput } from "../../../content/agent-plugins/google-ads/io.github.ainsep.openmarketing/src/index.js";
 
 const launch: NeutralCampaignLaunch = {
   operationId: "launch", name: "Traffic", objective: "traffic",
@@ -17,7 +18,8 @@ const translationInput = { campaign: launch, target: launch.targets[0], resolved
 const metaInput: MetaTranslationInput = translationInput;
 const linkedinInput: LinkedInTranslationInput = translationInput;
 const tiktokInput: TikTokTranslationInput = translationInput;
-void [metaInput, linkedinInput, tiktokInput];
+const googleInput: GoogleTranslationInput = translationInput;
+void [metaInput, linkedinInput, tiktokInput, googleInput];
 
 describe("neutral launch boundary", () => {
   it("preserves the neutral fixture without adding vendor data or authority", () => {

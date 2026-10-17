@@ -33,6 +33,15 @@ function createSqlFixture() {
 CampaignRepoPortSuite({ create: () => createSqlFixture().repo });
 
 describe("SQL boundary/restart", () => {
+  it("restores neutral JSON after repository replacement and rejects substituted identity", async () => {
+    const first = createSqlFixture();
+    const campaign = { operationId: 'local', name: 'Traffic', objective: 'traffic' as const, schedule: { window: { start: 1000, end: 5000 }, timezone: 'UTC' }, audience: { countries: ['US'] }, creativeIds: ['asset'], creativeDigest: 'a'.repeat(64), targets: [{ pluginId: 'meta-ads', connectionId: 'connection', accountId: '123', dailyBudget: { minorUnits: 500, currency: 'USD' }, expectedExposure: { minorUnits: 2000, currency: 'USD' } }] };
+    const saved = value({ outcome: await first.repo.saveNeutral({ context, campaign }) });
+    const reopened = createSqlCampaignRepo({ db: first.db });
+    expect(value({ outcome: await reopened.getNeutral({ context, campaignId: saved.campaignId }) })).toEqual(saved);
+    first.database.prepare('UPDATE campaign SET record_json=? WHERE campaign_id=?').run(JSON.stringify({ ...saved, campaign: { ...campaign, operationId: 'substituted' } }), saved.campaignId);
+    expect(await reopened.getNeutral({ context, campaignId: saved.campaignId })).toMatchObject({ ok: false, error: { code: 'conflict' } });
+  });
   it("reads the same campaign and proposal after replacing the repository instance", async () => {
     const first = createSqlFixture();
     const saved = value({ outcome: await first.repo.save({ context, draft }) });

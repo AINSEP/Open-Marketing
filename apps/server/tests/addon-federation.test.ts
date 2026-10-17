@@ -151,7 +151,7 @@ it('discovered MCP tools use the ONE dispatcher card and ignore remote read-only
   let claims = 0;
   const sessions = bindAddonFederationSessions({ context: f.context, effects: f.effects, pluginState: admittedFixtureState, observer: { observe() {} },
     integrations: { async access(input) { f.accesses.push(input); return { ok: true, value: { accessToken: 'fixture-private-token' } }; } },
-    jobs: { async dispatch(input) { claims++; return input.execute(); } } });
+    jobs: { async dispatch(input) { claims++; return input.execute({ jobId: 'fixture-job' }); } } });
   await sessions.reload({ context: f.context, connection: f.connection });
   const definitions = value({ result: await sessions.definitions({ context: f.context }) });
   expect(definitions).toHaveLength(1); expect(definitions[0].policy).toBe('write');
@@ -178,7 +178,7 @@ it.each(['failed', 'unknown'] as const)('keeps observed MCP %s outcomes distinct
   let claims = 0; let sequence = 0;
   const sessions = bindAddonFederationSessions({ context: f.context, effects: f.effects, pluginState: admittedFixtureState, observer: { observe() {} },
     integrations: { async access() { return { ok: true, value: { accessToken: 'fixture-private-token' } }; } },
-    jobs: { async dispatch(input) { claims++; return input.execute(); } } });
+    jobs: { async dispatch(input) { claims++; return input.execute({ jobId: 'fixture-job' }); } } });
   await sessions.reload({ context: f.context, connection: f.connection });
   const definitions = value({ result: await sessions.definitions({ context: f.context }) });
   const clock = { now: () => 1000 };
@@ -212,7 +212,7 @@ it('schema drift after catalog discovery denies tool egress and retains no stale
   const f = federationFixture();
   const sessions = bindAddonFederationSessions({ pluginState: admittedFixtureState, context: f.context, effects: f.effects, observer: { observe() {} },
     integrations: { async access() { return { ok: true, value: { accessToken: 'fixture-private-token' } }; } },
-    jobs: { async dispatch(input) { return input.execute(); } } });
+    jobs: { async dispatch(input) { return input.execute({ jobId: 'fixture-job' }); } } });
   await sessions.reload({ context: f.context, connection: f.connection });
   const definition = value({ result: await sessions.definitions({ context: f.context }) })[0];
   f.changeSchema();
@@ -231,7 +231,7 @@ it('isolates unreachable MCP discovery, caches its failure until reload, and sti
       return f.effects.exchange.send(input, options);
     } } },
     integrations: { async access() { return { ok: true, value: { accessToken: 'fixture-private-token' } }; } },
-    jobs: { async dispatch(input) { return input.execute(); } } });
+    jobs: { async dispatch(input) { return input.execute({ jobId: 'fixture-job' }); } } });
   await sessions.reload({ context: f.context, connection: broken });
   await sessions.reload({ context: f.context, connection: f.connection });
   const tools = createOmTools({ definitions: input => sessions.definitions(input), clock: { now: () => 1000 }, observer: { observe() {} },

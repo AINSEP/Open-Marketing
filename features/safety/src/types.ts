@@ -1,7 +1,9 @@
 import type { Outcome, CallContext, CallOptions, Scope, Money, ConfirmationCard, EffectEnvelope, GenerationAllowanceSettings, GenerationCostQuote, GenerationApprovalRequirement, HaltStopRequest, HaltStopPermit, ServiceContext } from "@open-marketing/contracts";
 /** Frozen arguments and trusted implementation fingerprints for one operation. */
-export type EffectRequest = { readonly envelope: EffectEnvelope; readonly arguments: Readonly<Record<string, unknown>>; readonly pluginDigest: string; readonly schemaFingerprint: string; readonly operationScope?: string; readonly generation?: { readonly request: FrozenGenerationRequest; readonly quote: GenerationCostQuote } };
-export type FrozenDispatchRequest = EffectRequest & { readonly approvalId: string; readonly policyRevision: number };
+export type CampaignConstituent = { readonly envelope: EffectEnvelope; readonly arguments: Readonly<Record<string, unknown>>; readonly pluginDigest: string; readonly schemaFingerprint: string };
+export type EffectRequest = CampaignConstituent & { readonly pausedCampaignCalls?: readonly CampaignConstituent[]; readonly operationScope?: string; readonly generation?: { readonly request: FrozenGenerationRequest; readonly quote: GenerationCostQuote } };
+/** A constituent references one position in one exact owning campaign card; never a grant. */
+export type FrozenDispatchRequest = EffectRequest & { readonly approvalId: string; readonly policyRevision: number; readonly campaignApproval?: { readonly operationId: string; readonly argumentsDigest: string; readonly index: number } };
 /** Evidence of admission, not an egress bypass: use withDispatch at the server boundary. */
 export type DispatchPermit = { readonly operationId: string; readonly argumentsDigest: string; readonly approvalId: string; readonly expiresAt: number; readonly reservationId: string };
 export type HaltReceipt = { readonly haltId: string; readonly adAccountId: string; readonly epoch: number; readonly remoteStatus: "pending" | "stopped" | "partial" | "unknown" };

@@ -67,6 +67,19 @@ async function fixture() {
 }
 
 describe('real feature catalog composition', () => {
+    it('saves and retrieves a multi-destination neutral draft locally without remote creation or outbox intent', async () => {
+        const f = await fixture();
+        try {
+            const before = f.native.prepare('SELECT id FROM job').all();
+            const campaign = { operationId: 'local-neutral', name: 'Traffic', objective: 'traffic', schedule: { window: { start: 1792100000000, end: 1792200000000 }, timezone: 'UTC' }, audience: { countries: ['US'] }, creativeIds: ['asset'], creativeDigest: 'a'.repeat(64), targets: ['meta-ads', 'linkedin-ads'].map(pluginId => ({ pluginId, connectionId: 'unconnected', accountId: '123', dailyBudget: { minorUnits: 500, currency: 'USD' }, expectedExposure: { minorUnits: 2000, currency: 'USD' } })) };
+            const result = await f.call({ name: 'om_campaign_save_local', input: campaign });
+            expect(result.status).toBe('completed');
+            const saved = (result as unknown as { output: { campaignId: string; campaign: unknown } }).output;
+            expect(saved.campaign).toEqual(campaign);
+            expect(await f.call({ name: 'om_campaign_get_local', input: { campaignId: saved.campaignId } })).toMatchObject({ status: 'completed', output: saved });
+            expect(f.native.prepare('SELECT id FROM job').all()).toEqual(before);
+        } finally { await f.close(); }
+    });
     it('closes the feature composition gaps, retaining only the separately optional add-on routes', async () => {
         const f = await fixture();
         try {

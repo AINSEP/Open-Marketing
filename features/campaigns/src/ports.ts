@@ -1,8 +1,12 @@
 import type { Outcome, CallContext, CallOptions, ObserverPort, Page, PageQuery } from "@open-marketing/contracts";
 import type { CampaignDraft, CampaignReceipt, LaunchProposal, ApprovedLaunchRequest, LaunchReceipt, ObservedCampaignState, CampaignReadback, CampaignRecord, CampaignIntent, CampaignJob } from "./types.js";
+import type { NeutralCampaignLaunch, NeutralCampaignRecord } from "./neutral-launch.js";
 
 /** Scoped persistence. save is idempotent by operationId; differing reuse conflicts. */
 export interface CampaignRepoPort {
+  /** Immutable local-only intent; duplicate operation/same values deduplicates, changed values conflict. */
+  saveNeutral(required: { context: CallContext; campaign: NeutralCampaignLaunch }, optional?: CallOptions): Promise<Outcome<NeutralCampaignRecord>>;
+  getNeutral(required: { context: CallContext; campaignId: string }, optional?: CallOptions): Promise<Outcome<NeutralCampaignRecord | null>>;
   /** Scoped keyset page, ordered by campaignId, limit 1..100; cursor is the last returned ID. */
   list(required: { context: CallContext; query: PageQuery }, optional?: CallOptions): Promise<Outcome<Page<CampaignRecord>>>;
   save(required: { context: CallContext; draft: CampaignDraft }, optional?: CallOptions): Promise<Outcome<CampaignReceipt>>;

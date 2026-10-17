@@ -10,8 +10,8 @@ import Database from 'better-sqlite3';
 import { expect, it } from 'vitest';
 import type { CallContext, Outcome, ToolCall } from '@open-marketing/contracts';
 import { createMemoryConfirmationExchange, createMemorySafetyRepo, createMemoryAccountDispatchLock, createMemoryPlatformLimitEvidence,
-    createMemorySpendPolicy, createMemorySafetyAudit, createSafetyService } from '@open-marketing/safety';
-import type { SafetyService, EffectRequest } from '@open-marketing/safety';
+    createMemorySpendPolicy, createMemorySafetyAudit, createSafetyService, digestArguments } from '@open-marketing/safety';
+import type { SafetyService, EffectRequest, ConfirmationExchangePort } from '@open-marketing/safety';
 import { bindAgentPluginBackends, bindAgentPluginJobs } from '../src/composition/agent-plugin-backends.js';
 import type { AgentPluginState } from '../src/composition/agent-plugin-backends.js';
 import { bindServerDatabase, provisionWorkspace } from '../src/composition/database.js';
@@ -42,7 +42,7 @@ function loadFixtureModule(required: { moduleUrl: string }): object {
     }
 }
 
-async function fixture(required: { admitted?: boolean; only?: string; safety?: SafetyService } = {}) {
+async function fixture(required: { admitted?: boolean; only?: string; safety?: SafetyService; confirmations?: ConfirmationExchangePort } = {}) {
     const native = new Database(':memory:');
     native.pragma('foreign_keys = ON');
     for (const entry of migrationManifest) native.exec(readFileSync(new URL('../../../' + entry.path, import.meta.url), 'utf8'));
@@ -65,7 +65,7 @@ async function fixture(required: { admitted?: boolean; only?: string; safety?: S
     let halted = false;
     const safetyRepo = createMemorySafetyRepo({ clock, ids, ownerTimezone: 'UTC' });
     const binding = bindAgentPluginBackends({ projectRoot: fileURLToPath(new URL('../../../', import.meta.url)), clock, observer,
-        jobs, mode: 'sandbox', safety: required.safety, accountLocks: createMemoryAccountDispatchLock({ ids }),
+        jobs, mode: 'sandbox', safety: required.safety, confirmations: required.confirmations, accountLocks: createMemoryAccountDispatchLock({ ids }),
         async state({ pluginId }) {
             if (failure?.stage === 'state' && failure.pluginId === pluginId) throw new Error('Fixture metadata missing');
             return states.get(pluginId) ?? null;
@@ -98,6 +98,33 @@ const readArguments: Record<string, Record<string, ToolCall['input']>> = {
     'tiktok-ads': { kind: 'get-advertiser' }, 'meta-ads': {},
 };
 const readNames: Record<string, string> = { 'google-ads': 'vendor_google_ads_list_accounts', 'linkedin-ads': 'vendor_linkedin_ads_list_accounts', 'tiktok-ads': 'vendor_tiktok_ads_tiktok_ads_get_advertiser', 'meta-ads': 'vendor_meta_ads_instagram_accounts' };
+it('fences LinkedIn admission before its adapter can resolve credentials or claim a mutation', async () => {
+    const f = await fixture({ admitted: true, only: 'linkedin-ads' });
+    try {
+        const definition = value({ result: await f.binding.definitions({ context }) }).find(tool => tool.name === 'vendor_linkedin_ads_pause')!;
+        f.states.get('linkedin-ads')!.admitted = false;
+        expect(await definition.invoke({ context, input: { operationId: 'unadmitted-pause', connectionId: 'connection', accountId: '123', arguments: { kind: 'pause', campaignId: '456' } } })).toMatchObject({ ok: false });
+        expect(f.accesses).toEqual([]); expect(f.calls).toEqual([]);
+        expect(f.native.prepare("SELECT id FROM job WHERE operation='agent-plugin.invoke'").all()).toEqual([]);
+    } finally { f.close(); }
+});
+it('rechecks the owning campaign card after LinkedIn credentials resolve and before transport', async () => {
+    const confirmations = createMemoryConfirmationExchange({ clock, ids: { next: () => randomUUID() } });
+    const f = await fixture({ admitted: true, only: 'linkedin-ads', confirmations });
+    try {
+        const definition = value({ result: await f.binding.definitions({ context }) }).find(tool => tool.name === 'vendor_linkedin_ads_pause')!;
+        const input = { operationId: 'group-child', connectionId: 'connection', accountId: '123', arguments: { kind: 'pause', campaignId: '456' } };
+        const args = { tool: definition.name, input };
+        const child: EffectRequest = { arguments: args, pluginDigest: definition.revision, schemaFingerprint: 'c'.repeat(64), envelope: { operationId: input.operationId, connectionId: 'connection', accountId: '123', effects: ['write'], argumentsDigest: value({ result: digestArguments({ arguments: args }) }), moneyExposure: null, requiredLimit: null } };
+        const reviewed = { calls: [child] };
+        const root: EffectRequest = { ...child, arguments: reviewed, pausedCampaignCalls: [child], envelope: { ...child.envelope, operationId: 'group', accountId: null, effects: ['ad_spend'], argumentsDigest: value({ result: digestArguments({ arguments: reviewed }) }) } };
+        const card = value({ result: await confirmations.present({ context, request: root }) });
+        value({ result: await confirmations.confirm({ context, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } }) });
+        f.setBeforeCredential({ async callback() { value({ result: await confirmations.revoke({ context, cardId: card.cardId }) }); } });
+        expect(await definition.invoke({ context, input, authorization: { ...child, approvalId: card.cardId, policyRevision: 0, campaignApproval: { operationId: 'group', argumentsDigest: card.argumentsDigest, index: 0 } }, permit: { operationId: input.operationId, argumentsDigest: child.envelope.argumentsDigest, approvalId: card.cardId, expiresAt: 30000, reservationId: 'fixture-permit' } })).toMatchObject({ ok: false });
+        expect(f.accesses).toHaveLength(1); expect(f.calls).toEqual([]);
+    } finally { f.close(); }
+});
 function selection(required: { pluginId: string; operationId?: string }) {
     return { operationId: required.operationId ?? 'read', connectionId: 'connection', accountId: required.pluginId === 'meta-ads' ? null : required.pluginId === 'google-ads' ? '1234567890' : '123',
         currency: 'USD', timezone: 'UTC', arguments: readArguments[required.pluginId] };

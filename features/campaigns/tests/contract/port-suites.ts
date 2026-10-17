@@ -6,6 +6,22 @@ import { createHash } from "node:crypto";
 /** B1: identical behavioral suite runs against memory and real portable SQL repository. */
 export function CampaignRepoPortSuite(required: { create: () => CampaignRepoPort | Promise<CampaignRepoPort> }) {
   describe("CampaignRepoPort behavior", () => {
+    it("persists one neutral local draft, deduplicates exact reuse and rejects changed/cross-scope reads", async () => {
+      const port = await required.create();
+      const campaign = { operationId: 'neutral-local', name: 'Traffic', objective: 'traffic' as const,
+        schedule: { window: { start: 1000, end: 5000 }, timezone: 'UTC' }, audience: { countries: ['US'] },
+        creativeIds: ['creative'], creativeDigest: revisionDigest,
+        targets: [{ pluginId: 'fixture', connectionId: 'connection', accountId: 'account', dailyBudget: { minorUnits: 500, currency: 'USD' }, expectedExposure: { minorUnits: 2000, currency: 'USD' } }] };
+      const first = value({ outcome: await port.saveNeutral({ context, campaign }) });
+      expect(value({ outcome: await port.saveNeutral({ context, campaign }) })).toEqual(first);
+      expect(await port.saveNeutral({ context, campaign: { ...campaign, name: 'Changed' } })).toMatchObject({ ok: false, error: { code: 'conflict' } });
+      campaign.name = 'Mutated caller';
+      expect(value({ outcome: await port.getNeutral({ context, campaignId: first.campaignId }) })).toEqual(first);
+      expect(value({ outcome: await port.getNeutral({ context: otherContext, campaignId: first.campaignId }) })).toBeNull();
+      expect(value({ outcome: await port.list({ context, query: { limit: 100 } }) })).toEqual({ items: [], cursor: null });
+      expect(await port.get({ context, campaignId: first.campaignId })).not.toMatchObject({ ok: true, value: { draft: expect.anything() } });
+      expect(await port.saveNeutral({ context, campaign }, { signal: AbortSignal.abort() })).toMatchObject({ ok: false, error: { code: 'cancelled' } });
+    });
     it("lists bounded scoped keyset pages with latest observations and no duplicates", async () => {
       const port = await required.create();
       const receipts = [];

@@ -1,7 +1,7 @@
 import type { Outcome, CallContext, CallOptions, ClockPort, IdPort, ConfirmationCard, ServiceContext, HaltStopPermit } from "@open-marketing/contracts";
 import { confirmationCardSchema, effectEnvelopeSchema, haltStopRequestSchema, scopeSchema, idSchema } from "@open-marketing/contracts";
 import type { SafetyRepoPort, SpendPolicyPort, ConfirmationExchangePort, VerifiedEffectResolverPort, PlatformLimitEvidencePort, AccountDispatchLockPort, SafetyAuditPort, SafetyObserverPort } from "./ports.js";
-import type { EffectRequest, FrozenDispatchRequest, DispatchPermit, DispatchAdmission, SafetyService, GenerationAuthorization, GenerationReservation } from "./types.js";
+import type { CampaignConstituent, EffectRequest, FrozenDispatchRequest, DispatchPermit, DispatchAdmission, SafetyService, GenerationAuthorization, GenerationReservation } from "./types.js";
 import { allowanceEditSchema, choices, classify, digestArguments, dispatchRequestSchema, effectRequestSchema, evidenceSchema, failure, freezeJson, generationAssessmentSchema, sameValue, settlementSchema, success, validContext } from "./rules.js";
 type Dependencies = { repo: SafetyRepoPort; policy: SpendPolicyPort; confirmations: ConfirmationExchangePort; effects: VerifiedEffectResolverPort; platformLimits: PlatformLimitEvidencePort; accountLocks: AccountDispatchLockPort; clock: ClockPort; ids: IdPort; audit: SafetyAuditPort };
 type Options = { observer?: SafetyObserverPort; policyRevision?: number; evidenceMaxAgeMs?: number; permitTtlMs?: number; haltServiceId?: string; costServiceId?: string };
@@ -90,7 +90,7 @@ async function prepare(required: { runtime: Runtime; context: CallContext; reque
  const validated = validateEffect(required);
  if (!validated.ok) return validated;
  const input = { ...required, request: validated.value };
- const verified = await verifyEffect(input, optional);
+ const verified = input.request.pausedCampaignCalls ? await verifyCampaignApproval(input, optional) : await verifyEffect(input, optional);
  if (!verified.ok) return verified;
  const classification = await approvalClassification(input, optional);
  if (!classification.ok) return classification;
@@ -137,7 +137,7 @@ async function recheckAuthority(required: { runtime: Runtime; context: CallConte
 /** Freeze before awaiting the lock, then hold it through optional transport handoff. No permit alone bypasses this boundary. @complexity O(n log n+r+g); O(1) queue metadata. */
 async function dispatchLocked<T>(required: { runtime: Runtime; context: CallContext; request: FrozenDispatchRequest; dispatch: (required: { context: CallContext; permit: DispatchPermit; request: FrozenDispatchRequest }) => Promise<Outcome<T>> }, optional?: CallOptions): Promise<Outcome<T>> {
  const parsed = dispatchRequestSchema.safeParse(required.request);
- if (!parsed.success || parsed.data.policyRevision !== (required.runtime.options.policyRevision ?? 0)) return failure({ message: "Invalid or stale dispatch policy revision" });
+ if (!parsed.success || parsed.data.policyRevision !== (required.runtime.options.policyRevision ?? 0) || parsed.data.pausedCampaignCalls) return failure({ message: "Invalid dispatch: campaign cards authorize constituents only, under the current policy" });
  const frozen = freezeJson({ value: structuredClone(parsed.data) });
  const validated = validateEffect({ request: stripDispatch({ request: frozen }) });
  if (!validated.ok) return validated;
@@ -157,8 +157,32 @@ async function dispatchLocked<T>(required: { runtime: Runtime; context: CallCont
 }
 /** Remove dispatch-only fields when validating the original effect DTO. @complexity O(1). */
 function stripDispatch(required: { request: FrozenDispatchRequest }): EffectRequest {
- const { approvalId: _approval, policyRevision: _revision, ...request } = required.request;
+ const { approvalId: _approval, policyRevision: _revision, campaignApproval: _campaign, ...request } = required.request;
  return request;
+}
+/** Prepare every frozen child before presenting one owning spend card. Only non-serving writes
+ * are eligible: activation retains its independent exact spend card and cap checks.
+ * @complexity <=16 sequential host verifications, O(b) space for <=64KiB total reviewed JSON. */
+async function verifyCampaignApproval(required: { runtime: Runtime; context: CallContext; request: EffectRequest }, optional?: CallOptions): Promise<Outcome<void>> {
+ const { request } = required;
+ const calls = request.pausedCampaignCalls!;
+ const root = request.envelope;
+ if (root.effects.length !== 1 || root.effects[0] !== "ad_spend" || root.accountId !== null || root.moneyExposure !== null || root.requiredLimit !== null || request.generation || request.operationScope) return failure({ message: "Invalid owning paused campaign approval" });
+ if (!sameValue({ left: request.arguments.calls, right: calls }) || new Set(calls.map(call => call.envelope.operationId)).size !== calls.length) return failure({ message: "Campaign review differs from exact constituents" });
+ for (const call of calls) {
+  const validated = validateCampaignCall({ call, operationId: root.operationId });
+  if (!validated.ok) return validated;
+  const verified = await verifyEffect({ ...required, request: call }, optional);
+  if (!verified.ok) return verified;
+ }
+ return success({ value: undefined });
+}
+/** Closed non-serving writes cannot borrow campaign authority for activation or spend.
+ * @complexity O(b) digest validation for a bounded constituent; pure. */
+function validateCampaignCall(required: { call: CampaignConstituent; operationId: string }): Outcome<EffectRequest> {
+ const envelope = required.call.envelope;
+ if (envelope.operationId === required.operationId || !envelope.accountId || envelope.effects.length !== 1 || envelope.effects[0] !== "write" || envelope.moneyExposure !== null || envelope.requiredLimit !== null) return failure({ message: "Paused campaign constituents must be non-serving writes" });
+ return validateEffect({ request: required.call });
 }
 /** Convert authenticated service context to ordinary scope/trace propagation. @complexity O(1). */
 function serviceContext(required: { context: ServiceContext & { readonly runId?: string } }): CallContext {

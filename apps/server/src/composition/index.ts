@@ -1,5 +1,5 @@
 import { bindSandboxCreative } from './creative.js';
-import { bindSandboxCampaigns } from './campaigns.js';
+import { bindSandboxCampaigns, bindPausedCampaignDeployment } from './campaigns.js';
 import { bindCatalogAudit, catalogAuditPort, bindCatalogScope, bindCatalogMeasure, sandboxPlatformReports } from './catalog.js';
 import type { OmFeatureServices } from '../om-tools.js';
 import { bindServerAddons, type AddonEffects } from './addons.js';
@@ -300,10 +300,16 @@ export async function bootServer(required: {
             frontend: resources.frontend, onRevoked: async input => { await resources.frontend?.endRun(input); await resources.tools?.cancel(input); } });
         services.runs = resources.agent.owner;
         const accountLocks = createMemoryAccountDispatchLock({ ids: required.ids });
-        const pluginBackends = bindBootPluginBackends({ io: required.io, addons: resources.addons, services, integrations, accountLocks,
+        const pluginBackends = bindBootPluginBackends({ io: required.io, addons: resources.addons, services, integrations, accountLocks, confirmations: resources.confirmations,
             policyForTransaction: ({ unit }) => bindIdentity({ unit, clock: required.clock, ids: required.ids, observer: required.observer, digestKey, tokens: visits.tokens }).policy,
             unit: database.unit, clock: required.clock, ids: required.ids, observer: required.observer });
         const halt = bindBootHalt({ ...required, unit: database.unit, services, audit, accountLocks, confirmations: resources.confirmations, pluginBackends });
+        const campaignUnavailable = async () => localFailure<never>({ code: 'not_implemented', message: 'NEEDS: plugin-owned executable paused creation and hierarchy readback; all vendors remain unadmitted' });
+        services.campaignDeployment = { ...bindPausedCampaignDeployment({ ...required, unit: database.unit, repo: services.campaigns,
+            safety: halt.safety, confirmations: resources.confirmations,
+            prepare: input => pluginBackends?.prepareCampaign(input) ?? campaignUnavailable(),
+            definitions: input => pluginBackends?.definitions(input) ?? campaignUnavailable(), read: campaignUnavailable }),
+            unavailableReason: 'NEEDS: exact plugin creation plans, resolved metadata and non-serving hierarchy readback; vendors unadmitted; UI DS1' };
         Object.assign(services, { safety: { ...services.safety, halt: halt.halt } });
         resources.workers = createFormWorkers({ unit: database.unit, forms, creative: services.creative, halt, clock: required.clock, ids: required.ids, observer: required.observer, context, schedule: required.io.schedule });
         resources.tools = createOmTools({ store: createSqlToolOperationStore({ unit: database.unit }), clock: required.clock, observer: required.observer, confirmations: resources.confirmations,
@@ -457,12 +463,12 @@ function createModelUpstream(required: { fetch: typeof fetch }): ModelUpstream {
  * separately. Missing host effects leave vendor definitions absent, without constructing services. */
 function bindBootPluginBackends(required: { io: ServerBootIo; addons: ReturnType<typeof bindBootAddons>; services: OwnerServices & OmFeatureServices;
     policyForTransaction: NonNullable<Parameters<typeof bindAgentPluginBackends>[0]['policyForTransaction']>;
-    integrations: Integrations; unit: UnitOfWork; clock: ClockPort; ids: IdPort; observer: ObserverPort; accountLocks: AccountDispatchLockPort }): ReturnType<typeof bindAgentPluginBackends> | undefined {
+    integrations: Integrations; unit: UnitOfWork; clock: ClockPort; ids: IdPort; observer: ObserverPort; accountLocks: AccountDispatchLockPort; confirmations: ConfirmationExchangePort }): ReturnType<typeof bindAgentPluginBackends> | undefined {
     if (!required.io.agentPlugins || !required.addons || !required.services.accountBindings) return undefined;
     return bindAgentPluginBackends({ ...required.io.agentPlugins, projectRoot: required.io.projectRoot, clock: required.clock, observer: required.observer,
         unit: required.unit, policyForTransaction: required.policyForTransaction,
         state: required.addons.agentPluginState, integrations: required.integrations, accounts: required.services.accountBindings, safetyRepo: required.services.safety,
-        jobs: bindAgentPluginJobs(required), mode: 'read_only', accountLocks: required.accountLocks });
+        jobs: bindAgentPluginJobs(required), mode: 'read_only', accountLocks: required.accountLocks, confirmations: required.confirmations });
 }
 
 /** The local host commits halt through SafetyService under the same vendor-write barrier.
@@ -475,9 +481,9 @@ function bindBootHalt(required: { services: OwnerServices; audit: Parameters<typ
         accountLocks: required.accountLocks, clock: required.clock, ids: required.ids, audit: catalogAuditPort(required),
         policy: { assess: unavailable }, effects: { resolve: unavailable, verifyGenerationQuote: unavailable, verifyHaltStop: unavailable },
         platformLimits: { get: unavailable } }, { observer: required.observer, haltServiceId: 'om-halt-worker' });
-    return bindAgentPluginHaltJobs({ ...required, safety,
+    return { ...bindAgentPluginHaltJobs({ ...required, safety,
         targets: async () => ({ ok: true, value: [] }),
-        stop: input => required.pluginBackends?.haltStop(input) ?? unavailable() });
+        stop: input => required.pluginBackends?.haltStop(input) ?? unavailable() }), safety };
 }
 
 /** Hosts without native federation I/O fail explicitly; no fake session activation. */

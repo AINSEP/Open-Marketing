@@ -42,11 +42,23 @@ export function validateAuthority(required: { stored?: StoredCard; context: Call
 export function matchesAuthority(required: { stored: StoredCard; context: CallContext; request: FrozenDispatchRequest; classification: ConfirmationCard["classification"] }): boolean {
  const stored = required.stored;
  if (scopeKey({ context: stored.context }) !== scopeKey(required) || stored.revision !== required.request.policyRevision) return false;
- if (stored.card.classification !== required.classification || stored.choice === null || stored.choice === "cancel") return false;
+ if (stored.choice === null || stored.choice === "cancel") return false;
  if (stored.choice === "allow_chat" && (!stored.context.runId || stored.context.runId !== required.context.runId)) return false;
- const { approvalId: _approval, policyRevision: _revision, ...request } = required.request;
+ const { approvalId: _approval, policyRevision: _revision, campaignApproval, ...request } = required.request;
+ if (campaignApproval) return matchesCampaignConstituent({ ...required, request, reference: campaignApproval });
+ if (stored.card.classification !== required.classification) return false;
  if (stored.choice === "allow") return sameValue({ left: stored.request, right: request });
  return matchesGrant({ stored: stored.request, request });
+}
+/** Only an exact Allow on the owning spend card covers its frozen, non-serving child calls.
+ * Parent-dependent arguments must already be plugin-verified; no substitution or wildcard is admitted here.
+ * @complexity O(b) bounded JSON comparison, at most 16 constituents. */
+function matchesCampaignConstituent(required: { stored: StoredCard; request: EffectRequest; classification: ConfirmationCard["classification"]; reference: NonNullable<FrozenDispatchRequest["campaignApproval"]> }): boolean {
+ const { stored, reference } = required;
+ if (stored.choice !== "allow" || stored.card.classification !== "spend" || required.classification !== "write") return false;
+ if (stored.card.operationId !== reference.operationId || stored.card.argumentsDigest !== reference.argumentsDigest) return false;
+ const call = stored.request.pausedCampaignCalls?.[reference.index];
+ return !!call && sameValue({ left: call, right: required.request });
 }
 /** Grant projection binds one admitted tool scope and configuration, not an arbitrary schema-equivalent tool. @complexity O(n log n), bounded DTOs. */
 function matchesGrant(required: { stored: EffectRequest; request: EffectRequest }): boolean {

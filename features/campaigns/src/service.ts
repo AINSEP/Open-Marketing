@@ -13,6 +13,8 @@ import { fail } from "./rules.js";
  */
 export function createCampaignService(required: CampaignDependencies, optional: CampaignInstrumentation = {}): CampaignService {
   return {
+    saveLocal(input, options) { return boundary({ context: input?.context, operation: "campaigns.saveLocal", instrumentation: optional, execute: () => required.repo.saveNeutral(input, options) }, options); },
+    getLocal(input, options) { return boundary({ context: input?.context, operation: "campaigns.getLocal", instrumentation: optional, execute: () => required.repo.getNeutral(input, options) }, options); },
     createPaused(input, options) { return boundary({ context: input?.context, operation: "campaigns.createPaused", instrumentation: optional, execute: () => createAndDispatch({ dependencies: required, input }, options) }, options); },
     proposeLaunch(input, options) { return boundary({ context: input?.context, operation: "campaigns.proposeLaunch", instrumentation: optional, execute: () => proposeLaunch({ dependencies: required, input }, options) }, options); },
     launch(input, options) { return boundary({ context: input?.context, operation: "campaigns.launch", instrumentation: optional, execute: () => queueLaunch({ dependencies: required, input }, options) }, options); },

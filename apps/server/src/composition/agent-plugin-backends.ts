@@ -7,6 +7,8 @@ import { addonToolEffectsSchema, boundedJsonSchema, dailyLimitRequirementSchema,
 import type { CallContext, CallOptions, ClockPort, HaltStopPermit, IdPort, ObserverPort, Outcome, UnitOfWork } from '@open-marketing/contracts';
 import { digestArguments } from '@open-marketing/safety';
 import type { AccountDispatchLockPort, SafetyRepoPort, SafetyService } from '@open-marketing/safety';
+import type { CampaignConstituent, ConfirmationExchangePort, DispatchPermit, FrozenDispatchRequest } from '@open-marketing/safety';
+import type { NeutralCampaignLaunch } from '@open-marketing/campaigns';
 import type { AccountBindingLookupPort } from '@open-marketing/workspaces';
 import { createSqlJobRepo, jobTenant } from '@open-marketing/jobs';
 import type { JobsSqlSession } from '@open-marketing/jobs';
@@ -30,7 +32,7 @@ type ConversionStorage = { unit: UnitOfWork; policyForTransaction(required: { un
 type Dependencies = AgentPluginEffects & { projectRoot: string; clock: ClockPort; observer: ObserverPort;
     state(required: { context: CallContext; pluginId: string }): Promise<AgentPluginState | null>;
     integrations: Pick<Integrations, 'access'>; accounts: AccountBindingLookupPort; safetyRepo: Pick<SafetyRepoPort, 'snapshot'>;
-    jobs: ReturnType<typeof bindAgentPluginJobs>; safety?: SafetyService; accountLocks: AccountDispatchLockPort }
+    jobs: ReturnType<typeof bindAgentPluginJobs>; safety?: SafetyService; confirmations?: ConfirmationExchangePort; accountLocks: AccountDispatchLockPort }
     & ({ mode: 'production' } & ConversionStorage | { mode: 'read_only' | 'sandbox' } & Partial<ConversionStorage>);
 type Namespace = Record<string, unknown>;
 type Adapter = { invoke(required: Record<string, unknown>, optional?: CallOptions): Promise<Outcome<unknown>> };
@@ -42,7 +44,7 @@ const selectionSchema = z.strictObject({ operationId: idSchema, connectionId: id
     arguments: z.record(z.string(), boundedJsonSchema), moneyExposure: moneyExposureSchema.nullable().optional(), requiredLimit: dailyLimitRequirementSchema.nullable().optional() });
 type Selection = z.infer<typeof selectionSchema>;
 type Invocation = Parameters<OmToolDefinition['invoke']>[0];
-type Execution = { dependencies: Dependencies; context: CallContext; pluginId: string; state: AgentPluginState; module: Namespace; contribution: Contribution; input: Selection; signal?: AbortSignal; stopPermit?: HaltStopPermit };
+type Execution = { dependencies: Dependencies; context: CallContext; pluginId: string; state: AgentPluginState; module: Namespace; contribution: Contribution; input: Selection; signal?: AbortSignal; stopPermit?: HaltStopPermit; authorization?: FrozenDispatchRequest; dispatchPermit?: DispatchPermit };
 
 /** Read enabled bundled modules on catalog discovery; namespaces contain no retained credentials.
  * Each call resolves lifecycle/account state again. A broken plugin contributes only an unavailable
@@ -52,6 +54,15 @@ type Execution = { dependencies: Dependencies; context: CallContext; pluginId: s
  */
 export function bindAgentPluginBackends(required: Dependencies) {
     return {
+        /** Neutral creation stays unavailable until plugins expose verified executable call plans.
+         * Admission is checked before any adapter/credentials. No guessed parent-ID substitutions. */
+        async prepareCampaign(input: { context: CallContext; campaign: NeutralCampaignLaunch; operationId: string }): Promise<Outcome<readonly CampaignConstituent[]>> {
+            for (const target of input.campaign.targets) {
+                const state = await required.state({ context: input.context, pluginId: target.pluginId });
+                if (!state?.enabled || !state.admitted) return localFailure({ message: 'Plugin unadmitted: ' + target.pluginId });
+            }
+            return localFailure({ code: 'not_implemented', message: 'NEEDS: plugin-owned exact creation calls, resolved assets, parent slots and complete non-serving readback' });
+        },
         /** Measure owns inbox verification, transient contacts identifiers, durable claims and consent.
          * Incompatible plugin DTOs fail closed instead of inferring event categories or grant scope. */
         conversions(input: Omit<Parameters<typeof createConversionDispatcher>[0], 'delivery'> & { authority: ConversionAuthorityFactory }) {
@@ -297,15 +308,23 @@ async function bindingCurrent(required: Execution): Promise<boolean> {
  */
 function guardedFetch(required: Execution): typeof fetch {
     return async (url, options) => {
-        if (!await bindingCurrent(required)) throw new Error('Plugin unavailable');
-        if (!await current(required) || options?.signal?.aborted) throw new Error('Plugin unavailable');
+        if (!await bindingCurrent(required) || !await current(required) || options?.signal?.aborted) throw new Error('Plugin unavailable');
         if (required.stopPermit && required.dependencies.clock.now({}) >= required.stopPermit.expiresAt) throw new Error('Stop permit expired');
         if (!required.stopPermit && toolPolicy({ effects: required.contribution.effects }) !== 'read' && required.input.accountId !== null) {
             const snapshot = await required.dependencies.safetyRepo.snapshot({ context: required.context, accountId: required.input.accountId }, { signal: required.signal });
             if (!snapshot.ok || snapshot.value.halted) throw new Error('Account halted');
         }
+        if (!await campaignAuthorityCurrent(required)) throw new Error('Campaign authority expired or revoked');
         return required.dependencies.fetch(url, options);
     };
+}
+/** A campaign child keeps its owning exact approval through awaited credential resolution.
+ * The caller already holds safety's halt barrier. @complexity One scoped confirmation lookup. */
+async function campaignAuthorityCurrent(required: Execution): Promise<boolean> {
+    if (!required.authorization?.campaignApproval) return true;
+    if (!required.dependencies.confirmations || !required.dispatchPermit) return false;
+    const authority = await required.dependencies.confirmations.verify({ context: required.context, request: required.authorization, classification: 'write' });
+    return authority.ok && required.dispatchPermit.expiresAt > required.dependencies.clock.now({});
 }
 function credentials(required: Execution) {
     return { async access(input: { connectionId?: string; accountId?: string | null } = {}) {
@@ -323,7 +342,7 @@ function credentials(required: Execution) {
 async function invoke(required: Omit<Execution, 'input' | 'signal'> & { invocation: Invocation }): Promise<Outcome<unknown>> {
     const parsed = parseSelection({ contribution: required.contribution, input: required.invocation.input });
     if (!parsed.ok) return parsed;
-    const execution: Execution = { ...required, context: required.invocation.context, input: parsed.value, signal: required.invocation.signal };
+    const execution: Execution = { ...required, context: required.invocation.context, input: parsed.value, signal: required.invocation.signal, authorization: required.invocation.authorization, dispatchPermit: required.invocation.permit };
     try {
         if (!await bindingCurrent(execution)) return localFailure({ message: 'Plugin unadmitted, disabled or account binding unavailable' });
         const reason = unavailable({ ...required, policy: toolPolicy({ effects: required.contribution.effects }) });
@@ -332,7 +351,9 @@ async function invoke(required: Omit<Execution, 'input' | 'signal'> & { invocati
         if (toolPolicy({ effects: required.contribution.effects }) === 'read') return await execute();
         if (toolPolicy({ effects: required.contribution.effects }) === 'spend' && !required.invocation.permit)
             return localFailure({ code: 'forbidden', message: 'Spend requires the dispatcher safety permit' });
-        return await writeWithBarrier({ execution, execute: () => required.dependencies.jobs.dispatch({ context: execution.context, pluginId: required.pluginId, input: parsed.value, execute }) });
+        const dispatch = () => required.dependencies.jobs.dispatch({ context: execution.context, pluginId: required.pluginId, input: parsed.value, execute });
+        if (required.invocation.permit && required.invocation.authorization?.campaignApproval) return await dispatch();
+        return await writeWithBarrier({ execution, execute: dispatch });
     } catch { return localFailure({ message: 'Plugin binding failed; reconcile any submitted operation' }); }
 }
 /** Financial calls already hold withDispatch. Ordinary writes share halt's barrier through egress. */
@@ -447,7 +468,7 @@ function hash(required: { value: unknown }): string { return createHash('sha256'
 export function bindAgentPluginJobs(required: { unit: UnitOfWork; clock: ClockPort; ids: IdPort; observer: ObserverPort }) {
     const database = jobsDatabase(required);
     const repo = createSqlJobRepo({ database, clock: required.clock, ids: required.ids, retryPolicy: formRetryPolicy });
-    async function dispatch(input: { context: CallContext; pluginId: string; input: Selection; execute(): Promise<Outcome<unknown>> }): Promise<Outcome<unknown>> {
+    async function dispatch(input: { context: CallContext; pluginId: string; input: Selection; execute(required: { jobId: string }): Promise<Outcome<unknown>> }): Promise<Outcome<unknown>> {
         const digest = digestArguments({ arguments: { pluginId: input.pluginId, input: input.input } });
         if (!digest.ok) return digest;
         const token = required.ids.next({});
@@ -466,7 +487,7 @@ export function bindAgentPluginJobs(required: { unit: UnitOfWork; clock: ClockPo
         const fence = { id: claim.value.jobId, tenantId: jobTenant(input), token, now: required.clock.now({}) };
         if (!await repo.outbox.beginDispatch(fence)) return localFailure({ code: 'conflict', message: 'Plugin claim expired' });
         let result: Outcome<unknown>;
-        try { result = await input.execute(); } catch { result = localFailure({ message: 'Plugin result unknown; reconcile' }); }
+        try { result = await input.execute({ jobId: claim.value.jobId }); } catch { result = localFailure({ message: 'Plugin result unknown; reconcile' }); }
         const checked = result.ok ? parseBoundary({ schema: boundedJsonSchema, input: result.value }) : result;
         const completion = jobCompletion({ result: checked });
         const finished = await repo.outbox.complete({ ...fence, now: required.clock.now({}) }, completion);

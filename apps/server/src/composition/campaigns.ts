@@ -3,16 +3,20 @@ import { z } from 'zod';
 import { createHash } from 'node:crypto';
 import { callContextSchema, idSchema, boundedJsonSchema } from '@open-marketing/contracts';
 import type { CallContext, ClockPort, IdPort, ObserverPort, Outcome, UnitOfWork } from '@open-marketing/contracts';
-import { createCampaignService } from '@open-marketing/campaigns';
+import { createCampaignService, neutralCampaignLaunchSchema } from '@open-marketing/campaigns';
+import type { NeutralCampaignLaunch } from '@open-marketing/campaigns';
 import type { CampaignRepoPort, CampaignJobPort, CampaignJob, CampaignSafetyPort, CampaignCapabilityPort } from '@open-marketing/campaigns';
 import { createSqlJobRepo, jobTenant, JobStoreError } from '@open-marketing/jobs';
 import type { JobsSqlSession } from '@open-marketing/jobs';
-import type { SafetyRepoPort } from '@open-marketing/safety';
-import { digestArguments } from '@open-marketing/safety';
+import type { CampaignConstituent, ConfirmationExchangePort, EffectRequest, FrozenDispatchRequest, SafetyRepoPort, SafetyService } from '@open-marketing/safety';
+import { digestArguments, effectRequestSchema } from '@open-marketing/safety';
 import type { AuditService } from '@open-marketing/audit';
 import { catalogAuditPort } from './catalog.js';
 import { jobsDatabase, formRetryPolicy } from './forms.js';
 import { localFailure } from './local-auth.js';
+import { bindAgentPluginJobs } from './agent-plugin-backends.js';
+import { toolInputSchema } from '../om-tools.js';
+import type { OmToolDefinition } from '../om-tools.js';
 
 const payloadSchema = z.object({ intent: z.object({ kind: z.literal('create'), campaignId: idSchema }) });
 // Match CampaignJobPort and its memory double: get/claim take a key, finish adds only status.
@@ -146,4 +150,156 @@ export function bindSandboxCampaigns(required: { unit: UnitOfWork; repo: Campaig
             return digest.ok ? { ok: true, value: { creativeDigest: digest.value } } : digest;
         } },
     }, { observer: required.observer });
+}
+
+const deploymentInput = z.strictObject({ campaignId: idSchema });
+const childArguments = z.strictObject({ tool: idSchema, input: z.record(z.string(), boundedJsonSchema) });
+const childSelection = z.object({ operationId: idSchema, connectionId: idSchema, accountId: idSchema });
+const hierarchyEvidence = z.strictObject({ complete: z.literal(true), entities: z.array(z.strictObject({ operationId: idSchema, entityId: idSchema, state: z.enum(['paused', 'draft']) })).min(1).max(500) });
+const acknowledgement = z.object({ entityIds: z.array(idSchema).min(1).max(500).refine(ids => new Set(ids).size === ids.length) });
+
+/** Bind the neutral deployment to the existing catalog, exact confirmations and ONE outbox.
+ * Only finalized plugin-owned calls are accepted; unresolved parent slots fail in preparation.
+ * No implicit activation, rollback, replay, metadata resolver or worker is constructed.
+ * @example services.campaignDeployment = bindPausedCampaignDeployment({ ...ports, prepare, definitions, read });
+ * @complexity <=16 sequential calls and <=500 evidence entities, total review <=64KiB. */
+export function bindPausedCampaignDeployment(required: {
+    unit: UnitOfWork; repo: CampaignRepoPort; safety: SafetyService; confirmations: ConfirmationExchangePort; clock: ClockPort; ids: IdPort; observer: ObserverPort;
+    prepare(input: { context: CallContext; campaign: NeutralCampaignLaunch; operationId: string }): Promise<Outcome<readonly CampaignConstituent[]>>;
+    definitions(input: { context: CallContext }): Promise<Outcome<readonly OmToolDefinition[]>>;
+    read(input: { context: CallContext; request: FrozenDispatchRequest }): Promise<Outcome<unknown>>;
+}): OmToolDefinition {
+    const jobs = bindAgentPluginJobs(required);
+    const name = 'om_campaign_deploy_paused';
+    /** All destinations must prepare before the owning review; snapshot every executable/schema.
+     * @complexity <=4 targets/16 definitions, no credentials or egress in preparation. */
+    async function prepareEffect(input: { context: CallContext; call: import('@open-marketing/contracts').ToolCall }): Promise<Outcome<EffectRequest>> {
+        const parsed = deploymentInput.safeParse(input.call.input);
+        if (!parsed.success) return localFailure({ code: 'invalid_input', message: 'Invalid neutral campaign key' });
+        const stored = await required.repo.getNeutral({ context: input.context, ...parsed.data });
+        if (!stored.ok) return stored;
+        if (!stored.value) return localFailure({ code: 'forbidden', message: 'Neutral draft unavailable in scope' });
+        const campaign = neutralCampaignLaunchSchema.parse(stored.value.campaign);
+        if (campaign.schedule.window.end <= required.clock.now({})) return localFailure({ code: 'expired', message: 'Campaign schedule has ended' });
+        const prepared = await required.prepare({ context: input.context, campaign, operationId: input.call.operationId });
+        if (!prepared.ok) return prepared;
+        const calls = prepared.value;
+        const checked = await checkCalls({ context: input.context, campaign, calls });
+        if (!checked.ok) return checked;
+        const args = { tool: name, input: parsed.data, campaign, budgetSemantics: 'Configured daily budgets are not hard spending caps. Exposure is per destination; no currency totals.', calls };
+        const digest = digestArguments({ arguments: args });
+        if (!digest.ok) return digest;
+        const effect: EffectRequest = { arguments: args, pausedCampaignCalls: calls, pluginDigest: digest.value, schemaFingerprint: digest.value,
+            envelope: { operationId: input.call.operationId, connectionId: name, accountId: null, effects: ['ad_spend'], argumentsDigest: digest.value, moneyExposure: null, requiredLimit: null } };
+        return boundedJsonSchema.safeParse(effect).success ? { ok: true, value: effect } : localFailure({ code: 'limit_exceeded', message: 'Prepared campaign exceeds operation payload bounds' });
+    }
+    /** Require every target to have a call and every call to name a reviewed target and current tool.
+     * @complexity <=16 lookups, no external I/O beyond bounded catalog discovery. */
+    async function checkCalls(input: { context: CallContext; campaign: NeutralCampaignLaunch; calls: readonly CampaignConstituent[] }): Promise<Outcome<void>> {
+        if (input.calls.length < 1 || input.calls.length > 16) return localFailure({ code: 'invalid_input', message: 'Campaign requires 1..16 exact calls' });
+        const covered = new Set<string>();
+        for (const call of input.calls) {
+            const target = input.campaign.targets.find(target => target.connectionId === call.envelope.connectionId && target.accountId === call.envelope.accountId);
+            if (!target || !targetsPlugin({ call, pluginId: target.pluginId })) return localFailure({ code: 'forbidden', message: 'Constituent outside neutral destinations' });
+            const definition = await currentDefinition({ context: input.context, call });
+            if (!definition.ok) return definition;
+            covered.add(JSON.stringify([target.pluginId, target.connectionId, target.accountId]));
+        }
+        return covered.size === input.campaign.targets.length ? { ok: true, value: undefined } : localFailure({ code: 'conflict', message: 'A destination has no prepared calls' });
+    }
+    /** Re-resolve lifecycle/account/executable fences through the existing catalog before each effect. */
+    async function currentDefinition(input: { context: CallContext; call: CampaignConstituent }): Promise<Outcome<OmToolDefinition>> {
+        const args = childArguments.safeParse(input.call.arguments);
+        if (!args.success) return localFailure({ code: 'invalid_input', message: 'Invalid constituent arguments' });
+        const selection = childSelection.safeParse(args.data.input);
+        if (!selection.success || selection.data.operationId !== input.call.envelope.operationId || selection.data.connectionId !== input.call.envelope.connectionId || selection.data.accountId !== input.call.envelope.accountId) return localFailure({ code: 'conflict', message: 'Constituent identity differs from its exact call' });
+        const catalog = await required.definitions({ context: input.context });
+        if (!catalog.ok) return catalog;
+        const definition = catalog.value.find(tool => tool.name === args.data.tool);
+        if (!definition || definition.unavailableReason || definition.policy !== 'write' || definition.revision !== input.call.pluginDigest) return localFailure({ code: 'conflict', message: 'Campaign executable unavailable or changed' });
+        const fingerprint = digestArguments({ arguments: definition.inputSchema });
+        if (!fingerprint.ok || fingerprint.value !== input.call.schemaFingerprint) return localFailure({ code: 'conflict', message: 'Campaign schema changed' });
+        const valid = definition.parse({ input: args.data.input });
+        return valid.ok ? { ok: true, value: definition } : valid;
+    }
+    /** Immutable intent and enqueue are one outbox row; claimed/unknown identities never replay. */
+    async function deploy(input: Parameters<OmToolDefinition['invoke']>[0]): Promise<Outcome<unknown>> {
+        const request = input.authorization && structuredClone(input.authorization);
+        if (!request?.pausedCampaignCalls || request.arguments.tool !== name) return localFailure({ code: 'forbidden', message: 'Owning exact campaign approval required' });
+        // Dispatch-only fields are removed before validating the frozen effect snapshot.
+        const { approvalId: _approval, policyRevision: _policy, ...effect } = request;
+        if (!effectRequestSchema.safeParse(effect).success) return localFailure({ code: 'invalid_input', message: 'Invalid frozen campaign intent' });
+        const payload = boundedJsonSchema.safeParse(request);
+        if (!payload.success) return localFailure({ code: 'limit_exceeded', message: 'Frozen campaign payload exceeds operation bounds' });
+        const digest = digestArguments({ arguments: input.input });
+        const reviewed = digestArguments({ arguments: request.arguments.input });
+        if (!digest.ok || !reviewed.ok || digest.value !== reviewed.value) return localFailure({ code: 'conflict', message: 'Campaign input changed after review' });
+        const approved = await required.confirmations.verify({ context: input.context, request, classification: 'spend' });
+        if (!approved.ok) return approved;
+        const draft = await reviewedDraft({ context: input.context, request });
+        if (!draft.ok) return draft;
+        return jobs.dispatch({ context: input.context, pluginId: 'om-campaigns', input: { operationId: request.envelope.operationId, connectionId: name, accountId: null, arguments: { intent: 'deploy-paused', request: payload.data } },
+            execute: async ({ jobId }) => {
+                const expected: string[] = [];
+                for (const [index, call] of request.pausedCampaignCalls!.entries()) {
+                    const result = await dispatchChild({ context: input.context, request, call, index, jobId, signal: input.signal });
+                    if (!result.ok) return result;
+                    const ack = acknowledgement.parse(result.value);
+                    expected.push(...ack.entityIds.map(entityId => JSON.stringify([call.envelope.operationId, entityId])));
+                    if (expected.length > 500) return localFailure({ code: 'limit_exceeded', message: 'Campaign hierarchy exceeds evidence bound; reconcile only' });
+                }
+                const read = await required.read({ context: input.context, request });
+                if (!read.ok) return read;
+                const evidence = hierarchyEvidence.safeParse(read.value);
+                if (!evidence.success) return localFailure({ message: 'Complete non-serving hierarchy evidence required; reconcile only' });
+                const observed = new Set(evidence.data.entities.map(entity => JSON.stringify([entity.operationId, entity.entityId])));
+                if (observed.size !== evidence.data.entities.length || observed.size !== expected.length || !expected.every(key => observed.has(key))) return localFailure({ message: 'Hierarchy evidence differs from acknowledged references; reconcile only' });
+                return { ok: true, value: { status: 'submitted', operationId: request.envelope.operationId, hierarchy: evidence.data } };
+            } });
+    }
+    /** Existing safety holds the account halt barrier and rechecks the owning card at every handoff.
+     * Durable dispatch and acknowledgement checkpoints survive cancellation and restart. */
+    async function dispatchChild(input: { context: CallContext; request: FrozenDispatchRequest; call: CampaignConstituent; index: number; jobId: string; signal?: AbortSignal }): Promise<Outcome<unknown>> {
+        const authority: FrozenDispatchRequest = { ...input.call, approvalId: input.request.approvalId, policyRevision: input.request.policyRevision,
+            campaignApproval: { operationId: input.request.envelope.operationId, argumentsDigest: input.request.envelope.argumentsDigest, index: input.index } };
+        const draft = await reviewedDraft(input);
+        if (!draft.ok) return draft;
+        const definition = await currentDefinition(input);
+        if (!definition.ok) return definition;
+        await checkpoint({ ...input, event: 'campaign_dispatch', evidence: { operationId: input.call.envelope.operationId } });
+        return required.safety.withDispatch({ context: input.context, request: authority, dispatch: async ({ permit, request: verified }) => {
+            const args = childArguments.parse(input.call.arguments);
+            const result = await definition.value.invoke({ context: input.context, input: args.input, authorization: verified, permit, signal: input.signal });
+            if (!result.ok) return result;
+            const bounded = boundedJsonSchema.safeParse(result.value);
+            if (!bounded.success || z.object({ status: z.enum(['unknown', 'failed', 'pending']) }).safeParse(bounded.data).success) return localFailure({ message: 'Constituent outcome uncertain; stop and reconcile only' });
+            await checkpoint({ ...input, event: 'campaign_ack', evidence: { operationId: input.call.envelope.operationId, result: bounded.data } });
+            if (!acknowledgement.safeParse(bounded.data).success) return localFailure({ message: 'Acknowledged hierarchy references unavailable; reconcile only' });
+            return result;
+        } }, { signal: input.signal });
+    }
+    /** Append bounded evidence in the existing attempts journal; never overwrite prior references. */
+    async function checkpoint(input: { context: CallContext; jobId: string; event: string; evidence: unknown }): Promise<void> {
+        await required.unit.transaction({ work: ({ session }) => session.query({ text: 'INSERT INTO job_attempt (job_id,sequence,tenant_id,attempt,event_type,state,observed_at,evidence_id) SELECT $1,COALESCE(MAX(sequence),0)+1,$2,1,$3,$4,$5,$6 FROM job_attempt WHERE job_id=$1',
+            values: [input.jobId, jobTenant(input), input.event, 'dispatching', required.clock.now({}), JSON.stringify(input.evidence)] }) });
+    }
+    /** Recheck the persisted neutral snapshot before enqueue and before each constituent.
+     * @complexity One indexed read and bounded JSON comparisons; no metadata resolution. */
+    async function reviewedDraft(input: { context: CallContext; request: FrozenDispatchRequest }): Promise<Outcome<void>> {
+        const key = deploymentInput.safeParse(input.request.arguments.input);
+        if (!key.success) return localFailure({ code: 'invalid_input', message: 'Invalid reviewed draft key' });
+        const current = await required.repo.getNeutral({ context: input.context, ...key.data });
+        if (!current.ok) return current;
+        const expected = digestArguments({ arguments: input.request.arguments.campaign });
+        const actual = digestArguments({ arguments: current.value?.campaign ?? null });
+        if (!expected.ok || !actual.ok || expected.value !== actual.value) return localFailure({ code: 'conflict', message: 'Reviewed neutral campaign changed or is unavailable' });
+        return { ok: true, value: undefined };
+    }
+    return { name, description: 'Deploy a saved neutral traffic campaign paused/draft. One exact review shows each destination and finite call; activation needs another exact card. Unsupported or unadmitted targets fail before approval.', capability: 'Campaign paused deployment', effects: ['ad_spend'], policy: 'spend', revision: '1', safety: required.safety,
+        inputSchema: toolInputSchema({ schema: deploymentInput }), parse: input => { const parsed = deploymentInput.safeParse(input.input); return parsed.success ? { ok: true, value: parsed.data } : localFailure({ code: 'invalid_input', message: 'Invalid neutral campaign key' }); }, prepareEffect, invoke: deploy };
+}
+/** Bind a constituent to the named plugin's existing catalog namespace; no cross-plugin authority. */
+function targetsPlugin(required: { call: CampaignConstituent; pluginId: string }): boolean {
+    const args = childArguments.safeParse(required.call.arguments);
+    return args.success && args.data.tool.startsWith('vendor_' + required.pluginId.replaceAll('-', '_') + '_');
 }

@@ -1,8 +1,9 @@
 import { z } from 'zod';
 import { idSchema, epochSchema, callContextSchema, toolCallSchema, toolOperationSchema, digestSchema,
-    confirmationCardSchema, approvalChoiceSchema, effectEnvelopeSchema, generationCostQuoteSchema, boundedJsonSchema } from '@open-marketing/contracts';
+    confirmationCardSchema, approvalChoiceSchema } from '@open-marketing/contracts';
 import type { CreativeService } from '@open-marketing/creative';
 import type { DispatchPermit, EffectRequest, FrozenDispatchRequest, SafetyService } from '@open-marketing/safety';
+import { effectRequestSchema } from '@open-marketing/safety';
 import type { routes } from './cli/http.js';
 import type { ApprovalResponse, CallContext, ConfirmationCard, Outcome, ToolCall, ToolDescriptor, ToolOperation, ToolResult } from '@open-marketing/contracts';
 
@@ -25,15 +26,12 @@ export interface OmTools {
 }
 
 /** Stored data only; no credentials, callbacks or restored agent authority. */
-const generationRequest = z.strictObject({ operationId: idSchema, connectionId: idSchema, argumentsDigest: digestSchema, configurationDigest: digestSchema });
 /** Validate durable snapshots before the dispatcher can restore them. */
 export const storedToolOperationSchema = z.strictObject({ context: callContextSchema, call: toolCallSchema,
     digest: digestSchema, revision: digestSchema, policy: z.enum(['read', 'write', 'destructive', 'spend', 'generation', 'internal']),
     expiresAt: epochSchema, card: confirmationCardSchema.optional(), approvalId: idSchema.optional(), grantChoice: approvalChoiceSchema.optional(),
     classification: confirmationCardSchema.shape.classification, state: toolOperationSchema, executing: z.boolean(),
-    request: z.strictObject({ arguments: z.record(z.string(), boundedJsonSchema), envelope: effectEnvelopeSchema,
-        pluginDigest: digestSchema, schemaFingerprint: digestSchema, operationScope: idSchema.optional(),
-        generation: z.strictObject({ request: generationRequest, quote: generationCostQuoteSchema }).optional() }) });
+    request: effectRequestSchema });
 export type StoredToolOperation = Omit<z.infer<typeof storedToolOperationSchema>, 'request'> & { request: EffectRequest };
 
 /** Local sandbox generation input; the server owns capability/configuration/pricing/digests.
