@@ -203,7 +203,7 @@ it('MCP admission revoked during credential lookup prevents even the discovery h
     pluginState: async () => ({ ...await admittedFixtureState(), admitted }),
     integrations: { async access() { admitted = false; return { ok: true, value: { accessToken: 'fixture-private-token' } }; } } });
   await sessions.reload({ context: f.context, connection: f.connection });
-  expect(await sessions.definitions({ context: f.context })).toMatchObject({ ok: false });
+  expect(value({ result: await sessions.definitions({ context: f.context }) })[0]).toMatchObject({ unavailableReason: expect.stringContaining('discovery unavailable') });
   expect(f.calls).toEqual([]);
   await sessions.close({ context: f.context, connectionId: f.connection.connectionId });
 });
@@ -219,4 +219,41 @@ it('schema drift after catalog discovery denies tool egress and retains no stale
   expect(await definition.invoke({ context: f.context, input: { operationId: 'schema-drift', arguments: { query: 'fixture' } } })).toMatchObject({ ok: false });
   expect(f.calls.map(item => item.method)).not.toContain('tools/call');
   await sessions.close({ context: f.context, connectionId: f.connection.connectionId });
+});
+
+it('isolates unreachable MCP discovery, caches its failure until reload, and still executes a healthy tool', async () => {
+  const f = federationFixture(); let failures = 0; let sequence = 0;
+  const broken = { ...f.connection, connectionId: 'broken-mcp', pluginId: null, credentialConnectionId: undefined,
+    server: { type: 'streamable-http' as const, url: 'https://unreachable.fixture.invalid/mcp' } };
+  const sessions = bindAddonFederationSessions({ context: f.context, pluginState: admittedFixtureState, observer: { observe() {} },
+    effects: { ...f.effects, exchange: { async send(input, options) {
+      if (input.url.includes('unreachable.')) { failures++; throw new Error('Fixture connection timed out'); }
+      return f.effects.exchange.send(input, options);
+    } } },
+    integrations: { async access() { return { ok: true, value: { accessToken: 'fixture-private-token' } }; } },
+    jobs: { async dispatch(input) { return input.execute(); } } });
+  await sessions.reload({ context: f.context, connection: broken });
+  await sessions.reload({ context: f.context, connection: f.connection });
+  const tools = createOmTools({ definitions: input => sessions.definitions(input), clock: { now: () => 1000 }, observer: { observe() {} },
+    authorize: () => ({ ok: true, value: undefined }), confirmations: createMemoryConfirmationExchange({ clock: { now: () => 1000 }, ids: { next: () => 'isolated-card-' + ++sequence } }) });
+  try {
+    const definitions = value({ result: await sessions.definitions({ context: f.context }) });
+    expect(definitions.filter(tool => tool.unavailableReason)).toHaveLength(1);
+    expect(failures).toBe(1);
+    const healthy = definitions.find(tool => !tool.unavailableReason)!;
+    const call = { name: healthy.name, operationId: 'healthy-operation', input: { operationId: 'healthy-operation', arguments: { query: 'fixture' } } };
+    expect(await tools.list({ context: f.context, limit: 100 })).toMatchObject({ ok: true });
+    expect(await tools.dispatch({ context: f.context, call })).toMatchObject({ ok: true, value: { status: 'pending' } });
+    const card = value({ result: await tools.card({ context: f.context, operationId: call.operationId }) })!;
+    expect(await tools.answer({ context: f.context, response: { cardId: card.cardId, operationId: call.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } })).toMatchObject({ ok: true });
+    expect(await tools.operation({ context: f.context, operationId: call.operationId })).toMatchObject({ ok: true, value: { status: 'completed' } });
+    expect(failures).toBe(1);
+    await sessions.reload({ context: f.context, connection: broken });
+    expect(await sessions.definitions({ context: f.context })).toMatchObject({ ok: true });
+    expect(failures).toBe(2);
+  } finally {
+    tools.dispose({});
+    await sessions.close({ context: f.context, connectionId: broken.connectionId });
+    await sessions.close({ context: f.context, connectionId: f.connection.connectionId });
+  }
 });

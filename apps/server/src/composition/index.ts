@@ -1,6 +1,6 @@
 import { bindSandboxCreative } from './creative.js';
 import { bindSandboxCampaigns } from './campaigns.js';
-import { bindCatalogAudit, bindCatalogScope, bindCatalogMeasure, sandboxPlatformReports } from './catalog.js';
+import { bindCatalogAudit, catalogAuditPort, bindCatalogScope, bindCatalogMeasure, sandboxPlatformReports } from './catalog.js';
 import type { OmFeatureServices } from '../om-tools.js';
 import { bindServerAddons, type AddonEffects } from './addons.js';
 import { buildOmToolDefinitions, createOmTools } from '../om-tools.js';
@@ -28,7 +28,7 @@ import { handleIntegrationRequest } from '../inbound/integrations.js';
 import { bindForms, seedSandboxForm } from './forms.js';
 import { bindIdentity, createVisitTokens, localKey } from './identity.js';
 import { bindPrivacy } from './privacy.js';
-import { createFormWorkers } from './workers.js';
+import { bindAgentPluginHaltJobs, createFormWorkers } from './workers.js';
 import { createLocalAgent, createNodeAgentEffects, type AgentEffects } from './agent.js';
 import { createFrontendSessions, type FrontendSessions } from '../inbound/frontend.js';
 import { join } from 'node:path';
@@ -36,7 +36,7 @@ import type Database from 'better-sqlite3';
 import type { CallContext, ClockPort, IdPort, ObserverPort, Outcome, UnitOfWork } from '@open-marketing/contracts';
 import { z } from 'zod';
 import { createSqlCampaignRepo, type CampaignSqlPort } from '@open-marketing/campaigns';
-import { createMemoryConfirmationExchange, createSqlSafetyRepo, type MemoryConfirmationExchange, type SafetySqlDatabase } from '@open-marketing/safety';
+import { createMemoryAccountDispatchLock, createMemoryConfirmationExchange, createSafetyService, createSqlSafetyRepo, type AccountDispatchLockPort, type MemoryConfirmationExchange, type SafetySqlDatabase } from '@open-marketing/safety';
 import { handleOwnerRequest, type OwnerServices } from '../inbound/owner.js';
 import type { HttpRequest, HttpListenerPort, LifecyclePort, HttpResponse } from '../ports.js';
 import { handleOmRequest, type RunGrantVerifierPort } from '../inbound/om.js';
@@ -264,7 +264,6 @@ export async function bootServer(required: {
             audit, contacts: identity.contacts, forms: forms.forms, webEvents: identity.webEvents, privacy: resources.privacy.privacy,
             measure: bindCatalogMeasure({ repo: measure, links: publicServices.links, reports: sandboxPlatformReports(required), clock: required.clock, ids: required.ids, observer: required.observer, audit }),
         });
-        resources.workers = createFormWorkers({ unit: database.unit, forms, creative: services.creative, clock: required.clock, ids: required.ids, observer: required.observer, context, schedule: required.io.schedule });
         // Migration 17 supplies these table types on the existing kernel; this assertion opens no second kernel.
         const chatKernel = database.kernel as unknown as StorageKernel<AssistantDatabase>;
         const conversations = createConversations({ db: campaignDb, ids: required.ids, observer: required.observer, integrations,
@@ -285,8 +284,12 @@ export async function bootServer(required: {
             clock: required.clock, ids: required.ids, observer: required.observer, randomToken: required.io.randomToken, persistence,
             frontend: resources.frontend, onRevoked: input => { resources.tools?.cancel(input); resources.frontend?.endRun(input); } });
         services.runs = resources.agent.owner;
-        const pluginBackends = bindBootPluginBackends({ io: required.io, addons: resources.addons, services, integrations,
+        const accountLocks = createMemoryAccountDispatchLock({ ids: required.ids });
+        const pluginBackends = bindBootPluginBackends({ io: required.io, addons: resources.addons, services, integrations, accountLocks,
             unit: database.unit, clock: required.clock, ids: required.ids, observer: required.observer });
+        const halt = bindBootHalt({ ...required, unit: database.unit, services, audit, accountLocks, confirmations: resources.confirmations, pluginBackends });
+        Object.assign(services, { safety: { ...services.safety, halt: halt.halt } });
+        resources.workers = createFormWorkers({ unit: database.unit, forms, creative: services.creative, halt, clock: required.clock, ids: required.ids, observer: required.observer, context, schedule: required.io.schedule });
         resources.tools = createOmTools({ clock: required.clock, observer: required.observer, confirmations: resources.confirmations,
             authorize: input => input.context.principal.kind === 'owner'
                 ? scopedOwnerAuthority({ context: input.context, expected: context! })
@@ -400,11 +403,26 @@ function createModelUpstream(required: { fetch: typeof fetch }): ModelUpstream {
 /** Local boot supplies read-only account authority; fixture compositions inject financial safety
  * separately. Missing host effects leave vendor definitions absent, without constructing services. */
 function bindBootPluginBackends(required: { io: ServerBootIo; addons: ReturnType<typeof bindBootAddons>; services: OwnerServices & OmFeatureServices;
-    integrations: Integrations; unit: UnitOfWork; clock: ClockPort; ids: IdPort; observer: ObserverPort }): ReturnType<typeof bindAgentPluginBackends> | undefined {
+    integrations: Integrations; unit: UnitOfWork; clock: ClockPort; ids: IdPort; observer: ObserverPort; accountLocks: AccountDispatchLockPort }): ReturnType<typeof bindAgentPluginBackends> | undefined {
     if (!required.io.agentPlugins || !required.addons || !required.services.accountBindings) return undefined;
     return bindAgentPluginBackends({ ...required.io.agentPlugins, projectRoot: required.io.projectRoot, clock: required.clock, observer: required.observer,
         state: required.addons.agentPluginState, integrations: required.integrations, accounts: required.services.accountBindings, safetyRepo: required.services.safety,
-        jobs: bindAgentPluginJobs(required), mode: 'read_only' });
+        jobs: bindAgentPluginJobs(required), mode: 'read_only', accountLocks: required.accountLocks });
+}
+
+/** The local host commits halt through SafetyService under the same vendor-write barrier.
+ * No verified remote entity inventory exists locally, so it queues no guessed stop targets. */
+function bindBootHalt(required: { services: OwnerServices; audit: Parameters<typeof catalogAuditPort>[0]['audit'];
+    unit: UnitOfWork; clock: ClockPort; ids: IdPort; observer: ObserverPort; accountLocks: AccountDispatchLockPort;
+    confirmations: MemoryConfirmationExchange; pluginBackends?: ReturnType<typeof bindAgentPluginBackends> }) {
+    const unavailable = async () => localFailure<never>({ code: 'forbidden', message: 'Verified vendor authority is unavailable in local mode' });
+    const safety = createSafetyService({ repo: required.services.safety, confirmations: required.confirmations,
+        accountLocks: required.accountLocks, clock: required.clock, ids: required.ids, audit: catalogAuditPort(required),
+        policy: { assess: unavailable }, effects: { resolve: unavailable, verifyGenerationQuote: unavailable, verifyHaltStop: unavailable },
+        platformLimits: { get: unavailable } }, { observer: required.observer, haltServiceId: 'om-halt-worker' });
+    return bindAgentPluginHaltJobs({ ...required, safety,
+        targets: async () => ({ ok: true, value: [] }),
+        stop: input => required.pluginBackends?.haltStop(input) ?? unavailable() });
 }
 
 /** Hosts without native federation I/O fail explicitly; no fake session activation. */

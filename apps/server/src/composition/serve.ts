@@ -7,7 +7,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import Database from 'better-sqlite3';
 import * as fs from 'node:fs/promises';
 import { constants } from 'node:fs';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -31,7 +31,9 @@ export function createNodeBootIo(required: { projectRoot: string; studioRoot: st
         addonEffects: input => createNodeAddonEffects({ ...input, loadModule: loadAddonModule }),
         addonYaml: { read: readAddonYaml },
         addonFederation: createNodeFederationEffects({ fetch, stdio: input => new StdioClientTransport(input) }),
-        agentPlugins: { fetch, loadModule: loadAgentPluginModule, async wait(input, options) {
+        agentPlugins: { fetch, loadModule: loadAgentPluginModule,
+            async moduleDigest({ moduleUrl }) { return createHash('sha256').update(await readLocalFile({ fs, path: fileURLToPath(moduleUrl), maxBytes: 8388608 })).digest('hex'); },
+            async wait(input, options) {
             if (!Number.isInteger(input.milliseconds) || input.milliseconds < 0 || input.milliseconds > 60000)
                 return localFailure({ code: 'invalid_input', message: 'Plugin wait outside bounded interval' });
             try { await waitFor(input.milliseconds, undefined, { signal: options?.signal }); return { ok: true, value: undefined }; }

@@ -238,9 +238,9 @@ it('generates checked route/capability coverage from declarations, with explicit
     expect(rows.filter(row => row.tool).map(row => row.tool)).toEqual([...definitions, ...discoveryTools].map(tool => tool.name));
     expect(definitions.every(tool => toolDescriptorSchema.safeParse({ name: tool.name, description: tool.description, effects: tool.effects, inputSchema: tool.inputSchema }).success)).toBe(true);
     expect(definitions.some(tool => /om_(runs|conversations)_/.test(tool.name))).toBe(false);
-    expect(rows.some(row => row.status === 'NEEDS' && row.capability.includes('not connected'))).toBe(true);
+    expect(rows.some(row => row.status === 'NEEDS' && row.capability === 'Meta ads hosted binding')).toBe(true);
     expect(rows.find(row => row.capability === 'Paused/draft campaign creation')?.policy).toBe('write');
-    expect(rows.find(row => row.capability === 'Vendor activation/live budget/cap changes (not connected)')?.policy).toBe('spend');
+    expect(rows.find(row => row.capability === 'Campaign launch')?.policy).toBe('spend');
     expect(rows.filter(row => row.tool).every(row => row.cli === 'om tools list/show/call')).toBe(true);
     expect(rows.filter(row => row.status === 'NEEDS').every(row => !!row.needs && !!row.reason)).toBe(true); f.tools.dispose({});
 });

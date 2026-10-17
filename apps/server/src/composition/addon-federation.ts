@@ -6,17 +6,14 @@ import { JSONRPCMessageSchema } from '@modelcontextprotocol/sdk/types.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { AjvJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/ajv';
 import { createHash } from 'node:crypto';
-import { digestArguments } from '@open-marketing/federation';
-import { addonToolEffectsSchema, parseBoundary, toolDescriptorSchema } from '@open-marketing/contracts';
+import { createJiniHttpMcpTransport, createJiniStdioMcpTransport, digestArguments,
+  type ExternalToolResult, type JiniHttpTransportDependencies, type JiniStdioTransportDependencies, type McpTransportPort } from '@open-marketing/federation';
+import { addonToolEffectsSchema, boundedJsonSchema, callContextSchema, idSchema, parseBoundary, toolDescriptorSchema,
+  type CallContext, type ObserverPort, type Outcome } from '@open-marketing/contracts';
 import { toolPolicy } from '../om-tools.js';
 import type { OmToolDefinition } from '../om-tools.js';
 import type { AgentPluginState, bindAgentPluginJobs } from './agent-plugin-backends.js';
 import { parseAgentPluginMcpConfig } from '@jini-ai/agent-plugins/lifecycle';
-import { boundedJsonSchema, callContextSchema, idSchema } from '@open-marketing/contracts';
-import type { CallContext, ObserverPort, Outcome } from '@open-marketing/contracts';
-import { createJiniHttpMcpTransport, createJiniStdioMcpTransport } from '@open-marketing/federation';
-import type { JiniHttpTransportDependencies, JiniStdioTransportDependencies, McpTransportPort } from '@open-marketing/federation';
-import type { ExternalToolResult } from '@open-marketing/federation';
 import type { ExternalMcpConnection, ExternalMcpSessions } from '../external-mcp.js';
 import type { Integrations } from '../integrations.js';
 
@@ -26,14 +23,16 @@ export interface AddonFederationEffects {
   openStdio(required: { server: Extract<ExternalMcpConnection['server'], { type: 'stdio' }>; signal?: AbortSignal }): ReturnType<JiniStdioTransportDependencies['openChannel']>;
 }
 type RemoteTool = { name: string; description?: string; inputSchema: Record<string, unknown>; outputSchema?: Record<string, unknown> };
-type Binding = { connection: ExternalMcpConnection; active: Set<McpTransportPort>; discovery: Set<Client>; tools?: RemoteTool[] };
+type Binding = { connection: ExternalMcpConnection; active: Set<McpTransportPort>; discovery: Set<Client>;
+  catalog?: Promise<OmToolDefinition[]> };
 type Dependencies = { context: CallContext; effects: AddonFederationEffects; integrations: Pick<Integrations, 'access'>; observer: ObserverPort;
   pluginState?(required: { context: CallContext; pluginId: string }): Promise<AgentPluginState | null>;
   jobs?: ReturnType<typeof bindAgentPluginJobs> };
 type Sessions = ExternalMcpSessions & { transport: McpTransportPort; definitions(required: { context: CallContext }): Promise<Outcome<readonly OmToolDefinition[]>> };
 
 /** Own <=100 scoped bindings and dispose active sessions on disable, reload and uninstall.
- * Construction/reload do no egress; federation opens a fresh session only for a fenced invocation.
+ * Enabled external MCPs are discovered during catalog build; discovery success/failure is retained
+ * until enable/reload. Invocation opens a fresh session and rechecks schemas and authority.
  * @example const sessions = bindAddonFederationSessions({ context, effects, integrations, observer });
  * @returns Store lifecycle hooks and the transport port for the existing policy-owning federation host.
  * @complexity O(1) lookup; close O(active calls), bounded to 100 calls per connection.
@@ -157,24 +156,41 @@ function guardedEffects(required: { dependencies: Dependencies; binding: Binding
 async function federationDefinitions(required: { dependencies: Dependencies; context: CallContext; bindings: Map<string, Binding>; transport: McpTransportPort }): Promise<Outcome<readonly OmToolDefinition[]>> {
   if (!sameScope({ context: required.context, expected: required.dependencies.context })) return denied();
   const definitions: OmToolDefinition[] = [];
-  try {
-    for (const binding of required.bindings.values()) {
-      definitions.push(...await bindingDefinitions({ ...required, binding }));
-      if (definitions.length > 1000) throw new RangeError('MCP catalog cap');
-    }
-    return { ok: true, value: definitions };
-  } catch { return { ok: false, error: { code: 'unavailable', message: 'MCP discovery unavailable or invalid', retryable: false } }; }
+  for (const binding of required.bindings.values()) {
+    const tools = await bindingDefinitions({ ...required, binding });
+    if (definitions.length + tools.length > 1000) return { ok: false, error: { code: 'limit_exceeded', message: 'MCP catalog cap', retryable: false } };
+    definitions.push(...tools);
+  }
+  return { ok: true, value: definitions };
 }
 /** One connection's descriptors; unadmitted bindings contribute none and are never discovered. */
 async function bindingDefinitions(required: Parameters<typeof federationDefinitions>[0] & { binding: Binding }): Promise<OmToolDefinition[]> {
   const { binding } = required;
   if (!await admittedBinding(required)) return [];
-  const tools = binding.tools ?? await discover(required);
-  binding.tools = tools;
+  binding.catalog ??= discoverDefinitions(required);
+  return binding.catalog;
+}
+/** A failing connection cannot suppress healthy sources or repeat its timeout on each execute.
+ * Reload replaces the binding (and its cached failure); no timer or second registry is needed. */
+async function discoverDefinitions(required: Parameters<typeof bindingDefinitions>[0]): Promise<OmToolDefinition[]> {
+  try {
+    const tools = await discover(required);
+    return await discoveredDefinitions({ ...required, tools });
+  } catch {
+    const message = 'MCP discovery unavailable or invalid; enable/reload this connection to retry';
+    return [{ name: 'mcp_' + sha({ value: required.binding.connection.connectionId }).slice(0, 16) + '_unavailable',
+      description: message, capability: 'External MCP ' + required.binding.connection.connectionId, effects: ['write'], policy: 'write',
+      revision: required.binding.connection.revision, inputSchema: { type: 'object' }, unavailableReason: message,
+      parse: () => ({ ok: false, error: { code: 'unavailable', message, retryable: false } }),
+      invoke: async () => ({ ok: false, error: { code: 'unavailable', message, retryable: false } }) }];
+  }
+}
+async function discoveredDefinitions(required: Parameters<typeof bindingDefinitions>[0] & { tools: RemoteTool[] }): Promise<OmToolDefinition[]> {
+  const { binding } = required;
   const pluginId = binding.connection.pluginId;
   const state = pluginId ? await required.dependencies.pluginState?.({ context: required.context, pluginId }) : null;
   const effects = addonToolEffectsSchema.parse(state?.effects ?? ['write']);
-  return tools.map(tool => mcpDefinition({ ...required, binding, tool, effects }));
+  return required.tools.map(tool => mcpDefinition({ ...required, binding, tool, effects }));
 }
 
 /** Remote annotations never classify policy. Unknown effects remain write; generation without

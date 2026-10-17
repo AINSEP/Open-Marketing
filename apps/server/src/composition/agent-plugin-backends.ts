@@ -3,13 +3,15 @@ import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
-import { addonToolEffectsSchema, boundedJsonSchema, dailyLimitRequirementSchema, idSchema, moneyExposureSchema, parseBoundary, toolDescriptorSchema } from '@open-marketing/contracts';
-import type { CallContext, CallOptions, ClockPort, IdPort, ObserverPort, Outcome, UnitOfWork } from '@open-marketing/contracts';
+import { addonToolEffectsSchema, boundedJsonSchema, dailyLimitRequirementSchema, haltStopRequestSchema, idSchema, moneyExposureSchema, parseBoundary, toolDescriptorSchema } from '@open-marketing/contracts';
+import type { CallContext, CallOptions, ClockPort, HaltStopPermit, IdPort, ObserverPort, Outcome, UnitOfWork } from '@open-marketing/contracts';
 import { digestArguments } from '@open-marketing/safety';
-import type { SafetyRepoPort, SafetyService } from '@open-marketing/safety';
+import type { AccountDispatchLockPort, SafetyRepoPort, SafetyService } from '@open-marketing/safety';
 import type { AccountBindingLookupPort } from '@open-marketing/workspaces';
 import { createSqlJobRepo, jobTenant } from '@open-marketing/jobs';
 import type { JobsSqlSession } from '@open-marketing/jobs';
+import { createConversionDispatcher } from '@open-marketing/measure';
+import type { ConversionDeliveryPort } from '@open-marketing/measure';
 import type { Integrations } from '../integrations.js';
 import { toolPolicy } from '../om-tools.js';
 import type { OmToolDefinition } from '../om-tools.js';
@@ -20,35 +22,114 @@ import { localFailure } from './local-auth.js';
 export type AgentPluginState = { enabled: boolean; bundled: boolean; admitted: boolean; revision: string; metadata: Record<string, unknown>; effects?: string[] };
 /** Native namespace import and fetch are injected by serve; fixtures replace both without networking. */
 export type AgentPluginEffects = { fetch: typeof fetch; loadModule(required: { moduleUrl: string }): Promise<object>;
+    moduleDigest(required: { moduleUrl: string }): Promise<string>;
     wait(required: { milliseconds: number }, optional?: CallOptions): Promise<Outcome<void>> };
 type Dependencies = AgentPluginEffects & { projectRoot: string; clock: ClockPort; observer: ObserverPort;
     state(required: { context: CallContext; pluginId: string }): Promise<AgentPluginState | null>;
     integrations: Pick<Integrations, 'access'>; accounts: AccountBindingLookupPort; safetyRepo: Pick<SafetyRepoPort, 'snapshot'>;
-    jobs: ReturnType<typeof bindAgentPluginJobs>; mode: 'read_only' | 'sandbox' | 'production'; safety?: SafetyService };
+    jobs: ReturnType<typeof bindAgentPluginJobs>; mode: 'read_only' | 'sandbox' | 'production'; safety?: SafetyService; accountLocks: AccountDispatchLockPort };
 type Namespace = Record<string, unknown>;
 type Adapter = { invoke(required: Record<string, unknown>, optional?: CallOptions): Promise<Outcome<unknown>> };
 type Factory<T> = (required: Record<string, unknown>) => T;
 type Contribution = { name: string; description: string; inputSchema: Record<string, unknown>; effects: readonly string[]; parse(required: { input: unknown }): Outcome<unknown> };
-const pluginIds = ['google-ads', 'linkedin-ads', 'tiktok-ads', 'meta-ads'] as const;
+const pluginIds = ['google-ads', 'linkedin-ads', 'tiktok-ads', 'meta-ads', 'higgsfield-media'] as const;
 const selectionSchema = z.strictObject({ operationId: idSchema, connectionId: idSchema, accountId: idSchema.nullable(),
     currency: z.string().regex(/^[A-Z]{3}$/).optional(), timezone: z.string().min(1).max(100).optional(),
     arguments: z.record(z.string(), boundedJsonSchema), moneyExposure: moneyExposureSchema.nullable().optional(), requiredLimit: dailyLimitRequirementSchema.nullable().optional() });
 type Selection = z.infer<typeof selectionSchema>;
 type Invocation = Parameters<OmToolDefinition['invoke']>[0];
-type Execution = { dependencies: Dependencies; context: CallContext; pluginId: string; state: AgentPluginState; module: Namespace; contribution: Contribution; input: Selection; signal?: AbortSignal };
+type Execution = { dependencies: Dependencies; context: CallContext; pluginId: string; state: AgentPluginState; module: Namespace; contribution: Contribution; input: Selection; signal?: AbortSignal; stopPermit?: HaltStopPermit };
 
 /** Read enabled bundled modules on catalog discovery; namespaces contain no retained credentials.
  * Each call resolves lifecycle/account state again. A broken plugin contributes only an unavailable
  * descriptor; other plugins and the rest of the catalog remain usable.
  * @example const backends = bindAgentPluginBackends({ ...ports, fetch, loadModule });
- * @complexity <=4 module loads and <=100 descriptors/plugin; no discovery egress.
+ * @complexity <=5 module loads and <=100 descriptors/plugin; no discovery egress.
  */
-export function bindAgentPluginBackends(required: Dependencies): { definitions(required: { context: CallContext }): Promise<Outcome<readonly OmToolDefinition[]>> } {
-    return { async definitions({ context }) {
-        const definitions: OmToolDefinition[] = [];
-        for (const pluginId of pluginIds) definitions.push(...await pluginDefinitions({ dependencies: required, context, pluginId }));
-        return { ok: true, value: definitions };
-    } };
+export function bindAgentPluginBackends(required: Dependencies) {
+    return {
+        /** Measure owns inbox verification, transient contacts identifiers, durable claims and consent.
+         * Incompatible plugin DTOs fail closed instead of inferring event categories or grant scope. */
+        conversions(input: Omit<Parameters<typeof createConversionDispatcher>[0], 'delivery'>) {
+            return createConversionDispatcher({ ...input, delivery: conversionDelivery({ dependencies: required, authority: input }) }, { observer: required.observer });
+        },
+        haltStop: (input: { context: CallContext; pluginId: string; permit: HaltStopPermit }) => haltStop({ dependencies: required, ...input }),
+        async definitions({ context }: { context: CallContext }): Promise<Outcome<readonly OmToolDefinition[]>> {
+            const definitions: OmToolDefinition[] = [];
+            for (const pluginId of pluginIds) definitions.push(...await pluginDefinitions({ dependencies: required, context, pluginId }));
+            return { ok: true, value: definitions };
+        },
+    };
+}
+
+type ConversionAuthority = Pick<Parameters<typeof createConversionDispatcher>[0], 'policy' | 'grants' | 'audit'>;
+/** LinkedIn's existing backend matches measure's open definition contract. The other vendor
+ * packages require owner-supplied mappings/evidence; no vendor codecs or guessed values live here.
+ * Recheck grant/consent after the plugin resolves credentials and immediately before its fetch.
+ * Final authorization and egress share haltAccount's injected account barrier.
+ * @complexity One bundle load and bounded measure/plugin gates; no token cache or retries. */
+function conversionDelivery(required: { dependencies: Dependencies; authority: ConversionAuthority }): ConversionDeliveryPort {
+    return { deliver: (input, options) => conversionCall({ ...required, input, action: 'deliver', signal: options?.signal }),
+        reconcile: (input, options) => conversionCall({ ...required, input, action: 'reconcile', signal: options?.signal }) };
+}
+/** Bind one plugin call; its foreign fetch ABI holds the shared halt barrier through egress.
+ * Gate failures throw only inside the plugin's typed transport boundary.
+ * @complexity O(b) bounded bundle hashing time/space; one send, no retries. */
+async function conversionCall(required: { dependencies: Dependencies; authority: ConversionAuthority; input: Parameters<ConversionDeliveryPort['deliver']>[0]; action: 'deliver' | 'reconcile'; signal?: AbortSignal }): Promise<Outcome<{ status: 'delivered' | 'unknown' }>> {
+    const { input, dependencies } = required;
+    if (!input.deliveryId) return localFailure({ code: 'invalid_input', message: 'Conversion delivery identity required' });
+    if (dependencies.mode !== 'production') return localFailure({ code: 'forbidden', message: 'Conversions denied in local sandbox' });
+    const pluginId = 'linkedin-ads';
+    const context: CallContext = { scope: input.context.scope, correlationId: input.context.correlationId, traceId: input.context.traceId,
+        principal: { kind: 'service', serviceId: input.context.serviceId } };
+    const loaded = await dependencies.state({ context, pluginId });
+    if (!loaded?.admitted || !loaded.enabled || !loaded.bundled) return localFailure({ message: 'Conversion plugin unadmitted or unavailable' });
+    const state = { ...loaded, revision: await executableRevision({ dependencies, pluginId, state: loaded }) };
+    const moduleUrl = new URL(bundledModuleUrl({ dependencies, pluginId }));
+    moduleUrl.searchParams.set('revision', state.revision);
+    const module = { ...await dependencies.loadModule({ moduleUrl: moduleUrl.href }) };
+    const configuration = z.record(z.string(), z.unknown()).parse(state.metadata.conversionConfiguration);
+    if (configuration.connectionId !== input.grant.connectionId || configuration.accountId !== input.grant.accountId) return localFailure({ code: 'forbidden', message: 'Conversion connection/account mismatch' });
+    const execution: Execution = { dependencies, state, module, pluginId, context, signal: required.signal,
+        input: { operationId: input.deliveryId, connectionId: input.grant.connectionId, accountId: input.grant.accountId, arguments: {} },
+        contribution: { name: 'conversion', description: 'Typed conversion', effects: ['conversion'], inputSchema: {}, parse: () => ({ ok: true, value: input }) } };
+    const guarded = guardedFetch({ ...execution, dependencies: { ...dependencies, fetch: async (url, options) => {
+        const lock = await dependencies.accountLocks.acquire({ context, accountId: input.grant.accountId }, { signal: required.signal });
+        if (!lock.ok) throw new Error('Conversion account barrier unavailable');
+        try {
+            // The earlier guardedFetch snapshot may predate a committed halt.
+            const snapshot = await dependencies.safetyRepo.snapshot({ context, accountId: input.grant.accountId }, { signal: required.signal });
+            if (!snapshot.ok || snapshot.value.halted) throw new Error('Account halted');
+            const authorized = await conversionCurrent({ ...required, execution });
+            if (!authorized.ok) throw new Error('Conversion authority withdrawn');
+            return await dependencies.fetch(url, options);
+        } finally {
+            const released = await dependencies.accountLocks.release({ lockId: lock.value.lockId });
+            if (!released.ok) throw new Error('Conversion account barrier release failed');
+        }
+    } } });
+    const backend = exported<Factory<Required<ConversionDeliveryPort>>>({ module, name: 'createLinkedInCapiBackend' })({
+        configuration: { ...configuration, pluginDigest: state.revision }, clock: dependencies.clock, observer: dependencies.observer,
+        credentials: credentials(execution), fetch: guarded,
+        authority: { async dispatch(call: { execute(input: { isCurrent(): boolean }): Promise<Outcome<{ status: 'delivered' | 'unknown' }>> }) {
+            const authorized = await conversionCurrent({ ...required, execution });
+            return authorized.ok ? call.execute({ isCurrent: () => !required.signal?.aborted }) : authorized;
+        } } });
+    if (required.action === 'reconcile') return backend.reconcile({ ...input, deliveryId: input.deliveryId }, { signal: required.signal });
+    return backend.deliver(input, { signal: required.signal });
+}
+/** Recheck grant/consent, then lifecycle authority after those awaits; refusals stay typed.
+ * @complexity Bounded authority reads and O(b) bundle hashing time/space; no retries. */
+async function conversionCurrent(required: { authority: ConversionAuthority; input: Parameters<ConversionDeliveryPort['deliver']>[0]; execution: Execution; signal?: AbortSignal }): Promise<Outcome<void>> {
+    if (!await bindingCurrent(required.execution) || required.signal?.aborted) return localFailure({ code: 'forbidden', message: 'Conversion binding changed' });
+    const grant = await required.authority.grants.current({ context: required.input.context, grantId: required.input.grant.grantId }, { signal: required.signal });
+    if (!grant.ok) return grant;
+    if (hash({ value: grant.value }) !== hash({ value: required.input.grant }) || grant.value.revoked
+        || required.execution.dependencies.clock.now({}) >= grant.value.expiresAt) return localFailure({ code: 'forbidden', message: 'Conversion grant changed' });
+    const consent = await required.authority.policy.assess({ context: required.execution.context, event: required.input.event }, { signal: required.signal });
+    if (!consent.ok) return consent;
+    if (!consent.value.allowed) return localFailure({ code: 'forbidden', message: 'Conversion consent withdrawn' });
+    return await current(required.execution) ? { ok: true, value: undefined } : localFailure({ code: 'forbidden', message: 'Conversion binding changed' });
 }
 
 /** Isolate installed metadata, module evaluation and descriptor validation per plugin.
@@ -59,9 +140,10 @@ async function pluginDefinitions(required: { dependencies: Dependencies; context
     try {
         const loaded = await dependencies.state({ context, pluginId });
         if (!loaded?.enabled || !loaded.bundled) return [];
-        const state = structuredClone(loaded);
-        const moduleUrl = pathToFileURL(join(dependencies.projectRoot, 'content/agent-plugins', pluginId, 'io.github.ainsep.openmarketing/dist/index.mjs')).href;
-        const module = z.record(z.string(), z.unknown()).parse({ ...await dependencies.loadModule({ moduleUrl }) });
+        const state = { ...structuredClone(loaded), revision: await executableRevision({ dependencies, pluginId, state: loaded }) };
+        const moduleUrl = new URL(bundledModuleUrl({ dependencies, pluginId }));
+        moduleUrl.searchParams.set('revision', state.revision);
+        const module = z.record(z.string(), z.unknown()).parse({ ...await dependencies.loadModule({ moduleUrl: moduleUrl.href }) });
         return contributions({ pluginId, module, state }).map(contribution => definition({ dependencies, context, pluginId, state, module, contribution }));
     } catch {
         const message = 'Bundled agent-plugin unavailable; check installed metadata and run om:build-plugins';
@@ -80,6 +162,8 @@ function exported<T>(required: { module: Namespace; name: string }): T {
 
 /** Convert the plugin's public descriptors. JSON-only schemas cross the OM/Jini seams. */
 function contributions(required: { pluginId: string; module: Namespace; state: AgentPluginState }): Contribution[] {
+    // Higgsfield is an agent plugin; its hosted tools are owned by addon-federation, not a second adapter.
+    if (required.pluginId === 'higgsfield-media') return [];
     if (required.pluginId === 'google-ads') return googleContributions(required);
     if (required.pluginId === 'linkedin-ads') return linkedinContributions(required);
     const key = required.pluginId === 'meta-ads' ? 'metaInstagramTools' : 'tiktokTools';
@@ -163,7 +247,18 @@ function parseSelection(required: { contribution: Contribution; input: unknown }
 async function current(required: Omit<Execution, 'module' | 'contribution'>): Promise<boolean> {
     if (required.signal?.aborted) return false;
     const state = await required.dependencies.state({ context: required.context, pluginId: required.pluginId });
-    return !!state?.admitted && state.enabled && state.bundled && state.revision === required.state.revision;
+    if (!state?.admitted || !state.enabled || !state.bundled) return false;
+    return await executableRevision({ ...required, state }) === required.state.revision;
+}
+function bundledModuleUrl(required: { dependencies: Dependencies; pluginId: string }): string {
+    return pathToFileURL(join(required.dependencies.projectRoot, 'content/agent-plugins', required.pluginId, 'io.github.ainsep.openmarketing/dist/index.mjs')).href;
+}
+/** Fence both installed metadata and executed bytes. A rebuild changes cards and native import URLs;
+ * every credential/egress fence rehashes the bounded bundle, so an old definition cannot send.
+ * @complexity O(b) bytes per fence, b bounded by the injected file reader (8 MiB in serve). */
+async function executableRevision(required: { dependencies: Dependencies; pluginId: string; state: AgentPluginState }): Promise<string> {
+    const digest = z.string().regex(/^[a-f0-9]{64}$/).parse(await required.dependencies.moduleDigest({ moduleUrl: bundledModuleUrl(required) }));
+    return hash({ value: [required.state.revision, digest] });
 }
 async function bindingCurrent(required: Execution): Promise<boolean> {
     if (!await current(required)) return false;
@@ -179,7 +274,8 @@ function guardedFetch(required: Execution): typeof fetch {
     return async (url, options) => {
         if (!await bindingCurrent(required)) throw new Error('Plugin unavailable');
         if (!await current(required) || options?.signal?.aborted) throw new Error('Plugin unavailable');
-        if (toolPolicy({ effects: required.contribution.effects }) !== 'read' && required.input.accountId !== null) {
+        if (required.stopPermit && required.dependencies.clock.now({}) >= required.stopPermit.expiresAt) throw new Error('Stop permit expired');
+        if (!required.stopPermit && toolPolicy({ effects: required.contribution.effects }) !== 'read' && required.input.accountId !== null) {
             const snapshot = await required.dependencies.safetyRepo.snapshot({ context: required.context, accountId: required.input.accountId }, { signal: required.signal });
             if (!snapshot.ok || snapshot.value.halted) throw new Error('Account halted');
         }
@@ -211,36 +307,87 @@ async function invoke(required: Omit<Execution, 'input' | 'signal'> & { invocati
         if (toolPolicy({ effects: required.contribution.effects }) === 'read') return await execute();
         if (toolPolicy({ effects: required.contribution.effects }) === 'spend' && !required.invocation.permit)
             return localFailure({ code: 'forbidden', message: 'Spend requires the dispatcher safety permit' });
-        return await required.dependencies.jobs.dispatch({ context: execution.context, pluginId: required.pluginId, input: parsed.value, execute });
+        return await writeWithBarrier({ execution, execute: () => required.dependencies.jobs.dispatch({ context: execution.context, pluginId: required.pluginId, input: parsed.value, execute }) });
     } catch { return localFailure({ message: 'Plugin binding failed; reconcile any submitted operation' }); }
+}
+/** Financial calls already hold withDispatch. Ordinary writes share halt's barrier through egress. */
+async function writeWithBarrier(required: { execution: Execution; execute(): Promise<Outcome<unknown>> }): Promise<Outcome<unknown>> {
+    const { execution } = required;
+    const locks = execution.dependencies.accountLocks;
+    if (toolPolicy({ effects: execution.contribution.effects }) === 'spend') return required.execute();
+    const acquired = await locks.acquire({ context: execution.context, accountId: execution.input.accountId ?? 'connection:' + execution.input.connectionId }, { signal: execution.signal });
+    if (!acquired.ok) return acquired;
+    try { return await required.execute(); }
+    finally {
+        const released = await locks.release({ lockId: acquired.value.lockId });
+        if (!released.ok) throw new Error('Plugin account barrier release failed');
+    }
+}
+
+/** Backend-only permit route. The worker owns authorization and the shared lock; plugins own
+ * closed pause/stop mappings. Meta hosted stop remains unavailable. No cards or second outbox.
+ * @complexity <=1 bundle load; plugin mappings bound IDs to 100, with no blind retries. */
+async function haltStop(required: { dependencies: Dependencies; context: CallContext; pluginId: string; permit: HaltStopPermit }): Promise<Outcome<unknown>> {
+    try {
+        const parsed = parseBoundary({ schema: haltStopRequestSchema, input: required.permit.request });
+        if (!parsed.ok) return parsed;
+        const request = parsed.value;
+        const loaded = await required.dependencies.state({ context: required.context, pluginId: required.pluginId });
+        if (!loaded?.admitted || !loaded.enabled || !loaded.bundled) return localFailure({ message: 'Stop plugin unadmitted or unavailable' });
+        const state = { ...loaded, revision: await executableRevision({ ...required, state: loaded }) };
+        if (request.pluginDigest !== state.revision) return localFailure({ code: 'conflict', message: 'Stop executable revision changed' });
+        const moduleUrl = new URL(bundledModuleUrl(required));
+        moduleUrl.searchParams.set('revision', state.revision);
+        const module = { ...await required.dependencies.loadModule({ moduleUrl: moduleUrl.href }) };
+        const execution: Execution = { ...required, state, module, stopPermit: required.permit,
+            input: { operationId: request.operationId, connectionId: request.connectionId, accountId: request.adAccountId, arguments: {} },
+            contribution: { name: 'halt-stop', description: 'Typed backend stop', effects: ['halt_stop'], inputSchema: {}, parse: () => ({ ok: true, value: request }) } };
+        if (!await bindingCurrent(execution)) return localFailure({ message: 'Stop account binding unavailable' });
+        return await stopPlugin(execution);
+    } catch { return localFailure({ message: 'Stop result unknown; reconcile before retrying' }); }
+}
+async function stopPlugin(required: Execution): Promise<Outcome<unknown>> {
+    const permit = required.stopPermit!;
+    if (required.pluginId === 'linkedin-ads') return linkedinAdapter(required).stop({ context: required.context, request: permit.request, permit });
+    if (required.pluginId === 'tiktok-ads') return tiktokAdapter(required).stop({ context: required.context, permit });
+    if (required.pluginId !== 'google-ads') return localFailure({ message: 'NEEDS: verified Meta hosted stop binding' });
+    const transport = googleTransport({ ...required, fetch: guardedFetch(required), credential: credentials(required) });
+    const adapter = exported<Factory<{ stop(input: Record<string, unknown>): Promise<Outcome<unknown>> }>>({ module: required.module, name: 'createStopBinding' })({
+        ...transport, authority: { dispatchStop: (call: { execute(): Promise<Outcome<unknown>> }) => call.execute() } });
+    return adapter.stop({ context: required.context, request: permit.request });
 }
 
 /** Instantiate one call's plugin dependencies; no adapter or token cache survives the invocation. */
 async function executePlugin(required: Execution): Promise<Outcome<unknown>> {
-    const common = { clock: required.dependencies.clock, observer: required.dependencies.observer };
     const fetch = guardedFetch(required);
     const credential = credentials(required);
     const input = required.input;
-    const configuration = { scope: required.context.scope, connectionId: input.connectionId, accountId: input.accountId, pluginDigest: required.state.revision };
     const invocation = { context: required.context, operationId: input.operationId, command: input.arguments,
         moneyExposure: input.moneyExposure ?? null, requiredLimit: input.requiredLimit ?? null };
     switch (required.pluginId) {
-        case 'linkedin-ads': {
-            const factory = exported<Factory<Adapter>>({ module: required.module, name: 'createLinkedInAdsAdapter' });
-            return factory({ ...common, configuration: { ...configuration, currency: input.currency, apiVersion: '202609', bindingId: 'linkedin-ads.stop.v1' },
-                credentials: credential, fetch, gateway: { dispatch: (call: { execute: () => Promise<Outcome<unknown>> }) => call.execute() } }).invoke(invocation, { signal: required.signal });
-        }
-        case 'tiktok-ads': {
-            const egress = exported<Factory<{ send(required: Record<string, unknown>, optional?: CallOptions): Promise<Outcome<unknown>> }>>({ module: required.module, name: 'createTikTokFetchEgress' })({ fetch, credentials: credential, observer: common.observer });
-            const gateway = { invoke: (call: { call: { connectionId: string; accountId: string; operationId: string; request: unknown } }, options?: CallOptions) => egress.send({
-                connectionId: call.call.connectionId, accountId: call.call.accountId, operationId: call.call.operationId, request: call.call.request,
-                context: required.context, isCurrent: () => !required.signal?.aborted }, options) };
-            return exported<Factory<Adapter>>({ module: required.module, name: 'createTikTokAdsAdapter' })({ ...common, binding: configuration, gateway }).invoke(invocation, { signal: required.signal });
-        }
+        case 'linkedin-ads': return linkedinAdapter(required).invoke(invocation, { signal: required.signal });
+        case 'tiktok-ads': return tiktokAdapter(required).invoke(invocation, { signal: required.signal });
         case 'meta-ads': return instagram({ ...required, fetch, credential });
         case 'google-ads': return google({ ...required, fetch, credential });
         default: return localFailure({ message: 'Plugin backend unavailable' });
     }
+}
+type StopAdapter = Adapter & { stop(input: Record<string, unknown>, optional?: CallOptions): Promise<Outcome<unknown>> };
+function linkedinAdapter(required: Execution): StopAdapter {
+    return exported<Factory<StopAdapter>>({ module: required.module, name: 'createLinkedInAdsAdapter' })({
+        clock: required.dependencies.clock, observer: required.dependencies.observer,
+        configuration: { scope: required.context.scope, connectionId: required.input.connectionId, accountId: required.input.accountId,
+            pluginDigest: required.state.revision, currency: required.input.currency ?? required.state.metadata.currency, apiVersion: '202609', bindingId: 'linkedin-ads.stop.v1' },
+        credentials: credentials(required), fetch: guardedFetch(required),
+        gateway: { dispatch: (call: { execute(): Promise<Outcome<unknown>> }) => call.execute() } });
+}
+function tiktokAdapter(required: Execution): StopAdapter {
+    const egress = exported<Factory<{ send(input: Record<string, unknown>, optional?: CallOptions): Promise<Outcome<unknown>> }>>({ module: required.module, name: 'createTikTokFetchEgress' })({
+        fetch: guardedFetch(required), credentials: credentials(required), observer: required.dependencies.observer });
+    return exported<Factory<StopAdapter>>({ module: required.module, name: 'createTikTokAdsAdapter' })({ clock: required.dependencies.clock, observer: required.dependencies.observer,
+        binding: { scope: required.context.scope, connectionId: required.input.connectionId, accountId: required.input.accountId, pluginDigest: required.state.revision },
+        gateway: { invoke: (call: { call: { connectionId: string; accountId: string; operationId: string; request: unknown } }, options?: CallOptions) => egress.send({
+            ...call.call, context: required.context, isCurrent: () => !required.signal?.aborted }, options) } });
 }
 async function instagram(required: Execution & { fetch: typeof fetch; credential: ReturnType<typeof credentials> }): Promise<Outcome<unknown>> {
     const dispatch = exported<Factory<unknown>>({ module: required.module, name: 'createMetaInstagramFetchDispatch' })({ fetch: required.fetch, credentials: required.credential });
@@ -250,11 +397,16 @@ async function instagram(required: Execution & { fetch: typeof fetch; credential
         clock: required.dependencies.clock, observer: required.dependencies.observer, configuration: { apiVersion: 'v25.0', timeoutMs: 15000 },
         wait: required.dependencies.wait }, { signal: required.signal });
 }
-async function google(required: Execution & { fetch: typeof fetch; credential: ReturnType<typeof credentials> }): Promise<Outcome<unknown>> {
+function googleTransport(required: Execution & { fetch: typeof fetch; credential: ReturnType<typeof credentials> }) {
     const binding = { scope: required.context.scope, connectionId: required.input.connectionId, customerId: required.input.accountId,
-        currency: required.input.currency, timezone: required.input.timezone, mode: 'read_only', pluginDigest: required.state.revision, schemaFingerprint: hash({ value: required.contribution.inputSchema }) };
+        currency: required.input.currency ?? required.state.metadata.currency, timezone: required.input.timezone ?? required.state.metadata.timezone,
+        mode: 'read_only', pluginDigest: required.state.revision, schemaFingerprint: hash({ value: required.contribution.inputSchema }) };
     const http = exported<Factory<unknown>>({ module: required.module, name: 'createHttpAdapter' })({ fetch: required.fetch, observer: required.dependencies.observer });
     const transport = exported<Factory<unknown>>({ module: required.module, name: 'createGoogleRestTransport' })({ binding, http, credentials: required.credential });
+    return { binding, transport };
+}
+async function google(required: Execution & { fetch: typeof fetch; credential: ReturnType<typeof credentials> }): Promise<Outcome<unknown>> {
+    const { binding, transport } = googleTransport(required);
     const unavailable = async () => localFailure({ message: 'NEEDS: Google durable controlled-plan journal and billing evidence' });
     const adapter = exported<Factory<Adapter>>({ module: required.module, name: 'createGooglePlugin' })({ binding, transport, clock: required.dependencies.clock,
         journal: { claim: unavailable, append: unavailable, get: unavailable, findCampaign: unavailable }, authority: { dispatch: unavailable, billing: unavailable } });

@@ -1,7 +1,10 @@
 /** R1 written-only fixtures. All transports below are injected; no vendor or native fetch is used. */
 import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { randomUUID } from 'node:crypto';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createHash, randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import Database from 'better-sqlite3';
 import { expect, it } from 'vitest';
@@ -13,6 +16,8 @@ import { bindAgentPluginBackends, bindAgentPluginJobs } from '../src/composition
 import type { AgentPluginState } from '../src/composition/agent-plugin-backends.js';
 import { bindServerDatabase, provisionWorkspace } from '../src/composition/database.js';
 import { migrationManifest } from '../src/composition/migrations.js';
+import { createNodeBootIo } from '../src/composition/serve.js';
+import { generateOmToolCoverage } from '../src/om-tool-coverage.js';
 import { createOmTools, toolPolicy } from '../src/om-tools.js';
 
 const context: CallContext = { scope: { ownerId: 'owner', workspaceId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }, principal: { kind: 'owner', ownerId: 'owner' }, correlationId: 'correlation', traceId: 'trace' };
@@ -31,6 +36,7 @@ function loadFixtureModule(required: { moduleUrl: string }): object {
         case 'google-ads': return require('../../../content/agent-plugins/google-ads/io.github.ainsep.openmarketing/dist/index.mjs') as object;
         case 'linkedin-ads': return require('../../../content/agent-plugins/linkedin-ads/io.github.ainsep.openmarketing/dist/index.mjs') as object;
         case 'tiktok-ads': return require('../../../content/agent-plugins/tiktok-ads/io.github.ainsep.openmarketing/dist/index.mjs') as object;
+        case 'higgsfield-media': return require('../../../content/agent-plugins/higgsfield-media/io.github.ainsep.openmarketing/dist/index.mjs') as object;
         case 'meta-ads': return require('../../../content/agent-plugins/meta-ads/io.github.ainsep.openmarketing/dist/index.mjs') as object;
         default: throw new Error('Unknown fixture plugin');
     }
@@ -55,14 +61,16 @@ async function fixture(required: { admitted?: boolean; only?: string; safety?: S
     let beforeCredential: () => Promise<void> = async () => {};
     let failure: { stage: 'state' | 'module' | 'descriptors'; pluginId: string } | undefined;
     const loads: string[] = [];
+    let bundleDigest = 'd'.repeat(64);
     let halted = false;
     const safetyRepo = createMemorySafetyRepo({ clock, ids, ownerTimezone: 'UTC' });
     const binding = bindAgentPluginBackends({ projectRoot: fileURLToPath(new URL('../../../', import.meta.url)), clock, observer,
-        jobs, mode: 'sandbox', safety: required.safety,
+        jobs, mode: 'sandbox', safety: required.safety, accountLocks: createMemoryAccountDispatchLock({ ids }),
         async state({ pluginId }) {
             if (failure?.stage === 'state' && failure.pluginId === pluginId) throw new Error('Fixture metadata missing');
             return states.get(pluginId) ?? null;
         },
+        async moduleDigest() { return bundleDigest; },
         async loadModule({ moduleUrl }) {
             loads.push(moduleUrl);
             if (!moduleUrl.includes('/' + failure?.pluginId + '/')) return loadFixtureModule({ moduleUrl });
@@ -80,6 +88,7 @@ async function fixture(required: { admitted?: boolean; only?: string; safety?: S
         safetyRepo: { async snapshot(input) { const result = await safetyRepo.snapshot(input); return result.ok ? { ok: true, value: { ...result.value, halted } } : result; } },
     });
     return { native, binding, states, jobs, calls, accesses, ids, safetyRepo, loads,
+        changeBundle() { bundleDigest = 'e'.repeat(64); },
         setFailure(input: NonNullable<typeof failure>) { failure = input; },
         setBeforeCredential(input: { callback(): Promise<void> }) { beforeCredential = input.callback; },
         halt() { halted = true; }, close() { native.close(); } };
@@ -201,7 +210,7 @@ it('uses one exact spend card for each single-entity activation and never a gate
             async verifyGenerationQuote() { throw new Error('Not a generation fixture'); }, async verifyHaltStop() { throw new Error('Not a stop fixture'); } },
         accountLocks: createMemoryAccountDispatchLock({ ids }), audit: createMemorySafetyAudit({}),
         platformLimits: createMemoryPlatformLimitEvidence({ evidence: [{ scope: context.scope, evidence: { evidenceId: 'cap', accountId: '123', amount: { currency: 'USD', minorUnits: 1000 },
-            window: { start: 0, end: 100000 }, observedAt: 1000, semantics: 'hard_limit', pluginDigest: 'a'.repeat(64) } }] }) });
+            window: { start: 0, end: 100000 }, observedAt: 1000, semantics: 'hard_limit', pluginDigest: createHash('sha256').update(JSON.stringify(['a'.repeat(64), 'd'.repeat(64)])).digest('hex') } }] }) });
     const f = await fixture({ admitted: true, only: 'linkedin-ads', safety });
     try {
         const definition = value({ result: await f.binding.definitions({ context }) }).find(tool => tool.name === 'vendor_linkedin_ads_activate')!;
@@ -258,4 +267,57 @@ it('Instagram fetch encoding stays in the plugin and refuses redirected/oversize
     expect(await dispatch(input)).toMatchObject({ ok: false, error: { code: 'limit_exceeded' } });
     expect(await dispatch({ ...input, request: { ...input.request, endpoint: 'https://evil.invalid/media' } })).toMatchObject({ ok: false, error: { code: 'forbidden' } });
     expect(requests).toHaveLength(2);
+});
+
+
+it('fences rebuilt bundle bytes during credential access and changes catalog revisions/import URLs', async () => {
+    const f = await fixture({ admitted: true, only: 'linkedin-ads' });
+    try {
+        const old = value({ result: await f.binding.definitions({ context }) }).find(tool => tool.name === readNames['linkedin-ads'])!;
+        f.setBeforeCredential({ async callback() { f.changeBundle(); } });
+        expect(await old.invoke({ context, input: selection({ pluginId: 'linkedin-ads' }) })).toMatchObject({ ok: false });
+        expect(f.calls).toEqual([]);
+        const fresh = value({ result: await f.binding.definitions({ context }) }).find(tool => tool.name === old.name)!;
+        expect(fresh.revision).not.toBe(old.revision);
+        expect(f.loads[0]).not.toBe(f.loads.at(-1));
+        expect(new URL(f.loads.at(-1)!).searchParams.get('revision')).toBe(fresh.revision);
+    } finally { f.close(); }
+});
+
+it('recognizes Higgsfield as an agent plugin while leaving its hosted descriptors to federation', async () => {
+    const f = await fixture();
+    try {
+        f.states.set('higgsfield-media', { enabled: true, bundled: true, admitted: false, revision: 'a'.repeat(64), metadata: {} });
+        const definitions = value({ result: await f.binding.definitions({ context }) });
+        expect(f.loads.some(url => url.includes('/higgsfield-media/'))).toBe(true);
+        expect(definitions.some(tool => tool.name === 'vendor_higgsfield_media_unavailable')).toBe(false);
+        expect(f.calls).toEqual([]); expect(f.accesses).toEqual([]);
+    } finally { f.close(); }
+});
+
+it('coverage distinguishes unadmitted vendor tools and names the remaining owning workflow gaps', async () => {
+    const f = await fixture();
+    try {
+        const rows = generateOmToolCoverage({ definitions: value({ result: await f.binding.definitions({ context }) }) });
+        expect(rows.find(row => row.tool === readNames['linkedin-ads'])).toMatchObject({ status: 'unadmitted', reason: expect.stringContaining('unadmitted') });
+        for (const capability of ['Campaign launch', 'Higgsfield creative lifecycle', 'Meta ads hosted binding', 'Uploaded executable agent plugins'])
+            expect(rows.find(row => row.capability === capability)).toMatchObject({ status: 'NEEDS', reason: expect.any(String) });
+        expect(rows.find(row => row.capability === 'Typed remote halt stop')?.reason).toContain('pending');
+    } finally { f.close(); }
+});
+
+it('native bundle digests cover actual bytes, change on rebuild, and reject oversized files', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'om-plugin-revision-'));
+    const path = join(directory, 'index.mjs');
+    const moduleUrl = pathToFileURL(path).href;
+    const io = createNodeBootIo({ projectRoot: directory, studioRoot: directory, ready() {} });
+    try {
+        await writeFile(path, 'export const version = 1;');
+        const first = await io.agentPlugins!.moduleDigest({ moduleUrl });
+        expect(first).toBe(createHash('sha256').update('export const version = 1;').digest('hex'));
+        await writeFile(path, 'export const version = 2;');
+        expect(await io.agentPlugins!.moduleDigest({ moduleUrl })).not.toBe(first);
+        await writeFile(path, 'x'.repeat(8388609));
+        await expect(io.agentPlugins!.moduleDigest({ moduleUrl })).rejects.toThrow();
+    } finally { await rm(directory, { recursive: true, force: true }); }
 });
