@@ -7,6 +7,7 @@
   "exports": { ".": "./io.github.ainsep.openmarketing/src/index.ts" },
   "devDependencies": { "@open-marketing/contracts": "workspace:*" },
   "scripts": {
+    "build": "esbuild io.github.ainsep.openmarketing/src/index.ts --bundle --platform=node --format=esm --outfile=io.github.ainsep.openmarketing/dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --test io.github.ainsep.openmarketing/tests/*.test.ts"
   }

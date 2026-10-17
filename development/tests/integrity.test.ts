@@ -61,3 +61,30 @@ it('exempts only verified versioned plugin client bundles and still lints first-
   expect(lintSources({ root }).failures).toHaveLength(1);
  } finally { rmSync(root, { recursive: true, force: true }); }
 }, 30000);
+
+it('exempts exactly the non-workspace agent-plugin esbuild entry while retaining all adjacent gates', () => {
+ const root = mkdtempSync(join(tmpdir(), 'om-agent-plugin-output-'));
+ const allowed = 'content/agent-plugins/fixture/io.github.ainsep.openmarketing/dist/index.mjs';
+ const guarded = [
+  'content/agent-plugins/fixture/io.github.ainsep.openmarketing/dist/other.mjs',
+  'content/agent-plugins/fixture/io.github.ainsep.openmarketing/dist/index.js',
+  'content/agent-plugins/fixture/dist/index.mjs',
+  'content/plugins/fixture/io.github.ainsep.openmarketing/dist/index.mjs',
+  'apps/server/dist/index.mjs',
+ ];
+ try {
+  writeFileSync(join(root, 'pnpm-workspace.yaml'), 'packages: []\n');
+  for (const file of [allowed, ...guarded]) {
+   mkdirSync(join(root, file, '..'), { recursive: true });
+   writeFileSync(join(root, file), 'export const built = true;');
+  }
+  const failures = outputIntegrity({ root });
+  expect(failures).toHaveLength(guarded.length);
+  for (const file of guarded) expect(failures).toContain(file + ': missing generated integrity receipt');
+  expect(sourceFiles({ root })).not.toContain(allowed);
+  const source = 'content/agent-plugins/fixture/io.github.ainsep.openmarketing/src/index.ts';
+  mkdirSync(join(root, source, '..'), { recursive: true });
+  writeFileSync(join(root, source), 'export const source = true;');
+  expect(lintSources({ root }).files).toContain(source);
+ } finally { rmSync(root, { recursive: true, force: true }); }
+});

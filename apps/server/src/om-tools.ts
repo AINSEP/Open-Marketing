@@ -437,6 +437,7 @@ export const discoveryTools: readonly ToolDescriptor[] = [
 
 /** Current enabled add-on sources are reloaded on discovery and again at dispatch/continuation.
  * Their unknown effects remain write. Source callbacks use D2's exact invocation seam.
+ * A failed package description marks only that source unavailable; catalog-list failures propagate.
  * @complexity Fixed read bindings plus D2's bounded source loading; no second plugin registry.
  */
 export async function buildOmToolDefinitions(required: { context: CallContext; services: OwnerServices & OmFeatureServices; addons?: AddonToolDependencies }): Promise<Outcome<readonly OmToolDefinition[]>> {
@@ -444,12 +445,20 @@ export async function buildOmToolDefinitions(required: { context: CallContext; s
     definitions.push(ownerSettingsDefinition(required), ...coreDefinitions(required), ...featureDefinitions(required),
         ...buildUiToolDefinitions({ runtime: required.services.ui?.runtime ?? null, frontend: required.services.ui?.frontend }));
     if (!required.addons) return { ok: true, value: definitions };
-    const loaded = await loadAddonToolSources({ context: required.context, dependencies: required.addons });
+    const unavailableSources = new Set<string>();
+    const dependencies = { ...required.addons, addons: { ...required.addons.addons, async describe(input: Parameters<AddonToolDependencies['addons']['describe']>[0]) {
+        const described = await required.addons!.addons.describe(input);
+        if (described.ok) return described;
+        unavailableSources.add(input.kind + ':' + input.id);
+        return { ok: true as const, value: { effects: ['write'] } };
+    } } };
+    const loaded = await loadAddonToolSources({ context: required.context, dependencies });
     if (!loaded.ok) return redactAddonOutcome({ outcome: loaded });
     definitions.push(...addonDefinitions({ dependencies: required.addons }));
     for (const source of loaded.value) definitions.push({ ...source, capability: 'Installed ' + source.kind + ': ' + source.addonId,
         policy: toolPolicy({ effects: source.effects }),
-        unavailableReason: ['spend', 'generation', 'internal'].includes(toolPolicy({ effects: source.effects }))
+        unavailableReason: unavailableSources.has(source.kind + ':' + source.addonId) ? 'Installed add-on unavailable; check its package metadata'
+            : ['spend', 'generation', 'internal'].includes(toolPolicy({ effects: source.effects }))
             ? 'NEEDS I-2: add-on source describes contributions; verified financial/typed backend tools are not connected' : undefined, parse: input => parseBoundary({ schema: z.strictObject({ skill: idSchema.optional() }), input: input.input }),
         invoke: async input => redactAddonOutcome({ outcome: await invokeAddonTool({ ...input, sourceId: source.id, revision: source.revision, dependencies: required.addons! }, { signal: input.signal }) }) });
     return { ok: true, value: definitions };

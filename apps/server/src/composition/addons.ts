@@ -16,7 +16,7 @@ import type { DefinedPlugin, ManifestHostPorts, PluginActivationRepoPort, Plugin
 import { snapshotPluginModuleGraph, snapshotSitePluginPackage } from '@jini-ai/plugins/host/node';
 import type { AddonSummary, CallContext, ClockPort, IdPort, ObserverPort, Outcome } from '@open-marketing/contracts';
 import type { CredentialSqlPort } from '@open-marketing/credentials';
-import { addonSummarySchema, boundedJsonSchema } from '@open-marketing/contracts';
+import { addonSummarySchema, addonToolEffectsSchema, boundedJsonSchema } from '@open-marketing/contracts';
 import { createAddons, createSqlAddonRepository, addonBoundary, addonFailure } from '../addons.js';
 import type { AddonDescription, AddonPackageAdapter, PreparedAddon } from '../addons.js';
 import { addonAgentArchiveReader, decodeAddonUpload } from '../addon-upload.js';
@@ -26,6 +26,7 @@ import { createExternalMcpStore } from '../external-mcp.js';
 import type { ExternalMcpSessions } from '../external-mcp.js';
 import { createChartAssets, handleChartAssetRequest } from '../inbound/chart-assets.js';
 import type { HttpRequest } from '../ports.js';
+import type { AgentPluginState } from './agent-plugin-backends.js';
 
 /** Native effects are created ONLY here; tests inject temporary roots/readers/clock/ids.
  * YAML and executable module loading are supplied by composition; no new dependency is installed.
@@ -114,6 +115,25 @@ export function bindServerAddons(required: { context: CallContext; db: Credentia
         remove: async (input: Parameters<typeof repo.remove>[0]) => { assertScope(input); await repo.remove(input); } };
     const addons = createAddons({ repo: scopedRepo, packages, archiveReader: required.effects.archiveReader, observer: required.observer });
     return { addons, externalMcp, registry, charts,
+        /** Server-only bundled backend state. Uploaded executable agent packages remain a later binding.
+         * Disabled plugins are skipped before metadata reads. Admission requires both manifest and
+         * capability metadata; failures are isolated by each catalog source's boundary. */
+        async agentPluginState(input: { context: CallContext; pluginId: string }): Promise<AgentPluginState | null> {
+            assertScope(input);
+            const activation = await lifecycle.readAgentPluginActivations({ workspaceRoot: world.root });
+            const record = activation.plugins[input.pluginId];
+            if (!record?.enabled) return null;
+            const current = await lifecycle.resolveAgentPluginActivation({ workspaceRoot: world.root, pluginId: input.pluginId });
+            if (current.verdict !== 'active') return null;
+            const plugin = await installedPlugin({ id: input.pluginId });
+            const manifest = z.record(z.string(), z.unknown()).parse(JSON.parse(await lifecycle.readTrustedPluginFile({ plugin, filename: 'plugin.json' })));
+            const extensions = z.object({ extensions: z.record(z.string(), z.unknown()) }).parse(manifest).extensions;
+            const metadata = z.record(z.string(), z.unknown()).parse(extensions['io.github.ainsep.openmarketing']);
+            const text = await lifecycle.readTrustedPluginFile({ plugin, filename: 'io.github.ainsep.openmarketing/capabilities.json' });
+            const capabilities = z.object({ admitted: z.boolean() }).parse(JSON.parse(text));
+            return { enabled: true, bundled: record.origin === 'bundled', revision: plugin.archiveDigest,
+                admitted: metadata.admitted === true && capabilities.admitted, metadata, effects: addonToolEffectsSchema.parse([...new Set(await agentEffects({ plugin, manifest }))]) };
+        },
         // Coordinator selects this only after the existing owner cookie/origin authentication.
         async handleChartRequest(input: { request: HttpRequest; context: CallContext }) {
             try { assertScope(input); }
@@ -317,6 +337,7 @@ async function seedBundledAgentPlugins(required: { lifecycle: AgentPluginLifecyc
 
 /** Builds a bounded upload from portable package content, excluding development source/output.
  * Agent Plugins declare skills by layout and extra capability files by manifest bindings.
+ * The host also reads capabilities.json for admission, even when no manifest binding names it.
  * LICENSE/NOTICE accompany redistributed package bytes. The existing upload decoder owns hashing.
  */
 async function readBundledPackage(required: { effects: AddonEffects; sourceDir: string }) {
@@ -328,6 +349,8 @@ async function readBundledPackage(required: { effects: AddonEffects; sourceDir: 
         { identityNamespace: 'io.github.ainsep.openmarketing' });
     if (!manifest.ok) throw new Error('Invalid bundled plugin manifest');
     const paths = new Set(entries.filter(entry => ['plugin.json', 'mcp.json', 'skills', 'LICENSE', 'NOTICE'].includes(entry.name)).map(entry => entry.name));
+    const metadata = await bundledSourceEntries({ effects: required.effects, path: join(sourceDir, 'io.github.ainsep.openmarketing') });
+    if (metadata.some(entry => entry.name === 'capabilities.json')) paths.add('io.github.ainsep.openmarketing/capabilities.json');
     for (const path of bundledBindings({ value: manifest.manifest.extensions?.['io.github.ainsep.openmarketing'] })) paths.add(path);
     const scan: BundledScan = { files: new Map(), bytes: 0, entries: 0 };
     for (const path of paths) await readBundledPath({ ...required, sourceDir, path, scan });

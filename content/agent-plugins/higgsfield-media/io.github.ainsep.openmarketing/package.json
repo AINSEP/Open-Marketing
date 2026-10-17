@@ -4,10 +4,10 @@
   "private": true,
   "type": "module",
   "sideEffects": false,
-  "exports": { ".": { "types": "./src/index.ts", "import": "./dist/index.js" } },
+  "exports": { ".": { "types": "./src/index.ts", "import": "./dist/index.mjs" } },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.mjs",
     "test": "vitest run tests"
   },
   "dependencies": {

@@ -12,4 +12,5 @@ export { createMemoryJournal } from "./memory.ts";
 export { billingExposure, effectFor, operationIdentity, validatePlan, validateHierarchy, microsToMoney } from "./rules.ts";
 export { planDigest } from "./readback.ts";
 export { toolSchemas, hierarchySchema, planSchema } from "./schemas.ts";
+export { parse } from "./schema.ts";
 export type { AccountBinding, SearchPlan, Hierarchy, BillingEvidence, Receipt, GooglePluginDependencies, HostAuthorityPort, GoogleTransportPort, OperationJournalPort, OperationRecord, HttpPort, CredentialPort } from "./types.ts";

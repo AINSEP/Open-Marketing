@@ -11,12 +11,15 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { setTimeout as waitFor } from 'node:timers/promises';
 import type { ClockPort, ObserverPort, Outcome } from '@open-marketing/contracts';
 import type { KeyringConfiguration } from '@open-marketing/credentials';
 import { z } from 'zod';
 import { bootServer, type BootedServer, type ServerBootIo } from './index.js';
 import { localFailure, localStateRoot, readLocalFile, type LocalFilesystem } from './local-auth.js';
 /** Load a verified snapshot URL's default export; import errors propagate and plugin cost is unbounded. */ export async function loadAddonModule(required: { moduleUrl: string }): Promise<unknown> { return (await import(required.moduleUrl)).default as unknown; }
+/** Bundled vendor entries expose named exports. Evaluation errors reach the redacted binding boundary. */
+export async function loadAgentPluginModule(required: { moduleUrl: string }): Promise<object> { return import(required.moduleUrl) as Promise<object>; }
 
 /** Bind standard Node effects for boot and its real temporary-file integration test.
  * Paths are supplied by composition, independent of cwd; no resource is opened by this factory.
@@ -28,6 +31,12 @@ export function createNodeBootIo(required: { projectRoot: string; studioRoot: st
         addonEffects: input => createNodeAddonEffects({ ...input, loadModule: loadAddonModule }),
         addonYaml: { read: readAddonYaml },
         addonFederation: createNodeFederationEffects({ fetch, stdio: input => new StdioClientTransport(input) }),
+        agentPlugins: { fetch, loadModule: loadAgentPluginModule, async wait(input, options) {
+            if (!Number.isInteger(input.milliseconds) || input.milliseconds < 0 || input.milliseconds > 60000)
+                return localFailure({ code: 'invalid_input', message: 'Plugin wait outside bounded interval' });
+            try { await waitFor(input.milliseconds, undefined, { signal: options?.signal }); return { ok: true, value: undefined }; }
+            catch { return localFailure({ code: 'cancelled', message: 'Plugin wait cancelled' }); }
+        } },
         loadCredentialMaster: input => loadCredentialMaster({ ...input, fs, randomToken: () => randomBytes(32).toString('hex') }),
         schedule: ({ callback, delayMs }) => { const timer = setTimeout(callback, delayMs); return () => clearTimeout(timer); } };
 }

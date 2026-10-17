@@ -8,6 +8,8 @@ import type { OmTools } from '../om-tools.js';
 import type { YamlReaderPort } from '@jini-ai/agentic/skills/install';
 import type { ExternalMcpSessions } from '../external-mcp.js';
 import { bindAddonFederationSessions } from './addon-federation.js';
+import { bindAgentPluginBackends, bindAgentPluginJobs } from './agent-plugin-backends.js';
+import type { AgentPluginEffects } from './agent-plugin-backends.js';
 import type { AddonFederationEffects } from './addon-federation.js';
 /** Sole server resource composition. Imports and factories are inert; boot is explicitly effectful. */
 import { createSqliteChatStore } from '@jini-ai/chat/store/sqlite';
@@ -31,7 +33,7 @@ import { createLocalAgent, createNodeAgentEffects, type AgentEffects } from './a
 import { createFrontendSessions, type FrontendSessions } from '../inbound/frontend.js';
 import { join } from 'node:path';
 import type Database from 'better-sqlite3';
-import type { CallContext, ClockPort, IdPort, ObserverPort, Outcome } from '@open-marketing/contracts';
+import type { CallContext, ClockPort, IdPort, ObserverPort, Outcome, UnitOfWork } from '@open-marketing/contracts';
 import { z } from 'zod';
 import { createSqlCampaignRepo, type CampaignSqlPort } from '@open-marketing/campaigns';
 import { createMemoryConfirmationExchange, createSqlSafetyRepo, type MemoryConfirmationExchange, type SafetySqlDatabase } from '@open-marketing/safety';
@@ -70,6 +72,7 @@ export interface ServerBootIo extends HttpEffects {
     readonly addonYaml?: YamlReaderPort;
     readonly addonSessions?: ExternalMcpSessions;
     readonly addonFederation?: AddonFederationEffects;
+    readonly agentPlugins?: AgentPluginEffects;
     readonly modelUpstream?: ModelUpstream;
     readonly loadCredentialMaster?: (required: { configuration: KeyringConfiguration; masterHex?: string }) => Promise<Outcome<Uint8Array>>;
 }
@@ -237,7 +240,7 @@ export async function bootServer(required: {
             safety: createSqlSafetyRepo({ db: safetyDb, clock: required.clock, ids: required.ids, ownerTimezone: config.value.timezone, observer: required.observer }),
             confirmations: resources.confirmations, integrations,
         };
-        resources.addons = bindBootAddons({ ...required, context, db: campaignDb, stateRoot: config.value.stateRoot, integrations });
+        resources.addons = bindBootAddons({ ...required, context, db: campaignDb, unit: database.unit, stateRoot: config.value.stateRoot, integrations });
         services.addons = resources.addons?.addons;
         services.handleChartRequest = resources.addons?.handleChartRequest;
         const visits = createVisitTokens({ key: localKey({ ownerToken: credentials.value.token, domain: 'visits' }), clock: required.clock, ids: required.ids });
@@ -282,12 +285,22 @@ export async function bootServer(required: {
             clock: required.clock, ids: required.ids, observer: required.observer, randomToken: required.io.randomToken, persistence,
             frontend: resources.frontend, onRevoked: input => { resources.tools?.cancel(input); resources.frontend?.endRun(input); } });
         services.runs = resources.agent.owner;
+        const pluginBackends = bindBootPluginBackends({ io: required.io, addons: resources.addons, services, integrations,
+            unit: database.unit, clock: required.clock, ids: required.ids, observer: required.observer });
         resources.tools = createOmTools({ clock: required.clock, observer: required.observer, confirmations: resources.confirmations,
             authorize: input => input.context.principal.kind === 'owner'
                 ? scopedOwnerAuthority({ context: input.context, expected: context! })
                 : resources.agent!.authorize(input),
-            definitions: input => buildOmToolDefinitions({ ...input, services,
-                addons: services.addons ? { addons: services.addons, integrations, observer: required.observer } : undefined }) });
+            definitions: async input => {
+                const base = await buildOmToolDefinitions({ ...input, services,
+                    addons: services.addons ? { addons: services.addons, integrations, observer: required.observer } : undefined });
+                if (!base.ok) return base;
+                const plugins = await pluginBackends?.definitions(input);
+                if (plugins && !plugins.ok) return plugins;
+                const mcp = await resources.addons?.federation?.definitions(input);
+                if (mcp && !mcp.ok) return mcp;
+                return { ok: true, value: [...base.value, ...(plugins?.value ?? []), ...(mcp?.value ?? [])] };
+            } });
         services.tools = resources.tools;
         const agent = resources.agent;
         const bootContext = context;
@@ -384,6 +397,16 @@ function createModelUpstream(required: { fetch: typeof fetch }): ModelUpstream {
    return { signal: controller.signal, dispose: () => clearTimeout(timer) }; } };
 }
 
+/** Local boot supplies read-only account authority; fixture compositions inject financial safety
+ * separately. Missing host effects leave vendor definitions absent, without constructing services. */
+function bindBootPluginBackends(required: { io: ServerBootIo; addons: ReturnType<typeof bindBootAddons>; services: OwnerServices & OmFeatureServices;
+    integrations: Integrations; unit: UnitOfWork; clock: ClockPort; ids: IdPort; observer: ObserverPort }): ReturnType<typeof bindAgentPluginBackends> | undefined {
+    if (!required.io.agentPlugins || !required.addons || !required.services.accountBindings) return undefined;
+    return bindAgentPluginBackends({ ...required.io.agentPlugins, projectRoot: required.io.projectRoot, clock: required.clock, observer: required.observer,
+        state: required.addons.agentPluginState, integrations: required.integrations, accounts: required.services.accountBindings, safetyRepo: required.services.safety,
+        jobs: bindAgentPluginJobs(required), mode: 'read_only' });
+}
+
 /** Hosts without native federation I/O fail explicitly; no fake session activation. */
 function unavailableAddonSessions(): ExternalMcpSessions {
     return { async reload() { throw new Error('Federation binding unavailable'); }, async close() { /* No session was acquired. */ } };
@@ -393,11 +416,14 @@ function unavailableAddonSessions(): ExternalMcpSessions {
  * Test/server shell hosts without these adapters retain explicit unavailable owner routes.
  * @complexity O(1) construction; start/dispose remain owned by bootResources.
  */
-function bindBootAddons(required: { io: ServerBootIo; context: CallContext; db: CampaignSqlPort; stateRoot: string; clock: ClockPort; ids: IdPort; observer: ObserverPort; integrations: Integrations }): (ReturnType<typeof bindServerAddons> & { federation?: ReturnType<typeof bindAddonFederationSessions> }) | undefined {
+function bindBootAddons(required: { io: ServerBootIo; context: CallContext; db: CampaignSqlPort; unit: UnitOfWork; stateRoot: string; clock: ClockPort; ids: IdPort; observer: ObserverPort; integrations: Integrations }): (ReturnType<typeof bindServerAddons> & { federation?: ReturnType<typeof bindAddonFederationSessions> }) | undefined {
     if (!required.io.addonEffects || !required.io.addonYaml) return undefined;
+    let binding: ReturnType<typeof bindServerAddons>;
     const federation = !required.io.addonSessions && required.io.addonFederation
-        ? bindAddonFederationSessions({ context: required.context, effects: required.io.addonFederation, integrations: required.integrations, observer: required.observer }) : undefined;
-    const binding = bindServerAddons({ ...required, projectRoot: required.io.projectRoot,
+        ? bindAddonFederationSessions({ context: required.context, effects: required.io.addonFederation, integrations: required.integrations, observer: required.observer,
+            pluginState: input => binding.agentPluginState(input),
+            jobs: bindAgentPluginJobs({ unit: required.unit, clock: required.clock, ids: required.ids, observer: required.observer }) }) : undefined;
+    binding = bindServerAddons({ ...required, projectRoot: required.io.projectRoot,
         effects: required.io.addonEffects({ clock: required.clock, ids: required.ids }), yamlReader: required.io.addonYaml,
         sessions: required.io.addonSessions ?? federation ?? unavailableAddonSessions() });
     return { ...binding, federation };

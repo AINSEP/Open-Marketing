@@ -4,7 +4,7 @@ import * as fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { parseBoundary, toolDescriptorSchema, toolOperationSchema, toolResultSchema } from '@open-marketing/contracts';
 import type { ApprovalResponse, CallContext, Outcome, ToolCall, ToolResult } from '@open-marketing/contracts';
@@ -264,7 +264,14 @@ it('lists a seeded bundled agent-plugin source in the catalog after real boot re
     const studioRoot = join(directory, 'studio'); const stateRoot = join(directory, 'state');
     await fs.mkdir(studioRoot); await fs.writeFile(join(studioRoot, 'index.html'), '<!doctype html><title>A3 fixture</title>');
     const projectRoot = fileURLToPath(new URL('../../../', import.meta.url));
-    const io = createNodeBootIo({ projectRoot, studioRoot, ready() {} });
+    const nativeIo = createNodeBootIo({ projectRoot, studioRoot, ready() {} });
+    const reads: { mock: { calls: unknown[][] } }[] = [];
+    const io = { ...nativeIo, addonEffects(input: Parameters<NonNullable<typeof nativeIo.addonEffects>>[0]) {
+        const effects = nativeIo.addonEffects!(input);
+        const filesystem = { ...effects.filesystem };
+        reads.push(vi.spyOn(filesystem, 'readFile'));
+        return { ...effects, filesystem };
+    } };
     const args = { env: { OM_STATE_ROOT: stateRoot }, io, clock: { now: () => 1000 }, ids: { next: () => randomUUID() }, observer: { observe() {} } };
     let server: Awaited<ReturnType<typeof bootServer>> | undefined;
     try {
@@ -275,6 +282,19 @@ it('lists a seeded bundled agent-plugin source in the catalog after real boot re
         const packages = await (await fetch(origin + '/api/addons/v1/packages?limit=100', { headers })).json() as { value: { items: { id: string; kind: string; revision: string }[] } };
         const seeded = packages.value.items.find(addon => addon.kind === 'agent-plugin' && addon.id === 'meta-ads');
         expect(seeded).toBeDefined(); if (!seeded) throw new Error('Bundled meta-ads was not seeded');
+        // Admission metadata must survive seeding even without a manifest binding to that file.
+        const snapshots = (await fs.readdir(join(stateRoot, 'addons'), { recursive: true })).filter(path => path.endsWith('/plugin.json'));
+        expect(snapshots.length).toBeGreaterThanOrEqual(6);
+        for (const path of snapshots) {
+            const manifest = JSON.parse(await fs.readFile(join(stateRoot, 'addons', path), 'utf8'));
+            const filename = 'io.github.ainsep.openmarketing/capabilities.json';
+            expect(await fs.readFile(join(stateRoot, 'addons', path, '..', filename), 'utf8'))
+                .toBe(await fs.readFile(join(projectRoot, 'content/agent-plugins', manifest.name, filename), 'utf8'));
+        }
+        const readCounts = reads.map(read => read.mock.calls.length);
+        expect((await fetch(origin + '/api/tools?limit=100', { headers })).status).toBe(200);
+        const catalogReads = reads.flatMap((read, index) => read.mock.calls.slice(readCounts[index]).map(call => String(call[0])));
+        expect(catalogReads.some(path => path.endsWith('/capabilities.json'))).toBe(false);
         const enabled = await fetch(origin + '/api/addons/v1/set-enabled', { method: 'POST', headers, body: JSON.stringify({ kind: seeded.kind, id: seeded.id, enabled: true }) });
         expect(enabled.status).toBe(200); await first.stop({});
         server = await bootServer(args); const restarted = value({ result: server });
@@ -444,6 +464,35 @@ function addonFixture(required: { failure?: boolean } = {}): AddonToolDependenci
         async install() { return rejected; }, async setEnabled() { return rejected; }, async uninstall() { return rejected; },
     }, integrations: { async list() { return { ok: true, value: { items: [], cursor: null } }; }, async disconnect() { return rejected; } } };
 }
+
+it('keeps the catalog and healthy add-on usable when another package description fails', async () => {
+    const f = fixture({}); const addons = addonFixture();
+    const broken = { id: 'fixture-addon', kind: 'agent-plugin' as const, name: 'Broken', description: 'Broken plugin', version: '1', revision: 'broken-revision', enabled: true };
+    const dependencies: AddonToolDependencies = { ...addons, addons: { ...addons.addons,
+        async list(input, options) {
+            const listed = await addons.addons.list(input, options);
+            return listed.ok ? { ok: true, value: { ...listed.value, items: [...listed.value.items, broken] } } : listed;
+        },
+        async describe(input, options) {
+            if (input.kind === broken.kind && input.id === broken.id) return { ok: false, error: { code: 'unavailable', message: 'Fixture missing capabilities.json', retryable: false } };
+            return addons.addons.describe(input, options);
+        },
+    } };
+    try {
+        const definitions = value({ result: await buildOmToolDefinitions({ context: owner, services: f.services, addons: dependencies }) });
+        expect(definitions.some(tool => tool.name === 'om_status')).toBe(true);
+        const healthy = definitions.find(tool => tool.name.startsWith('addon_plugin_'))!;
+        expect(healthy.policy).toBe('write');
+        expect(value({ result: await healthy.invoke({ context: owner, input: {} }) })).toMatchObject({ instructions: 'Fixture contribution' });
+        const unavailable = definitions.find(tool => tool.name.startsWith('addon_agent_plugin_'))!;
+        expect(unavailable.unavailableReason).toContain('unavailable');
+        const tools = createOmTools({ definitions: async () => ({ ok: true, value: definitions }), confirmations: createMemoryConfirmationExchange({ clock: f.clock, ids: f.ids }),
+            clock: f.clock, observer: f.observer, authorize: () => ({ ok: true, value: undefined }) });
+        try {
+            expect(await tools.dispatch({ context: owner, call: { name: unavailable.name, operationId: 'broken-plugin', input: {} } })).toMatchObject({ ok: false });
+        } finally { tools.dispose({}); }
+    } finally { f.tools.dispose({}); }
+});
 
 it('consumes D2 management/source schemas and redacts structured third-party failures before the dispatcher boundary', async () => {
     const f = fixture({});
