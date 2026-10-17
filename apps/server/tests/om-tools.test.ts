@@ -1,4 +1,11 @@
 /** Written-only A3 contract/security/boot regressions. No vendor requests or credentials. */
+import Database from 'better-sqlite3';
+import { readFileSync } from 'node:fs';
+import { bindServerDatabase } from '../src/composition/database.js';
+import { createSqlToolOperationStore, createMemoryToolOperationStore } from '../src/tool-operations.js';
+import type { ToolOperationStore } from '../src/tool-operations.js';
+import { createSqlConfirmationExchange } from '@open-marketing/safety';
+import type { ConfirmationExchangePort, SafetySqlDatabase } from '@open-marketing/safety';
 import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -59,7 +66,7 @@ function fixture(_required: Record<string, never>) {
             body: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: input.choice ?? 'allow' } } });
     }
     return { tools, call, services, grants, grant, effects, contexts, clock, ids, observer, answer,
-        advance() { now = 301001; }, revoke() { active = false; tools.cancel({ context: owner, runId: 'run' }); }, endRun() { active = false; },
+        advance() { now = 301001; }, async revoke() { active = false; await tools.cancel({ context: owner, runId: 'run' }); }, endRun() { active = false; },
         replace() { revision = '2'; }, remove() { enabled = false; }, definition };
 }
 
@@ -90,7 +97,7 @@ for (const surface of ['direct', 'owner-http', 'mcp'] as const) describe('one OM
         expect(await dispatch({ call: original })).toEqual({ ok: true, value: { status: 'completed', output: { saved: 7 } } });
         expect(f.effects).toHaveLength(1);
         expect(await dispatch({ call: f.call })).toMatchObject({ ok: false, error: { code: 'conflict' } });
-        f.tools.dispose({});
+        await f.tools.dispose({});
     });
 });
 
@@ -102,18 +109,18 @@ it('serializes simultaneous duplicate identities and rejects cross-run/scope rea
     const foreign = { ...owner, scope: { ...owner.scope, workspaceId: 'other' } };
     expect(await f.tools.operation({ context: foreign, operationId: f.call.operationId })).toMatchObject({ ok: false });
     expect((await f.answer({ context: foreign })).status).toBeGreaterThanOrEqual(400);
-    expect(f.effects).toEqual([]); f.tools.dispose({});
+    expect(f.effects).toEqual([]); await f.tools.dispose({});
 });
 
 it('cancellation and expiry void cards before a late owner answer can execute', async () => {
     for (const interruption of ['cancel', 'expiry'] as const) {
         const f = fixture({}); value({ result: await f.tools.dispatch({ context: agent, call: f.call }) });
         const card = value({ result: await f.tools.card({ context: agent, operationId: f.call.operationId }) })!;
-        if (interruption === 'cancel') f.revoke(); else f.advance();
+        if (interruption === 'cancel') await f.revoke(); else f.advance();
         const result = await f.tools.answer({ context: owner, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } });
         expect(result.ok).toBe(false); expect(f.effects).toEqual([]);
         expect(value({ result: await f.services.confirmations.list({ context: owner, query: { limit: 100 } }) }).items).toEqual([]);
-        f.tools.dispose({});
+        await f.tools.dispose({});
     }
 });
 
@@ -122,7 +129,7 @@ it('requires fresh approval after a source revision changes or disappears', asyn
         const f = fixture({}); value({ result: await f.tools.dispatch({ context: agent, call: f.call }) });
         f[change](); expect((await f.answer()).status).toBe(409); expect(f.effects).toEqual([]);
         expect(value({ result: await f.tools.operation({ context: agent, operationId: f.call.operationId }) }).status).toBe('interrupted');
-        f.tools.dispose({});
+        await f.tools.dispose({});
     }
 });
 
@@ -130,11 +137,11 @@ it('denied cards and thrown outcomes cannot become completed or be blindly retri
     const denied = fixture({}); value({ result: await denied.tools.dispatch({ context: agent, call: denied.call }) });
     expect((await denied.answer({ choice: 'cancel' })).status).toBe(200);
     expect(value({ result: await denied.tools.operation({ context: agent, operationId: denied.call.operationId }) }).status).toBe('cancelled');
-    expect(denied.effects).toEqual([]); denied.tools.dispose({});
+    expect(denied.effects).toEqual([]); await denied.tools.dispose({});
     const f = fixture({}); f.definition.invoke = async () => { f.effects.push('entered'); throw new Error('Opaque fixture failure'); };
     value({ result: await f.tools.dispatch({ context: agent, call: f.call }) }); await f.answer();
     expect(value({ result: await f.tools.operation({ context: agent, operationId: f.call.operationId }) }).status).toBe('unknown');
-    expect((await f.tools.dispatch({ context: agent, call: f.call })).ok).toBe(false); expect(f.effects).toEqual(['entered']); f.tools.dispose({});
+    expect((await f.tools.dispatch({ context: agent, call: f.call })).ok).toBe(false); expect(f.effects).toEqual(['entered']); await f.tools.dispose({});
 });
 
 for (const interruption of ['cancel', 'revoked'] as const) it('retains an in-flight unknown write after ' + interruption + ' without replaying it', async () => {
@@ -148,7 +155,7 @@ for (const interruption of ['cancel', 'revoked'] as const) it('retains an in-fli
         value({ result: await f.tools.dispatch({ context: agent, call: f.call }) });
         const answering = f.answer();
         await started;
-        if (interruption === 'cancel') f.tools.cancel({ context: owner, runId: agent.runId! });
+        if (interruption === 'cancel') await f.tools.cancel({ context: owner, runId: agent.runId! });
         else f.endRun();
         // A fresh owner dispatch runs cleanup while the first non-idempotent write is in flight.
         value({ result: await f.tools.dispatch({ context: owner, call: { ...f.call, operationId: 'later' } }) });
@@ -163,7 +170,7 @@ for (const interruption of ['cancel', 'revoked'] as const) it('retains an in-fli
         expect(await f.tools.dispatch({ context: owner, call: f.call })).toMatchObject({ ok: false, error: { retryable: false } });
         expect(f.effects).toEqual([{ value: 7 }]);
         expect(value({ result: await f.tools.card({ context: owner, operationId: f.call.operationId }) })).toBeNull();
-    } finally { finish({ ok: false, error: { code: 'cancelled', message: 'Fixture cleanup', retryable: false } }); f.tools.dispose({}); }
+    } finally { finish({ ok: false, error: { code: 'cancelled', message: 'Fixture cleanup', retryable: false } }); await f.tools.dispose({}); }
 });
 
 it('keeps failed or invalid write results unknown and non-retryable', async () => {
@@ -180,7 +187,7 @@ it('keeps failed or invalid write results unknown and non-retryable', async () =
             expect(value({ result: await f.tools.operation({ context: owner, operationId: f.call.operationId }) })).toMatchObject({ status: 'unknown', error: { retryable: false } });
             expect(await f.tools.dispatch({ context: owner, call: f.call })).toMatchObject({ ok: false, error: { retryable: false } });
             expect(f.effects).toEqual([{ value: 7 }]);
-        } finally { f.tools.dispose({}); }
+        } finally { await f.tools.dispose({}); }
     }
 });
 
@@ -198,7 +205,7 @@ it('classifies unknown declarations as write and fails closed without financial 
     for (const effect of ['ad_spend', 'generation', 'conversion', 'halt_stop'] as const) {
         const f = fixture({}); f.definition.effects = [effect];
         expect(await f.tools.dispatch({ context: agent, call: f.call })).toMatchObject({ ok: false, error: { code: effect === 'conversion' || effect === 'halt_stop' ? 'forbidden' : 'not_implemented' } });
-        expect(f.effects).toEqual([]); f.tools.dispose({});
+        expect(f.effects).toEqual([]); await f.tools.dispose({});
     }
 });
 
@@ -216,16 +223,20 @@ it('MCP initializes/lists the declared discovery tools and validates arguments a
         request: { method: 'POST', path: '/api/agent/v1/mcp', async readBody() { reads++; return { ok: true, value: {} }; } } });
     expect(revoked.status).toBe(403); expect(reads).toBe(0);
     expect((await f.tools.dispatch({ context: agent, call: { ...f.call, input: { value: 1, ownerId: 'override' } } })).ok).toBe(false);
-    f.tools.dispose({});
+    await f.tools.dispose({});
 });
 
 it('bounds pending operation retention and revokes every retained card on disposal', async () => {
     const f = fixture({}); const results: Outcome<ToolResult>[] = [];
-    for (let index = 0; index < 20; index++) results.push(await f.tools.dispatch({ context: agent, call: { ...f.call, operationId: 'bounded-' + index } }));
-    expect(results.some(result => !result.ok && result.error.code === 'limit_exceeded')).toBe(true);
+    for (let index = 0; index < 257; index++) results.push(await f.tools.dispatch({ context: agent, call: { ...f.call, operationId: 'bounded-' + index } }));
+    expect(results.filter(result => result.ok)).toHaveLength(256);
+    expect(results[256]).toMatchObject({ ok: false, error: { code: 'limit_exceeded' } });
     expect(f.effects).toEqual([]);
-    expect(value({ result: await f.services.confirmations.list({ context: owner, query: { limit: 100 } }) }).items.length).toBeLessThanOrEqual(16);
-    f.tools.dispose({});
+    const first = value({ result: await f.services.confirmations.list({ context: owner, query: { limit: 100 } }) });
+    const second = value({ result: await f.services.confirmations.list({ context: owner, query: { limit: 100, cursor: first.cursor! } }) });
+    const third = value({ result: await f.services.confirmations.list({ context: owner, query: { limit: 100, cursor: second.cursor! } }) });
+    expect(first.items.length + second.items.length + third.items.length).toBe(256);
+    await f.tools.dispose({});
     expect(value({ result: await f.services.confirmations.list({ context: owner, query: { limit: 100 } }) }).items).toEqual([]);
     expect((await f.tools.dispatch({ context: agent, call: f.call })).ok).toBe(false);
 });
@@ -242,7 +253,7 @@ it('generates checked route/capability coverage from declarations, with explicit
     expect(rows.find(row => row.capability === 'Paused/draft campaign creation')?.policy).toBe('write');
     expect(rows.find(row => row.capability === 'Campaign launch')?.policy).toBe('spend');
     expect(rows.filter(row => row.tool).every(row => row.cli === 'om tools list/show/call')).toBe(true);
-    expect(rows.filter(row => row.status === 'NEEDS').every(row => !!row.needs && !!row.reason)).toBe(true); f.tools.dispose({});
+    expect(rows.filter(row => row.status === 'NEEDS').every(row => !!row.needs && !!row.reason)).toBe(true); await f.tools.dispose({});
 });
 
 it('dispatches the existing status read without a card and refuses caller-supplied routing', async () => {
@@ -256,7 +267,7 @@ it('dispatches the existing status read without a card and refuses caller-suppli
         expect(value({ result: await f.services.confirmations.list({ context: owner, query: { limit: 100 } }) }).items).toEqual([]);
         expect(await tools.dispatch({ context: agent, call: { name: 'om_status', input: { path: '/api/safety/halt' }, operationId: 'bad-routing' } }))
             .toMatchObject({ ok: false, error: { code: 'invalid_input' } });
-    } finally { tools.dispose({}); f.tools.dispose({}); }
+    } finally { await tools.dispose({}); await f.tools.dispose({}); }
 });
 
 it('lists a seeded bundled agent-plugin source in the catalog after real boot restores its enabled state', async () => {
@@ -380,7 +391,7 @@ it('requires a new exact spend card for every operation and returns the actual b
         }
         expect(f.effects).toEqual([{ value: 300 }, { value: 300 }]);
         expect(value({ result: await f.services.safety.snapshot({ context: owner, accountId: 'account' }) }).reserved.minorUnits).toBe(600);
-    } finally { f.tools.dispose({}); }
+    } finally { await f.tools.dispose({}); }
 });
 
 it('uses a normal generation grant only within the aggregate remaining allowance, then asks for exact spend', async () => {
@@ -401,7 +412,7 @@ it('uses a normal generation grant only within the aggregate remaining allowance
         expect(value({ result: await f.tools.operation({ context: agent, operationId: f.calls[2].operationId }) }).status).toBe('completed');
         expect(f.effects).toHaveLength(3);
         expect(value({ result: await f.services.safety.getGenerationAllowanceView({ context: owner }) }).remaining.minorUnits).toBe(0);
-    } finally { f.tools.dispose({}); }
+    } finally { await f.tools.dispose({}); }
 });
 
 it('unknown generation cost has an exact spend card and an unbounded quote cannot dispatch', async () => {
@@ -414,7 +425,7 @@ it('unknown generation cost has an exact spend card and an unbounded quote canno
             value({ result: await f.answer({ call: f.calls[0] }) });
             expect(value({ result: await f.tools.operation({ context: agent, operationId: f.calls[0].operationId }) }).status).toBe(unbounded ? 'unknown' : 'completed');
             expect(f.effects).toHaveLength(unbounded ? 0 : 1);
-        } finally { f.tools.dispose({}); }
+        } finally { await f.tools.dispose({}); }
     }
 });
 
@@ -428,7 +439,7 @@ it('rechecks the current financial backend after approval and refuses a halted a
             value({ result: await f.answer({ call: f.calls[0] }) });
             expect(value({ result: await f.tools.operation({ context: agent, operationId: f.calls[0].operationId }) })).toMatchObject({ status: 'unknown', error: { retryable: false } });
             expect(f.effects).toEqual([]);
-        } finally { f.tools.dispose({}); }
+        } finally { await f.tools.dispose({}); }
     }
 });
 
@@ -451,7 +462,7 @@ it('one exact owner continuation sets the allowance and records local halt witho
         }
         expect(value({ result: await f.services.safety.getGenerationAllowance({ context: owner }) }).amount.minorUnits).toBe(1500);
         expect(value({ result: await f.services.safety.getHalt({ context: owner, accountId: 'account' }) })).toMatchObject({ remoteStatus: 'pending' });
-    } finally { tools.dispose({}); f.tools.dispose({}); }
+    } finally { await tools.dispose({}); await f.tools.dispose({}); }
 });
 
 /** Minimal D2 seam fixture; source descriptions remain distinct from backend execution. */
@@ -490,8 +501,8 @@ it('keeps the catalog and healthy add-on usable when another package description
             clock: f.clock, observer: f.observer, authorize: () => ({ ok: true, value: undefined }) });
         try {
             expect(await tools.dispatch({ context: owner, call: { name: unavailable.name, operationId: 'broken-plugin', input: {} } })).toMatchObject({ ok: false });
-        } finally { tools.dispose({}); }
-    } finally { f.tools.dispose({}); }
+        } finally { await tools.dispose({}); }
+    } finally { await f.tools.dispose({}); }
 });
 
 it('consumes D2 management/source schemas and redacts structured third-party failures before the dispatcher boundary', async () => {
@@ -510,7 +521,7 @@ it('consumes D2 management/source schemas and redacts structured third-party fai
         const rows = generateOmToolCoverage({ definitions });
         expect(rows.find(row => row.tool === source.name)).toMatchObject({ status: 'connected', policy: 'write', cli: 'om tools list/show/call' });
         expect(rows.filter(row => row.status === 'NEEDS').every(row => !!row.reason && !!row.needs)).toBe(true);
-    } finally { f.tools.dispose({}); }
+    } finally { await f.tools.dispose({}); }
 });
 
 it('binds contact writes to the public service and requests an exact destructive merge card', async () => {
@@ -538,7 +549,7 @@ it('binds contact writes to the public service and requests an exact destructive
         value({ result: await tools.answer({ context: owner, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } }) });
         expect(value({ result: await contacts.resolve({ context: owner, identifier: { kind: 'email', raw: 'two@example.test' } }) }).subjectId).toBe(subjects[0]);
         expect(generateOmToolCoverage({ definitions }).some(row => row.capability === 'Contact upsert' && row.status === 'NEEDS')).toBe(false);
-    } finally { tools.dispose({}); f.tools.dispose({}); }
+    } finally { await tools.dispose({}); await f.tools.dispose({}); }
 });
 
 /** Injected HTTP/file/terminal fixture drives the real generic CLI and dispatcher together. */
@@ -571,7 +582,7 @@ it('generic CLI list/show/call reaches the same catalog and human approval retur
         expect(f.stdout.at(-1)).toContain('"output":{"saved":7}');
         expect(f.requests.filter(request => request.path === '/api/tools/call')).toHaveLength(1);
         expect(f.stderr.join('')).toContain('Approval card:');
-    } finally { f.tools.dispose({}); }
+    } finally { await f.tools.dispose({}); }
 });
 
 it('JSON tool calls return pending and never approve, while malformed input and irrelevant flags send no HTTP', async () => {
@@ -579,19 +590,19 @@ it('JSON tool calls return pending and never approve, while malformed input and 
     try {
         value({ result: await runOmCli({ argv: ['tools', 'call', 'fixture_write', '--input-file', '-', '--json'], runtime: f.runtime }) });
         expect(f.confirmationCount()).toBe(0); expect(f.effects).toEqual([]); expect(f.stdout.join('')).toContain('"status":"pending"');
-    } finally { f.tools.dispose({}); }
+    } finally { await f.tools.dispose({}); }
     for (const argv of [
         ['tools', 'call', 'fixture_write'], ['tools', 'call', 'fixture_write', '--input-file', '-', '--choice', 'allow'],
         ['tools', 'show', '..'], ['tools', 'list', '--limit', '101'], ['tools', 'list', '--limit', '1', '--limit', '2'],
     ]) {
         const bad = toolCliFixture();
         try { expect(await runOmCli({ argv, runtime: bad.runtime })).toMatchObject({ ok: false }); expect(bad.requests).toEqual([]); }
-        finally { bad.tools.dispose({}); }
+        finally { await bad.tools.dispose({}); }
     }
     for (const file of ['{', JSON.stringify('x'.repeat(65537))]) {
         const bad = toolCliFixture({ file });
         try { expect(await runOmCli({ argv: ['tools', 'call', 'fixture_write', '--input-file', '-', '--json'], runtime: bad.runtime })).toMatchObject({ ok: false }); expect(bad.requests).toEqual([]); }
-        finally { bad.tools.dispose({}); }
+        finally { await bad.tools.dispose({}); }
     }
 });
 
@@ -604,12 +615,12 @@ it('reserves financial identity before verification and cancellation cannot reop
         const first = f.tools.dispatch({ context: agent, call: f.calls[0] });
         await ready.promise;
         expect(value({ result: await f.tools.dispatch({ context: agent, call: f.calls[0] }) }).status).toBe('pending');
-        f.revoke(); release.resolve();
+        await f.revoke(); release.resolve();
         expect(await first).toMatchObject({ ok: false, error: { code: 'cancelled' } });
         expect(value({ result: await f.tools.operation({ context: owner, operationId: f.calls[0].operationId }) }).status).toBe('cancelled');
         expect(f.effects).toEqual([]);
         expect(value({ result: await f.services.confirmations.list({ context: owner, query: { limit: 100 } }) }).items).toEqual([]);
-    } finally { release.resolve(); f.tools.dispose({}); }
+    } finally { release.resolve(); await f.tools.dispose({}); }
 });
 
 it('re-resolves installed D2 sources and invalidates a pending card when its package is removed', async () => {
@@ -625,7 +636,7 @@ it('re-resolves installed D2 sources and invalidates a pending card when its pac
         expect(await tools.answer({ context: owner, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } })).toMatchObject({ ok: false, error: { code: 'conflict' } });
         expect(value({ result: await tools.operation({ context: agent, operationId: 'addon-operation' }) }).status).toBe('interrupted');
         expect(value({ result: await tools.list({ context: owner, limit: 100 }) }).some(tool => tool.name === source.name)).toBe(false);
-    } finally { tools.dispose({}); f.tools.dispose({}); }
+    } finally { await tools.dispose({}); await f.tools.dispose({}); }
 });
 
 it('typed backend effects cannot be disguised by combining them with read/write/generation/spend', async () => {
@@ -635,7 +646,7 @@ it('typed backend effects cannot be disguised by combining them with read/write/
             expect(toolPolicy({ effects: f.definition.effects })).toBe('internal');
             expect(await f.tools.dispatch({ context: agent, call: f.call })).toMatchObject({ ok: false, error: { code: 'forbidden' } });
             expect(f.effects).toEqual([]);
-        } finally { f.tools.dispose({}); }
+        } finally { await f.tools.dispose({}); }
     }
 });
 
@@ -644,7 +655,7 @@ import { buildUiToolDefinitions, prepareUiSurface, checkedSurfaceAcknowledgement
 import type { UiFrontendPort } from '../src/ui-tools.js';
 
 const uiComponents: ToolCall['input'][] = [{ id: 'root', component: 'Column', children: ['text'] }, { id: 'text', component: 'Text', text: 'Fixture' }];
-function uiFixture(required: { acknowledge?: 'rendered' | 'sent'; foreignRun?: boolean } = {}) {
+async function uiFixture(required: { acknowledge?: 'rendered' | 'sent'; foreignRun?: boolean } = {}) {
     const base = fixture({}); const delivered: unknown[] = [];
     const frontend: UiFrontendPort = {
         async acknowledge() { return { ok: true, value: undefined }; },
@@ -655,28 +666,28 @@ function uiFixture(required: { acknowledge?: 'rendered' | 'sent'; foreignRun?: b
                 invocationId: 'invocation', runId: required.foreignRun ? 'foreign' : input.context.runId!, frontendSessionId: 'frontend' } };
         },
     };
-    base.tools.dispose({});
+    await base.tools.dispose({});
     const definitions = buildUiToolDefinitions({ runtime: base, frontend });
     const tools = createOmTools({ ...base, confirmations: base.services.confirmations as ReturnType<typeof createMemoryConfirmationExchange>,
         authorize: () => ({ ok: true, value: undefined }), async definitions() { return { ok: true, value: definitions }; } });
     return { ...base, frontend, definitions, tools, delivered };
 }
 it('discovers charts and describes published Zod 3 props as plain JSON through the existing SDK', async () => {
-    const f = uiFixture();
+    const f = await uiFixture();
     const search = await f.tools.dispatch({ context: agent, call: { name: 'search_components', input: { query: 'chart' }, operationId: 'search-chart' } });
     expect(search).toMatchObject({ ok: true, value: { status: 'completed', output: expect.arrayContaining([expect.objectContaining({ id: 'recharts.bar-chart' })]) } });
     const describe = await f.tools.dispatch({ context: agent, call: { name: 'describe_component', input: { id: 'recharts.bar-chart' }, operationId: 'describe-chart' } });
     expect(describe).toMatchObject({ ok: true, value: { output: { propsSchema: { type: 'object', required: expect.arrayContaining(['data', 'categoryKey', 'valueKey']) } } } });
-    expect(f.delivered).toEqual([]); f.tools.dispose({});
+    expect(f.delivered).toEqual([]); await f.tools.dispose({});
 });
 it('renders only after the one owner approval and returns the real browser acknowledgement', async () => {
-    const f = uiFixture(); const call = { name: 'render', input: { components: uiComponents }, operationId: 'surface-operation' };
+    const f = await uiFixture(); const call = { name: 'render', input: { components: uiComponents }, operationId: 'surface-operation' };
     expect(await f.tools.dispatch({ context: agent, call })).toMatchObject({ ok: true, value: { status: 'pending' } });
     expect(f.delivered).toEqual([]);
     const card = value({ result: await f.tools.card({ context: owner, operationId: call.operationId }) })!;
     expect(await f.tools.answer({ context: owner, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } })).toEqual({ ok: true, value: undefined });
     expect(await f.tools.operation({ context: agent, operationId: call.operationId })).toMatchObject({ ok: true, value: { status: 'completed', output: { status: 'rendered', runId: 'run' } } });
-    await f.tools.dispatch({ context: agent, call }); expect(f.delivered).toHaveLength(1); f.tools.dispose({});
+    await f.tools.dispatch({ context: agent, call }); expect(f.delivered).toHaveLength(1); await f.tools.dispose({});
 });
 it('keeps missing browser transport explicit in coverage and never creates a page approval', async () => {
     const f = fixture({}); const definitions = buildUiToolDefinitions({ runtime: null });
@@ -686,7 +697,7 @@ it('keeps missing browser transport explicit in coverage and never creates a pag
     expect(result).toMatchObject({ ok: false, error: { code: 'not_implemented' } });
     expect(generateOmToolCoverage({ definitions }).find(row => row.tool === 'page.click')).toMatchObject({ status: 'NEEDS', needs: 'A5_FRONTEND_COMPOSITION' });
     expect(value({ result: await f.services.confirmations.list({ context: owner, query: { limit: 100 } }) }).items).toEqual([]);
-    tools.dispose({}); f.tools.dispose({});
+    await tools.dispose({}); await f.tools.dispose({});
 });
 for (const [name, components] of [
     ['unknown component', [{ id: 'root', component: 'Unregistered' }]],
@@ -696,15 +707,15 @@ for (const [name, components] of [
     ['cycle', [{ id: 'root', component: 'Column', children: ['root'] }]],
     ['duplicate ID', [{ id: 'root', component: 'Text', text: 'one' }, { id: 'root', component: 'Text', text: 'two' }]],
     ['aggregate expansion', [{ id: 'root', component: 'Column', children: Array(100).fill('text') }, { id: 'text', component: 'Text', text: 'fixture' }]],
-] as const) it('rejects A2UI ' + name + ' before frontend delivery', () => {
+] as const) it('rejects A2UI ' + name + ' before frontend delivery', async () => {
     const f = fixture({});
     expect(prepareUiSurface({ ...f, surfaceId: 'surface', input: { components } })).toMatchObject({ ok: false });
-    f.tools.dispose({});
+    await f.tools.dispose({});
 });
-it('accepts neutral chart wire IDs without a chart npm dependency', () => {
+it('accepts neutral chart wire IDs without a chart npm dependency', async () => {
     const f = fixture({});
     expect(prepareUiSurface({ ...f, surfaceId: 'surface', input: { components: [{ id: 'root', component: 'recharts.bar-chart', data: [{ name: 'A', count: 2 }], categoryKey: 'name', valueKey: 'count' }] } })).toMatchObject({ ok: true });
-    f.tools.dispose({});
+    await f.tools.dispose({});
 });
 it('never turns sent or foreign acknowledgements into rendered', async () => {
     const input = { status: 'sent', surfaceId: 'surface', invocationId: 'invocation', runId: 'run', frontendSessionId: 'frontend' };
@@ -713,21 +724,21 @@ it('never turns sent or foreign acknowledgements into rendered', async () => {
     expect(checkedSurfaceAcknowledgement({ input: {}, surfaceId: 'surface', runId: 'run' })).toMatchObject({ ok: false });
 });
 it('authenticates acknowledgement identity before passing it to the frontend host', async () => {
-    const f = uiFixture(); f.services.ui = { runtime: f, frontend: f.frontend };
+    const f = await uiFixture(); f.services.ui = { runtime: f, frontend: f.frontend };
     const response = await handleOwnerRequest({ context: owner, services: f.services,
         request: { method: 'POST', path: '/api/runs/run/surfaces', body: { status: 'rendered', surfaceId: 'surface', invocationId: 'invocation', runId: 'foreign', frontendSessionId: 'frontend' } } });
-    expect(response.status).toBe(400); expect(f.delivered).toEqual([]); f.tools.dispose({});
+    expect(response.status).toBe(400); expect(f.delivered).toEqual([]); await f.tools.dispose({});
 });
 
 /** Shared relay cases exercise its direct port and the actual owner HTTP translation. */
-async function frontendFixture(required: { throughHttp: boolean }) {
+async function frontendFixture(required: { throughHttp: boolean; disconnected?(input: { context: CallContext; runId: string }): Promise<void> }) {
     const f = fixture({}); let live = true; let timerId = 0;
     const timers = new Map<number, { delayMs: number; callback(): void }>();
     const relay = createFrontendSessions({ clock: f.clock, ids: f.ids, randomToken: () => 'fixture-bind-' + f.ids.next(),
         schedule(input) { const id = ++timerId; timers.set(id, input); return () => { timers.delete(id); }; },
         authorize: input => live || input.context.principal.kind === 'owner' ? { ok: true, value: undefined }
             : { ok: false, error: { code: 'expired', message: 'Fixture run revoked', retryable: false } },
-        disconnected: input => f.tools.cancel(input) });
+        disconnected: required.disconnected ?? (input => f.tools.cancel(input)) });
     f.services.ui = { runtime: { clock: f.clock, ids: f.ids }, frontend: relay.frontend, sessions: relay };
     const request = (input: { method: 'GET' | 'POST'; path: string; body?: unknown; query?: Record<string, string>; context?: CallContext; signal?: AbortSignal }) => {
         const args = { request: input, context: input.context ?? owner, services: f.services };
@@ -745,9 +756,9 @@ async function frontendFixture(required: { throughHttp: boolean }) {
     const bind = (input: { token?: string; context?: CallContext; runId?: string } = {}) => relay.bindRun({ context: input.context ?? agent,
         runId: input.runId ?? 'run', expiresAt: 301000, frontendSessionId: attachment.sessionId, frontendBindToken: input.token ?? attachment.bindToken });
     const bound = bind(); if (!bound.ok) throw new Error(bound.error.message); await next();
-    return { ...f, relay, request, next, attachment, bind, timers, disconnect,
-        revoke() { live = false; f.revoke(); relay.endRun({ context: owner, runId: 'run', status: 'cancelled' }); },
-        dispose() { relay.dispose({}); f.tools.dispose({}); },
+    return { ...f, relay, request, next, attachment, bind, timers, disconnect, stream: attached.stream!,
+        async revoke() { live = false; await f.revoke(); await relay.endRun({ context: owner, runId: 'run', status: 'cancelled' }); },
+        async dispose() { await relay.dispose({}); await f.tools.dispose({}); },
     };
 }
 for (const throughHttp of [false, true]) describe('bound frontend relay / ' + (throughHttp ? 'owner-http' : 'direct-port'), () => {
@@ -761,7 +772,7 @@ for (const throughHttp of [false, true]) describe('bound frontend relay / ' + (t
             expect((await f.request({ method: 'POST', path, body })).status).toBe(200);
             expect(await result).toEqual({ ok: true, value: body.output });
             expect((await f.request({ method: 'POST', path, body })).status).toBe(403);
-        } finally { f.dispose(); }
+        } finally { await f.dispose(); }
         expect(f.timers.size).toBe(0);
     });
     it('rejects cross-owner and cross-session responses without settling the right invocation', async () => {
@@ -775,7 +786,7 @@ for (const throughHttp of [false, true]) describe('bound frontend relay / ' + (t
             expect((await f.request({ method: 'POST', path: '/api/frontend-sessions/foreign/responses', body })).status).toBe(403);
             expect((await f.request({ method: 'POST', path, body })).status).toBe(200);
             expect(await result).toEqual({ ok: true, value: body.output });
-        } finally { f.dispose(); }
+        } finally { await f.dispose(); }
     });
     it('requires matching rendered evidence and does not complete on sent alone', async () => {
         const f = await frontendFixture({ throughHttp });
@@ -790,7 +801,7 @@ for (const throughHttp of [false, true]) describe('bound frontend relay / ' + (t
             await Promise.resolve(); expect(settled).toBe(false);
             expect(await f.relay.frontend.acknowledge({ context: owner, result: { ...identity, status: 'rendered' } })).toMatchObject({ ok: true });
             expect(await result).toEqual({ ok: true, value: { ...identity, status: 'rendered' } });
-        } finally { f.dispose(); }
+        } finally { await f.dispose(); }
     });
     it('cancellation voids page calls and cards and denies late browser acknowledgements', async () => {
         const f = await frontendFixture({ throughHttp });
@@ -798,14 +809,14 @@ for (const throughHttp of [false, true]) describe('bound frontend relay / ' + (t
             await f.tools.dispatch({ context: agent, call: f.call });
             const card = value({ result: await f.tools.card({ context: owner, operationId: f.call.operationId }) }); expect(card).not.toBeNull();
             const result = f.relay.frontend.page({ context: agent, name: 'page.click', input: { handle: 'appearance-mode' } });
-            const invocation = await f.next(); f.revoke();
+            const invocation = await f.next(); await f.revoke();
             expect(await result).toMatchObject({ ok: false, error: { code: 'cancelled' } });
             expect((await f.request({ method: 'POST', path: '/api/frontend-sessions/' + f.attachment.sessionId + '/responses',
                 body: { invocationId: invocation.invocationId, ok: true, output: {} } })).status).toBe(403);
             expect(await f.tools.card({ context: owner, operationId: f.call.operationId })).toEqual({ ok: true, value: null });
             expect(await f.tools.answer({ context: owner, response: { cardId: card!.cardId, operationId: card!.operationId, argumentsDigest: card!.argumentsDigest, choice: 'allow' } })).toMatchObject({ ok: false });
             expect(f.effects).toEqual([]);
-        } finally { f.dispose(); }
+        } finally { await f.dispose(); }
     });
     it('disconnect invalidates the attachment token and revokes its pending cards', async () => {
         const f = await frontendFixture({ throughHttp });
@@ -816,7 +827,7 @@ for (const throughHttp of [false, true]) describe('bound frontend relay / ' + (t
             expect(f.bind()).toMatchObject({ ok: false });
             expect(await f.tools.card({ context: owner, operationId: f.call.operationId })).toEqual({ ok: true, value: null });
             expect(f.effects).toEqual([]); expect(f.timers.size).toBe(0);
-        } finally { f.dispose(); }
+        } finally { await f.dispose(); }
     });
     it('refuses stale tokens, foreign owners, unclaimed capabilities and oversized replies', async () => {
         const f = await frontendFixture({ throughHttp });
@@ -829,7 +840,7 @@ for (const throughHttp of [false, true]) describe('bound frontend relay / ' + (t
                 body: { invocationId: invocation.invocationId, ok: true, output: 'x'.repeat(65536) } })).status).toBe(400);
             const deadline = [...f.timers.values()].find(timer => timer.delayMs === 15000)!; deadline.callback();
             expect(await result).toMatchObject({ ok: false, error: { code: 'expired' } });
-        } finally { f.dispose(); }
+        } finally { await f.dispose(); }
     });
 });
 
@@ -840,13 +851,13 @@ it('surface tool calls use the existing exact card, and cancellation prevents it
         const dispatched = await handleOwnerRequest({ services: f.services, context: owner, request });
         expect(dispatched.body).toMatchObject({ ok: true, value: { status: 'pending' } }); expect(f.effects).toEqual([]);
         const card = value({ result: await f.tools.card({ context: owner, operationId: f.call.operationId }) });
-        f.revoke();
+        await f.revoke();
         expect(await f.tools.answer({ context: owner, response: { cardId: card!.cardId, operationId: card!.operationId, argumentsDigest: card!.argumentsDigest, choice: 'allow' } })).toMatchObject({ ok: false });
         expect(f.effects).toEqual([]);
         const foreign = await handleOwnerRequest({ services: f.services, context: owner, request: { ...request,
             body: { call: { ...f.call, operationId: 'other' }, runId: 'run', frontendSessionId: 'foreign' } } });
         expect(foreign.status).toBe(403);
-    } finally { f.dispose(); }
+    } finally { await f.dispose(); }
 });
 
 it('authenticates the real frontend stream and carries its binding through a sandbox run', async () => {
@@ -889,11 +900,11 @@ it('removes queued page invocations when a run is cancelled before the browser p
     try {
         const first = f.relay.frontend.page({ context: agent, name: 'page.click', input: { handle: 'appearance-mode' } });
         const second = f.relay.frontend.page({ context: agent, name: 'page.navigate', input: { page: 'settings' } });
-        f.revoke();
+        await f.revoke();
         expect(await first).toMatchObject({ ok: false, error: { code: 'cancelled' } });
         expect(await second).toMatchObject({ ok: false, error: { code: 'cancelled' } });
         expect(await f.next()).toMatchObject({ type: 'voided', runId: 'run', frontendSessionId: f.attachment.sessionId });
-    } finally { f.dispose(); }
+    } finally { await f.dispose(); }
 });
 
 /** Fixture parser handles split/coalesced SSE packets and ignores heartbeat comments. */
@@ -911,3 +922,210 @@ async function readFrontendSseFrame(required: { reader: ReadableStreamDefaultRea
         if (required.buffered.text.length > 131072) throw new Error('Fixture SSE bound exceeded');
     }
 }
+
+/** Restart seam uses the production SQLite transaction bridge and the same definition/effect capture. */
+function durableFixture(input: { backend: 'memory' | 'sql' }) {
+    const base = fixture({});
+    const native = new Database(':memory:');
+    for (const path of ['../../../features/safety/migrations/0002_confirmations.sql', '../migrations/0003_tool_operations.sql'])
+        native.exec(readFileSync(new URL(path, import.meta.url), 'utf8'));
+    const { unit } = bindServerDatabase({ native, context: owner, observer: base.observer });
+    const db: SafetySqlDatabase = { transaction: ({ execute }) => unit.transaction({ work: ({ session }) => execute({ session: {
+        query: ({ sql, parameters }) => session.query({ text: sql, values: [...parameters] }),
+    } }) }) };
+    const memory = createMemoryToolOperationStore({});
+    const memoryCards = createMemoryConfirmationExchange(base);
+    let agentActive = true;
+    function open(input: { store?: ToolOperationStore; confirmations?: ConfirmationExchangePort } = {}) {
+        const store = input.store ?? (inputBackend === 'sql' ? createSqlToolOperationStore({ unit }) : memory);
+        const confirmations: ConfirmationExchangePort = input.confirmations ?? (inputBackend === 'sql' ? createSqlConfirmationExchange({ ...base, db }) : memoryCards);
+        const tools = createOmTools({ ...base, store, confirmations, definitions: async () => ({ ok: true, value: [base.definition] }),
+            authorize: ({ context }) => context.principal.kind === 'owner' || agentActive
+                ? { ok: true, value: undefined } : { ok: false, error: { code: 'expired', message: 'Old agent run revoked', retryable: false } } });
+        return { tools, confirmations, store };
+    }
+    const inputBackend = input.backend;
+    return { ...base, open, revokeAgent() { agentActive = false; }, async close() { await base.tools.dispose({}); native.close(); } };
+}
+for (const backend of ['memory', 'sql'] as const) describe('durable tool operations / ' + backend, () => {
+    it('restores the same card under fresh owner authority and executes exactly once', async () => {
+        const f = durableFixture({ backend });
+        try {
+            const first = f.open();
+            value({ result: await first.tools.dispatch({ context: agent, call: f.call }) });
+            const card = value({ result: await first.tools.card({ context: owner, operationId: f.call.operationId }) })!;
+            f.revokeAgent();
+            const reopened = f.open();
+            value({ result: await reopened.tools.restore({ context: owner }) });
+            expect(f.effects).toEqual([]);
+            expect(await reopened.tools.card({ context: owner, operationId: f.call.operationId })).toEqual({ ok: true, value: card });
+            expect(value({ result: await reopened.confirmations.list({ context: owner, query: { limit: 100 } }) }).items).toEqual([card]);
+            const response: ApprovalResponse = { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' };
+            value({ result: await reopened.tools.answer({ context: owner, response }) });
+            expect(f.effects).toEqual([{ value: 7 }]);
+            expect(f.contexts[0]).toEqual({ ...agent, principal: owner.principal });
+            expect(await reopened.tools.answer({ context: owner, response })).toMatchObject({ ok: false, error: { code: 'conflict' } });
+            const terminal = f.open(); value({ result: await terminal.tools.restore({ context: owner }) });
+            expect(await terminal.tools.dispatch({ context: owner, call: f.call })).toMatchObject({ ok: true, value: { status: 'completed' } });
+            expect(f.effects).toHaveLength(1);
+            await terminal.tools.dispose({});
+        } finally { await f.close(); }
+    });
+    for (const crash of ['no-card', 'answered', 'expired', 'dispatching'] as const) it('does not resend after ' + crash + ' restart', async () => {
+        const f = durableFixture({ backend });
+        try {
+            const first = f.open();
+            value({ result: await first.tools.dispatch({ context: agent, call: f.call }) });
+            const card = value({ result: await first.tools.card({ context: owner, operationId: f.call.operationId }) })!;
+            const record = value({ result: await first.store.loadOpen({ scope: owner.scope }) })[0];
+            const response: ApprovalResponse = { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' };
+            if (crash === 'answered') value({ result: await first.confirmations.confirm({ context: owner, response }) });
+            if (crash === 'expired') f.advance();
+            if (crash === 'dispatching') record.executing = true;
+            if (crash === 'no-card') { delete record.card; record.state = { status: 'pending', operationId: record.call.operationId }; }
+            value({ result: await first.store.save({ context: agent, operation: record }) });
+            f.revokeAgent(); const reopened = f.open();
+            value({ result: await reopened.tools.restore({ context: owner }) });
+            const status = crash === 'dispatching' ? 'unknown' : 'interrupted';
+            expect(await reopened.tools.operation({ context: owner, operationId: f.call.operationId })).toMatchObject({ ok: true, value: { status } });
+            if (crash === 'dispatching') {
+                expect(await reopened.tools.dispatch({ context: owner, call: f.call })).toMatchObject({ ok: false, error: { retryable: false } });
+                expect(await reopened.tools.operation({ context: owner, operationId: f.call.operationId })).toMatchObject({ value: { error: { retryable: false } } });
+            }
+            expect((await reopened.tools.answer({ context: owner, response })).ok).toBe(false);
+            expect(f.effects).toEqual([]);
+            await reopened.tools.dispose({});
+        } finally { await f.close(); }
+    });
+    it('persists cancellation and preserves pending cards on clean shutdown', async () => {
+        const f = durableFixture({ backend });
+        try {
+            const first = f.open(); value({ result: await first.tools.dispatch({ context: agent, call: f.call }) });
+            await first.tools.cancel({ context: owner, runId: agent.runId! });
+            const secondCall = { ...f.call, operationId: 'survives-shutdown' };
+            value({ result: await first.tools.dispatch({ context: owner, call: secondCall }) });
+            const card = value({ result: await first.tools.card({ context: owner, operationId: secondCall.operationId }) });
+            await first.tools.dispose({});
+            const reopened = f.open(); value({ result: await reopened.tools.restore({ context: owner }) });
+            expect(await reopened.tools.operation({ context: owner, operationId: f.call.operationId })).toMatchObject({ ok: true, value: { status: 'cancelled' } });
+            expect(await reopened.tools.card({ context: owner, operationId: secondCall.operationId })).toEqual({ ok: true, value: card });
+            expect(f.effects).toEqual([]); await reopened.tools.dispose({});
+        } finally { await f.close(); }
+    });
+    it('awaits the durable dispatch marker and refuses egress when saving it fails', async () => {
+        const f = durableFixture({ backend });
+        try {
+            const { store } = f.open(); const entered = Promise.withResolvers<void>(); const release = Promise.withResolvers<void>();
+            const guarded: ToolOperationStore = { ...store, loadOpen: input => store.loadOpen(input), async save(input) {
+                if (input.operation.executing && input.operation.state.status === 'pending') {
+                    entered.resolve(); await release.promise;
+                    return { ok: false, error: { code: 'unavailable', message: 'Fixture disk failure', retryable: true } };
+                }
+                return store.save(input);
+            } };
+            const first = f.open({ store: guarded }); value({ result: await first.tools.dispatch({ context: agent, call: f.call }) });
+            const card = value({ result: await first.tools.card({ context: owner, operationId: f.call.operationId }) })!;
+            const answering = first.tools.answer({ context: owner, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } });
+            await entered.promise; expect(f.effects).toEqual([]); release.resolve(); await answering;
+            expect(await first.tools.dispatch({ context: owner, call: f.call })).toMatchObject({ ok: false, error: { retryable: false } });
+            expect(f.effects).toEqual([]); await first.tools.dispose({});
+        } finally { await f.close(); }
+    });
+});
+
+for (const backend of ['memory', 'sql'] as const) describe('S1R1F regressions / ' + backend, () => {
+    for (const failure of ['save', 'revoke'] as const) it('reports failed cancellation ' + failure + ' instead of acknowledging it', async () => {
+        const f = durableFixture({ backend });
+        try {
+            const base = f.open();
+            const failed: Outcome<void> = { ok: false, error: { code: 'unavailable', message: 'Fixture cancellation persistence failed', retryable: false } };
+            const store: ToolOperationStore = { ...base.store, async save(input) {
+                if (failure === 'save' && input.operation.state.status === 'cancelled') return failed;
+                return base.store.save(input);
+            } };
+            const confirmations: ConfirmationExchangePort = { ...base.confirmations, async revoke(input) {
+                return failure === 'revoke' ? failed : base.confirmations.revoke(input);
+            } };
+            const first = f.open({ store, confirmations });
+            value({ result: await first.tools.dispatch({ context: agent, call: f.call }) });
+            const card = value({ result: await first.tools.card({ context: owner, operationId: f.call.operationId }) })!;
+            await expect(first.tools.cancel({ context: owner, runId: agent.runId! })).rejects.toMatchObject({ code: 'unavailable', retryable: false });
+            expect((await first.tools.answer({ context: owner, response: { cardId: card.cardId, operationId: card.operationId,
+                argumentsDigest: card.argumentsDigest, choice: 'allow' } })).ok).toBe(false);
+            expect(f.effects).toEqual([]);
+            await first.tools.dispose({});
+            const reopened = f.open(); value({ result: await reopened.tools.restore({ context: owner }) });
+            expect(await reopened.tools.operation({ context: owner, operationId: f.call.operationId })).toMatchObject({ ok: true,
+                value: { status: failure === 'save' ? 'interrupted' : 'cancelled' } });
+            expect(f.effects).toEqual([]); await reopened.tools.dispose({});
+        } finally { await f.close(); }
+    });
+    it('reports persistence failure when the owner cancels through the approval card', async () => {
+        const f = durableFixture({ backend });
+        try {
+            const base = f.open();
+            const store: ToolOperationStore = { ...base.store, async save(input) {
+                if (input.operation.state.status === 'cancelled') return { ok: false, error: { code: 'unavailable', message: 'Fixture save failure', retryable: false } };
+                return base.store.save(input);
+            } };
+            const first = f.open({ store });
+            value({ result: await first.tools.dispatch({ context: agent, call: f.call }) });
+            const card = value({ result: await first.tools.card({ context: owner, operationId: f.call.operationId }) })!;
+            expect(await first.tools.answer({ context: owner, response: { cardId: card.cardId, operationId: card.operationId,
+                argumentsDigest: card.argumentsDigest, choice: 'cancel' } })).toMatchObject({ ok: false, error: { retryable: false } });
+            expect(f.effects).toEqual([]); await first.tools.dispose({});
+        } finally { await f.close(); }
+    });
+    it('completes 300 small operations and replays the oldest evicted body across restart', async () => {
+        const f = durableFixture({ backend });
+        f.definition.effects = ['read']; f.definition.policy = 'read';
+        try {
+            let current = f.open();
+            for (let index = 0; index < 300; index++) {
+                const call = { ...f.call, operationId: index === 0 ? 'oldest-z' : 'operation-' + index };
+                expect(await current.tools.dispatch({ context: owner, call })).toEqual({ ok: true, value: { status: 'completed', output: { saved: 7 } } });
+                if (index === 149) {
+                    await current.tools.dispose({}); current = f.open();
+                    value({ result: await current.tools.restore({ context: owner }) });
+                }
+            }
+            const retained = value({ result: await current.store.loadOpen({ scope: owner.scope }) });
+            expect(retained).toHaveLength(256);
+            expect(retained.some(operation => operation.call.operationId === 'oldest-z')).toBe(false);
+            const replay = value({ result: await current.store.replay({ context: owner, operationId: 'oldest-z' }) });
+            expect(replay?.call.input).toEqual({}); expect(replay?.request.arguments).toEqual({});
+            const call = { ...f.call, operationId: 'oldest-z' };
+            expect(await current.tools.dispatch({ context: owner, call })).toEqual({ ok: true, value: { status: 'completed', output: { saved: 7 } } });
+            expect(await current.tools.operation({ context: owner, operationId: call.operationId })).toEqual({ ok: true,
+                value: { status: 'completed', operationId: call.operationId, output: { saved: 7 } } });
+            await current.tools.dispose({}); current = f.open(); value({ result: await current.tools.restore({ context: owner }) });
+            expect(await current.tools.dispatch({ context: owner, call })).toEqual({ ok: true, value: { status: 'completed', output: { saved: 7 } } });
+            expect(await current.tools.dispatch({ context: owner, call: { ...call, input: { value: 8 } } })).toMatchObject({ ok: false, error: { code: 'conflict' } });
+            expect(f.effects).toHaveLength(300);
+            await current.tools.dispose({});
+        } finally { await f.close(); }
+    });
+});
+
+for (const lifecycle of ['endRun', 'dispose', 'stream'] as const) it('awaits frontend disconnect persistence during ' + lifecycle, async () => {
+    const entered = Promise.withResolvers<void>(); const release = Promise.withResolvers<void>();
+    const f = await frontendFixture({ throughHttp: false, async disconnected() { entered.resolve(); await release.promise; } });
+    let settled = false;
+    try {
+        const stopping = lifecycle === 'endRun'
+            ? f.relay.endRun({ context: owner, runId: 'run', status: 'cancelled' })
+            : lifecycle === 'dispose' ? f.relay.dispose({}) : f.stream.cancel({});
+        const observed = stopping.then(() => { settled = true; });
+        await entered.promise; expect(settled).toBe(false);
+        release.resolve(); await observed; expect(settled).toBe(true);
+    } finally { release.resolve(); await f.dispose(); }
+});
+
+it('reports frontend disconnect persistence errors through endRun and disposal', async () => {
+    const failure = { code: 'unavailable', message: 'Fixture revoke failed', retryable: false };
+    const f = await frontendFixture({ throughHttp: false, async disconnected() { throw failure; } });
+    try {
+        await expect(f.relay.endRun({ context: owner, runId: 'run', status: 'cancelled' })).rejects.toEqual(failure);
+        await expect(f.relay.dispose({})).rejects.toEqual(failure);
+    } finally { await f.tools.dispose({}); }
+});

@@ -44,6 +44,7 @@ export function generationRequest(required: { operationId?: string; amount?: num
 export function sqliteFixture(required: Record<string, never> = {}) {
  const db = new DatabaseSync(":memory:");
  db.exec(readFileSync(new URL("../migrations/0001_safety.sql", import.meta.url), "utf8"));
+ db.exec(readFileSync(new URL("../migrations/0002_confirmations.sql", import.meta.url), "utf8"));
  let failJournal = false;
  const session: SafetySqlSession = { async query(input) {
   if (failJournal && input.sql.startsWith("INSERT INTO safety_journal")) throw new Error("journal fault");

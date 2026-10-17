@@ -89,8 +89,27 @@ export function SpendPolicyPortSuite(required: { create: () => SpendPolicyPort }
  });
 }
 /** Explicit response, scope and exact arguments are tested against every confirmation adapter. */
-export function ConfirmationExchangePortSuite(required: { create: () => ConfirmationExchangePort }) {
+export function ConfirmationExchangePortSuite(required: { create: () => ConfirmationExchangePort; reopen?: (required: { port: ConfirmationExchangePort }) => ConfirmationExchangePort }) {
  describe("ConfirmationExchangePort B1", () => {
+  it("reopens exact pending cards, preserves immutable answers and scopes revocation", async () => {
+   const original = required.create();
+   const request = spendRequest();
+   const card = unwrap({ outcome: await original.present({ context, request }) });
+   const reopened = required.reopen?.({ port: original }) ?? original;
+   expect(await reopened.list({ context, query: { limit: 100 } })).toEqual({ ok: true, value: { items: [card], cursor: null } });
+   expect(await reopened.get({ context, cardId: card.cardId })).toEqual({ ok: true, value: card });
+   const response = { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: "allow" as const };
+   const answers = await Promise.all([reopened.confirm({ context, response }), reopened.confirm({ context, response })]);
+   expect(answers.filter(answer => answer.ok)).toHaveLength(1);
+   expect(answers.find(answer => !answer.ok)).toMatchObject({ error: { code: "conflict" } });
+   const answered = required.reopen?.({ port: reopened }) ?? reopened;
+   expect(await answered.confirm({ context, response })).toMatchObject({ ok: false, error: { code: "conflict" } });
+   expect(await answered.verify({ context, request: { ...request, approvalId: card.cardId, policyRevision: 0 }, classification: "spend" })).toEqual({ ok: true, value: undefined });
+   unwrap({ outcome: await answered.revoke({ context: otherContext, cardId: card.cardId }) });
+   expect(await answered.get({ context, cardId: card.cardId })).toEqual({ ok: true, value: card });
+   unwrap({ outcome: await answered.revoke({ context, cardId: card.cardId }) });
+   expect(await answered.get({ context, cardId: card.cardId })).toEqual({ ok: true, value: null });
+  });
   it("reads exact scoped cards, paginates pending cards and removes answers from listing", async () => {
    const port = required.create();
    const first = unwrap({ outcome: await port.present({ context, request: spendRequest({ operationId: 'card-first' }) }) });

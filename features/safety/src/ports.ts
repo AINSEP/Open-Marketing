@@ -20,6 +20,8 @@ export interface SpendPolicyPort {
 }
 /** Confirmation is explicit and owner-only; presentation alone never creates authority. */
 export interface ConfirmationExchangePort {
+ /** Revoke only within the authenticated scope; durable adapters await deletion. */
+ revoke(required: { context: CallContext; cardId: string }, optional?: CallOptions): Promise<Outcome<void>>;
  /** Scoped card reads expose pending, unexpired cards only; get retains exact answered cards. */
  list(required: { context: CallContext; query: PageQuery }, optional?: CallOptions): Promise<Outcome<Page<ConfirmationCard>>>;
  get(required: { context: CallContext; cardId: string }, optional?: CallOptions): Promise<Outcome<ConfirmationCard | null>>;

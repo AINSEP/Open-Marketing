@@ -220,7 +220,7 @@ function releaseFinishedRun(required: { runs: Map<string, LocalRun>; tokens: Map
  * @example const agent = createLocalAgent({ effects, clock, ids, observer, randomToken });
  * @complexity <=32 live projections, <=8,192 events/2 MiB per run; reconciliation reads <=128 events.
  */
-export function createLocalAgent(required: { effects: AgentEffects; clock: ClockPort; ids: IdPort; observer: ObserverPort; randomToken(required: Record<string, never>): string; persistence?: AssistantRuns; frontend?: FrontendSessions; onRevoked?(required: { context: CallContext; runId: string; status: Exclude<RunStatus, 'running'> }): void }) {
+export function createLocalAgent(required: { effects: AgentEffects; clock: ClockPort; ids: IdPort; observer: ObserverPort; randomToken(required: Record<string, never>): string; persistence?: AssistantRuns; frontend?: FrontendSessions; onRevoked?(required: { context: CallContext; runId: string; status: Exclude<RunStatus, 'running'> }): Promise<void> }) {
     const runs = new Map<string, LocalRun>();
     const tokens = new Map<string, LocalRun>();
     const instanceId = required.ids.next({});
@@ -234,7 +234,7 @@ export function createLocalAgent(required: { effects: AgentEffects; clock: Clock
     /** Local terminal evidence; grants revoke before any subsequent callback can be admitted. */
     async function terminate(input: { run: LocalRun; status: 'cancelled' | 'interrupted' }): Promise<Outcome<void>> {
         input.run.grant.revoked = true;
-        required.onRevoked?.({ context: input.run.context, runId: input.run.grant.runId, status: input.status });
+        await required.onRevoked?.({ context: input.run.context, runId: input.run.grant.runId, status: input.status });
         return queueRun({ run: input.run, work: async () => {
             if (input.run.status !== 'running') return { ok: true, value: undefined };
             const event: RunEvent = { protocolVersion: 1, eventId: required.ids.next({}), runId: input.run.grant.runId,
@@ -283,7 +283,7 @@ export function createLocalAgent(required: { effects: AgentEffects; clock: Clock
             if (!persisted.ok) return persisted;
         }
         commitEvent({ run, event });
-        if (run.status !== 'running') required.onRevoked?.({ context: run.context, runId: run.grant.runId, status: run.status });
+        if (run.status !== 'running') await required.onRevoked?.({ context: run.context, runId: run.grant.runId, status: run.status });
         observe({ ...required, context: run.context, operation: 'server.agent.event', outcome: event.kind });
         return { ok: true, value: { recorded: true } };
     }

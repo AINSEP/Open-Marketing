@@ -5,7 +5,7 @@ import type { CallContext, ClockPort, GenerationCostQuote, IdPort, ObserverPort,
 import { createCreativeService, createSqlCreativeRepo, createTransactionalCreativeJob, createMemoryGenerationCapability, createMemoryCreativeAsset, digestGenerationRequest } from '@open-marketing/creative';
 import type { CreativeSqlDatabase, CreativeSqlSession, GenerationRequest, CreativeSpendPort } from '@open-marketing/creative';
 import { createSafetyService, createMemoryAccountDispatchLock, digestArguments } from '@open-marketing/safety';
-import type { EffectRequest, SafetyRepoPort, MemoryConfirmationExchange, VerifiedEffectResolverPort } from '@open-marketing/safety';
+import type { EffectRequest, SafetyRepoPort, ConfirmationExchangePort, VerifiedEffectResolverPort } from '@open-marketing/safety';
 import type { AuditService } from '@open-marketing/audit';
 import { createSqlJobRepo } from '@open-marketing/jobs';
 import { creativeToolInputSchema } from '../om-tool-types.js';
@@ -91,7 +91,7 @@ function fixtureResolver(required: { clock: ClockPort }): VerifiedEffectResolver
 /** Real service/repo/outbox with inert fixture backend. requestGeneration queues durable intent;
  * status/cancel work before dispatch. Vendor generation/worker admission remains I-2.
  * @complexity O(1) construction; bounded owning service operations, no vendor requests. */
-export function bindSandboxCreative(required: { unit: UnitOfWork; safetyRepo: SafetyRepoPort; confirmations: MemoryConfirmationExchange; clock: ClockPort; ids: IdPort; observer: ObserverPort; audit: AuditService }): CreativeToolBinding {
+export function bindSandboxCreative(required: { unit: UnitOfWork; safetyRepo: SafetyRepoPort; confirmations: ConfirmationExchangePort; clock: ClockPort; ids: IdPort; observer: ObserverPort; audit: AuditService }): CreativeToolBinding {
     const repo = createSqlCreativeRepo({ database: creativeDatabase(required) });
     const audit = catalogAuditPort(required);
     const safety = createSafetyService({ repo: required.safetyRepo, confirmations: required.confirmations, clock: required.clock, ids: required.ids, audit,

@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { idSchema, epochSchema } from '@open-marketing/contracts';
+import { idSchema, epochSchema, callContextSchema, toolCallSchema, toolOperationSchema, digestSchema,
+    confirmationCardSchema, approvalChoiceSchema, effectEnvelopeSchema, generationCostQuoteSchema, boundedJsonSchema } from '@open-marketing/contracts';
 import type { CreativeService } from '@open-marketing/creative';
 import type { DispatchPermit, EffectRequest, FrozenDispatchRequest, SafetyService } from '@open-marketing/safety';
 import type { routes } from './cli/http.js';
@@ -16,9 +17,24 @@ export interface OmTools {
     operation(required: { context: CallContext; operationId: string }): Promise<Outcome<ToolOperation>>;
     card(required: { context: CallContext; operationId: string }): Promise<Outcome<ConfirmationCard | null>>;
     answer(required: { context: CallContext; response: ApprovalResponse }): Promise<Outcome<void>>;
-    cancel(required: { context: CallContext; runId: string }): void;
-    dispose(required: Record<string, never>): void;
+    /** Boot-only owner recovery; no callbacks run and old agent authority is discarded. */
+    restore(required: { context: CallContext }): Promise<Outcome<void>>;
+    /** Rejects with a non-retryable boundary error if cancellation cannot be persisted/revoked. */
+    cancel(required: { context: CallContext; runId: string }): Promise<void>;
+    dispose(required: Record<string, never>): Promise<void>;
 }
+
+/** Stored data only; no credentials, callbacks or restored agent authority. */
+const generationRequest = z.strictObject({ operationId: idSchema, connectionId: idSchema, argumentsDigest: digestSchema, configurationDigest: digestSchema });
+/** Validate durable snapshots before the dispatcher can restore them. */
+export const storedToolOperationSchema = z.strictObject({ context: callContextSchema, call: toolCallSchema,
+    digest: digestSchema, revision: digestSchema, policy: z.enum(['read', 'write', 'destructive', 'spend', 'generation', 'internal']),
+    expiresAt: epochSchema, card: confirmationCardSchema.optional(), approvalId: idSchema.optional(), grantChoice: approvalChoiceSchema.optional(),
+    classification: confirmationCardSchema.shape.classification, state: toolOperationSchema, executing: z.boolean(),
+    request: z.strictObject({ arguments: z.record(z.string(), boundedJsonSchema), envelope: effectEnvelopeSchema,
+        pluginDigest: digestSchema, schemaFingerprint: digestSchema, operationScope: idSchema.optional(),
+        generation: z.strictObject({ request: generationRequest, quote: generationCostQuoteSchema }).optional() }) });
+export type StoredToolOperation = Omit<z.infer<typeof storedToolOperationSchema>, 'request'> & { request: EffectRequest };
 
 /** Local sandbox generation input; the server owns capability/configuration/pricing/digests.
  * A vendor binding must replace this explicitly labelled fixture before accepting vendor models. */

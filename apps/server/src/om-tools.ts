@@ -5,7 +5,7 @@ import { assistantSettingsSchema, boundedJsonSchema, callContextSchema, generati
     parseBoundary, toolCallSchema, toolDescriptorSchema, toolSearchSchema, addonToolEffectsSchema, addonListRequestSchema, installAddonSchema, setAddonEnabledSchema, uninstallAddonSchema, disconnectIntegrationSchema } from '@open-marketing/contracts';
 import type { ApprovalResponse, CallContext, ClockPort, ConfirmationCard, Outcome, ToolCall, ToolDescriptor, ToolOperation, ToolResult } from '@open-marketing/contracts';
 import { digestArguments } from '@open-marketing/safety';
-import type { DispatchPermit, EffectRequest, FrozenDispatchRequest, MemoryConfirmationExchange, SafetyService } from '@open-marketing/safety';
+import type { DispatchPermit, EffectRequest, FrozenDispatchRequest, ConfirmationExchangePort, SafetyService } from '@open-marketing/safety';
 import { addonManagementTools, loadAddonToolSources, invokeAddonManagementTool, invokeAddonTool } from './addon-tools.js';
 import type { AddonToolDependencies } from './addon-tools.js';
 import { addonBoundary } from './addons.js';
@@ -29,16 +29,19 @@ import type { PaidSendingAllowances } from '@open-marketing/safety';
 import type { AuditService } from '@open-marketing/audit';
 import { creativeToolInputSchema } from './om-tool-types.js';
 import type { GenerationStatus } from '@open-marketing/creative';
+import type { ToolOperationStore } from './tool-operations.js';
+import { compactToolOperation } from './tool-operations.js';
+import type { StoredToolOperation as Operation } from './om-tool-types.js';
 import type { OmTools, CreativeToolBinding } from './om-tool-types.js';
 export type { OmTools } from './om-tool-types.js';
 import type { OmToolDefinition, OmToolPolicy } from './om-tool-types.js';
 export type { OmToolDefinition, OmToolPolicy } from './om-tool-types.js';
 
 type Dependencies = { definitions(required: { context: CallContext }): Promise<Outcome<readonly OmToolDefinition[]>>;
-    confirmations: MemoryConfirmationExchange; clock: ClockPort; observer: ObserverPort;
+    confirmations: ConfirmationExchangePort; clock: ClockPort; observer: ObserverPort;
+    /** Omitted only by existing ephemeral callers; boot always injects durable storage. */
+    store?: ToolOperationStore;
     authorize(required: { context: CallContext }): Outcome<void> };
-type Operation = { context: CallContext; call: ToolCall; digest: string; revision: string; request: EffectRequest;
-    policy: OmToolPolicy; expiresAt: number; card?: ConfirmationCard; approvalId?: string; grantChoice?: ApprovalResponse['choice']; classification: ConfirmationCard['classification']; state: ToolOperation; executing: boolean };
 
 /** Known irreversible effects win over unknown declarations, which always contribute write.
  * @complexity O(e) time/space, e <=10 after wire validation; no authority is inferred here.
@@ -85,15 +88,119 @@ function sameRun(required: { context: CallContext; operation: Operation }): bool
     return required.context.principal.kind === 'owner' || required.context.runId === required.operation.context.runId;
 }
 /** Process-owned bounded operation records. Existing durable run events retain card/result evidence.
- * Reload never restores a grant or replays an effect; missing operation records are interrupted.
+ * Boot restores snapshots without effects; pending cards use fresh owner authority.
  * @example const tools = createOmTools({ definitions, confirmations, clock, observer, authorize });
- * @complexity <=256 operations and <=2 MiB records per instance; catalog <=1100 entries.
+ * @complexity <=256 full bodies and <=2 MiB resident JSON; durable replay outcomes load by key.
  */
 export function createOmTools(required: Dependencies): OmTools {
     const operations = new Map<string, Operation>();
+    const replays = new Map<string, Operation>();
     let disposed = false;
-    const boundary = <T>(input: { context: CallContext; operation: string; run(): Promise<Outcome<T>> }) =>
-        addonBoundary({ ...input, dependencies: required });
+    let restored = false;
+    const active = new Set<Promise<unknown>>();
+    const boundary = <T>(input: { context: CallContext; operation: string; run(): Promise<Outcome<T>> }) => {
+        const pending = addonBoundary({ ...input, dependencies: required });
+        active.add(pending);
+        void pending.then(() => active.delete(pending), () => active.delete(pending));
+        return pending;
+    };
+    /** Persist before proceeding; a failed save never permits egress or advertises retry. */
+    async function persist(input: { operation: Operation }): Promise<boolean> {
+        if (!required.store) return true;
+        try {
+            const saved = await required.store.save({ context: input.operation.context, operation: input.operation });
+            if (saved.ok) return true;
+        } catch { /* Storage implementations are isolated here; no effect follows failed persistence. */ }
+        input.operation.state = { status: 'unknown', operationId: input.operation.call.operationId,
+            error: { code: 'unavailable', message: 'Operation persistence failed; reconcile before retrying', retryable: false } };
+        return false;
+    }
+    /** Evict oldest terminal bodies only after their replay identity commits. Actual JSON bytes
+     * count toward 2 MiB; ephemeral replay records share that bound. Scans/serialization are
+     * bounded by the resident JSON cap; each eviction performs one awaited store write.
+     */
+    async function retain(input: { operation: Operation }): Promise<Outcome<void>> {
+        while (!fits({ operations, operation: input.operation, replays })) {
+            const oldest = [...operations.values()].find(operation => operation !== input.operation && operation.state.status !== 'pending' && !operation.executing);
+            if (!oldest) return localFailure({ code: 'limit_exceeded', message: 'Tool operation retention limit reached' });
+            const key = operationKey({ context: oldest.context, operationId: oldest.call.operationId });
+            if (required.store) {
+                const saved = await required.store.archive({ context: oldest.context, operation: oldest });
+                if (!saved.ok) return saved;
+            } else replays.set(key, compactToolOperation({ operation: oldest }));
+            operations.delete(key);
+        }
+        return { ok: true, value: undefined };
+    }
+    /** A single scoped archive lookup never restores a callback or dispatch authority. */
+    async function archived(input: { context: CallContext; operationId: string }): Promise<Outcome<Operation | null>> {
+        if (required.store) return required.store.replay(input);
+        return { ok: true, value: replays.get(operationKey(input)) ?? null };
+    }
+    /** Recheck local identity after an archive read so concurrent duplicates share one reservation. */
+    async function lookup(input: { context: CallContext; operationId: string }): Promise<Outcome<Operation | null>> {
+        const key = operationKey(input);
+        const local = operations.get(key);
+        if (local) return { ok: true, value: local };
+        const stored = await archived(input);
+        if (!stored.ok) return stored;
+        return { ok: true, value: operations.get(key) ?? stored.value };
+    }
+    /** Recover exactly once under current owner authority; loading never invokes a definition.
+     * O(n + c) restore work for n <=256 operations and c <=10,000 pending cards; boot completes before HTTP admission opens.
+     */
+    async function restore(input: { context: CallContext }): Promise<Outcome<void>> {
+        const owner = admitted(input);
+        if (!owner.ok) return owner;
+        if (input.context.principal.kind !== 'owner') return localFailure({ code: 'forbidden', message: 'Restore requires owner authority' });
+        if (restored || operations.size) return localFailure({ code: 'conflict', message: 'Operations already initialized' });
+        restored = true;
+        if (!required.store) return { ok: true, value: undefined };
+        const loaded = await required.store.loadOpen({ scope: input.context.scope });
+        if (!loaded.ok) return loaded;
+        const pending = await pendingCards(input);
+        if (!pending.ok) return pending;
+        return restoreRecords({ context: input.context, records: loaded.value, pending: pending.value });
+    }
+    /** Install bounded snapshots only after each recovery transition commits. */
+    async function restoreRecords(input: { context: CallContext; records: readonly Operation[]; pending: ReadonlySet<string> }): Promise<Outcome<void>> {
+        for (const operation of input.records) {
+            const recovered = await recover({ operation, context: input.context, pending: input.pending });
+            if (!recovered.ok) return recovered;
+            const retained = await retain({ operation });
+            if (!retained.ok) return retained;
+            operations.set(operationKey({ context: operation.context, operationId: operation.call.operationId }), operation);
+        }
+        return { ok: true, value: undefined };
+    }
+    /** A committed answer without dispatch is interrupted; uncertain dispatch is never retried. */
+    async function recover(input: { context: CallContext; operation: Operation; pending: ReadonlySet<string> }): Promise<Outcome<void>> {
+        const { operation } = input;
+        operation.context = { ...operation.context, principal: input.context.principal };
+        if (operation.state.status !== 'pending') { operation.executing = false; return { ok: true, value: undefined }; }
+        if (operation.executing) operation.state = { status: 'unknown', operationId: operation.call.operationId,
+            error: { code: 'unavailable', message: 'Dispatch interrupted by restart; reconcile before retrying', retryable: false } };
+        else if (!operation.card || !input.pending.has(operation.card.cardId) || operation.expiresAt <= required.clock.now({}))
+            operation.state = { status: 'interrupted', operationId: operation.call.operationId };
+        operation.executing = false;
+        if (await persist({ operation })) return { ok: true, value: undefined };
+        return localFailure({ code: 'unavailable', message: 'Operation restore persistence failed' });
+    }
+    /** Read pending membership once: get intentionally also exposes answered cards.
+     * O(c) time/space, c <=10,000 cards and <=100 paginated SQL reads at boot.
+     */
+    async function pendingCards(input: { context: CallContext }): Promise<Outcome<ReadonlySet<string>>> {
+        const cards = new Set<string>();
+        let cursor: string | undefined;
+        do {
+            const page = await required.confirmations.list({ context: input.context, query: { limit: 100, cursor } });
+            if (!page.ok) return page;
+            for (const card of page.value.items) cards.add(card.cardId);
+            cursor = page.value.cursor ?? undefined;
+            if (cards.size > 10000) return localFailure({ code: 'limit_exceeded', message: 'Card restore capacity reached' });
+        } while (cursor);
+        return { ok: true, value: cards };
+    }
 
     function admitted(input: { context: CallContext; signal?: AbortSignal }): Outcome<void> {
         if (disposed || input.signal?.aborted) return localFailure({ code: 'cancelled', message: 'Tool request cancelled' });
@@ -109,48 +216,70 @@ export function createOmTools(required: Dependencies): OmTools {
             return localFailure({ code: 'conflict', message: 'Tool catalog is too large or contains duplicate names' });
         return result;
     }
-    function owned(input: { context: CallContext; operationId: string }): Outcome<Operation> {
-        const operation = operations.get(operationKey(input));
+    async function owned(input: { context: CallContext; operationId: string }): Promise<Outcome<Operation>> {
+        const found = await lookup(input);
+        if (!found.ok) return found;
+        const operation = found.value;
         if (!operation || !sameRun({ ...input, operation })) return localFailure({ code: 'forbidden', message: 'Operation unavailable in run scope' });
         return { ok: true, value: operation };
     }
-    /** Revoke pending authority and return the resulting state; in-flight effects become unknown.
-     * @complexity O(1) state transition; confirmation revocation is instance-owned.
-     */
-    function interrupt(input: { operation: Operation; status: 'interrupted' | 'cancelled' }): ToolOperation {
+    /** Synchronous local revocation closes every selected operation before awaiting storage. */
+    function markInterrupted(input: { operation: Operation; status: 'interrupted' | 'cancelled' }): boolean {
         const operation = input.operation;
-        if (operation.state.status !== 'pending') return operation.state;
+        if (operation.state.status !== 'pending') return false;
         operation.state = operation.executing
             ? { status: 'unknown', operationId: operation.call.operationId, error: { code: 'cancelled', message: 'Dispatch interrupted; reconcile the outcome before retrying', retryable: false } }
             : { status: input.status, operationId: operation.call.operationId };
-        if (operation.card) required.confirmations.revoke({ context: operation.context, cardId: operation.card.cardId });
-        return operation.state;
+        return true;
     }
-    function state(input: { operation: Operation }): ToolOperation {
-        if (input.operation.expiresAt <= required.clock.now({}) || !admitted({ context: input.operation.context }).ok)
-            interrupt({ ...input, status: 'interrupted' });
+    /** Await state before deleting the card; cleanup never opens overlapping lane transactions. */
+    async function persistInterruption(input: { operation: Operation }): Promise<Outcome<void>> {
+        const { operation } = input;
+        const saved = await persist({ operation });
+        let revoked: Outcome<void> = { ok: true, value: undefined };
+        try {
+            if (operation.card) revoked = await required.confirmations.revoke({ context: operation.context, cardId: operation.card.cardId });
+        } catch { revoked = localFailure({ message: 'Card revocation failed; reconcile before retrying' }); }
+        if (!saved) return { ok: false, error: { code: 'unavailable', message: 'Cancellation persistence failed; reconcile before retrying', retryable: false } };
+        return revoked;
+    }
+    /** Revoke pending authority; in-flight effects become unknown. O(1) state/query work. */
+    async function interrupt(input: { operation: Operation; status: 'interrupted' | 'cancelled' }): Promise<Outcome<void>> {
+        if (!markInterrupted(input)) return { ok: true, value: undefined };
+        return persistInterruption(input);
+    }
+    async function state(input: { operation: Operation }): Promise<ToolOperation> {
+        if (input.operation.expiresAt <= required.clock.now({}) || !admitted({ context: input.operation.context }).ok) {
+            const interrupted = await interrupt({ ...input, status: 'interrupted' });
+            if (!interrupted.ok) throw interrupted.error;
+        }
         return structuredClone(input.operation.state);
     }
     /** Finished run grants cannot replay. Their durable event log retains the completed evidence;
      * unknown outcomes stay queryable, and owner-only operation identities are never evicted.
      * @complexity O(n) time/O(1) space, n <=256 retained operations; no dispatch or retry.
      */
-    function releaseRevokedRuns(): void {
-        for (const [key, operation] of operations) {
+    async function releaseRevokedRuns(): Promise<void> {
+        for (const operation of operations.values()) {
             if (retainedBeyondRun({ operation })) continue;
             if (required.authorize({ context: operation.context }).ok) continue;
-            if (interrupt({ operation, status: 'interrupted' }).status !== 'unknown') operations.delete(key);
+            await interrupt({ operation, status: 'interrupted' });
         }
     }
-    /** Reserve identity before any effect; concurrent duplicates observe pending, never reinvoke.
-     * Failed or invalid dispatch results are unknown and cannot advertise automatic retry.
-     */
+    /** Elect one in-process invoker, then commit dispatching before the definition can run. */
+    async function beginDispatch(input: { operation: Operation; signal?: AbortSignal }): Promise<boolean> {
+        const { operation } = input;
+        if (operation.state.status !== 'pending' || operation.executing) return false;
+        operation.executing = true;
+        if (!admitted({ context: operation.context, signal: input.signal }).ok) { await interrupt({ operation, status: 'interrupted' }); return false; }
+        if (!await persist({ operation }) || operation.state.status !== 'pending') return false;
+        if (operation.expiresAt <= required.clock.now({}) || !admitted({ context: operation.context, signal: input.signal }).ok) { await interrupt({ operation, status: 'interrupted' }); return false; }
+        return true;
+    }
+    /** Failed or invalid dispatch results are unknown and cannot advertise automatic retry. */
     async function invoke(input: { operation: Operation; definition: OmToolDefinition; context: CallContext; signal?: AbortSignal }): Promise<void> {
         const { operation } = input;
-        if (operation.state.status !== 'pending' || operation.executing) return;
-        operation.executing = true;
-        const current = admitted({ context: operation.context, signal: input.signal });
-        if (!current.ok) { interrupt({ operation, status: 'interrupted' }); return; }
+        if (!await beginDispatch(input)) return;
         try {
             const context = { ...input.context, runId: operation.context.runId,
                 correlationId: operation.context.correlationId, traceId: operation.context.traceId };
@@ -163,7 +292,7 @@ export function createOmTools(required: Dependencies): OmTools {
             if (operation.state.status !== 'pending') return;
             operation.state = { status: 'unknown', operationId: operation.call.operationId,
                 error: { code: 'unavailable', message: 'Tool outcome unknown; reconcile before another attempt', retryable: false } };
-        }
+        } finally { await persist({ operation }); operation.executing = false; }
     }
     /** Financial classification uses the owning service's verified quote and current allowance.
      * The binding must review the same tool/input/operation; no model-supplied cost is trusted.
@@ -238,13 +367,13 @@ export function createOmTools(required: Dependencies): OmTools {
         if (!authority.ok) return authority;
         const definition = found.value.find(tool => tool.name === parsed.value.name);
         if (!definition) return localFailure({ code: 'not_implemented', message: 'Tool is not connected. Search the catalog for available tools.' });
-        releaseRevokedRuns();
+        await releaseRevokedRuns();
         const digest = digestArguments({ arguments: parsed.value });
         if (!digest.ok) return digest;
-        const callDigest = digest.value;
-        const prior = operations.get(operationKey({ ...input, operationId: parsed.value.operationId }));
-        if (prior) return replay({ prior, context: input.context, digest: callDigest });
-        return reserveAndDispatch({ ...input, call: parsed.value, definition, digest: callDigest });
+        const prior = await lookup({ ...input, operationId: parsed.value.operationId });
+        if (!prior.ok) return prior;
+        if (prior.value) return replay({ prior: prior.value, context: input.context, digest: digest.value });
+        return reserveAndDispatch({ ...input, call: parsed.value, definition, digest: digest.value });
     }
     /** Reserve identity before asynchronous verification. Duplicate dispatch observes pending and
      * cancellation cannot resurrect it while a financial binding is being checked.
@@ -257,21 +386,26 @@ export function createOmTools(required: Dependencies): OmTools {
         if (policy === 'internal') return localFailure({ code: 'forbidden', message: 'Conversion delivery and halt stops require typed server jobs; generic tool authority is insufficient' });
         if (definition.unavailableReason) return localFailure({ code: 'not_implemented', message: definition.unavailableReason });
         const operation = freezeOperation({ ...input, policy, clock: required.clock });
-        if (!fits({ operations, operation })) return localFailure({ code: 'limit_exceeded', message: 'Tool operation retention limit reached' });
+        const retained = await retain({ operation });
+        if (!retained.ok) return retained;
+        const prior = operations.get(operationKey({ ...input, operationId: operation.call.operationId }));
+        if (prior) return replay({ prior, context: input.context, digest: input.digest });
         operations.set(operationKey({ ...input, operationId: operation.call.operationId }), operation);
+        if (!await persist({ operation })) return resultOf({ operation });
         const prepared = await prepareFinancial({ operation, definition });
         if (!prepared.ok) {
             if (operation.state.status === 'pending') operation.state = { status: 'unknown', operationId: operation.call.operationId, error: { ...prepared.error, retryable: false } };
+            await persist({ operation });
             return prepared;
         }
-        if (!fits({ operations, operation })) { operation.state = { status: 'unknown', operationId: operation.call.operationId,
-            error: { code: 'limit_exceeded', message: 'Prepared financial request exceeds operation retention limit', retryable: false } }; return resultOf({ operation }); }
+        if (!(await retain({ operation })).ok) { operation.state = { status: 'unknown', operationId: operation.call.operationId,
+            error: { code: 'limit_exceeded', message: 'Prepared financial request exceeds operation retention limit', retryable: false } }; await persist({ operation }); return resultOf({ operation }); }
         return dispatchPrepared({ ...input, operation });
     }
     async function dispatchPrepared(input: { operation: Operation; definition: OmToolDefinition; context: CallContext; signal?: AbortSignal }): Promise<Outcome<ToolResult>> {
         if (input.operation.state.status !== 'pending') return resultOf(input);
         const current = admitted(input);
-        if (!current.ok) { interrupt({ operation: input.operation, status: 'interrupted' }); return current; }
+        if (!current.ok) { await interrupt({ operation: input.operation, status: 'interrupted' }); return current; }
         if (input.operation.policy === 'read') await invoke(input);
         else if (await useRetainedGrant(input)) await invoke(input);
         else await present(input);
@@ -279,29 +413,32 @@ export function createOmTools(required: Dependencies): OmTools {
     }
     async function present(input: { operation: Operation; definition: OmToolDefinition }): Promise<void> {
         const { operation } = input;
+        if (!await persist({ operation }) || operation.state.status !== 'pending') return;
         const card = input.definition.safety && input.definition.prepareEffect
             ? await input.definition.safety.prepareApproval({ context: operation.context, request: operation.request })
             : await required.confirmations.present({ context: operation.context, request: operation.request, policyRevision: 0, classification: operation.classification });
-        if (!card.ok) { operation.state = { status: 'unknown', operationId: operation.call.operationId, error: card.error }; return; }
-        if (operation.state.status !== 'pending') { required.confirmations.revoke({ context: operation.context, cardId: card.value.cardId }); return; }
+        if (!card.ok) { operation.state = { status: 'unknown', operationId: operation.call.operationId, error: { ...card.error, retryable: false } }; await persist({ operation }); return; }
+        if (operation.state.status !== 'pending') { await required.confirmations.revoke({ context: operation.context, cardId: card.value.cardId }); return; }
         operation.classification = card.value.classification;
         operation.card = card.value;
         operation.expiresAt = Math.min(operation.expiresAt, card.value.expiresAt);
         operation.state = { status: 'pending', operationId: operation.call.operationId, cardId: card.value.cardId };
+        await persist({ operation });
     }
     async function answer(input: { context: CallContext; response: ApprovalResponse }): Promise<Outcome<void>> {
         const owner = admitted(input);
         if (!owner.ok) return owner;
         if (input.context.principal.kind !== 'owner') return localFailure({ code: 'forbidden', message: 'Only the authenticated owner can answer a card' });
-        const found = owned({ ...input, operationId: input.response.operationId });
+        const found = await owned({ ...input, operationId: input.response.operationId });
         if (!found.ok) return found;
         const operation = found.value;
-        if (state({ operation }).status !== 'pending' || operation.executing) return localFailure({ code: 'conflict', message: 'Card operation is no longer pending' });
+        if ((await state({ operation })).status !== 'pending' || operation.executing) return localFailure({ code: 'conflict', message: 'Card operation is no longer pending' });
+        if (operation.card?.cardId !== input.response.cardId) return localFailure({ code: 'forbidden', message: 'Card is not linked to this operation' });
         const latest = await catalog({ context: operation.context });
         if (!latest.ok) return latest;
         const definition = latest.value.find(tool => tool.name === operation.call.name);
         if (!definition || fingerprint({ definition }) !== operation.revision) {
-            interrupt({ operation, status: 'interrupted' });
+            await interrupt({ operation, status: 'interrupted' });
             return localFailure({ code: 'conflict', message: 'Tool changed or was removed. Request fresh approval.' });
         }
         return confirmAndInvoke({ ...input, operation, definition });
@@ -310,7 +447,7 @@ export function createOmTools(required: Dependencies): OmTools {
         const { operation } = input;
         const confirmed = await required.confirmations.confirm({ context: input.context, response: input.response });
         if (!confirmed.ok) return confirmed;
-        if (input.response.choice === 'cancel') { interrupt({ operation, status: 'cancelled' }); return { ok: true, value: undefined }; }
+        if (input.response.choice === 'cancel') return interrupt({ operation, status: 'cancelled' });
         const verified = await required.confirmations.verify({ context: operation.context,
             request: { ...operation.request, approvalId: input.response.cardId, policyRevision: 0 },
             classification: operation.classification });
@@ -335,21 +472,43 @@ export function createOmTools(required: Dependencies): OmTools {
         operation: input => boundary({ ...input, operation: 'om.tools.operation', run: async () => {
             const authority = admitted(input);
             if (!authority.ok) return authority;
-            const found = owned(input);
-            return found.ok ? { ok: true, value: state({ operation: found.value }) } : found;
+            const found = await owned(input);
+            return found.ok ? { ok: true, value: await state({ operation: found.value }) } : found;
         } }),
         card: input => boundary({ ...input, operation: 'om.tools.card', run: async () => {
             const authority = admitted(input);
             if (!authority.ok) return authority;
-            const found = owned(input);
+            const found = await owned(input);
             if (!found.ok) return found;
-            return { ok: true, value: state({ operation: found.value }).status === 'pending' ? structuredClone(found.value.card ?? null) : null };
+            return { ok: true, value: (await state({ operation: found.value })).status === 'pending' ? structuredClone(found.value.card ?? null) : null };
         } }),
         answer: input => boundary({ ...input, operation: 'om.tools.answer', run: () => answer(input) }),
-        cancel(input) { for (const operation of operations.values()) if (operation.context.runId === input.runId
-            && operation.context.scope.ownerId === input.context.scope.ownerId && operation.context.scope.workspaceId === input.context.scope.workspaceId)
-            interrupt({ operation, status: 'cancelled' }); },
-        dispose() { disposed = true; for (const operation of operations.values()) interrupt({ operation, status: 'interrupted' }); operations.clear(); },
+        restore: input => boundary({ ...input, operation: 'om.tools.restore', run: () => restore(input) }),
+        cancel: input => boundary({ ...input, operation: 'om.tools.cancel', run: async () => {
+            if (disposed) return { ok: true, value: undefined };
+            const pending = [...operations.values()].filter(operation => operation.context.runId === input.runId
+                && operation.context.scope.ownerId === input.context.scope.ownerId && operation.context.scope.workspaceId === input.context.scope.workspaceId);
+            const changed = pending.filter(operation => markInterrupted({ operation, status: 'cancelled' }));
+            let result: Outcome<void> = { ok: true, value: undefined };
+            for (const operation of changed) {
+                const saved = await persistInterruption({ operation });
+                if (!saved.ok) result = saved;
+            }
+            return result;
+        } }).then(result => { if (!result.ok) throw { ...result.error, retryable: false }; }),
+        async dispose() {
+            disposed = true;
+            // Durable waiting cards survive restart; ephemeral callers retain revocation on disposal.
+            const changed = [...operations.values()].filter(operation => (operation.executing || !required.store) && markInterrupted({ operation, status: 'interrupted' }));
+            let failure: Outcome<void> = { ok: true, value: undefined };
+            for (const operation of changed) {
+                const saved = await persistInterruption({ operation });
+                if (!saved.ok) failure = saved;
+            }
+            await Promise.allSettled([...active]);
+            operations.clear(); replays.clear();
+            if (!failure.ok) throw { ...failure.error, retryable: false };
+        },
     };
 }
 
@@ -369,12 +528,11 @@ function retainedGrantMatches(required: { operation: Operation; prior: Operation
 }
 
 /** Retention includes completed outputs and frozen requests, preventing a growing replay cache. */
-function fits(required: { operations: ReadonlyMap<string, Operation>; operation: Operation }): boolean {
+function fits(required: { operations: ReadonlyMap<string, Operation>; operation: Operation; replays: ReadonlyMap<string, Operation> }): boolean {
     const others = [...required.operations.values()].filter(operation => operation !== required.operation);
     if (others.length >= 256) return false;
-    // Reserve 64 KiB each for the exact card and eventual result, including pending operations.
-    const retained = others.reduce((total, operation) => total + Buffer.byteLength(JSON.stringify(operation)) + 131072, 0);
-    return retained + Buffer.byteLength(JSON.stringify(required.operation)) + 131072 <= 2097152;
+    const retained = [...others, ...required.replays.values()].reduce((total, operation) => total + Buffer.byteLength(JSON.stringify(operation)), 0);
+    return retained + Buffer.byteLength(JSON.stringify(required.operation)) <= 2097152;
 }
 function freezeOperation(required: { context: CallContext; call: ToolCall; definition: OmToolDefinition; policy: OmToolPolicy; digest: string; clock: ClockPort }): Operation {
     const argumentsValue = { tool: required.call.name, input: structuredClone(required.call.input) };
@@ -383,7 +541,7 @@ function freezeOperation(required: { context: CallContext; call: ToolCall; defin
         revision: fingerprint({ definition: required.definition }), policy: required.policy, classification: required.policy === 'destructive' ? 'destructive' : 'write', expiresAt: required.clock.now({}) + 300000,
         state: { status: 'pending', operationId: required.call.operationId }, executing: false,
         request: { arguments: argumentsValue, pluginDigest: checkedDigest({ value: required.definition.revision }),
-            // Grants remain process-local and expire with the retained authority.
+            // Grant reuse remains bounded by the exact card expiry.
             ...(required.definition.ownerOnly ? {} : { operationScope: required.definition.name }), schemaFingerprint: checkedDigest({ value: required.definition.inputSchema }),
             envelope: { operationId: required.call.operationId, connectionId: required.definition.name, accountId: null,
                 effects: addonToolEffectsSchema.parse(required.definition.effects), argumentsDigest, moneyExposure: null, requiredLimit: null } } };

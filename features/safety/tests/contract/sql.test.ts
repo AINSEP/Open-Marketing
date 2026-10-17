@@ -1,7 +1,7 @@
-import { expect, it } from "vitest";
-import { SafetyRepoPortSuite } from "./port-suites.js";
-import { context, createHarness, generationRequest, unwrap } from "../fixtures.js";
-import { createSqlSafetyRepo } from "../../index.js";
+import { afterEach, expect, it } from "vitest";
+import { SafetyRepoPortSuite, ConfirmationExchangePortSuite } from "./port-suites.js";
+import { context, createHarness, generationRequest, unwrap, sqliteFixture, timing, spendRequest } from "../fixtures.js";
+import { createSqlSafetyRepo, createSqlConfirmationExchange } from "../../index.js";
 SafetyRepoPortSuite({ create: () => createHarness({ backend: "sql" }) });
 it('balance reads do not insert state, change versions, or append financial journal entries', async () => {
  const harness = createHarness({ backend: 'sql' });
@@ -61,4 +61,32 @@ it("a failed SQL observer still returns a typed boundary error", async () => {
  const repo = createSqlSafetyRepo({ ...harness.time, db: harness.sqlite!.port, observer: { observe() { throw new Error("observer unavailable"); } } });
  await expect(repo.getGenerationAllowance({ context })).resolves.toMatchObject({ ok: false, error: { code: "unavailable" } });
  harness.close();
+});
+
+const confirmationFixtures: ReturnType<typeof sqliteFixture>[] = [];
+const reopeners = new WeakMap<object, () => ReturnType<typeof createSqlConfirmationExchange>>();
+afterEach(() => { for (const fixture of confirmationFixtures.splice(0)) fixture.close(); });
+ConfirmationExchangePortSuite({
+ create() {
+  const sqlite = sqliteFixture(); confirmationFixtures.push(sqlite);
+  const time = timing();
+  function open() {
+   const port = createSqlConfirmationExchange({ ...time, db: sqlite.port });
+   reopeners.set(port, open); return port;
+  }
+  return open();
+ },
+ reopen({ port }) { return reopeners.get(port)!(); },
+});
+it("SQL confirmation expiry and corrupt storage fail closed after reopening", async () => {
+ const sqlite = sqliteFixture(); confirmationFixtures.push(sqlite);
+ const time = timing();
+ const original = createSqlConfirmationExchange({ ...time, db: sqlite.port, ttlMs: 10 });
+ const card = unwrap({ outcome: await original.present({ context, request: spendRequest() }) });
+ const reopened = createSqlConfirmationExchange({ ...time, db: sqlite.port });
+ time.setNow({ now: time.clock.now({}) + 10 });
+ expect(await reopened.list({ context, query: { limit: 100 } })).toEqual({ ok: true, value: { items: [], cursor: null } });
+ expect(await reopened.confirm({ context, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: "allow" } })).toMatchObject({ ok: false, error: { code: "expired" } });
+ sqlite.db.prepare("UPDATE safety_confirmations SET payload=?").run("{broken");
+ expect(await reopened.get({ context, cardId: card.cardId })).toMatchObject({ ok: false, error: { code: "unavailable", retryable: false } });
 });

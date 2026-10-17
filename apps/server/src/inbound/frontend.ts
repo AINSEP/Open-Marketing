@@ -21,8 +21,8 @@ export interface FrontendSessions {
     handle(required: { request: HttpRequest; context: CallContext }): Promise<HttpResponse>;
     bindRun(required: { context: CallContext; runId: string; expiresAt: number } & Pick<AssistantRunRequest, 'frontendSessionId' | 'frontendBindToken'>): Outcome<void>;
     actionContext(required: { context: CallContext; runId: string; frontendSessionId: string }): Outcome<CallContext>;
-    endRun(required: { context: CallContext; runId: string; status: 'completed' | 'cancelled' | 'interrupted' }): void;
-    dispose(required: Record<string, never>): void;
+    endRun(required: { context: CallContext; runId: string; status: 'completed' | 'cancelled' | 'interrupted' }): Promise<void>;
+    dispose(required: Record<string, never>): Promise<void>;
 }
 function sameOwner(required: { left: CallContext; right: CallContext }): boolean {
     return required.left.scope.ownerId === required.right.scope.ownerId && required.left.scope.workspaceId === required.right.scope.workspaceId;
@@ -44,12 +44,27 @@ function frame(required: { value: unknown }): Uint8Array {
 export function createFrontendSessions(required: {
     clock: ClockPort; ids: IdPort; schedule: Schedule; randomToken(required: Record<string, never>): string;
     authorize(required: { context: CallContext }): Outcome<void>;
-    disconnected(required: { context: CallContext; runId: string }): void;
+    disconnected(required: { context: CallContext; runId: string }): Promise<void>;
 }): FrontendSessions {
     const sessions = new Map<string, Session>();
     const bindings = new Map<string, Binding>();
     const pending = new Map<string, Pending>();
     let disposed = false;
+    let disconnects = Promise.resolve();
+    let disconnectFailure: { reason: unknown } | undefined;
+
+    /** EventTarget/timer callbacks must stay synchronous. Local revocation is immediate;
+     * queued durable cleanup is serialized, awaited by stream cancellation/endRun/dispose,
+     * and its first failure is retained for the lifecycle caller instead of being dropped.
+     */
+    function disconnect(input: { context: CallContext; runId: string }): void {
+        disconnects = disconnects.then(async () => { await required.disconnected(input); })
+            .catch(reason => { disconnectFailure ??= { reason }; });
+    }
+    async function settleDisconnects(): Promise<void> {
+        await disconnects;
+        if (disconnectFailure) throw disconnectFailure.reason;
+    }
 
     function voidPending(input: { binding: Binding }): void {
         input.binding.session.frames = input.binding.session.frames.filter(frame => frame.runId !== input.binding.context.runId);
@@ -59,7 +74,7 @@ export function createFrontendSessions(required: {
     function removeBinding(input: { runId: string; binding: Binding; status?: 'cancelled' | 'interrupted' }): void {
         bindings.delete(input.runId);
         voidPending(input);
-        required.disconnected({ context: input.binding.context, runId: input.runId });
+        disconnect({ context: input.binding.context, runId: input.runId });
         if (!input.binding.session.closed) enqueue({ session: input.binding.session, value: { type: 'voided', runId: input.runId,
             frontendSessionId: input.binding.session.id, status: input.status ?? 'interrupted' } });
     }
@@ -143,7 +158,7 @@ export function createFrontendSessions(required: {
         enqueue({ session, value: { type: 'attached', sessionId: session.id, bindToken: session.token } });
         if (input.request.signal?.aborted) session.close();
         return { status: 200, body: undefined, contentType: 'text/event-stream; charset=utf-8',
-            headers: { 'x-accel-buffering': 'no' }, stream: { chunks: sessionFrames({ session }), async cancel() { session.close(); } } };
+            headers: { 'x-accel-buffering': 'no' }, stream: { chunks: sessionFrames({ session, settleDisconnects }), async cancel() { session.close(); await settleDisconnects(); } } };
     }
     const frontend: UiFrontendPort = {
         page(input) { return invocation({ ...input, value: ({ invocationId, binding }) => {
@@ -199,18 +214,19 @@ export function createFrontendSessions(required: {
                 return localFailure({ code: 'forbidden', message: 'Surface action belongs to another frontend' });
             return { ok: true, value: { ...input.context, runId: input.runId } };
         },
-        endRun(input) {
+        async endRun(input) {
             const binding = bindings.get(input.runId);
-            if (!binding || !sameOwner({ left: binding.context, right: input.context })) return;
-            if (input.status === 'completed') { binding.completed = true; voidPending({ binding }); return; }
+            if (!binding || !sameOwner({ left: binding.context, right: input.context })) { await settleDisconnects(); return; }
+            if (input.status === 'completed') { binding.completed = true; voidPending({ binding }); await settleDisconnects(); return; }
             removeBinding({ ...input, binding, status: input.status === 'cancelled' ? 'cancelled' : 'interrupted' });
+            await settleDisconnects();
         },
-        dispose() { disposed = true; for (const session of sessions.values()) session.close(); },
+        async dispose() { disposed = true; for (const session of sessions.values()) session.close(); await settleDisconnects(); },
     };
 }
 
 /** One pending pull per stream. Disconnect/deadline wakes the iterator and clears all timers. */
-async function* sessionFrames(required: { session: Session }): AsyncIterable<Uint8Array> {
+async function* sessionFrames(required: { session: Session; settleDisconnects(): Promise<void> }): AsyncIterable<Uint8Array> {
     const session = required.session;
     try {
         while (!session.closed) {
@@ -219,7 +235,7 @@ async function* sessionFrames(required: { session: Session }): AsyncIterable<Uin
             else await new Promise<void>(resolve => { session.wake = resolve; if (session.closed || session.frames.length) resolve(); });
             session.wake = undefined;
         }
-    } finally { session.close(); }
+    } finally { session.close(); await required.settleDisconnects(); }
 }
 /** Keep EventSource alive for five minutes; reattachment gets a new token and voids old runs. */
 function streamLifetime(required: { session: Session; signal?: AbortSignal; schedule: Schedule }): () => void {

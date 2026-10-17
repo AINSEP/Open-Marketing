@@ -8,6 +8,7 @@ export { digestArguments } from "./src/rules.js";
 export type { MemoryConfirmationExchange } from "./src/confirmation.js";
 export type { VerifiedEffectFixture, VerifiedQuoteFixture, VerifiedStopFixture } from "./src/memory.js";
 export { createSqlSafetyRepo } from "./src/sql.js";
+export { createSqlConfirmationExchange } from "./src/sql-confirmation.js";
 export type { SafetySqlDatabase, SafetySqlSession } from "./src/sql.js";
 
 export { paidSendingAllowanceSchema, createSqlPaidSendingAllowances, createMemoryPaidSendingAllowances } from "./src/paid-sending.js";

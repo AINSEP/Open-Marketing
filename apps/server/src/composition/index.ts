@@ -3,6 +3,7 @@ import { bindSandboxCampaigns } from './campaigns.js';
 import { bindCatalogAudit, catalogAuditPort, bindCatalogScope, bindCatalogMeasure, sandboxPlatformReports } from './catalog.js';
 import type { OmFeatureServices } from '../om-tools.js';
 import { bindServerAddons, type AddonEffects } from './addons.js';
+import { createSqlToolOperationStore } from '../tool-operations.js';
 import { buildOmToolDefinitions, createOmTools } from '../om-tools.js';
 import type { OmTools } from '../om-tools.js';
 import type { YamlReaderPort } from '@jini-ai/agentic/skills/install';
@@ -36,7 +37,7 @@ import type Database from 'better-sqlite3';
 import type { CallContext, ClockPort, IdPort, ObserverPort, Outcome, UnitOfWork } from '@open-marketing/contracts';
 import { z } from 'zod';
 import { createSqlCampaignRepo, type CampaignSqlPort } from '@open-marketing/campaigns';
-import { createMemoryAccountDispatchLock, createMemoryConfirmationExchange, createSafetyService, createSqlSafetyRepo, type AccountDispatchLockPort, type MemoryConfirmationExchange, type SafetySqlDatabase } from '@open-marketing/safety';
+import { createMemoryAccountDispatchLock, createSqlConfirmationExchange, createSafetyService, createSqlSafetyRepo, type AccountDispatchLockPort, type ConfirmationExchangePort, type SafetySqlDatabase } from '@open-marketing/safety';
 import { handleOwnerRequest, type OwnerServices } from '../inbound/owner.js';
 import type { HttpRequest, HttpListenerPort, LifecyclePort, HttpResponse } from '../ports.js';
 import { handleOmRequest, type RunGrantVerifierPort } from '../inbound/om.js';
@@ -78,7 +79,7 @@ export interface ServerBootIo extends HttpEffects {
 }
 /** Explicit owned lifecycle returned after successful boot. stop is idempotent and closes SQLite last. */
 export interface BootedServer { readonly studioUrl: string; stop(required: Record<string, never>): Promise<Outcome<void>> }
-interface BootResources { frontend?: FrontendSessions; tools?: OmTools; addons?: ReturnType<typeof bindBootAddons>; native?: Database.Database; app?: LifecyclePort; confirmations?: MemoryConfirmationExchange; workers?: ReturnType<typeof createFormWorkers>; privacy?: ReturnType<typeof bindPrivacy>; agent?: ReturnType<typeof createLocalAgent>; stopped?: Promise<Outcome<void>> }
+interface BootResources { frontend?: FrontendSessions; tools?: OmTools; addons?: ReturnType<typeof bindBootAddons>; native?: Database.Database; app?: LifecyclePort; confirmations?: ConfirmationExchangePort; workers?: ReturnType<typeof createFormWorkers>; privacy?: ReturnType<typeof bindPrivacy>; agent?: ReturnType<typeof createLocalAgent>; stopped?: Promise<Outcome<void>> }
 
 /** Best-effort low-cardinality lifecycle diagnostics; no credential/token or raw exception details. */
 function observeBoot(required: { observer: ObserverPort; context: CallContext; operation: string; outcome: string }): void {
@@ -93,12 +94,21 @@ async function stopService(required: { service?: Pick<LifecyclePort, 'stop'>; me
     catch { return localFailure({ message: required.message }); }
 }
 
+/** Both tool and frontend disposal reject on incomplete persistence; cleanup still continues. */
+async function disposeService(required: { service?: Pick<OmTools, 'dispose'>; message: string }): Promise<Outcome<void>> {
+    try { await required.service?.dispose({}); return { ok: true, value: undefined }; }
+    catch { return localFailure({ message: required.message }); }
+}
+
 /** Close admission, revoke/reap the agent, stop workers, and close SQLite last. */
 async function closeResources(required: { resources: BootResources }): Promise<Outcome<void>> {
-    required.resources.frontend?.dispose({});
+    const tools = disposeService({ service: required.resources.tools, message: 'Tool cleanup failed' });
+    const frontend = await disposeService({ service: required.resources.frontend, message: 'Frontend cleanup failed' });
     let result = await stopService({ service: required.resources.app, message: 'Server transport cleanup failed' });
     const agent = await stopService({ service: required.resources.agent, message: 'Sandbox agent cleanup failed' });
-    required.resources.tools?.dispose({});
+    const toolResult = await tools;
+    if (!toolResult.ok) result = toolResult;
+    if (!frontend.ok) result = frontend;
     if (!agent.ok) result = agent;
     const workers = await stopService({ service: required.resources.workers, message: 'Worker cleanup failed' });
     if (!workers.ok) result = workers;
@@ -107,7 +117,6 @@ async function closeResources(required: { resources: BootResources }): Promise<O
         if (addons && !addons.ok) result = addons;
     } catch { result = localFailure({ message: 'Add-on cleanup failed' }); }
     required.resources.privacy?.participants.dispose({});
-    required.resources.confirmations?.reset({});
     try { if (required.resources.native?.open) required.resources.native.close(); }
     catch { return localFailure({ message: 'SQLite cleanup failed' }); }
     return result;
@@ -228,7 +237,7 @@ export async function bootServer(required: {
         const safetyDb: SafetySqlDatabase = { transaction: ({ execute }) => database.unit.transaction({ work: ({ session }) => execute({
             session: { query: ({ sql, parameters }) => session.query({ text: sql, values: [...parameters] }) },
         }) }) };
-        resources.confirmations = createMemoryConfirmationExchange({ clock: required.clock, ids: required.ids });
+        resources.confirmations = createSqlConfirmationExchange({ db: safetyDb, clock: required.clock, ids: required.ids });
         const campaignDb: CampaignSqlPort = {
             query: <Row extends Record<string, unknown>>(input: { text: string; values?: unknown[] }) =>
                 database.unit.transaction({ work: ({ session }) => session.query<Row>(input) }),
@@ -278,11 +287,11 @@ export async function bootServer(required: {
         resources.frontend = createFrontendSessions({ clock: required.clock, ids: required.ids, schedule: required.io.schedule, randomToken: required.io.randomToken,
             authorize: input => input.context.principal.kind === 'owner' ? scopedOwnerAuthority({ context: input.context, expected: context! })
                 : resources.agent?.authorize(input) ?? localFailure({ message: 'Agent authority unavailable' }),
-            disconnected: input => resources.tools?.cancel(input) });
+            disconnected: async input => { await resources.tools?.cancel(input); } });
         services.ui = { runtime: { clock: required.clock, ids: required.ids }, frontend: resources.frontend.frontend, sessions: resources.frontend };
         resources.agent = createLocalAgent({ effects: required.io.agentEffects ?? createNodeAgentEffects({ projectRoot: required.io.projectRoot, ids: required.ids }),
             clock: required.clock, ids: required.ids, observer: required.observer, randomToken: required.io.randomToken, persistence,
-            frontend: resources.frontend, onRevoked: input => { resources.tools?.cancel(input); resources.frontend?.endRun(input); } });
+            frontend: resources.frontend, onRevoked: async input => { await resources.frontend?.endRun(input); await resources.tools?.cancel(input); } });
         services.runs = resources.agent.owner;
         const accountLocks = createMemoryAccountDispatchLock({ ids: required.ids });
         const pluginBackends = bindBootPluginBackends({ io: required.io, addons: resources.addons, services, integrations, accountLocks,
@@ -290,7 +299,7 @@ export async function bootServer(required: {
         const halt = bindBootHalt({ ...required, unit: database.unit, services, audit, accountLocks, confirmations: resources.confirmations, pluginBackends });
         Object.assign(services, { safety: { ...services.safety, halt: halt.halt } });
         resources.workers = createFormWorkers({ unit: database.unit, forms, creative: services.creative, halt, clock: required.clock, ids: required.ids, observer: required.observer, context, schedule: required.io.schedule });
-        resources.tools = createOmTools({ clock: required.clock, observer: required.observer, confirmations: resources.confirmations,
+        resources.tools = createOmTools({ store: createSqlToolOperationStore({ unit: database.unit }), clock: required.clock, observer: required.observer, confirmations: resources.confirmations,
             authorize: input => input.context.principal.kind === 'owner'
                 ? scopedOwnerAuthority({ context: input.context, expected: context! })
                 : resources.agent!.authorize(input),
@@ -304,6 +313,7 @@ export async function bootServer(required: {
                 if (mcp && !mcp.ok) return mcp;
                 return { ok: true, value: [...base.value, ...(plugins?.value ?? []), ...(mcp?.value ?? [])] };
             } });
+        await restoreTools({ tools: resources.tools, context });
         services.tools = resources.tools;
         const agent = resources.agent;
         const bootContext = context;
@@ -330,6 +340,12 @@ export async function bootServer(required: {
     } catch {
         return failedBoot({ resources, context, observer: required.observer, phase });
     }
+}
+
+/** Boot admission stays closed until all operation recovery transitions have persisted. */
+async function restoreTools(required: { tools: OmTools; context: CallContext }): Promise<void> {
+    const restored = await required.tools.restore({ context: required.context });
+    if (!restored.ok) throw new Error('Tool operation recovery unavailable');
 }
 
 /** Add-ons are optional when the boot IO supplies no add-on effects. */
@@ -414,7 +430,7 @@ function bindBootPluginBackends(required: { io: ServerBootIo; addons: ReturnType
  * No verified remote entity inventory exists locally, so it queues no guessed stop targets. */
 function bindBootHalt(required: { services: OwnerServices; audit: Parameters<typeof catalogAuditPort>[0]['audit'];
     unit: UnitOfWork; clock: ClockPort; ids: IdPort; observer: ObserverPort; accountLocks: AccountDispatchLockPort;
-    confirmations: MemoryConfirmationExchange; pluginBackends?: ReturnType<typeof bindAgentPluginBackends> }) {
+    confirmations: ConfirmationExchangePort; pluginBackends?: ReturnType<typeof bindAgentPluginBackends> }) {
     const unavailable = async () => localFailure<never>({ code: 'forbidden', message: 'Verified vendor authority is unavailable in local mode' });
     const safety = createSafetyService({ repo: required.services.safety, confirmations: required.confirmations,
         accountLocks: required.accountLocks, clock: required.clock, ids: required.ids, audit: catalogAuditPort(required),

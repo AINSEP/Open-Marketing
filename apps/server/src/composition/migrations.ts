@@ -21,6 +21,8 @@ export const migrationManifest = [
     { version: 16, feature: 'privacy', local: 1, path: 'features/privacy/migrations/0001_privacy.sql' },
     { version: 17, feature: 'server', local: 1, path: 'apps/server/migrations/0001_assistant.sql' },
     { version: 18, feature: 'server', local: 2, path: 'apps/server/migrations/0002_addons.sql' },
+    { version: 19, feature: 'safety', local: 2, path: 'features/safety/migrations/0002_confirmations.sql' },
+    { version: 20, feature: 'server', local: 3, path: 'apps/server/migrations/0003_tool_operations.sql' },
 ] as const;
 
 /** Load trusted scripts through injected filesystem access; validate the full batch before execution.

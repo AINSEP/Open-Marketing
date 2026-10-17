@@ -1,13 +1,45 @@
-import type { CallContext, ConfirmationCard, ClockPort, IdPort, Outcome } from "@open-marketing/contracts";
-import { approvalResponseSchema, callContextSchema, idSchema, pageQuerySchema, parseBoundary } from "@open-marketing/contracts";
+import type { CallContext, ConfirmationCard, ClockPort, IdPort, Outcome, ApprovalResponse } from "@open-marketing/contracts";
+import { approvalChoiceSchema, confirmationCardSchema, approvalResponseSchema, callContextSchema, idSchema, pageQuerySchema, parseBoundary } from "@open-marketing/contracts";
 import { z } from "zod";
 import type { ConfirmationExchangePort } from "./ports.js";
 import type { EffectRequest, FrozenDispatchRequest } from "./types.js";
 import { choices, classify, digestArguments, effectRequestSchema, failure, sameValue, scopeKey, success, validContext } from "./rules.js";
-type StoredCard = { context: CallContext; request: EffectRequest; card: ConfirmationCard; revision: number; choice: "allow" | "allow_chat" | "always_allow" | "cancel" | null };
-export type MemoryConfirmationExchange = ConfirmationExchangePort & { revoke(required: { context: CallContext; cardId: string }): void; reset(required: Record<string, never>): void };
+/** Persisted exact request, immutable answer and scope; validated by the SQL adapter. */
+export const storedCardSchema = z.strictObject({ context: callContextSchema, request: effectRequestSchema, card: confirmationCardSchema, revision: z.number().int().nonnegative(), choice: approvalChoiceSchema.nullable() });
+export type StoredCard = Omit<z.infer<typeof storedCardSchema>, "request"> & { request: EffectRequest };
+/** Shared scoped read/revocation boundary. */
+export const cardReadSchema = z.strictObject({ context: callContextSchema, cardId: idSchema });
+/** Shared bounded owner pagination boundary. */
+export const cardListSchema = z.strictObject({ context: callContextSchema, query: pageQuerySchema });
+export type MemoryConfirmationExchange = ConfirmationExchangePort & { reset(required: Record<string, never>): void };
+/** Validate exact reviewed values before either adapter creates a card. @complexity O(n log n), n <=64KiB. */
+export function makeCard(required: { context: CallContext; request: EffectRequest; policyRevision?: number; classification?: ConfirmationCard["classification"]; clock: ClockPort; ids: IdPort; ttlMs?: number }): Outcome<StoredCard> {
+ if (!validContext(required) || !effectRequestSchema.safeParse(required.request).success) return failure({ code: "invalid_input", message: "Invalid approval request" });
+ const digest = digestArguments({ arguments: required.request.arguments });
+ if (!digest.ok || digest.value !== required.request.envelope.argumentsDigest) return failure({ message: "Reviewed values differ from argument digest" });
+ const classification = required.classification ?? classify({ envelope: required.request.envelope });
+ const card: ConfirmationCard = { cardId: required.ids.next({}), operationId: required.request.envelope.operationId, argumentsDigest: digest.value, arguments: structuredClone(required.request.arguments) as ConfirmationCard["arguments"], allowedChoices: choices({ classification, grantable: !!required.request.operationScope }), expiresAt: required.clock.now({}) + (required.ttlMs ?? 300_000), classification };
+ return success({ value: { context: structuredClone(required.context), request: structuredClone(required.request), card, revision: required.policyRevision ?? 0, choice: null } });
+}
+/** Validate a response without changing it; each adapter commits the first answer once. @complexity O(1). */
+export function validateAnswer(required: { stored?: StoredCard; context: CallContext; response: ApprovalResponse; now: number }): Outcome<void> {
+ if (!validContext({ context: required.context, ownerOnly: true }) || !approvalResponseSchema.safeParse(required.response).success) return failure({ message: "Confirmation requires scoped owner" });
+ const stored = required.stored;
+ if (!stored || scopeKey({ context: stored.context }) !== scopeKey(required)) return failure({ message: "Card not found in scope" });
+ if (stored.card.expiresAt <= required.now) return failure({ code: "expired", message: "Confirmation expired" });
+ if (stored.card.operationId !== required.response.operationId || stored.card.argumentsDigest !== required.response.argumentsDigest || !stored.card.allowedChoices.includes(required.response.choice)) return failure({ message: "Response differs from exact card or choices" });
+ if (stored.choice !== null) return failure({ code: "conflict", message: "Card response is immutable" });
+ return success({ value: undefined });
+}
+/** Shared dispatch validation; corrupt, expired or unconfirmed authority fails closed. @complexity O(n log n), bounded DTOs. */
+export function validateAuthority(required: { stored?: StoredCard; context: CallContext; request: FrozenDispatchRequest; classification: ConfirmationCard["classification"]; now: number }): Outcome<void> {
+ if (!required.stored || !validContext(required)) return failure({ message: "Missing confirmed authority" });
+ if (required.stored.card.expiresAt <= required.now) return failure({ code: "expired", message: "Authority expired" });
+ if (!matchesAuthority({ ...required, stored: required.stored })) return failure({ message: "Frozen dispatch differs from confirmed authority" });
+ return success({ value: undefined });
+}
 /** Exact authority binds scope, run, values, implementation, and policy. General grants cannot authorize spend. @complexity O(n log n), n <=64KiB. */
-function matchesAuthority(required: { stored: StoredCard; context: CallContext; request: FrozenDispatchRequest; classification: ConfirmationCard["classification"] }): boolean {
+export function matchesAuthority(required: { stored: StoredCard; context: CallContext; request: FrozenDispatchRequest; classification: ConfirmationCard["classification"] }): boolean {
  const stored = required.stored;
  if (scopeKey({ context: stored.context }) !== scopeKey(required) || stored.revision !== required.request.policyRevision) return false;
  if (stored.card.classification !== required.classification || stored.choice === null || stored.choice === "cancel") return false;
@@ -31,7 +63,7 @@ export function createMemoryConfirmationExchange(required: { clock: ClockPort; i
  return {
   /** O(n log n), n <=10,000 existing cards; <=100 exact card copies returned. */
   async list(input, options) {
-   const parsed = parseBoundary({ schema: z.strictObject({ context: callContextSchema, query: pageQuerySchema }), input });
+   const parsed = parseBoundary({ schema: cardListSchema, input });
    if (!parsed.ok) return parsed;
    if (!validContext({ context: parsed.value.context, ownerOnly: true })) return failure({ message: "Card reads require scoped owner" });
    if (options?.signal?.aborted) return failure({ code: "cancelled", message: "Card read cancelled" });
@@ -44,7 +76,7 @@ export function createMemoryConfirmationExchange(required: { clock: ClockPort; i
    return success({ value: { items, cursor: pending.length > query.limit ? items.at(-1)!.cardId : null } });
   },
   async get(input, options) {
-   const parsed = parseBoundary({ schema: z.strictObject({ context: callContextSchema, cardId: idSchema }), input });
+   const parsed = parseBoundary({ schema: cardReadSchema, input });
    if (!parsed.ok) return parsed;
    if (!validContext({ context: parsed.value.context, ownerOnly: true })) return failure({ message: "Card reads require scoped owner" });
    if (options?.signal?.aborted) return failure({ code: "cancelled", message: "Card read cancelled" });
@@ -53,33 +85,28 @@ export function createMemoryConfirmationExchange(required: { clock: ClockPort; i
    return success({ value: inScope ? structuredClone(stored.card) : null });
   },
   async present(input) {
-   if (!validContext(input) || !effectRequestSchema.safeParse(input.request).success) return failure({ code: "invalid_input", message: "Invalid approval request" });
-   const digest = digestArguments({ arguments: input.request.arguments });
-   if (!digest.ok || digest.value !== input.request.envelope.argumentsDigest) return failure({ message: "Reviewed values differ from argument digest" });
    if (cards.size >= 10_000) return failure({ code: "limit_exceeded", message: "Confirmation capacity reached" });
-   const classification = input.classification ?? classify({ envelope: input.request.envelope });
-   const card: ConfirmationCard = { cardId: required.ids.next({}), operationId: input.request.envelope.operationId, argumentsDigest: digest.value, arguments: structuredClone(input.request.arguments) as ConfirmationCard["arguments"], allowedChoices: choices({ classification, grantable: !!input.request.operationScope }), expiresAt: required.clock.now({}) + (required.ttlMs ?? 300_000), classification };
-   cards.set(card.cardId, { context: structuredClone(input.context), request: structuredClone(input.request), card, revision: input.policyRevision ?? 0, choice: null });
-   return success({ value: structuredClone(card) });
+   const created = makeCard({ ...required, ...input });
+   if (!created.ok) return created;
+   cards.set(created.value.card.cardId, created.value);
+   return success({ value: structuredClone(created.value.card) });
   },
   async confirm(input) {
-   if (!validContext({ context: input.context, ownerOnly: true }) || !approvalResponseSchema.safeParse(input.response).success) return failure({ message: "Confirmation requires scoped owner" });
    const stored = cards.get(input.response.cardId);
-   if (!stored || scopeKey({ context: stored.context }) !== scopeKey(input)) return failure({ message: "Card not found in scope" });
-   if (stored.card.expiresAt <= required.clock.now({})) return failure({ code: "expired", message: "Confirmation expired" });
-   if (stored.card.operationId !== input.response.operationId || stored.card.argumentsDigest !== input.response.argumentsDigest || !stored.card.allowedChoices.includes(input.response.choice)) return failure({ message: "Response differs from exact card or choices" });
-   if (stored.choice !== null) return failure({ code: "conflict", message: "Card response is immutable" });
-   stored.choice = input.response.choice;
+   const checked = validateAnswer({ ...input, stored, now: required.clock.now({}) });
+   if (!checked.ok) return checked;
+   stored!.choice = input.response.choice;
    return success({ value: undefined });
   },
   async verify(input) {
-   const stored = cards.get(input.request.approvalId);
-   if (!stored || !validContext(input)) return failure({ message: "Missing confirmed authority" });
-   if (stored.card.expiresAt <= required.clock.now({})) return failure({ code: "expired", message: "Authority expired" });
-   if (!matchesAuthority({ ...input, stored })) return failure({ message: "Frozen dispatch differs from confirmed authority" });
+   return validateAuthority({ ...input, stored: cards.get(input.request.approvalId), now: required.clock.now({}) });
+  },
+  async revoke(input) {
+   if (!validContext(input)) return failure({ message: "Revocation requires scoped authority" });
+   const stored = cards.get(input.cardId);
+   if (stored && scopeKey({ context: stored.context }) === scopeKey(input)) cards.delete(input.cardId);
    return success({ value: undefined });
   },
-  revoke(input) { const stored = cards.get(input.cardId); if (stored && scopeKey({ context: stored.context }) === scopeKey(input)) cards.delete(input.cardId); },
   reset() { cards.clear(); },
  };
 }
