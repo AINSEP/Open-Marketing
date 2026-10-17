@@ -14,7 +14,7 @@
           "capabilityId": "campaign.read.v1",
           "version": 1,
           "pluginId": "linkedin-ads",
-          "schemaFingerprint": "ea28bc97aaff939d4f45e61397e2165dfbcc928f2840dc49e9e852b9d05fd66c",
+          "schemaFingerprint": "f56a58057716449d4988d787d70e3ac0ded5248a4dbfbbc673b7bf1055a30584",
           "admitted": false,
           "effects": [
             "read"
@@ -24,7 +24,7 @@
           "capabilityId": "campaign.create-draft.v1",
           "version": 1,
           "pluginId": "linkedin-ads",
-          "schemaFingerprint": "ea28bc97aaff939d4f45e61397e2165dfbcc928f2840dc49e9e852b9d05fd66c",
+          "schemaFingerprint": "f56a58057716449d4988d787d70e3ac0ded5248a4dbfbbc673b7bf1055a30584",
           "admitted": false,
           "effects": [
             "write"
@@ -34,7 +34,7 @@
           "capabilityId": "campaign.create-paused.v1",
           "version": 1,
           "pluginId": "linkedin-ads",
-          "schemaFingerprint": "ea28bc97aaff939d4f45e61397e2165dfbcc928f2840dc49e9e852b9d05fd66c",
+          "schemaFingerprint": "f56a58057716449d4988d787d70e3ac0ded5248a4dbfbbc673b7bf1055a30584",
           "admitted": false,
           "effects": [
             "write"
@@ -44,7 +44,7 @@
           "capabilityId": "campaign.activate-exact.v1",
           "version": 1,
           "pluginId": "linkedin-ads",
-          "schemaFingerprint": "ea28bc97aaff939d4f45e61397e2165dfbcc928f2840dc49e9e852b9d05fd66c",
+          "schemaFingerprint": "f56a58057716449d4988d787d70e3ac0ded5248a4dbfbbc673b7bf1055a30584",
           "admitted": false,
           "effects": [
             "ad_spend"
@@ -54,7 +54,7 @@
           "capabilityId": "campaign.pause.v1",
           "version": 1,
           "pluginId": "linkedin-ads",
-          "schemaFingerprint": "ea28bc97aaff939d4f45e61397e2165dfbcc928f2840dc49e9e852b9d05fd66c",
+          "schemaFingerprint": "f56a58057716449d4988d787d70e3ac0ded5248a4dbfbbc673b7bf1055a30584",
           "admitted": false,
           "effects": [
             "write"
@@ -64,7 +64,7 @@
           "capabilityId": "campaign.stop-only.v1",
           "version": 1,
           "pluginId": "linkedin-ads",
-          "schemaFingerprint": "a4e8d6fafafbadded17c3e01660998a92be045711dd43834ca7956f098b43e94",
+          "schemaFingerprint": "a1de4b8dce0cd7c8d1858c815a39f00031a1bb4ac236c36928587a831fc6976d",
           "admitted": false,
           "effects": [
             "halt_stop"
@@ -84,7 +84,7 @@
           "capabilityId": "conversion.rules-read.v1",
           "version": 1,
           "pluginId": "linkedin-ads",
-          "schemaFingerprint": "ea28bc97aaff939d4f45e61397e2165dfbcc928f2840dc49e9e852b9d05fd66c",
+          "schemaFingerprint": "f56a58057716449d4988d787d70e3ac0ded5248a4dbfbbc673b7bf1055a30584",
           "admitted": false,
           "effects": [
             "read"
@@ -94,7 +94,7 @@
           "capabilityId": "conversion.setup.v1",
           "version": 1,
           "pluginId": "linkedin-ads",
-          "schemaFingerprint": "ea28bc97aaff939d4f45e61397e2165dfbcc928f2840dc49e9e852b9d05fd66c",
+          "schemaFingerprint": "f56a58057716449d4988d787d70e3ac0ded5248a4dbfbbc673b7bf1055a30584",
           "admitted": false,
           "effects": [
             "write"
@@ -114,7 +114,7 @@
           "capabilityId": "lead.forms-read.v1",
           "version": 1,
           "pluginId": "linkedin-ads",
-          "schemaFingerprint": "ea28bc97aaff939d4f45e61397e2165dfbcc928f2840dc49e9e852b9d05fd66c",
+          "schemaFingerprint": "f56a58057716449d4988d787d70e3ac0ded5248a4dbfbbc673b7bf1055a30584",
           "admitted": false,
           "effects": [
             "read"

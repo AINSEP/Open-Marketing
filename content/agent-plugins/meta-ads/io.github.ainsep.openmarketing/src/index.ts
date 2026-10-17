@@ -1,4 +1,6 @@
 /** Server-only Meta plugin entry. Importing it starts no process, service, network call or timer. */
+export { translateCampaign } from "./campaign-translation.js";
+export type { CampaignTranslationInput, MetaPausedPlan } from "./campaign-translation.js";
 export { createMetaAdsAdapter, createHostedMetaGateway } from "./adapter.js";
 export type { MetaAdsAdapter, MetaInvocationResult } from "./adapter.js";
 export { commandSchema, invocationSchema, encodeCommand } from "./commands.js";

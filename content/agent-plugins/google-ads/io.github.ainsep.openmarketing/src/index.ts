@@ -1,4 +1,6 @@
 /** Server-only plugin API. TypeScript runs using the approved Node 24.2.0 runtime. */
+export { translateCampaign } from "./campaign-translation.ts";
+export type { CampaignTranslationInput } from "./campaign-translation.ts";
 export { createGooglePlugin } from "./plugin.ts";
 export type { GooglePlugin } from "./plugin.ts";
 export { createGoogleRestTransport, createHttpAdapter } from "./transport.ts";

@@ -256,7 +256,7 @@ function decodeWriteResponse(required: { prepared: Prepared; response: Response 
   // Creation is supported; preserve an unknown receipt and resolve through separate list readback.
   if (prepared.invocation.command.kind === "create_campaign_group_draft") return uncertain({ prepared, sent: true });
   if (prepared.request.restliMethod !== "CREATE" || response.status !== 201) return uncertain({ prepared, sent: true });
-  const schema = prepared.invocation.command.kind === "create_creative_paused" ? creativeUrn : vendorIdSchema;
+  const schema = ["create_creative_paused", "create_creative_draft"].includes(prepared.invocation.command.kind) ? creativeUrn : vendorIdSchema;
   const created = schema.safeParse(response.headers.get("x-restli-id"));
   if (!created.success) return uncertain({ prepared, sent: true });
   return result({ prepared, status: "acknowledged", data: { id: created.data } });

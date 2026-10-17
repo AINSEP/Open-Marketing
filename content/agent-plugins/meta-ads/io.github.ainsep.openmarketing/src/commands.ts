@@ -8,12 +8,13 @@ export const vendorIdSchema = z.string().regex(/^[1-9][0-9]{0,31}$/);
 const name = z.string().trim().min(1).max(256);
 const minor = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const entityType = z.enum(["campaign", "adset", "ad"]);
+const schedule = z.strictObject({ start: z.number().int().nonnegative().max(8640000000000000).multipleOf(1000), end: z.number().int().nonnegative().max(8640000000000000).multipleOf(1000) }).refine(value => value.start < value.end);
 const targeting = z.strictObject({ countries: z.array(z.string().regex(/^[A-Z]{2}$/)).min(1).max(25), age_min: z.number().int().min(18).max(65), age_max: z.number().int().min(18).max(65) }).refine(value => value.age_min <= value.age_max);
 
 /** Closed commands prevent generic updater, arbitrary HTTP, account-cap unit guesses and payload inflation. */
 export const commandSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("create-campaign"), name, objective: z.enum(["OUTCOME_TRAFFIC", "OUTCOME_LEADS", "OUTCOME_SALES", "OUTCOME_AWARENESS"]), specialAdCategories: z.array(z.enum(["CREDIT", "EMPLOYMENT", "HOUSING", "ISSUES_ELECTIONS_POLITICS"])).max(4) }),
-  z.strictObject({ kind: z.literal("create-adset"), name, campaignId: vendorIdSchema, targeting, billingEvent: z.literal("IMPRESSIONS"), optimizationGoal: z.enum(["LINK_CLICKS", "LANDING_PAGE_VIEWS", "OFFSITE_CONVERSIONS"]), dailyBudgetMinor: minor }),
+  z.strictObject({ kind: z.literal("create-adset"), name, campaignId: vendorIdSchema, targeting, billingEvent: z.literal("IMPRESSIONS"), optimizationGoal: z.enum(["LINK_CLICKS", "LANDING_PAGE_VIEWS", "OFFSITE_CONVERSIONS"]), dailyBudgetMinor: minor, schedule: schedule.optional() }),
   z.strictObject({ kind: z.literal("create-ad"), name, adsetId: vendorIdSchema, creativeId: vendorIdSchema }),
   z.strictObject({ kind: z.literal("activate"), entityId: vendorIdSchema, entityType }),
   z.strictObject({ kind: z.literal("pause"), entityId: vendorIdSchema, entityType }),
@@ -42,7 +43,7 @@ export function encodeCommand(required: { input: unknown; accountId: string }): 
   const base = { ad_account_id: account.value };
   switch (command.kind) {
     case "create-campaign": return encoded({ command, args: { ...base, name: command.name, objective: command.objective, special_ad_categories: command.specialAdCategories, status: "PAUSED" }, effects: ["write"], claim: "paused-creation" });
-    case "create-adset": return encoded({ command, args: { ...base, name: command.name, campaign_id: command.campaignId, targeting: command.targeting, billing_event: command.billingEvent, optimization_goal: command.optimizationGoal, daily_budget: String(command.dailyBudgetMinor), status: "PAUSED" }, effects: ["ad_spend"], claim: "paused-creation-budget-minor" });
+    case "create-adset": return encoded({ command, args: { ...base, name: command.name, campaign_id: command.campaignId, targeting: command.targeting, billing_event: command.billingEvent, optimization_goal: command.optimizationGoal, daily_budget: String(command.dailyBudgetMinor), ...scheduleFields({ schedule: command.schedule }), status: "PAUSED" }, effects: ["ad_spend"], claim: "paused-creation-budget-minor" });
     case "create-ad": return encoded({ command, args: { ...base, name: command.name, adset_id: command.adsetId, creative_id: command.creativeId, status: "PAUSED" }, effects: ["write"], claim: "paused-creation" });
     case "activate": return encoded({ command, args: { ...base, entity_id: command.entityId, entity_type: command.entityType, status: "ACTIVE" }, effects: ["ad_spend"], claim: "exact-activation" });
     case "pause": return encoded({ command, args: { ...base, entity_id: command.entityId, entity_type: command.entityType, status: "PAUSED" }, effects: ["write"], claim: "pause-only" });
@@ -56,4 +57,10 @@ export function encodeCommand(required: { input: unknown; accountId: string }): 
 
 function encoded(required: { command: MetaCommand; args: Record<string, unknown>; effects: EffectCategory[]; claim: string }): Outcome<EncodedCommand> {
   return { ok: true, value: { operation: required.command.kind, arguments: required.args, effects: required.effects, claim: required.claim } };
+}
+
+/** Optional finite schedules preserve existing unscheduled calls; whole seconds never round. */
+function scheduleFields(required: { schedule?: { start: number; end: number } }): Record<string, string> {
+  if (!required.schedule) return {};
+  return { start_time: new Date(required.schedule.start).toISOString(), end_time: new Date(required.schedule.end).toISOString() };
 }

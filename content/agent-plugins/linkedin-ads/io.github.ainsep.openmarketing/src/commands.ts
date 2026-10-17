@@ -25,6 +25,9 @@ const campaign = z.strictObject({
   geoIds, dailyBudget: money, unitCost: money, costType: z.enum(["CPC", "CPM"]),
   runSchedule: schedule, politicalIntent: z.enum(["POLITICAL", "NOT_POLITICAL", "NOT_DECLARED"]),
 });
+/** Closed draft variants preserve existing PAUSED creation; callers cannot select arbitrary status. */
+export const draftCampaignCommandSchema = campaign.extend({ kind: z.literal("create_campaign_draft"), politicalIntent: z.literal("NOT_POLITICAL"), costType: z.literal("CPC") });
+export const draftCreativeCommandSchema = z.strictObject({ kind: z.literal("create_creative_draft"), campaignId: vendorIdSchema, reference: z.string().regex(/^urn:li:(share|ugcPost):[1-9][0-9]{0,18}$/) });
 /** Closed vendor tools. Unsupported status, transport, identifiers and extra fields reject. */
 export const commandSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("list_accounts"), ...page }),
@@ -32,7 +35,7 @@ export const commandSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("list_campaigns"), ...page }),
   z.strictObject({ kind: z.literal("list_creatives"), ...page }),
   z.strictObject({ kind: z.literal("search_targeting"), facet: z.enum(["locations", "profileLocations", "industries", "employers", "skills", "titles"]), query: z.string().trim().min(1).max(200) }),
-  group, campaign,
+  group, campaign, draftCampaignCommandSchema, draftCreativeCommandSchema,
   z.strictObject({ kind: z.literal("create_creative_paused"), campaignId: vendorIdSchema, reference: z.string().regex(/^urn:li:(share|ugcPost):[1-9][0-9]{0,18}$/) }),
   z.strictObject({ kind: z.literal("activate"), entityType, entityId: vendorIdSchema }),
   z.strictObject({ kind: z.literal("set_budget"), campaignId: vendorIdSchema, dailyBudget: money }),
@@ -53,8 +56,9 @@ export interface LinkedInEncodedCommand { readonly request: LinkedInWireRequest;
 
 /** One source for schemas consumed by the host's tool catalog; no registration or startup.
  * Zod refinements stay in the adapter boundary; JSON-schema generation is intentionally unnecessary.
+ * Draft child variants are internal to neutral deployment, not additional standalone tools.
  */
-export const linkedinAdsTools = commandSchema.options.map(schema => ({
+export const linkedinAdsTools = commandSchema.options.filter(schema => !["create_campaign_draft", "create_creative_draft"].includes(schema.shape.kind.value)).map(schema => ({
   name: schema.shape.kind.value,
   inputSchema: schema,
   effect: commandEffect({ kind: schema.shape.kind.value }),
@@ -79,7 +83,7 @@ export function encodeLinkedInCommand(required: { input: unknown; accountId: str
 function currenciesMatch(required: { command: ParsedCommand; currency: string }): boolean {
   switch (required.command.kind) {
     case "create_campaign_group_draft": return required.command.totalBudget === undefined || required.command.totalBudget.currencyCode === required.currency;
-    case "create_campaign_paused": return required.command.dailyBudget.currencyCode === required.currency && required.command.unitCost.currencyCode === required.currency;
+    case "create_campaign_draft": case "create_campaign_paused": return required.command.dailyBudget.currencyCode === required.currency && required.command.unitCost.currencyCode === required.currency;
     case "set_budget": return required.command.dailyBudget.currencyCode === required.currency;
     default: return true;
   }
@@ -91,7 +95,7 @@ function commandEffect(required: { kind: LinkedInCommand["kind"] }): EffectCateg
   switch (required.kind) {
     case "list_accounts": case "list_campaign_groups": case "list_campaigns": case "list_creatives": case "search_targeting": case "report": case "list_conversion_rules": case "list_lead_forms": return "read";
     case "activate": case "set_budget": return "ad_spend";
-    case "create_campaign_group_draft": case "create_campaign_paused": case "create_creative_paused": case "pause": case "create_conversion_rule": case "associate_conversion_rule": return "write";
+    case "create_campaign_draft": case "create_creative_draft": case "create_campaign_group_draft": case "create_campaign_paused": case "create_creative_paused": case "pause": case "create_conversion_rule": case "associate_conversion_rule": return "write";
     default: { const exhaustive: never = required.kind; return exhaustive; }
   }
 }
@@ -108,13 +112,15 @@ function mapCommand(required: { command: ParsedCommand; accountId: string }): Li
     case "list_creatives": return creativeSearch({ url: base + "/creatives", command });
     case "search_targeting": return { url: "https://api.linkedin.com/rest/adTargetingEntities?q=typeahead&facet=" + encodeURIComponent("urn:li:adTargetingFacet:" + command.facet) + "&query=" + encodeURIComponent(command.query) + "&queryVersion=QUERY_USES_URNS", method: "GET", restliMethod: "FINDER" };
     case "create_campaign_group_draft": return post({ url: base + "/adCampaignGroups", body: { account, name: command.name, runSchedule: command.runSchedule, totalBudget: command.totalBudget, status: "DRAFT" } });
-    case "create_campaign_paused": return post({ url: base + "/adCampaigns", body: {
+    case "create_campaign_draft": case "create_campaign_paused": return post({ url: base + "/adCampaigns", body: {
       account, campaignGroup: `urn:li:sponsoredCampaignGroup:${command.campaignGroupId}`, associatedEntity: `urn:li:organization:${command.organizationId}`,
       name: command.name, locale: command.locale, costType: command.costType, dailyBudget: command.dailyBudget, unitCost: command.unitCost,
-      runSchedule: command.runSchedule, politicalIntent: command.politicalIntent, type: "SPONSORED_UPDATES", status: "PAUSED",
+      runSchedule: command.runSchedule, politicalIntent: command.politicalIntent, type: "SPONSORED_UPDATES", status: command.kind === "create_campaign_draft" ? "DRAFT" : "PAUSED",
+      ...(command.kind === "create_campaign_draft" ? { objectiveType: "WEBSITE_VISITS", format: "STANDARD_UPDATE", optimizationTargetType: "NONE" } : {}),
       offsiteDeliveryEnabled: false, audienceExpansionEnabled: false,
       targetingCriteria: { include: { and: [{ or: { "urn:li:adTargetingFacet:locations": command.geoIds.map(id => "urn:li:geo:" + id) } }] } },
     } });
+    case "create_creative_draft": return post({ url: base + "/creatives", body: { campaign: `urn:li:sponsoredCampaign:${command.campaignId}`, content: { reference: command.reference }, intendedStatus: "DRAFT" } });
     case "create_creative_paused": return post({ url: base + "/creatives", body: { campaign: `urn:li:sponsoredCampaign:${command.campaignId}`, content: { reference: command.reference }, intendedStatus: "PAUSED" } });
     case "activate": return patch({ url: entityUrl({ base, entityType: command.entityType, entityId: command.entityId }), fields: command.entityType === "creative" ? { intendedStatus: "ACTIVE" } : { status: "ACTIVE" } });
     case "set_budget": return patch({ url: base + "/adCampaigns/" + command.campaignId, fields: { dailyBudget: command.dailyBudget } });
