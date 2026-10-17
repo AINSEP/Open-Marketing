@@ -26,5 +26,8 @@
     "@open-marketing/om-clock": "workspace:*",
     "electron": "39.2.3",
     "zod": "4.1.13"
+  },
+  "devDependencies": {
+    "electron-builder": "26.15.3"
   }
 }

@@ -1,4 +1,4 @@
-import { isAbsolute } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { z } from "zod";
 import type { Outcome } from "@open-marketing/contracts";
 import type { ElectronHostPort, ChildSupervisorPort } from "../ports.js";
@@ -17,6 +17,20 @@ const configuration = z.discriminatedUnion("mode", [
  z.strictObject({ mode: z.literal("remote"), studioUrl: remoteUrl }),
  z.strictObject({ mode: z.literal("local-sandbox"), nodeExecutable: absolutePath, serverEntry: absolutePath, stateRoot: absolutePath }),
 ]);
+
+/** Relocatable local startup defaults; retains existing state and sealed credentials.
+ * @returns The four OM environment fields; pure, with no filesystem access.
+ * @example packagedEnv({ resourcesPath: "/Applications/Open Marketing.app/Contents/Resources", home: "/Users/owner" });
+ * @complexity O(1) path joins, bounded by input path lengths.
+ */
+export function packagedEnv(required: { resourcesPath: string; home: string }): NodeJS.ProcessEnv {
+ return {
+  OM_MODE: "local-sandbox",
+  OM_NODE_EXECUTABLE: join(required.resourcesPath, "node/bin/node"),
+  OM_SERVER_ENTRY: join(required.resourcesPath, "om/apps/server/dist/composition/serve.js"),
+  OM_STATE_ROOT: join(required.home, ".open-marketing"),
+ };
+}
 
 /** Inert shell lifecycle; ready server precedes window, shutdown cancels boot.
  * Remote services are never started/stopped. Repeated calls share in-flight work.

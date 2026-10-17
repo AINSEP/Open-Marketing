@@ -16,7 +16,7 @@
     "om:metrics": "node development/scripts/metrics.mjs",
     "om:check": "pnpm om:lint && pnpm om:boundaries && pnpm om:typecheck && pnpm om:gate-tests && pnpm om:metrics",
     "om:dev": "pnpm om:serve",
-    "om:package": "node development/scripts/unavailable.mjs package",
+    "om:package": "node development/scripts/package-desktop.mjs",
     "om:build-plugins": "pnpm --dir content/agent-plugins/google-ads build && pnpm --dir content/agent-plugins/meta-ads build && pnpm --dir content/agent-plugins/linkedin-ads build && pnpm --dir content/agent-plugins/tiktok-ads build && pnpm --dir content/agent-plugins/higgsfield-media build",
     "om:serve": "pnpm --filter @open-marketing/server... --filter @open-marketing/studio... --filter @open-marketing/agent... build && pnpm om:build-plugins && node apps/server/dist/composition/serve.js"
   },

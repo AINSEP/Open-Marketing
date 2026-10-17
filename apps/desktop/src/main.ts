@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import { createServer } from "node:net";
 import { performance } from "node:perf_hooks";
 import type { Outcome } from "@open-marketing/contracts";
-import { composeDesktop, type createDesktopApp } from "./composition/index.js";
+import { composeDesktop, packagedEnv, type createDesktopApp } from "./composition/index.js";
 import { initialWindowBounds } from "./electron-host.js";
 
 // Keep the origin stable: localStorage preferences are scoped to session AND origin.
@@ -54,8 +54,9 @@ function checkLocalPort(): Promise<Outcome<void>> {
 async function start(): Promise<void> {
  await app.whenReady();
  if (quitting) return;
+ const env = app.isPackaged ? { ...process.env, ...packagedEnv({ resourcesPath: process.resourcesPath, home: app.getPath("home") }) } : process.env;
  const composed = composeDesktop({
-  env: process.env,
+  env,
   partition: "persist:om-desktop",
   showError,
   server: {
@@ -72,7 +73,7 @@ async function start(): Promise<void> {
   },
  });
  if (!composed.ok) { showError({ message: composed.error.message }); requestQuit(); return; }
- if (process.env.OM_MODE !== "remote") {
+ if (env.OM_MODE !== "remote") {
   const available = await checkLocalPort();
   if (!available.ok) { showError({ message: available.error.message }); requestQuit(); return; }
  }

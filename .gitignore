@@ -6,6 +6,8 @@ coverage/
 .vite/
 tsconfig.tsbuildinfo
 *.tsbuildinfo
+apps/desktop/staging/
+apps/desktop/release/
 
 # Runtime data, logs and scratch
 .tmp/

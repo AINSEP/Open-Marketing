@@ -2,7 +2,7 @@ import { expect, it } from "vitest";
 import type { Outcome } from "@open-marketing/contracts";
 import type { ChildSupervisorPort, ElectronHostPort, ServerReady } from "../src/ports.js";
 import { createDesktopApp } from "../src/index.js";
-import { composeDesktop } from "../src/composition/index.js";
+import { composeDesktop, packagedEnv } from "../src/composition/index.js";
 
 const success: Outcome<void> = { ok: true, value: undefined };
 const unavailable: Outcome<never> = { ok: false, error: { code: "unavailable", message: "fixture failure", retryable: false } };
@@ -127,4 +127,18 @@ it("composition rejects missing/relative local paths without constructing effect
  for (const env of [{}, { OM_NODE_EXECUTABLE: "node", OM_SERVER_ENTRY: "/server.js", OM_STATE_ROOT: "/state" }]) {
   expect(composeDesktop({ env, server: effects, electron, partition: "fixture", showError: unexpected })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
  }
+});
+
+it("packaged paths relocate under Resources and pass the inert desktop composition", () => {
+ const unexpected = () => { throw new Error("composition must stay inert"); };
+ const env = packagedEnv({ resourcesPath: "/Applications/Open Marketing.app/Contents/Resources", home: "/Users/owner" });
+ expect(env).toEqual({
+  OM_MODE: "local-sandbox",
+  OM_NODE_EXECUTABLE: "/Applications/Open Marketing.app/Contents/Resources/node/bin/node",
+  OM_SERVER_ENTRY: "/Applications/Open Marketing.app/Contents/Resources/om/apps/server/dist/composition/serve.js",
+  OM_STATE_ROOT: "/Users/owner/.open-marketing",
+ });
+ const server = { platform: "darwin" as const, spawn: unexpected, signalGroup: unexpected, schedule: unexpected, now: unexpected };
+ const electron = { createSession: unexpected, createWindow: unexpected, screen: { getAllDisplays: unexpected, getCursorScreenPoint: unexpected, getDisplayNearestPoint: unexpected } };
+ expect(composeDesktop({ env, server, electron, partition: "fixture", showError: unexpected }).ok).toBe(true);
 });
