@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { CallContext, CallOptions, EffectEnvelope, ObserverEvent, Outcome } from "@open-marketing/contracts";
 import { invokeXAds } from "../src/index.js";
 import type { XCommand, XDependencies, XResult } from "../src/index.js";
+import type { CampaignTranslationInput, XPausedPlan, XDeploymentReferences } from "../src/index.js";
 
 /** Synthetic secrets and responses only; each fixture owns all mutable state. */
 export const now = 1792800000000;
@@ -68,4 +69,45 @@ export function dispatchSuite(required: { name: string; makeFixture: () => Dispa
       expect(f.credentialCalls).toEqual([]); expect(f.calls).toEqual([]);
     });
   });
+}
+
+/** Independently specified traffic/account/post evidence; no credentials from a real account. */
+export function translationInput(): CampaignTranslationInput {
+  return { campaign: { name: "Fixture traffic", objective: "traffic", schedule: { window: { start: now + 3600000, end: now + 7200000 }, timezone: "UTC" }, audience: { countries: ["US"] }, creativeIds: ["creative"], creativeDigest: "b".repeat(64) },
+    target: { accountId: "abc1", dailyBudget: { currency: "USD", minorUnits: 1234 } },
+    resolved: { accountId: "abc1", currency: "USD", currencyExponent: 2, timezone: "UTC", fundingInstrumentId: "fund1", creativeId: "creative", creativeDigest: "b".repeat(64), tweetId: "1234567890123456789", eligible: true, country: "US", countryId: "country1", unitCost: { currency: "USD", minorUnits: 45 } } };
+}
+/** Explicit vendor plan/rows are independent fixtures, not generated from the encoder under test. */
+export function pausedPlan(): XPausedPlan {
+  return { accountId: "abc1", currency: "USD", campaign: { name: "Fixture traffic", funding_instrument_id: "fund1", entity_status: "PAUSED", budget_optimization: "LINE_ITEM", daily_budget_amount_local_micro: 12340000 },
+    lineItem: { name: "Fixture traffic", campaign_id: { from: "campaign" }, entity_status: "PAUSED", objective: "WEBSITE_CLICKS", product_type: "PROMOTED_TWEETS", placements: "ALL_ON_TWITTER", bid_strategy: "MAX", goal: "LINK_CLICKS", bid_amount_local_micro: 450000, daily_budget_amount_local_micro: 12340000, standard_delivery: true, start_time: new Date(now + 3600000).toISOString(), end_time: new Date(now + 7200000).toISOString() },
+    targeting: { line_item_id: { from: "lineItem" }, targeting_type: "LOCATION", operator_type: "EQ", targeting_value: "country1" }, promotedTweet: { line_item_id: { from: "lineItem" }, tweet_ids: "1234567890123456789" } };
+}
+export const deploymentRefs: XDeploymentReferences = { campaign: "camp1", lineItem: "line1", targeting: "target1", promotedTweet: "post1" };
+
+/** Same signed HTTP adapter, with a durable checkpoint double and replaceable vendor responses. */
+export function deploymentFixture(required: { response?: (input: { url: URL; method: string; data: Record<string, unknown> }) => Response | Promise<Response>; checkpointFault?: (input: { step: string; phase: string }) => boolean } = {}) {
+  const f = fixture();
+  const journal: { step: string; phase: string; references: XDeploymentReferences }[] = [];
+  const dispatched = new Set<string>();
+  const rows: Record<string, Record<string, unknown>> = {
+    campaigns: { id: "camp1", deleted: false, name: "Fixture traffic", funding_instrument_id: "fund1", entity_status: "PAUSED", budget_optimization: "LINE_ITEM", daily_budget_amount_local_micro: 12340000, currency: "USD" },
+    line_items: { id: "line1", deleted: false, name: "Fixture traffic", campaign_id: "camp1", entity_status: "PAUSED", objective: "WEBSITE_CLICKS", product_type: "PROMOTED_TWEETS", placements: ["ALL_ON_TWITTER"], bid_strategy: "MAX", goal: "LINK_CLICKS", bid_amount_local_micro: 450000, daily_budget_amount_local_micro: 12340000, standard_delivery: true, start_time: new Date(now + 3600000).toISOString().replace(".000Z", "Z"), end_time: new Date(now + 7200000).toISOString(), currency: "USD" },
+    targeting_criteria: { id: "target1", deleted: false, line_item_id: "line1", targeting_type: "LOCATION", targeting_value: "country1" },
+    promoted_tweets: { id: "post1", deleted: false, line_item_id: "line1", tweet_id: "1234567890123456789", entity_status: "ACTIVE" },
+  };
+  const dependencies = { ...f.dependencies, fetch: (async (url, init) => {
+    f.calls.push({ url: String(url), init: init ?? {} });
+    const parsed = new URL(String(url)), method = init?.method ?? "GET", resource = parsed.pathname.split("/")[4];
+    const row = structuredClone(rows[resource]);
+    const data = { request: { params: { account_id: "abc1" } }, data: method === "POST" && resource === "promoted_tweets" ? [row] : row };
+    return required.response ? required.response({ url: parsed, method, data }) : Response.json(data);
+  }) as typeof fetch };
+  async function checkpoint(input: { step: string; phase: "dispatch" | "acknowledged"; references: XDeploymentReferences }): Promise<Outcome<void>> {
+    journal.push(structuredClone(input));
+    if (required.checkpointFault?.(input) || (input.phase === "dispatch" && dispatched.has(input.step))) return { ok: false, error: { code: "conflict", message: "fixture checkpoint denied", retryable: false } };
+    if (input.phase === "dispatch") dispatched.add(input.step);
+    return { ok: true, value: undefined };
+  }
+  return { ...f, journal, rows, checkpoint, plan: pausedPlan(), context, operationId: "deployment", dependencies };
 }

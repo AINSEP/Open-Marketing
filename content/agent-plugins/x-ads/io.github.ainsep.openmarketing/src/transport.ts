@@ -9,10 +9,11 @@ import type { ParsedCommand, XCommand } from "./commands.js";
 import { decodeReport } from "./reporting.js";
 import type { XReport } from "./reporting.js";
 
-const configurationSchema = z.strictObject({ scope: scopeSchema, connectionId: idSchema, accountId: vendorId, currency: z.string().regex(/^[A-Z]{3}$/), pluginDigest: digestSchema, bindingId: idSchema, admitted: z.boolean() });
+export const configurationSchema = z.strictObject({ scope: scopeSchema, connectionId: idSchema, accountId: vendorId, currency: z.string().regex(/^[A-Z]{3}$/), pluginDigest: digestSchema, bindingId: idSchema, admitted: z.boolean() });
 /** Server-owned account/currency/admission binding, never supplied in assistant arguments. */
 export type XConfiguration = z.infer<typeof configurationSchema>;
-type WireRequest = ReturnType<typeof encodeCommand>;
+/** Internal signed wire shape; JSON bodies are excluded from OAuth's form parameter set. */
+export type WireRequest = { url: string; method: "GET" | "POST"; body?: string };
 const invocationSchema = z.strictObject({ context: callContextSchema, operationId: idSchema, command: commandSchema });
 const secret = z.string().min(1).max(4096).regex(/^[\x21-\x7e]+$/);
 const pastedSchema = z.strictObject({ consumerKey: secret, consumerSecret: secret, accessToken: secret, accessTokenSecret: secret });
@@ -31,12 +32,12 @@ export interface XResult { readonly operationId: string; readonly status: "succe
 export interface XDependencies {
   readonly configuration: XConfiguration;
   readonly credentials: { access(required: { connectionId: string; accountId: string }, optional?: CallOptions): Promise<Outcome<{ accessToken: string; expiresAt?: number }>> };
-  readonly gateway: { dispatch(required: { context: CallContext; configuration: XConfiguration; operation: XCommand["kind"]; request: WireRequest; effect: EffectEnvelope; execute: () => Promise<Outcome<XResult>> }, optional?: CallOptions): Promise<Outcome<XResult>> };
+  readonly gateway: { dispatch(required: { context: CallContext; configuration: XConfiguration; operation: XCommand["kind"]; request: ReturnType<typeof encodeCommand>; effect: EffectEnvelope; execute: () => Promise<Outcome<XResult>> }, optional?: CallOptions): Promise<Outcome<XResult>> };
   readonly fetch: typeof fetch; readonly clock: ClockPort; readonly ids: IdPort; readonly observer: ObserverPort;
   /** Host timer seam: return a signal that aborts after timeoutMs; no ambient timers in the plugin. */
   readonly timeoutSignal: (required: { timeoutMs: number }) => AbortSignal;
 }
-type Prepared = { context: CallContext; operationId: string; command: ParsedCommand; configuration: XConfiguration; request: WireRequest; effect: EffectEnvelope };
+type Prepared = { context: CallContext; operationId: string; command: ParsedCommand; configuration: XConfiguration; request: ReturnType<typeof encodeCommand>; effect: EffectEnvelope };
 
 /** Validate before credential access, then perform one server-fenced signed GET; never retry.
  * @param required - Context, operation identity, closed command and server dependencies.
@@ -86,7 +87,7 @@ async function dispatch(required: { prepared: Prepared; dependencies: XDependenc
 }
 
 /** Parse sealed plaintext as exactly four OAuth keys; discard broker messages and parse diagnostics. @complexity O(b), b<=64KiB. */
-async function resolveCredential(required: { dependencies: XDependencies; configuration: XConfiguration }, optional: CallOptions): Promise<Outcome<Credential>> {
+export async function resolveCredential(required: { dependencies: Pick<XDependencies, "credentials">; configuration: XConfiguration }, optional: CallOptions): Promise<Outcome<Credential>> {
   if (optional.signal?.aborted) return failure({ code: "cancelled" });
   const result = await required.dependencies.credentials.access({ connectionId: required.configuration.connectionId, accountId: required.configuration.accountId }, optional);
   if (!result.ok) return failure({ code: result.error.code });
@@ -112,7 +113,7 @@ function authorization(required: { request: WireRequest; credential: Credential;
 }
 
 /** Check signing inputs at the egress boundary; no implicit token lifetime or nonce fallback. @complexity O(1). */
-function signingInputs(required: { dependencies: XDependencies; credential: Credential }): Outcome<{ now: number; nonce: string }> {
+function signingInputs(required: { dependencies: Pick<XDependencies, "clock" | "ids">; credential: Credential }): Outcome<{ now: number; nonce: string }> {
   const now = required.dependencies.clock.now({});
   if (!epochSchema.safeParse(now).success) return failure({ code: "invalid_input" });
   if (required.credential.expiresAt !== undefined && now >= required.credential.expiresAt) return failure({ code: "expired" });
@@ -123,23 +124,42 @@ function signingInputs(required: { dependencies: XDependencies; credential: Cred
 
 /** One fixed-origin GET; no redirects or retries, deadline covers streamed body consumption. @complexity O(b), b<=1MiB. */
 async function sendRequest(required: { prepared: Prepared; dependencies: XDependencies; credential: Credential }, optional: CallOptions): Promise<Outcome<XResult>> {
-  const { dependencies, prepared, credential } = required;
-  const signing = signingInputs({ dependencies, credential });
-  if (!signing.ok) return signing;
+  const { dependencies, prepared } = required;
+  const response = await requestXAds({ ...required, request: prepared.request, isCurrent: () => dependencies.configuration.admitted }, optional);
+  if (!response.ok) return response;
+  const retrievedAt = dependencies.clock.now({});
+  if (!epochSchema.safeParse(retrievedAt).success) return failure({ code: "invalid_input" });
+  const data = decodeData({ prepared, input: response.value.body, retrievedAt });
+  if (!data.ok) return data;
+  return { ok: true, value: { operationId: prepared.operationId, status: "succeeded", data: data.value, rateLimit: response.value.rateLimit } };
+}
+
+/** Shared internal HTTP edge for reads, paused deployment and server conversions. The owning
+ * host fence must guard fetch; isCurrent rechecks authority immediately before egress.
+ * @complexity O(b log b) signing, O(b) body storage, b<=1MiB; one <=15s request, no retries.
+ */
+export async function requestXAds(required: { dependencies: Omit<XDependencies, "gateway">; request: WireRequest; credential: Credential; isCurrent: () => boolean }, optional: CallOptions = {}): Promise<Outcome<{ status: number; body: unknown; rateLimit: XResult["rateLimit"] }>> {
+  const { dependencies, request, credential } = required;
   try {
+    const signing = signingInputs({ dependencies, credential });
+    if (!signing.ok) return signing;
     const deadline = dependencies.timeoutSignal({ timeoutMs: 15000 });
     const signal = optional.signal ? AbortSignal.any([deadline, optional.signal]) : deadline;
     signal.throwIfAborted();
-    const response = await dependencies.fetch(prepared.request.url, { method: "GET", redirect: "error", signal, headers: { Authorization: authorization({ request: prepared.request, credential, ...signing.value }) } });
-    if (response.status !== 200) { await response.body?.cancel(); return httpFailure({ status: response.status }); }
-    const body = await readBody({ response, signal });
-    if (!body.ok) return body;
-    const retrievedAt = dependencies.clock.now({});
-    if (!epochSchema.safeParse(retrievedAt).success) return failure({ code: "invalid_input" });
-    const data = decodeData({ prepared, input: body.value, retrievedAt });
-    if (!data.ok) return data;
-    return { ok: true, value: { operationId: prepared.operationId, status: "succeeded", data: data.value, rateLimit: rateLimit({ response }) } };
+    const headers = { Authorization: authorization({ request, credential, ...signing.value }), ...(request.body === undefined ? {} : { "Content-Type": "application/json" }) };
+    if (!dependencies.configuration.admitted || !required.isCurrent()) return failure({ code: "forbidden" });
+    const response = await dependencies.fetch(request.url, { method: request.method, body: request.body, redirect: "error", signal, headers });
+    return await readResponse({ response, request, signal });
   } catch { return failure({ code: optional.signal?.aborted ? "cancelled" : "unavailable" }); }
+}
+
+/** Discard provider errors; successful status alone cannot bypass bounded body parsing. O(b), b<=1MiB. */
+async function readResponse(required: { response: Response; request: WireRequest; signal: AbortSignal }): ReturnType<typeof requestXAds> {
+  const { response, request, signal } = required;
+  if (response.status !== 200 && !(request.method === "POST" && response.status === 201)) { await response.body?.cancel(); return httpFailure({ status: response.status }); }
+  const body = await readBody({ response, signal });
+  if (!body.ok) return body;
+  return { ok: true, value: { status: response.status, body: body.value, rateLimit: rateLimit({ response }) } };
 }
 
 /** Reject tainted pages as a whole; never follow a provider URL or leak unknown fields. @complexity O(n), n<=100. */
@@ -183,7 +203,7 @@ async function readBody(required: { response: Response; signal: AbortSignal }): 
 }
 
 /** JSON adapter edge catches cycles and parse errors without exposing content. @complexity O(b), <=configured fixed call bound. */
-function boundedJson(required: { input?: unknown; serialized?: string; maxBytes?: number }): Outcome<unknown> {
+export function boundedJson(required: { input?: unknown; serialized?: string; maxBytes?: number }): Outcome<unknown> {
   try {
     const serialized = required.serialized ?? JSON.stringify(required.input);
     if (serialized === undefined || Buffer.byteLength(serialized) > (required.maxBytes ?? 65536)) return failure({ code: "limit_exceeded" });
@@ -208,7 +228,7 @@ function httpFailure(required: { status: number }): Outcome<never> {
     default: return failure({ code: "unavailable" });
   }
 }
-function failure(required: { code: AppError["code"] }): Outcome<never> { return { ok: false, error: { code: required.code, message: "X Ads request failed (" + required.code + ")", retryable: false } }; }
+export function failure(required: { code: AppError["code"] }): Outcome<never> { return { ok: false, error: { code: required.code, message: "X Ads request failed (" + required.code + ")", retryable: false } }; }
 /** Telemetry is bounded and secret-free; observer failure cannot change the read outcome. @complexity O(1). */
 function observe(required: { dependencies: XDependencies; prepared: Prepared; result: Outcome<XResult> }): void {
   try { required.dependencies.observer.observe({ operation: "x_ads." + required.prepared.command.kind, outcome: required.result.ok ? "succeeded" : required.result.error.code, correlationId: required.prepared.context.correlationId, traceId: required.prepared.context.traceId, runId: required.prepared.context.runId }); }
