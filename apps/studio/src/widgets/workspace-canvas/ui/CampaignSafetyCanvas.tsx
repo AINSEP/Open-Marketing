@@ -1,6 +1,8 @@
+import { useCampaignOutcome } from "./WorkspaceCanvas.hooks.js";
+import type { LaunchOutcomeRow } from "./WorkspaceCanvas.hooks.js";
 import type { ReactElement } from "react";
 import { ApprovalCard } from "../../../features/approve/index.js";
-import type { CampaignSafetyModel, DraftView, AllowanceView } from "./WorkspaceCanvas.hooks.js";
+import type { CampaignSafetyModel, DraftView, AllowanceView, CampaignLaunchReviewProps } from "./WorkspaceCanvas.hooks.js";
 
 /** Show server draft review, separate halt receipts, or allowance settings without mutations. */
 export function CampaignSafetyCanvas(props: { readonly model: CampaignSafetyModel; readonly target: "campaigns" | "settings" }): ReactElement {
@@ -12,7 +14,7 @@ export function CampaignSafetyCanvas(props: { readonly model: CampaignSafetyMode
     <p className="domain-note">Neither allowance grants ad-spend authority. Every ad-spend call requires its own exact approval.</p>
   </> : <>
     <div className="section-heading"><h2>Paused drafts and exact approvals</h2></div>
-    <p className="muted domain-note">Review the server's decision and exact arguments. A recorded choice is an acknowledgement; launch dispatch awaits server integration.</p>
+    <p className="muted domain-note">Review the grouped exact arguments, then inspect the server outcome. Activation requires a separate exact approval.</p>
     <div className="canvas-grid">{props.model.drafts.map(renderDraft)}</div>
     {props.model.drafts.length === 0 && <p>No draft reviews supplied.</p>}
     <section className="domain-section" aria-label="Account halt status"><div className="section-heading"><h2>Account halt status</h2></div>
@@ -23,10 +25,14 @@ export function CampaignSafetyCanvas(props: { readonly model: CampaignSafetyMode
   </>;
 }
 function DraftCard(props: { readonly item: DraftView }): ReactElement {
+  const outcome = useCampaignOutcome({ operationId: props.item.operationId, api: props.item.api, runtime: props.item.runtime });
   return <article className="canvas-card" aria-label={props.item.title}><div className="canvas-card-body">
     <span className="row-status">{props.item.status} · Review: {props.item.review}</span><h3>{props.item.title}</h3>
     <ul className="domain-evidence">{renderReasons({ reasons: props.item.reasons })}</ul>
     {props.item.approval ? <ApprovalCard {...props.item.approval} /> : <p>Launch approval unavailable · request a ready review and fresh exact card from the server.</p>}
+    {outcome.available && <section className="launch-outcomes" aria-label="Launch outcomes"><h3>Per-vendor launch outcomes</h3><p role="status">{outcome.status}</p>
+      <ul>{outcome.rows.map(renderOutcome)}</ul><div className="integration-actions"><button type="button" onClick={outcome.refresh} disabled={outcome.busy}>Refresh launch outcome</button><button type="button" onClick={outcome.reconcile} disabled={outcome.busy}>Reconcile deployment (read only)</button></div>
+    </section>}
   </div></article>;
 }
 function HaltCard(props: { readonly item: CampaignSafetyModel["halts"][number] }): ReactElement {
@@ -50,3 +56,15 @@ function renderReasons({ reasons }: { reasons: readonly string[] }): ReactElemen
 function renderDraft(item: DraftView): ReactElement { return <DraftCard key={item.id} item={item} />; }
 function renderHalt(item: CampaignSafetyModel["halts"][number]): ReactElement { return <HaltCard key={item.id} item={item} />; }
 function renderAllowance(item: AllowanceView): ReactElement { return <AllowanceCard key={item.id} item={item} />; }
+
+function renderOutcome(row: LaunchOutcomeRow): ReactElement { return <li key={row.id}><strong>{row.vendor}</strong><p>{row.account}</p><span className="integration-status">{row.status}</span><code>{row.id}</code><code>{row.references}</code></li>; }
+
+/** Session cards supply live authority; retained operation IDs keep outcomes reachable after resolution. */
+export function CampaignLaunchReview(props: CampaignLaunchReviewProps): ReactElement {
+  const outcome = useCampaignOutcome({ operationId: props.operationId, api: props.api, runtime: props.runtime });
+  return <section className="settings-card" aria-label="Campaign launch review">{props.approval && <ApprovalCard key={props.approval.card.cardId} {...props.approval} />}
+    <section className="launch-outcomes" aria-label="Launch outcomes"><h3>Per-vendor launch outcomes</h3><p role="status">{outcome.status}</p>
+      <ul>{outcome.rows.map(renderOutcome)}</ul><div className="integration-actions"><button type="button" onClick={outcome.refresh} disabled={outcome.busy}>Refresh launch outcome</button><button type="button" onClick={outcome.reconcile} disabled={outcome.busy}>Reconcile deployment (read only)</button></div>
+    </section>
+  </section>;
+}

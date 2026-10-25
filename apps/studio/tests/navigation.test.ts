@@ -1,4 +1,7 @@
 import { it, expect } from "vitest";
+import { createElement, createRef } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { ChatFab } from "../src/widgets/om-chat/ChatFab.js";
 import { createNavigationController } from "../src/features/navigate/index.js";
 import type { BrowserRoutePort } from "../src/features/navigate/index.js";
 import { testRuntime } from "./support/runtime.js";
@@ -48,8 +51,20 @@ it("keeps literal grouped destinations, distinct icons, and SOON preview targets
   expect(new Set(targets).size).toBe(12);
   expect(targets.filter(target => ROUTES[target].soon)).toEqual(["creative", "measure"]);
   expect(new Set(targets.map(target => ROUTES[target].icon)).size).toBe(12);
+  expect(NAV_ICONS.assistant).toContain('<path d="M12 8V4H8" />');
+  expect(NAV_ICONS.assistant).toContain('<rect width="16" height="12" x="4" y="8" rx="2" />');
+  expect(ROUTES['/addons/agent-plugins'].icon).toContain('<rect x="14" y="2" width="8" height="8" rx="1" />');
+  expect(new Set(Object.values(NAV_ICONS)).size).toBe(Object.keys(NAV_ICONS).length);
   for (const icon of Object.values(NAV_ICONS)) {
     expect(icon).toMatch(/<(?:path|rect|circle|line|polyline|polygon)\b/);
     expect(icon).not.toMatch(/<script|<use|href=|\bon\w+=/);
   }
+});
+
+it('renders the pinned Lucide robot in the assistant FAB', async () => {
+  const { NAV_ICONS } = await import('../src/shared/navigation/index.js');
+  const html = renderToStaticMarkup(createElement(ChatFab, { open: false, toggle() {}, buttonRef: createRef<HTMLButtonElement>() }));
+  expect(html).toContain('aria-label="Assistant"');
+  expect(html).toContain(NAV_ICONS.assistant);
+  expect(html).not.toContain(NAV_ICONS.agentPlugins);
 });

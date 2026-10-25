@@ -3,7 +3,7 @@ import type { AppearanceHost } from "../../shared/ui/index.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MouseEvent } from "react";
 import type { NavigationTarget, StudioNavigationTarget, AddonNavigationTarget } from "@open-marketing/contracts";
-import type { ChatSession } from "../../features/chat-run/index.js";
+import type { ChatSession, ChatState } from "../../features/chat-run/index.js";
 import type { NavigationController } from "../../features/navigate/index.js";
 import { parseStudioSnapshot } from "../../shared/api/index.js";
 import type { StudioApiPort, StudioSnapshot } from "../../shared/api/index.js";
@@ -19,6 +19,7 @@ export interface NavGroup { readonly label: string; readonly id: string; readonl
 export function useShell(required: ShellProps) {
   const appearance = useAppearance(required.appearance ?? { root: null, storage: null });
   const target = usePortSnapshot(required.navigation);
+  const session: ChatState = usePortSnapshot(required.session);
   const sidebar = useSidebar({ ...required, target });
   const [snapshot, setSnapshot] = useState<StudioSnapshot | null>(null);
   const [error, setError] = useState("");
@@ -50,7 +51,7 @@ export function useShell(required: ShellProps) {
   const route = { target };
   const addonTarget: AddonNavigationTarget | null = isAddonTarget(route) ? route.target : null;
   const canvasTarget: NavigationTarget | null = isAddonTarget(route) ? null : route.target as NavigationTarget;
-  return { target, addonTarget, canvasTarget, snapshot, error, chatOpen, toggleChat, openChat, headingRef, sidebar, appearance, page: ROUTES[target], workspace: workspaceLabel({ value: snapshot?.workspace }), connection: connectionLabels({ snapshot, error }), chatAvailable: snapshot !== null && snapshot.mode !== "unavailable", mode: snapshot?.mode ?? "unavailable" };
+  return { target, addonTarget, canvasTarget, snapshot, session, error, chatOpen, toggleChat, openChat, headingRef, sidebar, appearance, page: ROUTES[target], workspace: workspaceLabel({ value: snapshot?.workspace }), connection: connectionLabels({ snapshot, error }), chatAvailable: snapshot !== null && snapshot.mode !== "unavailable", mode: snapshot?.mode ?? "unavailable" };
 }
 
 /** Rail preference is device-local, best effort; a malformed value means expanded. */

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createSampleStudioApi } from "../src/shared/api/index.js";
+import { createHttpStudioApi, createSampleStudioApi } from "../src/shared/api/index.js";
 import type { StudioApiPort, StudioRuntime } from "../src/shared/api/index.js";
 import { testRuntime } from "./support/runtime.js";
 
@@ -32,3 +32,21 @@ function studioApiContract(required: { name: string; create: (input: { runtime: 
   });
 }
 studioApiContract({ name: "sample StudioApiPort", create: createSampleStudioApi });
+
+it('reads bounded operation evidence and rejects a different operation or secret-bearing output', async () => {
+  const host = testRuntime();
+  for (const value of [
+    { status: 'completed', operationId: 'other', output: {} },
+    { status: 'completed', operationId: 'expected', output: { clientSecret: 'private-fixture' } },
+    { status: 'completed', operationId: 'expected', output: { note: 'x'.repeat(262144) } },
+  ]) {
+    const api = createHttpStudioApi({ runtime: host.runtime, baseUrl: 'http://fixture.test', observer: { observe() {} }, fetch: async () => Response.json({ ok: true, value }) });
+    expect((await api.operation!({ operationId: 'expected' })).ok).toBe(false);
+  }
+  const api = createHttpStudioApi({ runtime: host.runtime, baseUrl: 'http://fixture.test', observer: { observe() {} }, fetch: async url => {
+    expect(new URL(String(url)).pathname).toBe('/api/tools/operations/expected');
+    return Response.json({ ok: true, value: { status: 'unknown', operationId: 'expected', error: { code: 'unavailable', message: 'Reconcile first', retryable: false } } });
+  } });
+  expect(await api.operation!({ operationId: 'expected' })).toMatchObject({ ok: true, value: { status: 'unknown', operationId: 'expected' } });
+  expect(host.pending()).toBe(0);
+});

@@ -1,5 +1,5 @@
 @import "@jini-ai/ui/styles/variables.css";
-@import "./themes/modernist.css";
+@import "./themes/index.css";
 
 :root {
   font-family:var(--jini-font-body);
@@ -45,7 +45,7 @@ input,textarea,select { box-shadow:var(--jini-control-shadow-inset) }
   display:grid;
   grid-template-columns:var(--jini-sidebar-width) minmax(0,1fr) var(--jini-dock-width,0px);
   min-height:100dvh;
-  background:var(--jini-app-bg)
+  background:var(--jini-shell-bg)
 }
 .shell[data-chat-open=true] { --jini-dock-width:380px }
 /* The column paints the entire document; only its inner content sticks and scrolls. */
@@ -85,12 +85,12 @@ input,textarea,select { box-shadow:var(--jini-control-shadow-inset) }
   position:relative; display:flex; align-items:center; gap:10px;
   padding:8px 10px; border-radius:var(--jini-radius-nav);
   font-size:13px; font-weight:500; line-height:18px;
-  color:var(--jini-text-secondary); white-space:nowrap
+  color:var(--jini-fg-2,var(--jini-text-secondary)); white-space:nowrap
 }
 .nav-link:hover { color:var(--jini-rail-text); background:var(--jini-surface) }
 .nav-link[aria-current=page] { background:var(--jini-nav-active-bg); color:var(--jini-nav-active-text); font-weight:600; box-shadow:var(--jini-nav-active-shadow) }
 .nav-link[aria-current=page]::before { content:""; position:absolute; left:-12px; width:3px; height:18px; border-radius:var(--jini-radius-pill); background:var(--jini-nav-active-indicator) }
-.nav-icon { width:16px; height:16px; flex-shrink:0 }
+.nav-icon { width:16px; height:16px; flex-shrink:0; opacity:1 }
 .soon { margin-left:auto; font-size:9px; font-weight:700; line-height:1.5; padding:1px 5px; border:var(--jini-border-width) solid var(--jini-rail-border); border-radius:5px; color:var(--jini-rail-muted) }
 .sidebar-footer { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:auto; padding-top:12px; border-top:var(--jini-border-width) solid var(--jini-rail-border); font-size:11px; color:var(--jini-rail-muted) }
 .connection { display:flex; align-items:center; gap:6px; min-width:0 }
@@ -128,9 +128,9 @@ input,textarea,select { box-shadow:var(--jini-control-shadow-inset) }
   border:1px solid var(--jini-border);
   background:var(--jini-panel-bg);
   border-radius:var(--jini-radius);
-  padding:var(--jini-space-3) var(--jini-space-4);
+  padding:8px 12px;
   color:var(--jini-muted);
-  margin-bottom:var(--jini-space-5);
+  margin-bottom:var(--jini-space-4);
   font-size:var(--jini-font-size-sm);
   line-height:var(--jini-line-normal)
 }
@@ -172,35 +172,6 @@ input,textarea,select { box-shadow:var(--jini-control-shadow-inset) }
   line-height:var(--jini-line-normal);
   color:var(--jini-muted)
 }
-.brief-banner {
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:var(--jini-space-5);
-  min-height:280px;
-  background:var(--jini-panel-bg);
-  border:1px solid var(--jini-border);
-  border-radius:var(--jini-radius-lg);
-  box-shadow:var(--jini-panel-shadow);
-  overflow:hidden;
-  padding:var(--jini-space-6);
-  margin-bottom:var(--jini-space-6)
-}
-.brief-banner>div:first-child { z-index:1; min-width:0 }
-.brief-banner h2 {
-  font-size:var(--jini-font-size-xl);
-  font-weight:var(--jini-font-weight-heading);
-  line-height:var(--jini-line-tight);
-  letter-spacing:var(--jini-tracking-heading);
-  margin:var(--jini-space-3) 0;
-  color:var(--jini-text)
-}
-.brief-banner p {
-  font-size:var(--jini-font-size-sm);
-  color:var(--jini-muted);
-  line-height:var(--jini-line-normal);
-  margin-bottom:var(--jini-space-5)
-}
 .primary-button {
   background:var(--jini-accent);
   color:var(--jini-accent-ink);
@@ -211,52 +182,6 @@ input,textarea,select { box-shadow:var(--jini-control-shadow-inset) }
 }
 .primary-button:hover:enabled { background:var(--jini-accent-hover) }
 .primary-button span { margin-left:var(--jini-space-3) }
-.banner-art {
-  position:relative;
-  flex:0 1 230px;
-  min-width:155px;
-  display:grid;
-  place-items:center;
-  margin-left:var(--jini-space-4)
-}
-.art-orbit {
-  position:absolute;
-  width:230px;
-  height:230px;
-  border:1px solid var(--jini-border);
-  border-radius:var(--jini-radius-circle);
-  transform:rotate(-30deg)
-}
-.art-orbit:after {
-  content:"";
-  position:absolute;
-  inset:var(--jini-space-5);
-  border:1px solid var(--jini-border);
-  border-radius:var(--jini-radius-circle)
-}
-.art-note {
-  transform:rotate(-9deg);
-  background:var(--jini-accent-soft);
-  color:var(--jini-accent-strong);
-  border:1px solid var(--jini-accent-strong);
-  border-radius:var(--jini-radius);
-  font-family:var(--jini-font-body);
-  font-size:var(--jini-font-size-xl);
-  font-weight:var(--jini-font-weight-heading);
-  line-height:var(--jini-line-tight);
-  letter-spacing:var(--jini-tracking-heading);
-  padding:var(--jini-space-6) var(--jini-space-4);
-  width:200px;
-  box-shadow:var(--jini-panel-shadow)
-}
-.art-note em { font-size:var(--jini-font-size-lg) }
-.art-spark {
-  position:absolute;
-  right:0;
-  bottom:var(--jini-space-4);
-  color:var(--jini-accent-strong);
-  font-size:var(--jini-font-size-xl)
-}
 .section-heading {
   display:flex;
   flex-wrap:wrap;
@@ -288,23 +213,6 @@ input,textarea,select { box-shadow:var(--jini-control-shadow-inset) }
   overflow:hidden;
   background:var(--jini-panel-bg)
 }
-.canvas-card-art {
-  height:144px;
-  background:radial-gradient(ellipse at 80% 90%,var(--jini-surface) 0,transparent 58%),linear-gradient(145deg,var(--jini-accent-soft),var(--jini-surface));
-  display:none;
-  place-items:center
-}
-.workspace-canvas[data-view=creative] .canvas-card-art,.workspace-canvas[data-view=media-library] .canvas-card-art { display:grid }
-.canvas-card:nth-child(even) .canvas-card-art {
-  background:radial-gradient(ellipse at 20% 50%,var(--jini-surface) 0,transparent 60%),linear-gradient(145deg,var(--jini-accent-soft),var(--jini-surface))
-}
-.canvas-card-art span {
-  font-family:var(--jini-font-body);
-  font-size:var(--jini-font-size-xl);
-  font-weight:var(--jini-font-weight-heading);
-  color:var(--jini-text);
-  letter-spacing:var(--jini-tracking-heading)
-}
 .canvas-card-body { padding:var(--jini-space-5); overflow-wrap:anywhere }
 .row-status {
   display:inline-block;
@@ -330,17 +238,6 @@ input,textarea,select { box-shadow:var(--jini-control-shadow-inset) }
   line-height:var(--jini-line-normal)
 }
 .canvas-card p+p { margin-top:var(--jini-space-2) }
-.canvas-footer {
-  display:flex;
-  flex-wrap:wrap;
-  justify-content:space-between;
-  gap:var(--jini-space-4);
-  border-top:1px solid var(--jini-border);
-  margin-top:var(--jini-space-6);
-  padding-top:var(--jini-space-4);
-  font-size:var(--jini-font-size-xs);
-  color:var(--jini-muted)
-}
 .settings-card {
   padding:var(--jini-space-5);
   background:var(--jini-panel-bg);
@@ -538,12 +435,12 @@ input,textarea,select { box-shadow:var(--jini-control-shadow-inset) }
   padding:var(--jini-space-3) var(--jini-space-4);
   border-radius:var(--jini-radius-pill)
 }
-.approval-choice[data-choice=allow],.approval-choice[data-choice=always_allow] {
+.approval-choice[data-choice=allow] {
   background:var(--jini-accent);
   color:var(--jini-accent-ink);
   border:1px solid var(--jini-accent-strong)
 }
-.approval-choice[data-choice=allow]:hover:enabled,.approval-choice[data-choice=always_allow]:hover:enabled {
+.approval-choice[data-choice=allow]:hover:enabled {
   background:var(--jini-accent-hover)
 }
 .approval-card .card-status {
@@ -719,9 +616,6 @@ input,textarea,select { box-shadow:var(--jini-control-shadow-inset) }
   .canvas-grid { grid-template-columns:1fr; gap:16px }
   .canvas-card-body,.settings-card { padding:16px }
   .settings-card.appearance-card { padding:18px 16px }
-  .brief-banner { padding:20px 16px; min-height:0 }
-  .banner-art { display:none }
-  .canvas-footer { flex-direction:column; gap:8px }
   .chat-panel { height:85dvh; min-height:500px; border-left:0 }
   button,select { min-height:44px }
 }
@@ -746,10 +640,44 @@ input,textarea,select { box-shadow:var(--jini-control-shadow-inset) }
 /* Material roles allow future themes to change surfaces without changing component rules. */
 .canvas-card,.settings-card,.approval-card { color:var(--jini-panel-text); background-color:var(--jini-panel-bg); background-image:var(--jini-panel-texture); border-color:var(--jini-panel-border); box-shadow:var(--jini-panel-shadow),var(--jini-panel-shadow-inset); backdrop-filter:var(--jini-panel-backdrop) }
 .canvas-card p,.settings-card p,.approval-card>.muted { color:var(--jini-panel-muted) }
-.metric-card { color:var(--jini-panel-text); box-shadow:var(--jini-panel-shadow),var(--jini-panel-shadow-inset) }
-.metric-card p,.metric-card>span { color:var(--jini-panel-muted) }
-.brief-banner .primary-button { background:var(--jini-control-bg); color:var(--jini-text); border-color:var(--jini-control-border) }
+.metric-card { color:var(--jini-metric-text); box-shadow:var(--jini-panel-shadow),var(--jini-panel-shadow-inset) }
+.metric-card p,.metric-card>span { color:var(--jini-metric-muted) }
 .approval-summary { align-items:flex-start }
+
+/* Compact shared forms and add-on lists retain native labels and keyboard behavior. */
+.settings-card form { display:grid; gap:12px; margin-block:16px }
+.settings-card form p { margin:0 }
+.settings-card label { display:grid; gap:6px; font-size:var(--jini-font-size-sm); color:var(--jini-panel-muted) }
+.settings-card input,.settings-card textarea { width:100%; min-width:0; min-height:36px; padding:8px 10px; border:1px solid var(--jini-control-border); border-radius:var(--jini-radius-sm); background:var(--jini-control-bg); color:var(--jini-text) }
+.settings-card input[type=file] { max-width:100%; font-size:var(--jini-font-size-sm) }
+.settings-card form button { justify-self:start }
+.settings-card ul { list-style:none; margin:16px 0; padding:0 }
+.settings-card li { padding:16px 0; border-top:1px solid var(--jini-panel-border); overflow-wrap:anywhere }
+.settings-card li h2 { font-size:var(--jini-font-size-base) }
+.settings-card li button { margin-top:8px }
+.integration-grid { display:grid; gap:16px }
+.integration-row { display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:12px }
+.vendor-icon { display:grid; place-items:center; width:32px; height:32px; border-radius:var(--jini-radius-circle); background:var(--jini-surface); color:var(--jini-muted); flex-shrink:0 }
+.vendor-heading { display:flex; align-items:center; gap:10px }
+.integration-status { display:inline-flex; align-self:flex-start; border:1px solid var(--jini-panel-border); border-radius:var(--jini-radius-pill); padding:3px 8px; font-size:var(--jini-font-size-xs); color:var(--jini-panel-muted) }
+.integration-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:12px }
+.integration-actions a { color:var(--jini-link); text-decoration:underline; min-height:34px; display:inline-flex; align-items:center }
+.settings-card details { margin-top:12px }
+.settings-card summary { cursor:pointer; min-height:34px; padding-block:8px }
+.approval-summary { display:flex; flex-wrap:wrap; justify-content:space-between; gap:12px; align-items:flex-start; margin-block:12px }
+.approval-destinations { margin-block:12px; padding-left:20px; font-size:var(--jini-font-size-sm) }
+.approval-destinations li { margin-block:8px }
+.approval-destinations span { display:block; color:var(--jini-panel-muted) }
+.launch-outcomes { margin-top:16px; padding-top:16px; border-top:1px solid var(--jini-panel-border) }
+.launch-outcomes ul { list-style:none; padding:0 }
+.launch-outcomes li { margin-block:12px; padding-block:12px; border-bottom:1px solid var(--jini-panel-border) }
+.pill-tabs,[role=tablist] { display:flex; flex-wrap:wrap; gap:4px; padding:4px; background:var(--jini-tab-bg); border-radius:var(--jini-tab-radius) }
+.pill-tabs [aria-selected=true],[role=tab][aria-selected=true] { background:var(--jini-tab-active-bg); color:var(--jini-tab-active-text) }
+@media(max-width:650px) {
+  .settings-card input,.settings-card textarea { min-height:44px }
+  .integration-actions { align-items:stretch }
+  .integration-actions a { min-height:44px }
+}
 
 /* Transitional chart aliases: remove after the chart plugin migrates its integrity-hashed CSS. */
 :root {

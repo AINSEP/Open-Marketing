@@ -1,4 +1,4 @@
-import { a2uiSurfacePayloadSchema } from '@open-marketing/contracts';
+import { a2uiSurfacePayloadSchema, integrationSummarySchema } from '@open-marketing/contracts';
 import { z } from "zod";
 import { toolRequestedPayloadSchema, toolResultPayloadSchema, approvalPayloadSchema, chatMessageSchema, confirmationCardSchema, navigationActionSchema, navigationTargetSchema, studioNavigationTargetSchema, moneySchema, runEventSchema, parseBoundary } from "@open-marketing/contracts";
 import type { Outcome, RunEvent } from "@open-marketing/contracts";
@@ -119,3 +119,30 @@ function normalizePayload(required: { event: RunEvent }): unknown {
  if (event.kind === 'error' && z.strictObject({ code: z.string().max(100) }).safeParse(event.payload).success) return { type: 'status', text: '' };
  return event.payload;
 }
+
+/** Studio-local wire schemas mirror the existing owner HTTP endpoints; no credentials in replies. */
+export const oauthPluginSchema = z.enum(['google-ads', 'linkedin-ads', 'meta-ads']);
+const oauthClientSchema = z.strictObject({ clientId: z.string().min(1).max(2048), clientSecret: z.string().min(1).max(8192).optional() });
+export const oauthClientSetSchema = z.union([
+  z.strictObject({ pluginId: z.enum(['google-ads', 'linkedin-ads']), client: oauthClientSchema.nullable() }),
+  z.strictObject({ pluginId: z.literal('meta-ads'), client: oauthClientSchema.extend({ configId: z.string().regex(/^[1-9][0-9]{0,127}$/) }).nullable() }),
+]);
+export const oauthClientStatusSchema = z.union([
+  z.strictObject({ configured: z.literal(false), guidance: z.string().max(512).optional() }),
+  z.strictObject({ configured: z.literal(true), clientId: z.string().min(1).max(2048), guidance: z.string().max(512).optional() }),
+]);
+export const oauthStatusQuerySchema = z.union([z.strictObject({ pluginId: oauthPluginSchema }), z.strictObject({ transactionId: displayId })]);
+export const oauthStatusSchema = z.union([oauthClientStatusSchema,
+  z.strictObject({ status: z.enum(['pending', 'complete', 'expired']), connection: integrationSummarySchema.optional() }),
+]);
+export const developerTokenQuerySchema = z.strictObject({ pluginId: z.literal('google-ads') });
+export const developerTokenSetSchema = developerTokenQuerySchema.extend({ token: z.string().regex(/^[A-Za-z0-9]{22}$/).nullable() });
+export const developerTokenStatusSchema = z.strictObject({ configured: z.boolean() });
+/** Server-provided sign-in URLs must be HTTPS and cannot embed user/password credentials. */
+export const oauthChallengeSchema = z.strictObject({ transactionId: displayId, authorizationUrl: z.url().max(4096).refine(value => {
+  const url = new URL(value); return url.protocol === 'https:' && !url.username && !url.password;
+}), expiresAt: z.number().int().nonnegative().max(8640000000000000) });
+export type OAuthPlugin = z.infer<typeof oauthPluginSchema>;
+export type OAuthClientRequest = z.infer<typeof oauthClientSetSchema>;
+export type OAuthClientStatus = z.infer<typeof oauthClientStatusSchema>;
+export type OAuthStatus = z.infer<typeof oauthStatusSchema>;

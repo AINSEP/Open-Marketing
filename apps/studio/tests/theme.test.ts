@@ -140,3 +140,16 @@ it("keeps theme values in exactly two scoped blocks and ships every reviewed mat
   expect(blocks[1]?.[2]).toContain("--jini-theme-dark-border: #2a2d30");
   expect(blocks[1]?.[2]).toContain("--jini-theme-dark-primary: #00b386");
 });
+
+it('connects theme-pack materials, metric colors and pill-tab text through tokens', () => {
+  const styles = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
+  expect(styles).toContain('@import "./themes/index.css";');
+  for (const token of ['shell-bg', 'metric-text', 'metric-muted', 'tab-active-text', 'panel-texture']) expect(styles).toContain('var(--jini-' + token + ')');
+  expect(styles).toContain('var(--jini-fg-2,var(--jini-text-secondary))');
+  expect(styles).toContain('align-items:flex-start');
+  expect(styles).not.toMatch(/brief-banner|banner-art|canvas-card-art|canvas-footer/);
+  const canvas = readFileSync(new URL('../src/widgets/workspace-canvas/ui/WorkspaceCanvas.tsx', import.meta.url), 'utf8');
+  expect(canvas).not.toMatch(/brief-banner|banner-art|canvas-card-art|canvas-footer|Make it meaningful/);
+  const shell = readFileSync(new URL('../src/app/shell/Shell.tsx', import.meta.url), 'utf8');
+  expect(shell).toContain('strokeWidth={1.75}');
+});

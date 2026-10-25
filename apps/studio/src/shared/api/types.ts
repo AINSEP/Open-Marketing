@@ -1,3 +1,4 @@
+import type { OAuthClientRequest, OAuthClientStatus, OAuthStatus } from "./validation.js";
 import type { A2uiSurfacePayload, SurfaceAcknowledgement, ToolCall, ToolResult } from '@open-marketing/contracts';
 import type { AssistantSettings, AssistantSettingsStatus, Conversation, ConversationList, ConversationSummary, ToolRequestedPayload, ToolResultPayload, ApprovalPayload, CancellationReceipt, ChatMessage, ConfirmationCard, NavigationResult, Outcome, ApprovalResponse, RunEvent, NavigationAction, Money, ClockPort, IdPort } from "@open-marketing/contracts";
 
@@ -92,11 +93,16 @@ export type StudioPayload = A2uiSurfacePayload
 /** Fixture and future HTTP adapters implement this boundary. Writes are never implicitly retried. */
 export interface StudioApiPort {
   tool?(required: { call: ToolCall; signal?: AbortSignal; runId?: string; frontendSessionId?: string }): Promise<Outcome<ToolResult>>;
+  operation?(required: { operationId: string; signal?: AbortSignal }): Promise<Outcome<import("@open-marketing/contracts").ToolOperation>>;
   approvalCard?(required: { cardId: string; signal?: AbortSignal }): Promise<Outcome<ConfirmationCard>>;
   acknowledgeSurface?(required: { result: SurfaceAcknowledgement }): Promise<Outcome<{ status: 'recorded' }>>;
 
   /** Owner upload/connection forms use this surface; plaintext never enters chat. */
   readonly addons?: {
+    setOAuthClient(required: { request: OAuthClientRequest; signal?: AbortSignal }): Promise<Outcome<OAuthClientStatus>>;
+    oauthStatus(required: { query: { pluginId: 'google-ads' | 'linkedin-ads' | 'meta-ads' } | { transactionId: string }; signal?: AbortSignal }): Promise<Outcome<OAuthStatus>>;
+    setDeveloperToken(required: { request: { pluginId: 'google-ads'; token: string | null }; signal?: AbortSignal }): Promise<Outcome<{ configured: boolean }>>;
+    developerTokenStatus(required: { pluginId: 'google-ads'; signal?: AbortSignal }): Promise<Outcome<{ configured: boolean }>>;
     list(required: { query: import('@open-marketing/contracts').AddonListRequest; signal?: AbortSignal }): Promise<Outcome<import('@open-marketing/contracts').AddonList>>;
     install(required: { request: import('@open-marketing/contracts').InstallAddon; signal?: AbortSignal }): Promise<Outcome<import('@open-marketing/contracts').AddonSummary>>;
     setEnabled(required: { request: import('@open-marketing/contracts').SetAddonEnabled; signal?: AbortSignal }): Promise<Outcome<import('@open-marketing/contracts').AddonSummary>>;

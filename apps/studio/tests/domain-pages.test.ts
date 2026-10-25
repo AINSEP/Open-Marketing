@@ -1,13 +1,17 @@
 /** @vitest-environment jsdom */
 import { afterEach, it, expect, vi } from "vitest";
 import { createElement } from "react";
-import { render, screen, cleanup, within } from "@testing-library/react";
+import { act, render, screen, cleanup, within, fireEvent, waitFor } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { WorkspaceCanvas } from "../src/widgets/workspace-canvas/index.js";
 import { createSampleStudioApi, parseStudioSnapshot } from "../src/shared/api/index.js";
-import type { StudioSnapshot } from "../src/shared/api/index.js";
-import type { NavigationTarget } from "@open-marketing/contracts";
+import { parseLaunchOutcomes } from "../src/widgets/workspace-canvas/ui/WorkspaceCanvas.hooks.js";
+import type { StudioApiPort, StudioSnapshot } from "../src/shared/api/index.js";
+import type { NavigationTarget, RunEvent } from "@open-marketing/contracts";
 import { testRuntime } from "./support/runtime.js";
+import { testStudio } from "./support/studio.js";
+import { Shell } from "../src/app/shell/Shell.js";
+import { createChatSession } from "../src/features/chat-run/index.js";
 
 afterEach(cleanup);
 /** Start from the real port boundary, not fixtures imported by a component. */
@@ -210,4 +214,121 @@ it("rejects a mixed-validity domain batch, nested secrets, plugin configuration 
     expect(parseStudioSnapshot({ input: { ...host.snapshot, pages: { ...data, creative: { ...data.creative, generations } } } })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
   }
   expect(parseStudioSnapshot({ input: { ...host.snapshot, pages: { ...data, operations: { ...data.operations, plugins: [{ ...data.operations.plugins[0], mcp: { command: "vendor-tool", access_token: "fixture" } }] } } } })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+});
+
+/** Same evidence shape returned by the server's read-only deployment reconciliation tool. */
+function launchEvidence() {
+  return { complete: false, entities: [{ operationId: 'google-child', entityId: 'google-ref', state: 'paused' }], outcomes: [
+    { operationId: 'google-child', tool: 'vendor_google_ads_campaign_deploy_paused', connectionId: 'google-one', accountId: 'us', result: { status: 'acknowledged', entityIds: ['google-ref'], references: { campaign: 'google-ref' } } },
+    { operationId: 'linkedin-child', tool: 'vendor_linkedin_ads_campaign_deploy_paused', connectionId: 'linkedin-one', accountId: 'eu', result: { status: 'unknown', entityIds: ['partial-ref'], references: { campaign: 'partial-ref' } } },
+  ] };
+}
+it('preserves paused, draft, partial failure and unknown references without interpreting them as live delivery', () => {
+  const evidence = launchEvidence();
+  expect(parseLaunchOutcomes({ input: evidence })).toMatchObject({ status: 'Partial deployment · reconcile unresolved destinations', rows: [
+    { vendor: 'google ads', status: 'Created · paused' }, { vendor: 'linkedin ads', status: 'Unknown · reconciling', references: expect.stringContaining('partial-ref') },
+  ] });
+  const draft = { ...evidence, complete: true, entities: [{ operationId: 'google-child', entityId: 'google-ref', state: 'draft' }], outcomes: [evidence.outcomes[0]] };
+  expect(parseLaunchOutcomes({ input: { status: 'submitted', hierarchy: draft, outcomes: draft.outcomes } })?.rows[0]?.status).toBe('Created · draft');
+  const failed = { ...evidence, outcomes: [evidence.outcomes[0], { ...evidence.outcomes[1], result: { status: 'failed', entityIds: ['partial-ref'] } }] };
+  expect(parseLaunchOutcomes({ input: failed })?.rows[1]).toMatchObject({ status: 'Failed · partial references preserved', references: expect.stringContaining('partial-ref') });
+});
+it('rejects a malformed/duplicate/secret-bearing launch batch and never fills in missing paused evidence', () => {
+  const evidence = launchEvidence();
+  expect(parseLaunchOutcomes({ input: { ...evidence, outcomes: [...evidence.outcomes, { ...evidence.outcomes[1], result: { status: 'success-ish' } }] } })).toBeNull();
+  expect(parseLaunchOutcomes({ input: { ...evidence, outcomes: [evidence.outcomes[0], evidence.outcomes[0]] } })).toBeNull();
+  expect(parseLaunchOutcomes({ input: { ...evidence, token: { access_token: 'private-fixture' } } })).toBeNull();
+  expect(parseLaunchOutcomes({ input: { ...evidence, entities: [] } })?.rows[0]?.status).toBe('Created · serving state unconfirmed');
+});
+it('reconciles through only the read tool and retains partial references on a later failed read', async () => {
+  const host = await domainHost(); const data = pages({ snapshot: host.snapshot });
+  const original = host.snapshot.cards[1];
+  const card = { ...original, operationId: 'deployment-one', arguments: { tool: 'om_campaign_deploy_paused' } };
+  const snapshot = { ...host.snapshot, cards: [card], pages: { ...data, campaigns: { ...data.campaigns, drafts: [{ ...data.campaigns.drafts[0], approvalCardId: card.cardId }] } } };
+  const calls: unknown[] = []; let reads = 0;
+  const api = { ...host.api,
+    tool: async (input: { call: import('@open-marketing/contracts').ToolCall }) => { calls.push(input.call); return { ok: true as const, value: { status: 'completed' as const, output: launchEvidence() } }; },
+    operation: async () => { reads++; return { ok: false as const, error: { code: 'unavailable' as const, message: 'Fixture read failed', retryable: false } }; },
+  };
+  const view = render(createElement(WorkspaceCanvas, { ...host, api, snapshot, target: 'campaigns' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Reconcile deployment (read only)' }));
+  await waitFor(() => expect(screen.getByText('Unknown · reconciling')).toBeDefined());
+  expect(calls).toEqual([{ name: 'om_campaign_reconcile_deployment', operationId: expect.any(String), input: { operationId: 'deployment-one' } }]);
+  expect(JSON.stringify(calls)).not.toContain('create_paused');
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh launch outcome' }));
+  await waitFor(() => expect(reads).toBe(1));
+  expect(screen.getByText(/"campaign":"partial-ref"/)).toBeDefined();
+  view.unmount();
+});
+it('shows supplied overview metrics without zero-padding and removes decorative artwork/footer copy', async () => {
+  const host = await domainHost(); const view = show({ host, target: 'workspaces' });
+  expect(view.container.querySelectorAll('.metric-card')).toHaveLength(host.snapshot.metrics.length);
+  expect(view.container.querySelector('.metric-card strong')?.textContent).toBe('3');
+  expect(view.container.querySelector('.brief-banner,.canvas-card-art,.canvas-footer')).toBeNull();
+});
+it('shows the grouped launch review from a live shell-only snapshot without hiding account halt evidence', async () => {
+  const host = await domainHost(); const { pages: data, ...shellSnapshot } = host.snapshot;
+  const card = { ...host.snapshot.cards[1], arguments: { tool: 'om_campaign_deploy_paused' } };
+  const snapshot = { ...shellSnapshot, cards: [card] };
+  show({ host, target: 'campaigns', snapshot });
+  expect(screen.getByRole('region', { name: 'Campaign launch review' })).toBeDefined();
+  expect(screen.getByRole('button', { name: 'Reconcile deployment (read only)' })).toBeDefined();
+  expect(screen.queryByText('Your campaigns and draft reviews will appear here.')).toBeNull();
+  cleanup();
+  if (!data) throw new Error('Fixture pages required');
+  show({ host, target: 'campaigns', snapshot: { ...snapshot, pages: { ...data, campaigns: { ...data.campaigns, drafts: [] } } } });
+  expect(screen.getByRole('region', { name: 'Account halt status' })).toBeDefined();
+  expect(screen.getByRole('region', { name: 'Campaign launch review' })).toBeDefined();
+});
+
+/** Real session events arrive after the shell's one startup read; no snapshot-injected card. */
+it.each(['standalone', 'draft'] as const)('delivers a live %s launch card and retains its outcome after resolution', async placement => {
+  const host = testStudio(); const source = await host.props.api.snapshot({});
+  if (!source.ok || !source.value.pages) throw new Error('Fixture pages required');
+  const card = { ...source.value.cards[1], cardId: 'live-launch', operationId: 'live-deployment', arguments: { tool: 'om_campaign_deploy_paused' } };
+  const { pages: data, ...shellOnly } = source.value;
+  const snapshot: StudioSnapshot = { ...shellOnly, mode: 'connected', cards: [], ...(placement === 'draft' ? { pages: {
+    ...data, campaigns: { ...data.campaigns, drafts: [{ ...data.campaigns.drafts[0], approvalCardId: card.cardId }] },
+  } } : {}) };
+  const resolveCard = Promise.withResolvers<void>();
+  const reads: string[] = []; const approvals: unknown[] = []; let snapshotReads = 0;
+  const event = (input: { sequence: number; kind: RunEvent['kind']; payload: RunEvent['payload'] }): RunEvent => ({
+    protocolVersion: 1, eventId: 'live-event-' + input.sequence, runId: 'live-run', correlationId: 'live-correlation', traceId: 'live-trace', ...input,
+  });
+  const api: StudioApiPort = { ...host.props.api,
+    async snapshot() { snapshotReads++; return { ok: true, value: snapshot }; },
+    async start() { return { ok: true, value: { runId: 'live-run', status: 'pending', expiresAt: 301000 } }; },
+    async *events() {
+      const confirmation = event({ sequence: 1, kind: 'tool_requested', payload: { type: 'confirmation', card } });
+      yield { ok: true, value: confirmation }; yield { ok: true, value: confirmation };
+      await resolveCard.promise;
+      yield { ok: true, value: event({ sequence: 2, kind: 'tool_result', payload: { type: 'confirmation_resolved', cardId: card.cardId, operationId: card.operationId, status: 'completed' } }) };
+      yield { ok: true, value: event({ sequence: 3, kind: 'ended', payload: {} }) };
+    },
+    async approve(input) { approvals.push(input.response); return { ok: true, value: { status: 'recorded' } }; },
+    async operation(input) { reads.push(input.operationId); return { ok: true, value: { status: 'completed', operationId: input.operationId, output: launchEvidence() } }; },
+  };
+  const session = createChatSession({ api, runtime: host.props.runtime, navigate: input => host.props.navigation.apply({ input: input.action }) });
+  const view = render(createElement(Shell, { ...host.props, api, session }));
+  let sending: Promise<void> | undefined;
+  try {
+    const canvas = within(screen.getByRole('main', { name: 'Workspace canvas' }));
+    await waitFor(() => expect(snapshotReads).toBe(1));
+    await act(async () => { host.props.navigation.select({ target: 'campaigns' }); });
+    expect(canvas.queryByRole('button', { name: /^Allow$/ })).toBeNull();
+    act(() => { sending = session.send({ text: 'Prepare a fixture campaign' }); });
+    await waitFor(() => expect(canvas.getAllByRole('button', { name: /^Allow$/ })).toHaveLength(1));
+    fireEvent.click(canvas.getByRole('button', { name: /^Allow$/ }));
+    await waitFor(() => expect(canvas.getByText('Choice recorded · awaiting the server action result')).toBeDefined());
+    expect(approvals).toEqual([{ cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' }]);
+    await act(async () => { resolveCard.resolve(); await sending; });
+    expect(session.getSnapshot().cards).toEqual([]);
+    expect(canvas.queryByRole('button', { name: /^Allow$/ })).toBeNull();
+    fireEvent.click(canvas.getByRole('button', { name: 'Refresh launch outcome' }));
+    await waitFor(() => expect(canvas.getByText('Unknown · reconciling')).toBeDefined());
+    expect(reads).toEqual(['live-deployment']); expect(snapshotReads).toBe(1);
+    expect(canvas.getByText(/"campaign":"partial-ref"/)).toBeDefined();
+  } finally {
+    resolveCard.resolve(); await sending; view.unmount(); session.dispose(); host.dispose();
+  }
 });

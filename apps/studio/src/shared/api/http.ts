@@ -1,11 +1,11 @@
-import { confirmationCardSchema, surfaceAcknowledgementSchema, toolCallSchema, toolResultSchema } from '@open-marketing/contracts';
+import { confirmationCardSchema, toolOperationSchema, surfaceAcknowledgementSchema, toolCallSchema, toolResultSchema } from '@open-marketing/contracts';
 /** Cookie-authenticated owner transport. Server state is validated before reaching presentation. */
 import { z } from 'zod';
 import { addonListRequestSchema, addonListSchema, addonSummarySchema, addonUninstallReceiptSchema, installAddonSchema, setAddonEnabledSchema, uninstallAddonSchema, integrationListSchema, integrationSummarySchema, connectIntegrationTokenSchema, disconnectIntegrationSchema, pageQuerySchema } from '@open-marketing/contracts';
 import { assistantRunRequestSchema, assistantSettingsSchema, assistantSettingsStatusSchema, conversationListSchema, conversationSchema, conversationSummarySchema, appErrorSchema, approvalResponseSchema, epochSchema, idSchema, runEventSchema, parseBoundary } from '@open-marketing/contracts';
 import type { AppError, ObserverPort, Outcome } from '@open-marketing/contracts';
 import type { StudioApiPort, StudioRuntime } from './types.js';
-import { parseStudioSnapshot } from './validation.js';
+import { oauthClientSetSchema, oauthClientStatusSchema, oauthStatusQuerySchema, oauthStatusSchema, developerTokenQuerySchema, developerTokenSetSchema, developerTokenStatusSchema, isSafeUiValue, parseStudioSnapshot } from './validation.js';
 
 interface Dependencies {
     readonly baseUrl: string;
@@ -147,6 +147,12 @@ export function createHttpStudioApi(required: Dependencies): StudioApiPort {
             return request({ dependencies: required, origin, path: '/api/tools/call', method: 'POST', body, signal: input.signal,
                 parse: value => parseBoundary({ schema: toolResultSchema, input: value.input }) });
         },
+        operation: input => addonRead({ dependencies: required, origin, path: '/api/tools/operations/' + encodeURIComponent(input.operationId), schema: toolOperationSchema,
+            querySchema: z.strictObject({}), query: {}, signal: input.signal }).then(result => {
+                if (!result.ok) return result;
+                return result.value.operationId === input.operationId && isSafeUiValue({ value: result.value, maxCharacters: 262144 }) ? result
+                    : failure({ code: 'protocol_mismatch', message: 'Operation identity or display data rejected' });
+            }),
         approvalCard: input => request({ dependencies: required, origin, path: '/api/safety/approvals/' + encodeURIComponent(input.cardId), method: 'GET', signal: input.signal,
             parse: value => parseBoundary({ schema: confirmationCardSchema, input: value.input }) }),
         async acknowledgeSurface(input) {
@@ -156,6 +162,10 @@ export function createHttpStudioApi(required: Dependencies): StudioApiPort {
                 parse: value => parseBoundary({ schema: recordedSchema, input: value.input }) });
         },
         addons: {
+            setOAuthClient: input => addonWrite({ dependencies: required, origin, path: '/api/addons/v1/integrations/oauth/client', schema: oauthClientStatusSchema, inputSchema: oauthClientSetSchema, ...input }),
+            oauthStatus: input => addonRead({ dependencies: required, origin, path: '/api/addons/v1/integrations/oauth/status', schema: oauthStatusSchema, querySchema: oauthStatusQuerySchema, ...input }),
+            setDeveloperToken: input => addonWrite({ dependencies: required, origin, path: '/api/addons/v1/integrations/developer-token', schema: developerTokenStatusSchema, inputSchema: developerTokenSetSchema, ...input }),
+            developerTokenStatus: input => addonRead({ dependencies: required, origin, path: '/api/addons/v1/integrations/developer-token', schema: developerTokenStatusSchema, querySchema: developerTokenQuerySchema, query: { pluginId: input.pluginId }, signal: input.signal }),
             list: input => addonRead({ dependencies: required, origin, path: '/api/addons/v1/packages', schema: addonListSchema, querySchema: addonListRequestSchema, ...input }),
             integrations: input => addonRead({ dependencies: required, origin, path: '/api/addons/v1/integrations', schema: integrationListSchema, querySchema: pageQuerySchema, ...input }),
             install: input => addonWrite({ dependencies: required, origin, path: '/api/addons/v1/install', schema: addonSummarySchema, inputSchema: installAddonSchema, ...input }),

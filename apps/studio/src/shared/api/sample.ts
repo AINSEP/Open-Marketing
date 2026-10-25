@@ -4,7 +4,7 @@ import { approvalResponseSchema, cancelRunSchema, chatMessageSchema, navigationR
 import type { Outcome, RunEvent, NavigationResult, ConfirmationCard, ApprovalResponse } from "@open-marketing/contracts";
 import type { StudioApiPort, StudioRun, StudioPayload } from "./types.js";
 import type { StudioRuntime } from "./types.js";
-import { parseStudioSnapshot } from "./validation.js";
+import { oauthClientSetSchema, oauthStatusQuerySchema, developerTokenQuerySchema, developerTokenSetSchema, parseStudioSnapshot } from "./validation.js";
 import { sampleSnapshot } from "./sample-data.js";
 
 interface SampleRun { readonly receipt: StudioRun; readonly prompt: string; cancelled: boolean }
@@ -30,6 +30,7 @@ export function createSampleStudioApi(required: { runtime: StudioRuntime }): Stu
   const runs = new Map<string, SampleRun>();
   const acknowledgements: NavigationResult[] = [];
   return {
+    async operation() { return unavailable(); },
     addons: sampleAddons({ runtime: required.runtime }),
     async conversations() { return unavailable(); },
     async conversation() { return unavailable(); },
@@ -96,8 +97,30 @@ function matchesCard(required: { card: ConfirmationCard; response: ApprovalRespo
 function sampleAddons(required: { runtime: StudioRuntime }): NonNullable<StudioApiPort['addons']> {
   const packages: AddonSummary[] = [];
   const connections = new Map<string, IntegrationSummary>();
+  const clients = new Map<string, string>();
+  let developerConfigured = false;
   const invalid = (): Outcome<never> => ({ ok: false, error: { code: 'invalid_input', message: 'Invalid sample add-on request', retryable: false } });
   return {
+    async setOAuthClient(input) {
+      const parsed = oauthClientSetSchema.safeParse(input.request);
+      if (!parsed.success) return invalid();
+      if (parsed.data.client) clients.set(parsed.data.pluginId, parsed.data.client.clientId);
+      else clients.delete(parsed.data.pluginId);
+      return { ok: true, value: parsed.data.client ? { configured: true, clientId: parsed.data.client.clientId } : { configured: false } };
+    },
+    async oauthStatus(input) {
+      if (!oauthStatusQuerySchema.safeParse(input.query).success) return invalid();
+      if (!('pluginId' in input.query)) return { ok: true, value: { status: 'expired' } };
+      const clientId = clients.get(input.query.pluginId);
+      return { ok: true, value: clientId ? { configured: true, clientId } : { configured: false } };
+    },
+    async setDeveloperToken(input) {
+      const parsed = developerTokenSetSchema.safeParse(input.request);
+      if (!parsed.success) return invalid();
+      developerConfigured = parsed.data.token !== null;
+      return { ok: true, value: { configured: developerConfigured } };
+    },
+    async developerTokenStatus(input) { if (!developerTokenQuerySchema.safeParse({ pluginId: input.pluginId }).success) return invalid(); return { ok: true, value: { configured: developerConfigured } }; },
     async list(input) {
       const parsed = addonListRequestSchema.safeParse(input.query);
       if (!parsed.success) return invalid();

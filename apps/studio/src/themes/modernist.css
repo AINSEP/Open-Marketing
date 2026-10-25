@@ -40,6 +40,9 @@
   --jini-nav-active-bg: var(--jini-accent-soft); --jini-nav-active-text: var(--jini-accent-strong);
   --jini-nav-active-shadow: none; --jini-nav-active-indicator: var(--jini-accent-strong);
   --jini-tab-bg: var(--jini-surface); --jini-tab-active-bg: var(--jini-panel-bg);
+  --jini-tab-active-text: var(--jini-panel-text);
+  --jini-metric-text: var(--jini-panel-text); --jini-metric-muted: var(--jini-panel-muted);
+  --jini-fg-2: var(--jini-text-secondary);
   --jini-tab-radius: var(--jini-radius-sm);
   --jini-space-gutter: 44px; --jini-space-panel: 24px;
   --jini-tracking-heading: -.01em; --jini-tracking-eyebrow: .08em;
@@ -88,6 +91,9 @@
   --jini-nav-active-bg: var(--jini-accent-soft); --jini-nav-active-text: var(--jini-accent-strong);
   --jini-nav-active-shadow: none; --jini-nav-active-indicator: var(--jini-accent-strong);
   --jini-tab-bg: var(--jini-surface); --jini-tab-active-bg: var(--jini-panel-bg);
+  --jini-tab-active-text: var(--jini-panel-text);
+  --jini-metric-text: var(--jini-panel-text); --jini-metric-muted: var(--jini-panel-muted);
+  --jini-fg-2: var(--jini-text-secondary);
   --jini-tab-radius: var(--jini-radius-sm);
   --jini-space-gutter: 44px; --jini-space-panel: 24px;
   --jini-tracking-heading: -.01em; --jini-tracking-eyebrow: .08em;

@@ -245,3 +245,16 @@ it('applies server cancellation frames immediately without another approval requ
     expect(f.session.currentRun()).toBeNull(); expect(f.session.getSnapshot().cards).toEqual([]); expect(f.session.getSnapshot().status).toBe('cancelled');
     expect(cancel).not.toHaveBeenCalled(); f.session.dispose();
 });
+
+it('excludes private OAuth configuration from page discovery and refuses describing or filling it', async () => {
+    const f = pageFixture();
+    const panel = document.createElement('form'); panel.setAttribute('data-agent-private', 'true');
+    panel.innerHTML = '<label>Private client configuration<input data-agent-element="oauth-client" data-agent-role="field" value="private-client-fixture"></label><input data-agent-element="oauth-secret" data-agent-role="field" type="password" value="private-secret-fixture">';
+    f.root.append(panel);
+    const elements = await f.driver.findElements({});
+    expect(JSON.stringify(elements)).not.toContain('private-client-fixture');
+    expect(JSON.stringify(elements)).not.toContain('private-secret-fixture');
+    await expect(f.driver.describeField({ handle: 'oauth-client' })).rejects.toThrow('unavailable');
+    await expect(f.driver.fill({ handle: 'oauth-secret', text: 'replacement' })).rejects.toThrow();
+    f.cleanup();
+});
