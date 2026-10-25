@@ -19,7 +19,7 @@ const result = await adapter.invoke({
 }, { signal });
 ```
 
-`configuration` is a server-resolved scope, connection/account binding, currency, `apiVersion: "202609"`, installed plugin digest and stop binding ID. Tokens are requested at call time through `credentials.access({connectionId, accountId})`, returning `{accessToken, expiresAt?}`. The server checks scopes/roles, resolves refresh and keeps secrets out of the agent. Expiry is epoch milliseconds when supplied.
+`configuration` is a server-resolved scope, connection/account binding, currency, `apiVersion: "202610"`, installed plugin digest and stop binding ID. Tokens are requested at call time through `credentials.access({connectionId, accountId})`, returning `{accessToken, expiresAt?}`. The server checks scopes/roles, resolves refresh and keeps secrets out of the agent. Expiry is epoch milliseconds when supplied.
 
 `gateway.dispatch` is the existing server policy/outbox handoff with `context`, `configuration`, `operation`, the exact serialized `request`, canonical `EffectEnvelope`, optional typed stop permit and `execute`. Resolve credentials first, then recheck current admission, connection, account/parent ownership, mode, halt and approvals at this gateway. Hold the server fence through `execute`, with no await gap after the final check. Every activation and budget call requires its own exact spend card. The server supplies `moneyExposure` and `requiredLimit` from the reviewed request; the plugin adds no evidence gate. Currency amounts are decimal strings with no invented minor-unit conversion or guaranteed hard-cap claim.
 
@@ -68,7 +68,9 @@ Payload mapping is one event: `conversion`, `conversionHappenedAt` (unchanged mi
 
 ## Vendor evidence
 
-Official documentation inspected **2026-10-13**, Marketing API view **li-lms-2026-09**, request header **LinkedIn-Version: 202609** and **X-Restli-Protocol-Version: 2.0.0**. September 2026 is the listed latest version; October is not guessed. [Versioning](https://learn.microsoft.com/en-us/linkedin/marketing/versioning?view=li-lms-2026-09)
+Current request header and report provenance: **LinkedIn-Version: 202610**; **X-Restli-Protocol-Version: 2.0.0**. Migration checked **2026-10-24** against [October changes](https://learn.microsoft.com/en-us/linkedin/marketing/integrations/recent-changes?view=li-lms-2026-10) and [creative schemas](https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads/account-structure/create-and-manage-creatives?view=li-lms-2026-10). Reads normalize `content.reference`, `content.standardUpdateAd.reference` and `content.videoAd.reference`; missing, malformed or conflicting references reject. Create requests stay unchanged. Deployment still requires matching account/campaign, DRAFT and non-serving evidence. Publisher-list `surface` enforcement starts in 202611; OM does not use publisher lists. No other listed breaking change touches OM's endpoints, fields or enums.
+
+Stored 202609 conversion configurations must be explicitly refreshed; they remain denied until then. The tables below preserve endpoint documentation checked **2026-10-13**, view **li-lms-2026-09**; their dates are not refreshed by this migration.
 
 | Tools | REST endpoint | Fields/scopes source |
 |---|---|---|
@@ -78,7 +80,7 @@ Official documentation inspected **2026-10-13**, Marketing API view **li-lms-202
 | list_creatives, create_creative_paused, activate(creative) | GET/POST /adAccounts/{account}/creatives; patch /{encodedCreativeUrn} | [Creatives](https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads/account-structure/create-and-manage-creatives?view=li-lms-2026-09): campaign, content.reference, intendedStatus, criteria, serving state; r_ads/rw_ads |
 | search_targeting | GET /adTargetingEntities?q=typeahead | [Targeting](https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads/advertising-targeting/ads-targeting?view=li-lms-2026-09): facet/query/queryVersion, entity URN/name |
 
-R2 uses the same **202609** headers; these official pages were also checked **2026-10-13**:
+Reporting, conversion and lead-form calls now use **202610** headers. Their original endpoint evidence was checked **2026-10-13**:
 
 | Operation | REST endpoint | Fields/scopes source |
 |---|---|---|

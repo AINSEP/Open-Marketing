@@ -73,8 +73,8 @@ async function sendRequest(required: { binding: AccountBinding; http: HttpPort; 
 }
 function endpoint(required: { binding: AccountBinding; method: Exclude<VendorRequest["method"], "request_status"> }): string {
   switch (required.method) {
-    case "search": return `https://googleads.googleapis.com/v25/customers/${required.binding.customerId}/googleAds:search`;
-    case "mutate": return `https://googleads.googleapis.com/v25/customers/${required.binding.customerId}/googleAds:mutate`;
+    case "search": return `https://googleads.googleapis.com/v26/customers/${required.binding.customerId}/googleAds:search`;
+    case "mutate": return `https://googleads.googleapis.com/v26/customers/${required.binding.customerId}/googleAds:mutate`;
     case "ingest": return "https://datamanager.googleapis.com/v1/events:ingest";
     default: { const exhaustive: never = required.method; return exhaustive; }
   }
@@ -91,7 +91,7 @@ export function createHttpAdapter(required: { fetch: typeof fetch; observer: Obs
 }
 /** Method-specific allowlist; fixed diagnostics path with one bounded receipt ID. */
 function permittedDestination(required: { url: string; method: "POST" | "GET" }): boolean {
-  if (required.method === "POST") return /^https:\/\/googleads\.googleapis\.com\/v25\/customers\/[0-9]{10}\/googleAds:(search|mutate)$/.test(required.url) || required.url === "https://datamanager.googleapis.com/v1/events:ingest";
+  if (required.method === "POST") return /^https:\/\/googleads\.googleapis\.com\/v26\/customers\/[0-9]{10}\/googleAds:(search|mutate)$/.test(required.url) || required.url === "https://datamanager.googleapis.com/v1/events:ingest";
   if (!required.url.startsWith("https://datamanager.googleapis.com/v1/requestStatus:retrieve?")) return false;
   const url = new URL(required.url);
   if (url.hash || url.searchParams.size !== 1 || !url.searchParams.has("requestId")) return false;

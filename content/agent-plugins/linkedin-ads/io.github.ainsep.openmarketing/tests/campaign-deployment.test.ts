@@ -7,7 +7,7 @@ const plan = { group: draft, campaign: { ...child, kind: "create_campaign_draft"
 function fixture(options: { failPost?: number; badAck?: boolean; checkpointFail?: number; change?: Record<string, unknown>; readFailure?: boolean; readId?: string } = {}) {
   const f = baseFixture(); const rows = new Map<string, object>(); const calls: { url: string; init?: RequestInit }[] = []; const checkpoints: object[] = []; const intents = new Set<string>(); let posts = 0;
   const input: Parameters<typeof deployCampaignPaused>[0] = { context, operationId: "launch", plan, dependencies: { ...f.dependencies, admitted: true, fetch: async (url, init) => {
-    calls.push({ url: String(url), init }); const headers = new Headers(init?.headers); expect(headers.get("LinkedIn-Version")).toBe("202609"); expect(headers.get("X-Restli-Protocol-Version")).toBe("2.0.0");
+    calls.push({ url: String(url), init }); const headers = new Headers(init?.headers); expect(headers.get("LinkedIn-Version")).toBe("202610"); expect(headers.get("X-Restli-Protocol-Version")).toBe("2.0.0");
     if (init?.method === "GET") { const id = decodeURIComponent(new URL(String(url)).pathname.split("/").at(-1)!); if (options.readFailure && id === (options.readId ?? "567")) throw new Error("read unavailable"); return Response.json({ ...rows.get(id), ...(id === (options.readId ?? "567") ? options.change : {}) }); }
     posts++; if (posts === options.failPost) throw new Error("ambiguous write"); const id = ["456", "567", "urn:li:sponsoredCreative:678"][posts - 1];
     const body = JSON.parse(String(init?.body)); rows.set(id, { ...body, id, account: "urn:li:sponsoredAccount:123", isServing: false });
@@ -54,6 +54,34 @@ it("unadmitted, cancelled, foreign scope and invalid full plans do no credential
 });
 it.each([{ content: { reference: "urn:li:share:999" } }, { isServing: true }, { intendedStatus: "ACTIVE" }])("requires non-serving creative/reference evidence: %j", async change => {
   const f = fixture({ readId: "urn:li:sponsoredCreative:678", change }); expect(await deployCampaignPaused(f.input)).toMatchObject({ value: { status: "unknown", entityIds: ["456", "567", "urn:li:sponsoredCreative:678"] } });
+});
+it.each([
+  { reference: "urn:li:share:987", ignored: "stripped" },
+  { standardUpdateAd: { reference: "urn:li:share:987", contentAuthor: "urn:li:organization:789" } },
+  { videoAd: { reference: "urn:li:share:987", preRollMetadata: { ignored: true } } },
+])("accepts normalized content in deployment and GET-only reconciliation: %j", async content => {
+  const f = fixture({ readId: "urn:li:sponsoredCreative:678", change: { content } });
+  const references = { group: "456", campaign: "567", creative: "urn:li:sponsoredCreative:678" };
+  expect(await deployCampaignPaused(f.input)).toMatchObject({ ok: true, value: { status: "acknowledged", references, hierarchy: [expect.anything(), expect.anything(), { content: { reference: "urn:li:share:987" } }] } });
+  const start = f.calls.length;
+  expect(await readCampaignDeployment({ ...f.input, references })).toMatchObject({ ok: true, value: { status: "acknowledged" } });
+  expect(f.calls.slice(start).map(call => call.init?.method)).toEqual(["GET", "GET", "GET"]);
+  expect(f.posts()).toBe(3);
+  const creativeBody = JSON.parse(String(f.calls.filter(call => call.init?.method === "POST")[2].init?.body));
+  expect(creativeBody).toEqual({ campaign: "urn:li:sponsoredCampaign:567", content: { reference: "urn:li:share:987" }, intendedStatus: "DRAFT" });
+});
+it.each([
+  { content: undefined }, { content: null }, { content: {} }, { content: { videoAd: {} } },
+  { content: { reference: "urn:li:share:987", videoAd: { reference: "urn:li:share:999" } } },
+  { content: { standardUpdateAd: { reference: "urn:li:share:999" } } },
+  { content: { videoAd: { reference: "urn:li:share:987" } }, account: "urn:li:sponsoredAccount:999" },
+  { content: { videoAd: { reference: "urn:li:share:987" } }, campaign: "urn:li:sponsoredCampaign:999" },
+  { content: { videoAd: { reference: "urn:li:share:987" } }, intendedStatus: "ACTIVE" },
+  { content: { videoAd: { reference: "urn:li:share:987" } }, isServing: true },
+])("keeps malformed, conflicting or foreign enriched readback unknown without retries: %j", async change => {
+  const f = fixture({ readId: "urn:li:sponsoredCreative:678", change });
+  expect(await deployCampaignPaused(f.input)).toMatchObject({ ok: true, value: { status: "unknown", entityIds: ["456", "567", "urn:li:sponsoredCreative:678"] } });
+  expect(f.posts()).toBe(3);
 });
 it("admission change at the checkpoint stops before credentials", async () => {
   const f = fixture(); f.input.checkpoint = async () => { f.input.dependencies.admitted = false; return { ok: true, value: undefined }; };

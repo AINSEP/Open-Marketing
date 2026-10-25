@@ -3,7 +3,7 @@ import { isDeepStrictEqual } from "node:util";
 import { callContextSchema, idSchema } from "@open-marketing/contracts";
 import type { CallContext, CallOptions, Outcome } from "@open-marketing/contracts";
 import { commandSchema, draftCampaignCommandSchema, draftCreativeCommandSchema, encodeLinkedInCommand, linkedInDigest, vendorIdSchema } from "./commands.js";
-import { boundInput, configurationSchema, failure, requestLinkedIn, resolveCredential } from "./transport.js";
+import { boundInput, configurationSchema, decodeLinkedInCreativeContent, failure, requestLinkedIn, resolveCredential } from "./transport.js";
 import type { LinkedInDependencies, LinkedInWireRequest } from "./ports.js";
 
 /** One finite DRAFT sequence; only the two approved parent slots may be substituted. */
@@ -87,12 +87,18 @@ async function readStep(required: { input: Checked; step: "group" | "campaign" |
   if (!row.success || !rowMatches({ row: row.data, id, accountId: input.configuration.accountId, expected })) return failure({ code: "protocol_mismatch" });
   return { ok: true, value: { ...expected, id, account: row.data.account } };
 }
-/** Exact configuration comparison strips unconsumed fields; creative must be observed non-serving. O(b). */
+/** Compare normalized creative content and exact remaining configuration; require non-serving. O(b). */
 function rowMatches(required: { row: Record<string, unknown>; id: string; accountId: string; expected: Record<string, unknown> }): boolean {
   const { row, id, accountId, expected } = required;
   if (String(row.id) !== id || row.account !== `urn:li:sponsoredAccount:${accountId}`) return false;
-  if (expected.intendedStatus !== undefined && row.isServing !== false) return false;
-  return Object.entries(expected).every(([key, value]) => isDeepStrictEqual(row[key], value));
+  let observed = row;
+  if (expected.intendedStatus !== undefined) {
+    if (row.isServing !== false) return false;
+    const content = decodeLinkedInCreativeContent({ input: row.content });
+    if (!content.ok) return false;
+    observed = { ...row, content: content.value };
+  }
+  return Object.entries(expected).every(([key, value]) => isDeepStrictEqual(observed[key], value));
 }
 
 /** Complete bounded plan/configuration/currency checks precede any credentials or checkpoint. O(b). */

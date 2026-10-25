@@ -22,4 +22,4 @@ Pass each tool's literal `kind` in its command arguments. Server composition sup
 
 Conversion events are delivered only by typed server measurement jobs under current consent/grants. There is no deliver/reconcile agent tool. Contacts alone supplies the unchanged lowercase SHA-256 email digest; never obtain raw identifiers in chat or hash them here. An unknown delivery must not be blindly retried. There is no lead-response download, media upload, destructive tool, generic HTTP or organic publishing in this plugin.
 
-Official source links, API version 202609, checked date 2026-10-13 and field/scope evidence live in ../../README.md and the OM namespace's evidence/primary-sources.json. Fixtures are synthetic and do not establish live vendor eligibility.
+API version 202610 and enriched creative reads were checked 2026-10-24; earlier endpoint evidence retains 2026-10-13 dates. Official links and field/scope evidence live in ../../README.md and the OM namespace's evidence/primary-sources.json. Fixtures are synthetic and do not establish live vendor eligibility.

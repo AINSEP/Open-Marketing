@@ -24,7 +24,7 @@
           "capabilityId": "campaign.create-draft.v1",
           "version": 1,
           "pluginId": "linkedin-ads",
-          "schemaFingerprint": "c3597c94e001d0d15a43a0702f9e90261c05024cd9da76eb641401a6cbc2d187",
+          "schemaFingerprint": "cb1e0cd6d5ee87d86396db82e8456d306f1b3632e77324bcf4f4a9047a5ffc5b",
           "admitted": false,
           "effects": [
             "write"
@@ -64,7 +64,7 @@
           "capabilityId": "campaign.stop-only.v1",
           "version": 1,
           "pluginId": "linkedin-ads",
-          "schemaFingerprint": "5be1aa0d7352d9e21d283d3588c9c30f1694ccba17a18670ffb833e29b751943",
+          "schemaFingerprint": "c626a713f40fb85dc3a6661495f4f536c65ff050a558fe00da4d758c8ef79abe",
           "admitted": false,
           "effects": [
             "halt_stop"
@@ -74,7 +74,7 @@
           "capabilityId": "report.account-spend.v1",
           "version": 1,
           "pluginId": "linkedin-ads",
-          "schemaFingerprint": "eed1f9c0cc96ddfe1a7ee12993dcf63fa75fd215afab27b5f82e115d7a1823fc",
+          "schemaFingerprint": "06c6101156c2a7d862a0c7032176a5daae546aef4c3693fd106a4fe6068402ac",
           "admitted": false,
           "effects": [
             "read"

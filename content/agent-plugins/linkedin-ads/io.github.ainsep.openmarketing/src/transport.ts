@@ -7,13 +7,34 @@ import type { LinkedInAdsAdapter, LinkedInConfiguration, LinkedInDependencies, L
 import { decodeLinkedInReport } from "./reporting.js";
 
 /** Internal binding parser shared by interactive calls and the backend conversion consumer. */
-export const configurationSchema = z.strictObject({ scope: scopeSchema, connectionId: idSchema, accountId: vendorIdSchema, currency: z.string().regex(/^[A-Z]{3}$/), apiVersion: z.literal("202609"), pluginDigest: digestSchema, bindingId: idSchema });
+export const configurationSchema = z.strictObject({ scope: scopeSchema, connectionId: idSchema, accountId: vendorIdSchema, currency: z.string().regex(/^[A-Z]{3}$/), apiVersion: z.literal("202610"), pluginDigest: digestSchema, bindingId: idSchema });
 const credentialSchema = z.strictObject({ accessToken: z.string().min(1).max(4096).regex(/^[\x21-\x7e]+$/), expiresAt: epochSchema.optional() });
 const permitSchema = z.strictObject({ kind: z.literal("halt-stop"), request: haltStopRequestSchema, expiresAt: epochSchema });
 const stopSchema = z.strictObject({ context: callContextSchema, request: haltStopRequestSchema, permit: permitSchema });
 const providerId = z.union([vendorIdSchema, z.number().int().positive().max(Number.MAX_SAFE_INTEGER).transform(String)]);
 const state = z.enum(["ACTIVE", "PAUSED", "DRAFT", "ARCHIVED", "CANCELED", "CANCELLED", "COMPLETED", "PENDING_DELETION", "REMOVED"]);
 const urn = z.string().regex(/^urn:li:[A-Za-z][A-Za-z0-9]*:[A-Za-z0-9_-]{1,128}$/);
+const creativeContentInput = z.object({ reference: urn.optional(), standardUpdateAd: z.object({ reference: urn }).optional(), videoAd: z.object({ reference: urn }).optional() });
+/** Internal read projection for legacy and 202610 enriched content; no I/O or input mutation.
+ * @param required - Tainted content object from a bounded creative response.
+ * @returns One reference, or protocol_mismatch for missing, malformed or conflicting references.
+ * @complexity O(b) validation, b<=1MiB; compares at most three references.
+ */
+export function decodeLinkedInCreativeContent(required: { input: unknown }): Outcome<{ reference: string }> {
+  const parsed = creativeContentInput.safeParse(required.input);
+  if (!parsed.success) return failure({ code: "protocol_mismatch" });
+  const content = parsed.data;
+  const references = [content.reference, content.standardUpdateAd?.reference, content.videoAd?.reference].filter(reference => reference !== undefined);
+  if (references.length === 0 || new Set(references).size !== 1) return failure({ code: "protocol_mismatch" });
+  return { ok: true, value: { reference: references[0]! } };
+}
+// The same decoder serves entity pages and deployment readback; provider additions stay private.
+const creativeContent = z.unknown().transform((input, context) => {
+  const decoded = decodeLinkedInCreativeContent({ input });
+  if (decoded.ok) return decoded.value;
+  context.addIssue({ code: "custom", message: "Invalid creative content reference" });
+  return z.NEVER;
+});
 const accountUrn = z.string().regex(/^urn:li:sponsoredAccount:[1-9][0-9]{0,18}$/);
 const campaignUrn = z.string().regex(/^urn:li:sponsoredCampaign:[1-9][0-9]{0,18}$/);
 const groupUrn = z.string().regex(/^urn:li:sponsoredCampaignGroup:[1-9][0-9]{0,18}$/);
@@ -25,7 +46,7 @@ const text = z.string().max(1024);
 const accountItem = z.object({ id: providerId, name: text, status: state, currency: z.string().regex(/^[A-Z]{3}$/), test: z.boolean().optional() });
 const groupItem = z.object({ id: providerId, account: accountUrn, name: text, status: state, totalBudget: budget.optional(), runSchedule: runSchedule.optional(), servingStatuses: z.array(text).max(32).optional() });
 const campaignItem = z.object({ id: providerId, account: accountUrn, campaignGroup: groupUrn, name: text, status: state, dailyBudget: budget.optional(), runSchedule: runSchedule.optional(), servingStatuses: z.array(text).max(32).optional() });
-const creativeItem = z.object({ id: creativeUrn, account: accountUrn, campaign: campaignUrn, intendedStatus: state, isServing: z.boolean(), servingHoldReasons: z.array(text).max(32).optional(), content: z.object({ reference: urn }).optional() });
+const creativeItem = z.object({ id: creativeUrn, account: accountUrn, campaign: campaignUrn, intendedStatus: state, isServing: z.boolean(), servingHoldReasons: z.array(text).max(32).optional(), content: creativeContent });
 const targetingItem = z.object({ urn, facetUrn: z.string().regex(/^urn:li:adTargetingFacet:[A-Za-z]+$/), name: text });
 const pagination = z.object({ nextPageToken: z.string().min(1).max(2048).regex(/^[^\x00-\x1f\x7f]+$/).nullable().optional() });
 const conversionItem = z.object({ id: providerId, account: accountUrn, name: text, type: text, conversionMethod: text, enabled: z.boolean(), ownershipType: z.enum(["OWNED", "SHARED"]).optional() });
@@ -185,7 +206,7 @@ async function sendRequest(required: { dependencies: LinkedInDependencies; prepa
  * vendor-owned; callers check current authority immediately before entering this synchronous preflight.
  * @complexity O(b) time/space, b<=1MiB; one request, no redirect or retry.
  */
-export async function requestLinkedIn(required: { fetch: typeof fetch; request: LinkedInWireRequest; credential: Credential; apiVersion: "202609" }, optional?: CallOptions): Promise<Outcome<{ response: Response; body: unknown }>> {
+export async function requestLinkedIn(required: { fetch: typeof fetch; request: LinkedInWireRequest; credential: Credential; apiVersion: "202610" }, optional?: CallOptions): Promise<Outcome<{ response: Response; body: unknown }>> {
   if (optional?.signal?.aborted) return failure({ code: "cancelled" });
   if (Buffer.byteLength(required.request.body ?? "") > 65536) return failure({ code: "limit_exceeded" });
   const deadline = AbortSignal.timeout(15000);

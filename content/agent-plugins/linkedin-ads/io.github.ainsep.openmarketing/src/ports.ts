@@ -4,13 +4,13 @@ import type { LinkedInWireRequest } from "./wire.js";
 
 export type { LinkedInWireRequest } from "./wire.js";
 
-/** Server-owned binding; never part of assistant tool arguments. Version 202609 is verified. */
+/** Server-owned binding; never part of assistant tool arguments. Version 202610 is verified. */
 export interface LinkedInConfiguration {
   readonly scope: Scope;
   readonly connectionId: string;
   readonly accountId: string;
   readonly currency: string;
-  readonly apiVersion: "202609";
+  readonly apiVersion: "202610";
   readonly pluginDigest: string;
   readonly bindingId: string;
 }

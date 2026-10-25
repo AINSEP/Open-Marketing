@@ -46,7 +46,7 @@ async function fixture(required: { pluginId?: 'linkedin-ads' | 'tiktok-ads'; onF
         },
         async wait() { return { ok: true, value: undefined }; },
         async state({ pluginId }) { return pluginId === selectedPlugin ? { enabled: true, admitted, bundled: true, revision: 'a'.repeat(64), metadata: { currency: 'USD', conversionConfiguration: {
-            scope: context.scope, connectionId: 'connection', accountId: '123', currency: 'USD', apiVersion: '202609', bindingId: 'linkedin-ads.stop.v1',
+            scope: context.scope, connectionId: 'connection', accountId: '123', currency: 'USD', apiVersion: '202610', bindingId: 'linkedin-ads.stop.v1',
             destination: 'linkedin', purpose: 'measurement', payloadSchema: 'om.conversion', mode: 'production-server',
             conversionRules: { purchase: 'urn:lla:llaPartnerConversion:456' },
         } } } : null; },

@@ -2,7 +2,7 @@
 
 Checked against primary sources on **2026-10-12**. These documents establish provider semantics; they do not establish OM's account access or runtime readiness.
 
-- Google [sunset developer tokens on September 9, 2026](https://developers.google.com/google-ads/api/docs/get-started/dev-token). API access follows the Cloud project owning the OAuth client/service account. This plugin uses v25 bearer OAuth and omits `developer-token`. The server supplies a manager `login-customer-id` only when appropriate. [Authentication headers](https://developers.google.com/google-ads/api/rest/auth), [OAuth](https://developers.google.com/google-ads/api/docs/oauth/overview), [version schedule](https://developers.google.com/google-ads/api/docs/sunset-dates).
+- Google [sunset developer tokens on September 9, 2026](https://developers.google.com/google-ads/api/docs/get-started/dev-token). API access follows the Cloud project owning the OAuth client/service account. This plugin uses v26 bearer OAuth and omits `developer-token`. The server supplies a manager `login-customer-id` only when appropriate. [Authentication headers](https://developers.google.com/google-ads/api/rest/auth), [OAuth](https://developers.google.com/google-ads/api/docs/oauth/overview), [version schedule](https://developers.google.com/google-ads/api/docs/sunset-dates).
 - The June 15 restriction on [`UploadClickConversions`](https://developers.google.com/google-ads/api/docs/deprecations) survives token sunset. New integrations must use Data Manager API. OM eligibility is unverified, so the default capability is unavailable. The typed Data Manager v1 path is implemented; legacy UploadClickConversions delivery and hashing helpers were removed. Production eligibility remains unverified. [Offline conversion guide](https://developers.google.com/google-ads/api/docs/conversions/upload-offline).
 - Manual Search language criteria were removed on September 30. The narrow plan has no language field/criterion. [Current deprecations](https://developers.google.com/google-ads/api/docs/deprecations).
 - Google [test accounts](https://developers.google.com/google-ads/api/docs/best-practices/test-accounts) do not serve ads or have active billing. They cannot verify billing or conversion uploads. A paused production account is not a test account. No real OM test-account evidence was supplied or obtained; all fixture account IDs are invented.
@@ -12,11 +12,24 @@ Checked against primary sources on **2026-10-12**. These documents establish pro
 - Data Manager [consent](https://developers.google.com/data-manager/api/reference/rest/v1/Consent) accepts both ad user data and ad personalization. OM GRANTED/DENIED map to CONSENT_GRANTED/CONSENT_DENIED. [Offline mapping](https://developers.google.com/data-manager/api/devguides/events/google-ads/offline/send-events) uses the action owner's operating account and an UPLOAD_CLICKS action; optional manager login is in `destination.loginAccount`, not a Google Ads header. Digests copy unchanged to [UserData](https://developers.google.com/data-manager/api/reference/rest/v1/UserData) emailAddress/phoneNumber fields with encoding HEX. Contacts alone owns normalization/hashing. Stable transactionId is the supplied eventId; journal identity also binds OM definition, account scope and connection.
 - [Agent Plugins v1.1.0](https://github.com/agentplugins/agent-plugins-spec/blob/main/spec/1.1.0.md) closes MCP entries to transport fields. OM metadata is under `plugin.json.extensions["io.github.ainsep.openmarketing"]`; declaration envelopes are in the namespace's `bindings/` directory.
 
+## v26 migration — checked 2026-10-24
+
+Search and mutate now use `/v26`; the destination validator rejects `/v25`. Data Manager stays on `/v1`. The [official v26 release notes](https://developers.google.com/google-ads/api/docs/release-notes#v26) list these breaking changes:
+
+| Change | OM impact |
+| --- | --- |
+| Local Services PMax requires `country_code` and `listing_id` | None: OM creates Search campaigns. |
+| Enhanced Conversions setting replaced by `enablement_setting` | None: OM does not read that setting. |
+| Hotel bid-modifier fields renamed; `HotelDateSelectionType` becomes `DateSelectionType` | None: OM uses no hotel targeting. |
+| Hotel criterion error reasons renamed | None: OM does not interpret those reasons. |
+
+No consumed request field or enum needs changing. Existing schema-byte fingerprints remain valid. Earlier endpoint evidence dates below remain historical; fixtures do not prove live acceptance.
+
 ## Host integration
 
 The plugin is disabled/unadmitted. The portable MCP entry uses Node **24.2.0** and the packaged `io.github.ainsep.openmarketing/bin/mcp-server.mjs`, which loads TypeScript using Node's built-in type stripping. No transpilation, npm install, network schema retrieval, or `npx` is required to launch. Its default vendor/authority ports return unavailable. `--fixture` selects handwritten local responses, never a vendor endpoint.
 
-The authenticated OM server loads the namespace public `src/index.ts` only after package trust/admission. Inject `AccountBinding`, `ClockPort`, `CredentialPort`, bounded `HttpPort`, and `HostAuthorityPort`. `createGoogleRestTransport` contains the fixed v25 endpoint mapping; `createHttpAdapter` bounds response bytes and deadlines and emits correlated observations. Do not expose these factories, credential ports or fixture authority to the agent runtime.
+The authenticated OM server loads the namespace public `src/index.ts` only after package trust/admission. Inject `AccountBinding`, `ClockPort`, `CredentialPort`, bounded `HttpPort`, and `HostAuthorityPort`. `createGoogleRestTransport` contains the fixed v26 endpoint mapping; `createHttpAdapter` bounds response bytes and deadlines and emits correlated observations. Do not expose these factories, credential ports or fixture authority to the agent runtime.
 
 `HostAuthorityPort.dispatch` must recheck installed plugin/schema pins, current account/connection/credentials, current exact approval, required audit and halt under account dispatch serialization. Hold that serialization through the supplied callback. Reads are fixed GAQL; no public query/HTTP/mutation payload exists. `preview` returns the effect for the exact call and current controlled plan, with independently obtained billing evidence. There is no budget envelope or automatic spend permission.
 

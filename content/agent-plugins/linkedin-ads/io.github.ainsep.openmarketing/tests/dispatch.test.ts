@@ -118,7 +118,7 @@ describe("fenced LinkedIn transport", () => {
       const f = fixture();
       await f.adapter.invoke(invocation());
       expect(f.calls[0].init.redirect).toBe("error");
-      expect(f.calls[0].init.headers).toEqual({ Authorization: "Bearer synthetic-secret", "LinkedIn-Version": "202609", "X-Restli-Protocol-Version": "2.0.0", "X-RestLi-Method": "CREATE", "Content-Type": "application/json" });
+      expect(f.calls[0].init.headers).toEqual({ Authorization: "Bearer synthetic-secret", "LinkedIn-Version": "202610", "X-Restli-Protocol-Version": "2.0.0", "X-RestLi-Method": "CREATE", "Content-Type": "application/json" });
       expect(f.calls[0].init.signal?.aborted).toBe(false);
       expect(timeout).toHaveBeenCalledExactlyOnceWith(15000);
       expect(f.calls[0].init.signal).toBeInstanceOf(AbortSignal);
@@ -147,11 +147,11 @@ describe("fenced LinkedIn transport", () => {
   });
   it("validates configuration and cyclic inputs before any I/O", async () => {
     const f = fixture();
-    const adapter = createLinkedInAdsAdapter({ ...f.dependencies, configuration: { ...configuration, apiVersion: "202610" as "202609" } });
+    const adapter = createLinkedInAdsAdapter({ ...f.dependencies, configuration: { ...configuration, apiVersion: "202609" as "202610" } });
     expect(await adapter.invoke(invocation())).toMatchObject({ ok: false, error: { code: "invalid_input" } });
     const input = invocation(); Object.assign(input, { cycle: input });
     expect(await f.adapter.invoke(input)).toMatchObject({ ok: false, error: { code: "invalid_input" } });
-    expect(f.credentialCalls).toHaveLength(0);
+    expect(f.credentialCalls).toHaveLength(0); expect(f.calls).toHaveLength(0);
   });
   it("checks permit/request equality instead of trusting two independently valid envelopes", async () => {
     const f = fixture();
@@ -175,7 +175,7 @@ describe("fenced LinkedIn transport", () => {
 describe("LinkedIn analytics and conversion setup dispatch", () => {
   it("returns source-labelled decimal spend and UTC exclusive end without leaking provider additions", async () => {
     const f = fixture({ response: () => Response.json({ ...analyticsPage, paging: { links: [{ href: "https://untrusted.example" }] }, secret: "synthetic-secret" }) });
-    expect(await f.adapter.invoke(invocation({ command: reportCommand }))).toEqual({ ok: true, value: { operationId: "operation", status: "succeeded", observedState: "unknown", data: { source: "linkedin_ad_analytics", apiVersion: "202609", accountId: "123", currency: "USD", retrievedAt: now, window: reportCommand.window, availability: "reported", rows: [{ entityUrn: "urn:li:sponsoredAccount:123", window: reportCommand.window, spend: "123456789.123456789", impressions: 123, clicks: 4 }] } } });
+    expect(await f.adapter.invoke(invocation({ command: reportCommand }))).toEqual({ ok: true, value: { operationId: "operation", status: "succeeded", observedState: "unknown", data: { source: "linkedin_ad_analytics", apiVersion: "202610", accountId: "123", currency: "USD", retrievedAt: now, window: reportCommand.window, availability: "reported", rows: [{ entityUrn: "urn:li:sponsoredAccount:123", window: reportCommand.window, spend: "123456789.123456789", impressions: 123, clicks: 4 }] } } });
     expect(f.calls).toHaveLength(1);
     expect(f.effects[0].effects).toEqual(["read"]);
   });
@@ -263,6 +263,26 @@ describe("LinkedIn analytics and conversion setup dispatch", () => {
 });
 
 describe("validated provider readback", () => {
+  it.each([
+    { content: { reference: "urn:li:share:987" }, reference: "urn:li:share:987" },
+    { content: { standardUpdateAd: { reference: "urn:li:share:987", contentAuthor: "urn:li:organization:789" } }, reference: "urn:li:share:987" },
+    { content: { videoAd: { reference: "urn:li:ugcPost:987", contentAuthor: "urn:li:person:789", preRollMetadata: { ignored: true } } }, reference: "urn:li:ugcPost:987" },
+    { content: { reference: "urn:li:share:987", standardUpdateAd: { reference: "urn:li:share:987" }, videoAd: { reference: "urn:li:share:987" } }, reference: "urn:li:share:987" },
+  ])("normalizes legacy and enriched content while stripping provider additions: %j", async ({ content, reference }) => {
+    const f = fixture({ response: () => Response.json({ elements: [{ ...creativePage.elements[0], content }] }) });
+    expect(await f.adapter.invoke(invocation({ command: { kind: "list_creatives" } }))).toEqual({ ok: true, value: { operationId: "operation", status: "succeeded", observedState: "unknown", data: { items: [{ ...creativePage.elements[0], content: { reference } }], nextPageToken: null } } });
+    expect(new Headers(f.calls[0].init.headers).get("LinkedIn-Version")).toBe("202610");
+  });
+  it.each([
+    undefined, null, {}, { reference: "bad" }, { standardUpdateAd: {} }, { videoAd: { reference: 987 } },
+    { reference: "urn:li:share:987", videoAd: null },
+    { reference: "urn:li:share:987", standardUpdateAd: { reference: "urn:li:share:999" } },
+    { standardUpdateAd: { reference: "urn:li:share:987" }, videoAd: { reference: "urn:li:share:999" } },
+  ])("rejects a mixed page atomically when a creative reference is missing, malformed or conflicting: %j", async content => {
+    const f = fixture({ response: () => Response.json({ elements: [creativePage.elements[0], { ...creativePage.elements[0], id: "urn:li:sponsoredCreative:679", content }] }) });
+    expect(await f.adapter.invoke(invocation({ command: { kind: "list_creatives" } }))).toMatchObject({ ok: false, error: { code: "protocol_mismatch" } });
+    expect(f.calls).toHaveLength(1);
+  });
   it.each([
     ["list_campaign_groups", groupPage, "456"], ["list_campaigns", campaignPage, "567"], ["list_creatives", creativePage, "urn:li:sponsoredCreative:678"],
   ])("returns source state through %s without promoting acknowledgement to observed hierarchy", async (kind, page, id) => {

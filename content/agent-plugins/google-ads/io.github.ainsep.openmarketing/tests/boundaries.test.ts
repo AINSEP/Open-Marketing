@@ -57,11 +57,40 @@ test("HTTP rejects oversized output, redirects and non-Google destinations", asy
     assert.equal(init?.redirect, "error");
     return new Response("x".repeat(2000));
   }, observer: { observe(input) { observed.push(input.outcome); } } });
-  const input = { url: "https://googleads.googleapis.com/v25/customers/1234567890/googleAds:search", headers: {}, body: "{}", timeoutMs: 1000, maxBytes: 100, context: fixtureContext, operationId: "http-1" };
+  const input = { url: "https://googleads.googleapis.com/v26/customers/1234567890/googleAds:search", headers: {}, body: "{}", timeoutMs: 1000, maxBytes: 100, context: fixtureContext, operationId: "http-1" };
   const oversized = await http.post(input);
   assert.equal(oversized.ok, false);
   assert.deepEqual(observed, ["limit_exceeded"]);
   assert.equal((await http.post({ ...input, url: "https://example.test" })).ok, false);
+});
+test("REST and HTTP agree on v26 search/mutate and retain Data Manager v1", async () => {
+  const calls: { url: string; method?: string }[] = [];
+  const transport = createGoogleRestTransport({ binding: fixtureBinding,
+    credentials: { async access() { return success({ value: { accessToken: "fixture-token", scopes: ["https://www.googleapis.com/auth/datamanager"], cloudProjectId: "fixture-project" } }); } },
+    http: createHttpAdapter({ fetch: async (url, init) => { calls.push({ url: String(url), method: init?.method }); return Response.json({ results: [] }); }, observer: { observe() {} } }),
+  });
+  const input = { context: fixtureContext, operationId: "v26-routing", body: {} };
+  assert.ok((await transport.request({ ...input, method: "search" })).ok);
+  assert.ok((await transport.request({ ...input, method: "mutate" })).ok);
+  assert.ok((await transport.request({ ...input, method: "ingest", cloudProjectId: "fixture-project" })).ok);
+  assert.ok((await transport.request({ ...input, method: "request_status", cloudProjectId: "fixture-project", body: { requestId: "receipt-1" } })).ok);
+  assert.deepEqual(calls, [
+    { url: "https://googleads.googleapis.com/v26/customers/" + fixtureBinding.customerId + "/googleAds:search", method: "POST" },
+    { url: "https://googleads.googleapis.com/v26/customers/" + fixtureBinding.customerId + "/googleAds:mutate", method: "POST" },
+    { url: "https://datamanager.googleapis.com/v1/events:ingest", method: "POST" },
+    { url: "https://datamanager.googleapis.com/v1/requestStatus:retrieve?requestId=receipt-1", method: "GET" },
+  ]);
+});
+test("HTTP rejects obsolete Ads versions and wrong methods before network access", async () => {
+  let calls = 0;
+  const http = createHttpAdapter({ fetch: async () => { calls++; return Response.json({}); }, observer: { observe() {} } });
+  const input = { headers: {}, timeoutMs: 1000, maxBytes: 1024, context: fixtureContext, operationId: "version-denied" };
+  for (const method of ["search", "mutate"]) {
+    const url = "https://googleads.googleapis.com/v25/customers/1234567890/googleAds:" + method;
+    assert.deepEqual(await http.post({ ...input, url, body: "{}" }), { ok: false, error: { code: "forbidden", message: "HTTP destination is outside Google plugin scope", retryable: false } });
+  }
+  assert.equal((await http.get!({ ...input, url: "https://googleads.googleapis.com/v26/customers/1234567890/googleAds:search" })).ok, false);
+  assert.equal(calls, 0);
 });
 test("stdio initialization, malformed JSON and frame bounds are explicit", async () => {
   const session = createMcpSession({ plugin: createGooglePlugin(createFixtureDependencies({})), context: fixtureContext });

@@ -54,9 +54,14 @@ describe("LinkedIn portable package", () => {
     expect(readFileSync(new URL("skills/linkedin-ads/SKILL.md", root), "utf8")).toContain("name: linkedin-ads");
   });
   it("records dated official endpoint, field and scope evidence without pretending fixtures establish vendor access", () => {
-    const evidence = z.object({ checkedAt: z.literal("2026-10-13"), sources: z.array(z.object({ id: z.string(), status: z.literal("verified-documentation"), url: z.url(), apiVersion: z.string(), checkedAt: z.literal("2026-10-13") })), unverified: z.array(z.object({ fact: z.string(), behavior: z.string() })), omBounds: z.strictObject({ requestBytes: z.literal(65536), responseBytes: z.literal(1048576), timeoutMs: z.literal(15000), maxPageSize: z.literal(100), maxIds: z.literal(100), retries: z.literal(0) }) }).parse(readJson({ path: "io.github.ainsep.openmarketing/evidence/primary-sources.json" }));
+    const evidence = z.object({ checkedAt: z.literal("2026-10-13"), sources: z.array(z.object({ id: z.string(), status: z.literal("verified-documentation"), url: z.url(), apiVersion: z.string(), checkedAt: z.enum(["2026-10-13", "2026-10-24"]) })), unverified: z.array(z.object({ fact: z.string(), behavior: z.string() })), omBounds: z.strictObject({ requestBytes: z.literal(65536), responseBytes: z.literal(1048576), timeoutMs: z.literal(15000), maxPageSize: z.literal(100), maxIds: z.literal(100), retries: z.literal(0) }) }).parse(readJson({ path: "io.github.ainsep.openmarketing/evidence/primary-sources.json" }));
     expect(evidence.sources.every(source => new URL(source.url).hostname === "learn.microsoft.com")).toBe(true);
     expect(evidence.sources.map(source => source.id)).toEqual(expect.arrayContaining(["accounts", "groups", "campaigns", "creatives", "targeting", "version", "oauth", "refresh", "analytics", "analytics-schema", "conversions", "conversions-schema", "lead-forms", "lead-forms-schema"]));
     expect(evidence.unverified).toHaveLength(3);
+    for (const source of evidence.sources) {
+      const migration = ["version-202610", "creative-content-202610"].includes(source.id);
+      expect(source.checkedAt).toBe(migration ? "2026-10-24" : "2026-10-13");
+    }
+    expect(evidence.sources.filter(source => source.apiVersion === "202610").map(source => source.id)).toEqual(["version-202610", "creative-content-202610"]);
   });
 });

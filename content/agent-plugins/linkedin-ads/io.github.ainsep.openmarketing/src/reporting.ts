@@ -24,7 +24,7 @@ const responseSchema = z.object({ elements: z.array(row).max(100) });
 /** Source-labelled provider aggregates. Spend stays a decimal; no rounding or inferred zero total. */
 export interface LinkedInReport {
   readonly source: "linkedin_ad_analytics";
-  readonly apiVersion: "202609";
+  readonly apiVersion: "202610";
   readonly accountId: string;
   readonly currency: string;
   readonly retrievedAt: number;
@@ -52,10 +52,10 @@ function epoch(required: { date: z.infer<typeof date> }): number { return Date.U
 
 /** Validate the entire page before returning any row. Foreign/duplicate pivots, unsafe numbers,
  * impossible dates and expanded monthly windows reject. Empty means no data/access unconfirmed.
- * @example decodeLinkedInReport({ input: { elements: [] }, command, accountId: "123", currency: "USD", retrievedAt, apiVersion: "202609" })
+ * @example decodeLinkedInReport({ input: { elements: [] }, command, accountId: "123", currency: "USD", retrievedAt, apiVersion: "202610" })
  * @complexity O(n*m) time/O(n) space, n,m<=100; no summation, FX or I/O.
  */
-export function decodeLinkedInReport(required: { input: unknown; command: ReportCommand; accountId: string; currency: string; apiVersion: "202609"; retrievedAt: number }): Outcome<LinkedInReport> {
+export function decodeLinkedInReport(required: { input: unknown; command: ReportCommand; accountId: string; currency: string; apiVersion: "202610"; retrievedAt: number }): Outcome<LinkedInReport> {
   const parsed = responseSchema.safeParse(required.input);
   if (!parsed.success || !Number.isSafeInteger(required.retrievedAt) || required.retrievedAt < 0) return invalidReport();
   const rows = parsed.data.elements.map(item => ({ entityUrn: item.pivotValues[0], window: { start: epoch({ date: item.dateRange.start }), end: epoch({ date: item.dateRange.end }) + dayMs }, spend: item.costInLocalCurrency, impressions: item.impressions, clicks: item.clicks }));

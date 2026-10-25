@@ -35,6 +35,19 @@ Stable `operationId`/`deliveryId` binds one exact request in the server's existi
 
 ## Official evidence
 
+Version exception review **2026-10-24**: retain the following paths under `/open_api/v1.3/`. The [Marketing v2.0 inventory](https://business-api.tiktok.com/portal/docs/api-reference/v2.0) and [incremental migration guide](https://business-api.tiktok.com/portal/docs?id=1835052398174274) did not expose readable endpoint contracts during review; absence from an incremental guide does not establish lack of support.
+
+| Existing paths | Reason for retaining v1.3 |
+| --- | --- |
+| `campaign/create/`, `adgroup/create/`, `ad/create/` | v2.0 creation fields/statuses and finite budget/schedule compatibility unverified. |
+| `campaign/get/`, `adgroup/get/`, `ad/get/` | v2.0 scoped configuration/status readback unverified. |
+| `campaign/status/update/`, `adgroup/status/update/`, `ad/status/update/` | v2.0 disabled-status request/response semantics unverified. |
+| `advertiser/info/` | v2.0 advertiser schema unverified. |
+| `report/integrated/get/` | Synchronous v2.0 contract unreadable; [async migration](https://business-api.tiktok.com/portal/docs/create-an-asynchronous-report-task/v2.0) does not verify synchronous fields. |
+| `event/track/` | Events API 2.0 is distinct from Marketing v2.0; its existing transport remains unchanged. |
+
+Grouped TikTok deployment remains typed unsupported pending complete official group/ad budget, finite schedule, timezone and disabled readback evidence. No executable changes or admission changes are made by this review.
+
 Inspected **2026-10-13**, Marketing API **v1.3**, Events API **2.0**. Full field-by-field URLs, selected fixture enums, inspection dates and UNVERIFIED limitations live in [primary-sources.json](io.github.ainsep.openmarketing/evidence/primary-sources.json). Vendor publication dates are unavailable unless recorded there. Most portal bodies require JavaScript; TikTok-owned SDK docs and official indexed portal snippets supplement them.
 
 | Operation | Official portal | TikTok-owned SDK fields |

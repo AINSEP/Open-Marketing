@@ -6,7 +6,7 @@ import type { LinkedInCapiConfiguration, LinkedInCapiRequest, LinkedInConversion
 /** Entirely synthetic fixtures, including credentials, cards and account IDs. */
 export const now = 1791849600000;
 export const context: CallContext = { scope: { ownerId: "owner", workspaceId: "workspace" }, principal: { kind: "owner", ownerId: "owner" }, correlationId: "correlation", traceId: "trace", runId: "run" };
-export const configuration: LinkedInConfiguration = { scope: context.scope, connectionId: "connection", accountId: "123", currency: "USD", apiVersion: "202609", pluginDigest: "a".repeat(64), bindingId: "binding" };
+export const configuration: LinkedInConfiguration = { scope: context.scope, connectionId: "connection", accountId: "123", currency: "USD", apiVersion: "202610", pluginDigest: "a".repeat(64), bindingId: "binding" };
 export const exposure = { amount: { currency: "USD", minorUnits: 4321 }, window: { start: now, end: now + 86400000 } };
 export const limit = { amount: { currency: "USD", minorUnits: 4321 }, timezone: "UTC", semantics: "average_budget" as const, evidenceId: "existing-request-metadata" };
 export const draft: LinkedInInvocation["command"] = { kind: "create_campaign_group_draft", name: "Fixture group", runSchedule: { start: now, end: now + 86400000 }, totalBudget: { amount: "43.21", currencyCode: "USD" } };
@@ -80,7 +80,7 @@ export function fixture(required: { response?: () => Response | Promise<Response
 }
 
 /** Card identity is obtained from the prepared request in codec tests; no blanket spend grant. */
-export function approve(required: { fixture: Fixture; request: LinkedInInvocation; wire: object }): void { required.fixture.state.cards.set(required.request.operationId, linkedInDigest({ value: { apiVersion: "202609", request: required.wire } })); }
+export function approve(required: { fixture: Fixture; request: LinkedInInvocation; wire: object }): void { required.fixture.state.cards.set(required.request.operationId, linkedInDigest({ value: { apiVersion: "202610", request: required.wire } })); }
 
 /** R2 fixtures: UTC half-open day, precision-preserving spend and contacts-produced hashes. */
 export const reportCommand = { kind: "report" as const, pivot: "ACCOUNT" as const, window: { start: now, end: now + 86400000 } };

@@ -4,6 +4,23 @@
   "scope": "R1 + R2 documentation only; not vendor acceptance or host admission",
   "sources": [
     {
+      "id": "version-202610",
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/integrations/recent-changes?view=li-lms-2026-10",
+      "apiVersion": "202610",
+      "checkedAt": "2026-10-24",
+      "status": "verified-documentation",
+      "constraints": ["Enriched creative reads require normalization; create requests unchanged. Publisher-list surface requirement starts in 202611; OM does not use publisher lists. No other listed breaking change touches OM usage."]
+    },
+    {
+      "id": "creative-content-202610",
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads/account-structure/create-and-manage-creatives?view=li-lms-2026-10",
+      "apiVersion": "202610",
+      "checkedAt": "2026-10-24",
+      "status": "verified-documentation",
+      "responseFields": ["content.reference", "content.standardUpdateAd.reference", "content.videoAd.reference"],
+      "constraints": ["Enriched members are read-only; legacy content.reference remains supported. OM rejects missing, malformed or conflicting references and strips unconsumed fields."]
+    },
+    {
       "id": "accounts",
       "url": "https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads/account-structure/create-and-manage-accounts?view=li-lms-2026-09",
       "endpoints": [

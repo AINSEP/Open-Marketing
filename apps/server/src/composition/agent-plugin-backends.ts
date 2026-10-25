@@ -557,7 +557,7 @@ function linkedinAdapter(required: Execution): StopAdapter {
     return exported<Factory<StopAdapter>>({ module: required.module, name: 'createLinkedInAdsAdapter' })({
         clock: required.dependencies.clock, observer: required.dependencies.observer,
         configuration: { scope: required.context.scope, connectionId: required.input.connectionId, accountId: required.input.accountId,
-            pluginDigest: required.state.revision, currency: required.input.currency ?? required.state.metadata.currency, apiVersion: '202609', bindingId: 'linkedin-ads.stop.v1' },
+            pluginDigest: required.state.revision, currency: required.input.currency ?? required.state.metadata.currency, apiVersion: '202610', bindingId: 'linkedin-ads.stop.v1' },
         credentials: credentials(required), fetch: guardedFetch(required),
         gateway: { dispatch: (call: { execute(): Promise<Outcome<unknown>> }) => call.execute() } });
 }
@@ -600,7 +600,7 @@ async function deployment(required: Execution): Promise<Outcome<unknown>> {
     const dependencies = required.pluginId === 'meta-ads'
         ? { admitted: true, dispatch: exported<Factory<unknown>>({ module: required.module, name: 'createMetaInstagramFetchDispatch' })({ fetch: guardedFetch(required), credentials: credentials(required) }) }
         : { admitted: true, clock: required.dependencies.clock, observer: required.dependencies.observer, fetch: guardedFetch(required), credentials: credentials(required),
-            configuration: { scope: required.context.scope, connectionId: required.input.connectionId, accountId: required.input.accountId, pluginDigest: required.state.revision, currency: required.input.currency, apiVersion: '202609', bindingId: 'campaign.create-draft.v1' } };
+            configuration: { scope: required.context.scope, connectionId: required.input.connectionId, accountId: required.input.accountId, pluginDigest: required.state.revision, currency: required.input.currency, apiVersion: '202610', bindingId: 'campaign.create-draft.v1' } };
     const read = required.evidence !== undefined;
     const references = savedDeploymentReferences({ evidence: required.evidence ?? [] });
     return exported<(input: Record<string, unknown>, optional?: CallOptions) => Promise<Outcome<unknown>>>({ module: required.module, name: read ? 'readCampaignDeployment' : 'deployCampaignPaused' })({ ...common, connectionId: required.input.connectionId, accountId: required.input.accountId, dependencies, references }, { signal: required.signal });
