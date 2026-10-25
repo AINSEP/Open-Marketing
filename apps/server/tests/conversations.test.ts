@@ -14,6 +14,7 @@ import type { ChatStore, ChatStoreFactory, ChatConversation } from '@jini-ai/cha
 import type { ChatMessage as JiniMessage } from '@jini-ai/chat';
 import type { StorageKernel } from '@jini-ai/db/kernel';
 import type { CallContext, Outcome, RunEvent, RunGrantMetadata } from '@open-marketing/contracts';
+import { assistantSettingsStatusSchema } from '@open-marketing/contracts';
 import { createConversations } from '../src/conversations.js';
 import { createAssistantRuns, type AssistantDatabase } from '../src/runs.js';
 import { bindServerDatabase } from '../src/composition/database.js';
@@ -59,7 +60,7 @@ function memoryStores(required: { now(): number }): ChatStoreFactory {
   return store;
  };
 }
-async function fixture(required: { adapter?: 'memory' | 'sqlite' } = {}) {
+async function fixture(required: { adapter?: 'memory' | 'sqlite'; integrations?: Parameters<typeof createConversations>[0]['integrations'] } = {}) {
  const native = new Database(':memory:'); native.pragma('foreign_keys = ON');
  native.exec(await readFile(join(projectRoot, 'apps/server/migrations/0001_assistant.sql'), 'utf8'));
  const clock = { now: () => 1000 }; let id = 0; const ids = { next: () => 'id-' + ++id }; const observer = { observe() {} };
@@ -67,7 +68,7 @@ async function fixture(required: { adapter?: 'memory' | 'sqlite' } = {}) {
  const kernel = db.kernel as unknown as StorageKernel<AssistantDatabase>;
  const conversations = createConversations({ stores: required.adapter === 'memory' ? memoryStores({ now: () => 1000 }) : ({ scope }) => createSqliteChatStore({ kernel, scope }, { clock: { nowMs: () => 1000 } }),
   db: { query: input => db.unit.transaction({ work: ({ session }) => session.query(input) }) }, ids, observer,
-  integrations: { async list() { return { ok: true, value: { items: [], cursor: null } }; } } });
+  integrations: required.integrations ?? { async list() { return { ok: true, value: { items: [], cursor: null } }; } } });
  const runs = createAssistantRuns({ kernel, conversations, clock, ids, observer, durable: createDurableRunStore({ kernel, isDaemonRunId: () => true }), ledger: createChatRunLedger({ kernel, isDaemonRunId: () => true }) });
  return { conversations, runs, kernel, native, close() { native.close(); } };
 }
@@ -97,6 +98,33 @@ for (const adapter of ['memory', 'sqlite'] as const) describe('owner transcript 
    expect(result.ok).toBe(false); expect(launched).toBe(false);
   } finally { f.close(); }
  });
+});
+
+it.each(['sandbox', 'ready', 'reconnect_required', 'disconnected', 'unavailable'] as const)('returns configured choices with settings status %s', async status => {
+ const f = await fixture({ integrations: { async list() {
+  if (status === 'unavailable') return { ok: false, error: { code: 'unavailable', message: 'fixture outage', retryable: false } };
+  return { ok: true, value: { items: [{ pluginId: 'anthropic', connectionId: 'fixture', status: status === 'ready' ? 'saved' : 'reconnect_required' }], cursor: null } };
+ } } });
+ try {
+  const mode = status === 'sandbox' ? 'sandbox' : 'model'; const connectionId = status === 'disconnected' ? 'missing' : 'fixture';
+  const current = value({ result: await f.conversations.setSettings({ context, settings: { mode, model: 'claude-opus-5-5', connectionId } }) });
+  expect(current.status).toBe(status);
+  expect(current.models).toEqual([{ id: 'claude-sonnet-5-5', label: 'Sonnet 5.5' }, { id: 'claude-opus-5-5', label: 'Opus 5.5' }]);
+  for (const model of current.models!) expect((await f.conversations.setSettings({ context, settings: { ...current.settings, model: model.id } })).ok).toBe(true);
+  expect(await f.conversations.setSettings({ context, settings: { ...current.settings, model: 'unknown' } })).toMatchObject({ ok: false, error: { code: 'invalid_input' } });
+  const saved = value({ result: await f.conversations.settings({ context }) });
+  expect(saved.settings.model).toBe('claude-opus-5-5'); expect(assistantSettingsStatusSchema.safeParse(saved).success).toBe(true);
+ } finally { f.close(); }
+});
+
+it('bounds strict model choices and accepts settings responses without choices', () => {
+ const status = { settings: { mode: 'sandbox', model: 'fixture', connectionId: null }, ready: true, status: 'sandbox' };
+ const choice = { id: 'fixture', label: 'Fixture' };
+ expect(assistantSettingsStatusSchema.safeParse(status).success).toBe(true);
+ expect(assistantSettingsStatusSchema.safeParse({ ...status, models: Array(16).fill(choice) }).success).toBe(true);
+ for (const models of [Array(17).fill(choice), [{ ...choice, id: '' }], [{ ...choice, label: '' }], [{ ...choice, label: 'x'.repeat(81) }], [{ ...choice, extra: true }]]) {
+  expect(assistantSettingsStatusSchema.safeParse({ ...status, models }).success).toBe(false);
+ }
 });
 
 async function accepted(required: { f: Awaited<ReturnType<typeof fixture>> }) {
@@ -190,5 +218,18 @@ it('composes an agent Jini turn through the REAL server broker and a fixture ups
   expect(JSON.stringify(page)).not.toContain('sealed-fixture-key');
   const saved = await (await fetch(origin + '/api/conversations/' + receipt.value.conversationId + '?limit=100', { headers })).json();
   expect(saved.value.messages.at(-1).text).toBe('Composed fixture answer.');
+  const continued = await post({ path: '/api/runs', body: { prompt: 'Continue saved chat', conversationId: receipt.value.conversationId } });
+  expect(continued.value.conversationId).toBe(receipt.value.conversationId);
+  for (let count = 0; count < 100; count++) {
+   page = await (await fetch(origin + '/api/runs/' + continued.value.runId + '/events?after=0', { headers })).json();
+   if (page?.value.status !== 'running') break;
+   await new Promise<void>(resolve => setTimeout(resolve, 20));
+  }
+  expect(page?.value.status).toBe('completed'); expect(upstreamRequests).toHaveLength(2);
+  expect(JSON.parse(upstreamRequests[1].body).messages).toEqual([{ role: 'user', content: 'fixture prompt' },
+   { role: 'assistant', content: 'Composed fixture answer.' }, { role: 'user', content: 'Continue saved chat' }]);
+  const reloaded = await (await fetch(origin + '/api/conversations/' + continued.value.conversationId + '?limit=100', { headers })).json();
+  expect(reloaded.value.messages.map((message: { text: string }) => message.text)).toEqual(['fixture prompt', 'Composed fixture answer.', 'Continue saved chat', 'Composed fixture answer.']);
+  expect(JSON.stringify(reloaded)).not.toContain('sealed-fixture-key');
  } finally { if (boot.ok) await boot.value.stop({}); await removeStateRoot({ path: directory }); }
 });

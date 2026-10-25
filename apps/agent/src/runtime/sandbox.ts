@@ -1,5 +1,6 @@
 /** Deterministic local fixture runtime. No model, tool, database or vendor execution. */
 import type { ClockPort, IdPort, Outcome, RunEvent, StartRunRequest } from '@open-marketing/contracts';
+import { parseBoundary, startRunSchema } from '@open-marketing/contracts';
 import type { JiniRuntimePort } from '../ports.js';
 
 /** Only two grant-scoped OM callbacks; tests replace these with a controllable in-memory double. */
@@ -9,10 +10,10 @@ export interface SandboxContextClient {
 }
 interface SandboxRun {
     request: StartRunRequest; events: RunEvent[]; controller: AbortController;
-    terminal: boolean; work?: Promise<void>;
+    terminal: boolean; settled: boolean; work?: Promise<void>;
 }
 
-function failure<T>(required: { code: 'forbidden' | 'conflict' | 'limit_exceeded' | 'unavailable'; message: string }): Outcome<T> {
+function failure<T>(required: { code: 'forbidden' | 'conflict' | 'expired' | 'limit_exceeded' | 'unavailable'; message: string }): Outcome<T> {
     return { ok: false, error: { ...required, retryable: false } };
 }
 
@@ -63,7 +64,7 @@ async function execute(required: { state: SandboxRun; clock: ClockPort; ids: IdP
     try { await performRun(required);
     } catch {
         await recordFailure(required);
-    } finally { state.terminal = true; }
+    } finally { state.terminal = true; state.settled = true; }
 }
 
 /** Retain an error for polling even when its callback publication fails. */
@@ -74,7 +75,8 @@ async function recordFailure(required: { state: SandboxRun; ids: IdPort; client:
 }
 
 /** Inert, instance-owned fixture runtime with 32 retained runs and <=128 events/run.
- * Full retention rejects new runs; restarting the sandbox clears it. Cancellation aborts I/O.
+ * At capacity only the oldest terminal run with completed cleanup is evicted. Cancellation aborts I/O.
+ * Elapsed effective deadlines are rejected before history eviction or callbacks.
  * @example const runtime = createSandboxRuntime({ clock, ids, contextClient });
  * @complexity O(32*128) maximum retained space; subscriptions scan one capped event list.
  */
@@ -83,10 +85,18 @@ export function createSandboxRuntime(required: { clock: ClockPort; ids: IdPort; 
     let disposed = false;
     return {
         async startRun(run) {
+            const parsed = parseBoundary({ schema: startRunSchema, input: run });
+            if (!parsed.ok) return parsed;
             if (disposed || !admitted({ run, clock: required.clock })) return failure({ code: 'forbidden', message: 'Sandbox run grant unavailable' });
             if (runs.has(run.runId)) return failure({ code: 'conflict', message: 'Run already exists' });
-            if (runs.size >= 32) return failure({ code: 'limit_exceeded', message: 'Sandbox retains at most 32 runs; restart to clear' });
-            const state: SandboxRun = { request: structuredClone({ ...run, prompt: '[sandbox prompt omitted]' }), events: [], controller: new AbortController(), terminal: false };
+            const deadlineAt = Math.min(run.deadlineAt ?? run.grant.expiresAt, run.grant.expiresAt);
+            if (deadlineAt <= required.clock.now({})) return failure({ code: 'expired', message: 'Sandbox run deadline elapsed' });
+            if (runs.size >= 32) {
+                const oldest = [...runs].find(([, state]) => state.terminal && state.settled);
+                if (!oldest) return failure({ code: 'limit_exceeded', message: 'Sandbox retains at most 32 active or unsettled runs' });
+                runs.delete(oldest[0]);
+            }
+            const state: SandboxRun = { request: structuredClone({ ...run, prompt: '[sandbox prompt omitted]' }), events: [], controller: new AbortController(), terminal: false, settled: false };
             runs.set(run.runId, state);
             state.work = execute({ state, clock: required.clock, ids: required.ids, client: required.contextClient });
             return { ok: true, value: { runId: run.runId, status: 'pending' } };

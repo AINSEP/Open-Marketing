@@ -301,3 +301,53 @@ it('bounds retained bytes and keeps a terminal error when a provider floods larg
         });
     } finally { await runtime.dispose({}); await f.dispose(); }
 });
+
+it('admits more than 32 completed turns, evicting oldest settled runs while retaining active work', async () => {
+    const f = await fixture({ transport: 'memory' });
+    const load = f.client.load; const held = Promise.withResolvers<Awaited<ReturnType<ModelClient['load']>>>();
+    f.client.load = input => input.run.runId === 'active' ? held.promise : load(input);
+    const released = vi.fn(); f.client.deadline = () => ({ signal: f.controller.signal, dispose: released });
+    try {
+        value({ result: await f.runtime.startRun(run({ id: 'active' })) });
+        for (let index = 0; index < 34; index++) {
+            value({ result: await f.runtime.startRun(run({ id: 'retained-' + index })) });
+            await vi.waitFor(() => expect(released).toHaveBeenCalledTimes(index + 1));
+        }
+        expect(value({ result: await f.runtime.events({ runId: 'active', after: 0, limit: 100 }) }).map(event => event.kind)).toEqual(['started']);
+        expect(await f.runtime.events({ runId: 'retained-2', after: 0, limit: 100 })).toMatchObject({ ok: false, error: { code: 'forbidden' } });
+        const expired = { ...run({ id: 'expired' }), deadlineAt: 1000 };
+        expect(await f.runtime.startRun(expired)).toMatchObject({ ok: false, error: { code: 'expired' } });
+        expect(await f.runtime.startRun(run({ id: 'retained-33' }))).toMatchObject({ ok: false, error: { code: 'conflict' } });
+        expect(value({ result: await f.runtime.events({ runId: 'retained-3', after: 0, limit: 100 }) }).at(-1)?.kind).toBe('ended');
+    } finally { held.resolve({ ok: false, error: { code: 'cancelled', message: 'fixture cleanup', retryable: false } }); await f.dispose(); }
+});
+
+it('protects all active runs and cancelled work until its asynchronous cleanup completes', async () => {
+    const f = await fixture({ transport: 'memory' });
+    const held = Promise.withResolvers<Awaited<ReturnType<ModelClient['load']>>>();
+    f.client.load = () => held.promise;
+    const released = vi.fn(); f.client.deadline = () => ({ signal: f.controller.signal, dispose: released });
+    try {
+        for (let index = 0; index < 32; index++) value({ result: await f.runtime.startRun(run({ id: 'held-' + index })) });
+        expect(await f.runtime.startRun(run({ id: 'overflow' }))).toMatchObject({ ok: false, error: { code: 'limit_exceeded' } });
+        value({ result: await f.runtime.cancelRun({ protocolVersion: 1, runId: 'held-0', reason: 'owner' }) });
+        expect(await f.runtime.startRun(run({ id: 'overflow' }))).toMatchObject({ ok: false, error: { code: 'limit_exceeded' } });
+        expect(value({ result: await f.runtime.events({ runId: 'held-0', after: 0, limit: 100 }) }).at(-1)?.kind).toBe('cancelled');
+        held.resolve({ ok: false, error: { code: 'cancelled', message: 'fixture released', retryable: false } });
+        await vi.waitFor(() => expect(released).toHaveBeenCalledTimes(33));
+        value({ result: await f.runtime.startRun(run({ id: 'overflow' })) });
+        expect(await f.runtime.events({ runId: 'held-0', after: 0, limit: 100 })).toMatchObject({ ok: false, error: { code: 'forbidden' } });
+    } finally { held.resolve({ ok: false, error: { code: 'cancelled', message: 'fixture cleanup', retryable: false } }); await f.dispose(); }
+});
+
+it('does not evict terminal runs whose final publication is still unsettled', async () => {
+    const f = await fixture({ transport: 'memory' }); const held = Promise.withResolvers<Outcome<void>>();
+    const publish = f.client.publish; f.client.publish = input => input.event.kind === 'ended' ? held.promise : publish(input);
+    try {
+        for (let index = 0; index < 32; index++) value({ result: await f.runtime.startRun(run({ id: 'publishing-' + index })) });
+        await vi.waitFor(async () => {
+            for (let index = 0; index < 32; index++) expect(value({ result: await f.runtime.events({ runId: 'publishing-' + index, after: 0, limit: 100 }) }).at(-1)?.kind).toBe('ended');
+        });
+        expect(await f.runtime.startRun(run({ id: 'overflow' }))).toMatchObject({ ok: false, error: { code: 'limit_exceeded' } });
+    } finally { held.resolve({ ok: true, value: undefined }); await f.dispose(); }
+});

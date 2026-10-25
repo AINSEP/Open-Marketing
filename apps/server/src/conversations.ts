@@ -17,7 +17,8 @@ export interface Conversations {
  modelContext(required: { context: CallContext; conversationId: string; settings: AssistantSettings }): Promise<Outcome<AssistantContext>>;
 }
 interface Dependencies { stores: ChatStoreFactory; db: CampaignSqlPort; ids: IdPort; observer: ObserverPort; integrations: Pick<Integrations, 'list'> }
-const defaults: AssistantSettings = { mode: 'sandbox', model: 'claude-sonnet-5-5', connectionId: null };
+const models = [{ id: 'claude-sonnet-5-5', label: 'Sonnet 5.5' }, { id: 'claude-opus-5-5', label: 'Opus 5.5' }];
+const defaults: AssistantSettings = { mode: 'sandbox', model: models[0].id, connectionId: null };
 function summary(required: { conversation: ChatConversation }): ConversationSummary {
  const c = required.conversation;
  return { conversationId: c.id, title: c.title ?? 'New chat', createdAt: c.createdAt, updatedAt: c.updatedAt };
@@ -67,7 +68,7 @@ export function createConversations(required: Dependencies): Conversations {
   setSettings: input => boundary({ ...input, operation: 'assistant.settings.write', work: async () => {
    const parsed = parseBoundary({ schema: assistantSettingsSchema, input: input.settings });
    if (!parsed.ok) return parsed;
-   if (!['claude-sonnet-5-5', 'claude-opus-5-5'].includes(parsed.value.model)) return localFailure({ code: 'invalid_input', message: 'Unknown assistant model' });
+   if (!models.some(model => model.id === parsed.value.model)) return localFailure({ code: 'invalid_input', message: 'Unknown assistant model' });
    await required.db.query({ text: 'INSERT INTO om_assistant_settings(owner_id,workspace_id,settings_json) VALUES ($1,$2,$3) ON CONFLICT(owner_id,workspace_id) DO UPDATE SET settings_json=excluded.settings_json',
     values: [input.context.scope.ownerId, input.context.scope.workspaceId, JSON.stringify(parsed.value)] });
    return settings(input);
@@ -84,13 +85,14 @@ export function createConversations(required: Dependencies): Conversations {
   } }),
  };
 }
-/** Saved connection metadata is sufficient for readiness; decryption happens only at model dispatch. */
+/** Every status carries the same configured choices. Readiness uses metadata; dispatch decrypts. */
 async function readiness(required: { context: CallContext; settings: AssistantSettings; integrations: Pick<Integrations, 'list'> }): Promise<Outcome<AssistantSettingsStatus>> {
- if (required.settings.mode === 'sandbox') return { ok: true, value: { settings: required.settings, ready: true, status: 'sandbox' } };
+ const configured = { settings: required.settings, models };
+ if (required.settings.mode === 'sandbox') return { ok: true, value: { ...configured, ready: true, status: 'sandbox' } };
  const listed = await required.integrations.list({ context: required.context, query: { limit: 100 } });
- if (!listed.ok) return { ok: true, value: { settings: required.settings, ready: false, status: 'unavailable' } };
+ if (!listed.ok) return { ok: true, value: { ...configured, ready: false, status: 'unavailable' } };
  const candidates = listed.value.items.filter(item => item.pluginId === 'anthropic' && (required.settings.connectionId === null || item.connectionId === required.settings.connectionId));
  const connection = candidates.length === 1 ? candidates[0] : undefined;
  const status = connection?.status === 'saved' ? 'ready' : connection?.status === 'reconnect_required' ? 'reconnect_required' : 'disconnected';
- return { ok: true, value: { settings: required.settings, ready: status === 'ready', status } };
+ return { ok: true, value: { ...configured, ready: status === 'ready', status } };
 }

@@ -52,7 +52,8 @@ export const boundedJsonSchema = z.unknown()
 /** Saved assistant selection. Keys are held by the server; this contains only a connection ID. */
 export const assistantSettingsSchema = z.strictObject({ mode: z.enum(["sandbox", "model"]), model: idSchema, connectionId: idSchema.nullable() });
 export type AssistantSettings = z.infer<typeof assistantSettingsSchema>;
-export const assistantSettingsStatusSchema = z.strictObject({ settings: assistantSettingsSchema, ready: z.boolean(), status: z.enum(["sandbox", "ready", "reconnect_required", "disconnected", "unavailable"]) });
+/** Server-configured model choices; optional for compatibility with existing settings responses. */
+export const assistantSettingsStatusSchema = z.strictObject({ settings: assistantSettingsSchema, ready: z.boolean(), status: z.enum(["sandbox", "ready", "reconnect_required", "disconnected", "unavailable"]), models: z.array(z.strictObject({ id: idSchema, label: z.string().min(1).max(80) })).max(16).optional() });
 export type AssistantSettingsStatus = z.infer<typeof assistantSettingsStatusSchema>;
 /** Read the current Jini attachment token at send time; it is never stored in chat history. */
 export const assistantRunRequestSchema = z.strictObject({ prompt: z.string().min(1).max(65536), conversationId: idSchema.optional(), frontendSessionId: idSchema.optional(), frontendBindToken: z.string().min(1).max(8192).optional() });

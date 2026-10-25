@@ -24,7 +24,7 @@ export interface ModelClient {
 
 interface ModelRun {
     request: StartRunRequest; events: RunEvent[]; controller: AbortController; signal: AbortSignal;
-    terminal: boolean; bytes: number; tools: readonly ToolDescriptor[]; publications: Promise<void>; work?: Promise<void>; releaseDeadline(): void;
+    terminal: boolean; settled: boolean; bytes: number; tools: readonly ToolDescriptor[]; publications: Promise<void>; work?: Promise<void>; releaseDeadline(): void;
 }
 interface ModelDependencies { clock: ClockPort; ids: IdPort; client: ModelClient; adapters: ProviderTurnAdapters }
 
@@ -221,11 +221,11 @@ async function executeRun(required: { state: ModelRun; deps: ModelDependencies }
         required.state.controller.abort();
         if (!required.state.terminal) append({ ...required, kind: 'error', payload: { code: 'unavailable' }, terminal: true });
         await required.state.publications.catch(() => undefined);
-    } finally { required.state.terminal = true; required.state.releaseDeadline(); }
+    } finally { required.state.terminal = true; required.state.releaseDeadline(); required.state.settled = true; }
 }
 
 /** Inert, instance-owned model runtime, retaining at most 32 runs. No composition or service
- * startup occurs here; sandbox remains the composed default until R2.
+ * startup occurs here. At capacity only the oldest terminal run with completed cleanup is evicted.
  * @example const runtime = createModelRuntime({ clock, ids, client, adapters });
  * @returns Existing runtime port plus disposal; typed rejection for invalid or full admission.
  * @complexity <=32 bounded event lists; polling scans one run, disposal aborts all owned work.
@@ -239,13 +239,17 @@ export function createModelRuntime(required: ModelDependencies): JiniRuntimePort
             if (!parsed.ok) return parsed;
             if (disposed || !brokerConfigured({ client: required.client }) || !admitted({ run: parsed.value, clock: required.clock })) return failure({ code: 'forbidden' });
             if (runs.has(input.runId)) return failure({ code: 'conflict' });
-            if (runs.size >= 32) return failure({ code: 'limit_exceeded' });
             const deadlineAt = Math.min(input.deadlineAt ?? input.grant.expiresAt, input.grant.expiresAt);
             if (deadlineAt <= required.clock.now({})) return failure({ code: 'expired' });
+            if (runs.size >= 32) {
+                const oldest = [...runs].find(([, state]) => state.terminal && state.settled);
+                if (!oldest) return failure({ code: 'limit_exceeded' });
+                runs.delete(oldest[0]);
+            }
             const deadline = required.client.deadline({ timeoutMs: deadlineAt - required.clock.now({}) });
             const controller = new AbortController();
             const state: ModelRun = { request: structuredClone(parsed.value), events: [], controller, signal: AbortSignal.any([controller.signal, deadline.signal]),
-                terminal: false, bytes: 0, tools: [], publications: Promise.resolve(), releaseDeadline: deadline.dispose };
+                terminal: false, settled: false, bytes: 0, tools: [], publications: Promise.resolve(), releaseDeadline: deadline.dispose };
             runs.set(input.runId, state);
             state.work = executeRun({ state, deps: required });
             return { ok: true, value: { runId: input.runId, status: 'pending' } };

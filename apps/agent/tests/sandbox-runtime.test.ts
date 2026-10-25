@@ -95,17 +95,68 @@ it('cancels a blocked context call and never emits a later successful delta/ende
     } finally { await f.runtime.dispose({}); }
 });
 
-it('rejects cross-field/expired/revoked grants, duplicate starts and the 33rd retained run', async () => {
+it('rejects cross-field/expired/revoked grants, duplicate starts and the 33rd active run', async () => {
     const f = fixture({});
     try {
         for (const invalid of [run({ expiresAt: 1000 }), { ...run({}), runId: 'foreign' }, { ...run({}), grant: { ...run({}).grant, revoked: true } },
             { ...run({}), grant: { ...run({}).grant, capabilities: ['context', 'events', 'vendor'] } }]) expect((await f.runtime.startRun(invalid)).ok).toBe(false);
-        f.release({ ok: true, value: { mode: 'local-sandbox' } });
         for (let index = 0; index < 32; index++) expect((await f.runtime.startRun(run({ id: 'run-' + index }))).ok).toBe(true);
         expect(await f.runtime.startRun(run({ id: 'run-0' }))).toMatchObject({ ok: false, error: { code: 'conflict' } });
         expect(await f.runtime.startRun(run({ id: 'run-32' }))).toMatchObject({ ok: false, error: { code: 'limit_exceeded' } });
         expect((await f.runtime.events({ runId: 'missing', after: 0, limit: 100 })).ok).toBe(false);
+    } finally { f.release({ ok: true, value: { mode: 'local-sandbox' } }); await f.runtime.dispose({}); }
+});
+
+it('admits more than 32 completed sandbox turns and rejects invalid input without evicting history', async () => {
+    const f = fixture({}); f.release({ ok: true, value: { mode: 'local-sandbox' } });
+    try {
+        for (let index = 0; index < 34; index++) {
+            value({ result: await f.runtime.startRun(run({ id: 'retained-' + index })) });
+            await new Promise<void>(resolve => setImmediate(resolve));
+            expect(value({ result: await f.runtime.events({ runId: 'retained-' + index, after: 0, limit: 100 }) }).at(-1)?.kind).toBe('ended');
+        }
+        expect(await f.runtime.events({ runId: 'retained-1', after: 0, limit: 100 })).toMatchObject({ ok: false, error: { code: 'forbidden' } });
+        expect(await f.runtime.startRun({ ...run({ id: 'invalid' }), prompt: '' })).toMatchObject({ ok: false, error: { code: 'invalid_input' } });
+        expect(await f.runtime.startRun(run({ id: 'expired', expiresAt: 1000 }))).toMatchObject({ ok: false, error: { code: 'forbidden' } });
+        expect(value({ result: await f.runtime.events({ runId: 'retained-2', after: 0, limit: 100 }) }).at(-1)?.kind).toBe('ended');
     } finally { await f.runtime.dispose({}); }
+});
+
+it.each([999, 1000])('rejects elapsed sandbox deadline %i before callbacks or history eviction', async deadlineAt => {
+    const f = fixture({}); f.release({ ok: true, value: { mode: 'local-sandbox' } });
+    try {
+        for (let index = 0; index < 32; index++) {
+            value({ result: await f.runtime.startRun(run({ id: 'retained-' + index })) });
+            await new Promise<void>(resolve => setImmediate(resolve));
+        }
+        const history = value({ result: await f.runtime.events({ runId: 'retained-0', after: 0, limit: 100 }) });
+        expect(history.at(-1)?.kind).toBe('ended');
+        f.published.length = 0; f.callbackRequests.length = 0;
+        expect(await f.runtime.startRun({ ...run({ id: 'elapsed-deadline' }), deadlineAt })).toMatchObject({ ok: false, error: { code: 'expired' } });
+        await new Promise<void>(resolve => setImmediate(resolve));
+        expect(f.published).toHaveLength(0);
+        expect(f.callbackRequests).toHaveLength(0);
+        expect(value({ result: await f.runtime.events({ runId: 'retained-0', after: 0, limit: 100 }) })).toEqual(history);
+        expect(await f.runtime.events({ runId: 'elapsed-deadline', after: 0, limit: 100 })).toMatchObject({ ok: false, error: { code: 'forbidden' } });
+    } finally { await f.runtime.dispose({}); }
+});
+
+it('retains cancelled sandbox work while blocked and disposal waits for its cleanup', async () => {
+    const held = Promise.withResolvers<Outcome<{ mode: 'local-sandbox' }>>(); const signals: AbortSignal[] = [];
+    const runtime = createSandboxRuntime({ clock: { now: () => 1000 }, ids: { next: () => 'event' }, contextClient: {
+        async load(input) { signals.push(input.signal); return held.promise; }, async publish() { return { ok: true, value: undefined }; },
+    } });
+    try {
+        for (let index = 0; index < 32; index++) value({ result: await runtime.startRun(run({ id: 'held-' + index })) });
+        value({ result: await runtime.cancelRun({ protocolVersion: 1, runId: 'held-0', reason: 'owner' }) });
+        expect(await runtime.startRun(run({ id: 'overflow' }))).toMatchObject({ ok: false, error: { code: 'limit_exceeded' } });
+        expect(value({ result: await runtime.events({ runId: 'held-0', after: 0, limit: 100 }) }).at(-1)?.kind).toBe('cancelled');
+        let disposed = false; const disposal = runtime.dispose({}).then(() => { disposed = true; });
+        await new Promise<void>(resolve => setImmediate(resolve));
+        expect(disposed).toBe(false); expect(signals).toHaveLength(32); expect(signals.every(signal => signal.aborted)).toBe(true);
+        held.resolve({ ok: true, value: { mode: 'local-sandbox' } }); await disposal;
+        expect(await runtime.events({ runId: 'held-0', after: 0, limit: 100 })).toMatchObject({ ok: false, error: { code: 'forbidden' } });
+    } finally { held.resolve({ ok: true, value: { mode: 'local-sandbox' } }); await runtime.dispose({}); }
 });
 
 it('expiry during context and a server outage produce terminal error instead of a sandbox response', async () => {
