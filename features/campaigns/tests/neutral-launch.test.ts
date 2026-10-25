@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { neutralCampaignLaunchSchema } from "../index.js";
+import { neutralCampaignLaunchSchema as canonicalLaunchSchema } from "@open-marketing/contracts";
 import type { NeutralCampaignLaunch } from "../index.js";
 import type { CampaignTranslationInput as MetaTranslationInput } from "../../../content/agent-plugins/meta-ads/io.github.ainsep.openmarketing/src/index.js";
 import type { CampaignTranslationInput as LinkedInTranslationInput } from "../../../content/agent-plugins/linkedin-ads/io.github.ainsep.openmarketing/src/index.js";
@@ -7,9 +8,9 @@ import type { CampaignTranslationInput as TikTokTranslationInput } from "../../.
 import type { CampaignTranslationInput as GoogleTranslationInput } from "../../../content/agent-plugins/google-ads/io.github.ainsep.openmarketing/src/index.js";
 
 const launch: NeutralCampaignLaunch = {
-  operationId: "launch", name: "Traffic", objective: "traffic",
+  schemaVersion: 2, operationId: "launch", name: "Traffic", objective: "traffic",
   schedule: { window: { start: 1791849600000, end: 1792022400000 }, timezone: "UTC" },
-  audience: { countries: ["US"] }, creativeIds: ["creative"], creativeDigest: "a".repeat(64),
+  audience: { countries: ["US"] }, ads: [{ creativeId: "creative", destinationUrl: "https://example.test/landing" }], creativeDigest: "a".repeat(64),
   targets: [{ pluginId: "fixture", connectionId: "connection", accountId: "123", dailyBudget: { minorUnits: 4321, currency: "USD" }, expectedExposure: { minorUnits: 20000, currency: "USD" } }],
 };
 
@@ -23,7 +24,11 @@ void [metaInput, linkedinInput, tiktokInput, googleInput];
 
 describe("neutral launch boundary", () => {
   it("preserves the neutral fixture without adding vendor data or authority", () => {
+    expect(neutralCampaignLaunchSchema).toBe(canonicalLaunchSchema);
     expect(neutralCampaignLaunchSchema.parse(launch)).toEqual(launch);
+  });
+  it.each(["leads", "sales"] as const)("accepts %s intent without claiming vendor support", objective => {
+    expect(neutralCampaignLaunchSchema.parse({ ...launch, objective }).objective).toBe(objective);
   });
   it("accepts four distinct destinations and preserves unlike currencies without summing", () => {
     const targets = Array.from({ length: 4 }, (_, index) => ({ ...launch.targets[0], accountId: String(index + 1), dailyBudget: { minorUnits: 4321, currency: index === 0 ? "JPY" : "USD" }, expectedExposure: { minorUnits: 20000, currency: index === 0 ? "JPY" : "USD" } }));
@@ -39,19 +44,19 @@ describe("neutral launch boundary", () => {
     { schedule: { ...launch.schedule, timezone: "Made/Up" } },
     { schedule: { ...launch.schedule, window: { start: 1000, end: 1000 } } },
     { schedule: { ...launch.schedule, window: { start: 1000, end: Infinity } } },
-    { creativeDigest: "missing" }, { creativeIds: ["creative", "creative"] },
-    { creativeIds: [] }, { audience: { countries: Array(21).fill("US") } },
-    { creativeIds: Array.from({ length: 21 }, (_, index) => String(index)) },
+    { creativeDigest: "missing" }, { ads: [launch.ads[0], launch.ads[0]] },
+    { ads: [] }, { audience: { countries: Array(21).fill("US") } },
+    { ads: Array.from({ length: 21 }, (_, index) => ({ ...launch.ads[0], creativeId: String(index) })) },
     { audience: { countries: ["US", "US"] } }, { audience: { countries: [] } },
     { audience: { countries: ["US"], searchTerms: ["Tools", "tools"] } },
-    { objective: "sales" }, { approvalId: "not-authority" },
+    { objective: "awareness" }, { schemaVersion: 1 }, { approvalId: "not-authority" },
   ])("rejects invalid, ambiguous or authority-bearing input", change => {
     expect(neutralCampaignLaunchSchema.safeParse({ ...launch, ...change }).success).toBe(false);
   });
   it("bounds actual UTF-8 bytes as well as individual collections", () => {
     const searchTerms = Array.from({ length: 50 }, (_, index) => String(index).padStart(2, "0") + "😀".repeat(39));
     const ids = Array.from({ length: 20 }, (_, index) => String(index).padStart(2, "0") + "😀".repeat(127));
-    expect(neutralCampaignLaunchSchema.safeParse({ ...launch, audience: { countries: ["US"], searchTerms }, creativeIds: ids }).success).toBe(true);
+    expect(neutralCampaignLaunchSchema.safeParse({ ...launch, audience: { countries: ["US"], searchTerms }, ads: ids.map(creativeId => ({ ...launch.ads[0], creativeId })) }).success).toBe(true);
     const targets = Array.from({ length: 4 }, (_, index) => ({ ...launch.targets[0], pluginId: ids[index], connectionId: ids[index + 4], accountId: ids[index + 8] }));
     // An extra unknown large field must also reject before schema traversal.
     const oversized = neutralCampaignLaunchSchema.safeParse({ ...launch, targets, padding: "😀".repeat(17000) });

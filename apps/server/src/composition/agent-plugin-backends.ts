@@ -8,7 +8,7 @@ import type { CallContext, CallOptions, ClockPort, HaltStopPermit, IdPort, Obser
 import { digestArguments, effectRequestSchema } from '@open-marketing/safety';
 import type { AccountDispatchLockPort, SafetyRepoPort, SafetyService } from '@open-marketing/safety';
 import type { CampaignConstituent, ConfirmationExchangePort, DispatchPermit, FrozenDispatchRequest } from '@open-marketing/safety';
-import type { NeutralCampaignLaunch } from '@open-marketing/campaigns';
+import type { NeutralCampaignLaunch } from '@open-marketing/contracts';
 import type { AccountBindingLookupPort } from '@open-marketing/workspaces';
 import { createSqlJobRepo, jobTenant } from '@open-marketing/jobs';
 import type { JobsSqlSession } from '@open-marketing/jobs';

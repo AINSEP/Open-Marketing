@@ -1,13 +1,13 @@
-import type { Money, Outcome, TimeWindow } from "@open-marketing/contracts";
+import type { NeutralCampaignLaunch, Outcome } from "@open-marketing/contracts";
 import { array, currency, id, micros, numericId, object, parse, failure, text } from "./schema.ts";
 import { bindingSchema, planSchema } from "./schemas.ts";
 import { validatePlan } from "./rules.ts";
 import type { AccountBinding, SearchPlan } from "./types.ts";
 
-/** Structural subset of the canonical, schema-validated NeutralCampaignLaunch. No feature dependency. */
+/** Canonical schema-validated v2 intent; plugins depend only on contracts. */
 export interface CampaignTranslationInput {
-  campaign: { name: string; objective: string; schedule: { window: TimeWindow; timezone: string }; audience: { countries: readonly string[]; searchTerms?: readonly string[] }; creativeIds: readonly string[]; creativeDigest: string };
-  target: { accountId: string; connectionId: string; dailyBudget: Money };
+  campaign: NeutralCampaignLaunch;
+  target: Pick<NeutralCampaignLaunch["targets"][number], "accountId" | "connectionId" | "dailyBudget">;
   resolved: unknown;
 }
 type Resolved = {
@@ -26,25 +26,26 @@ const resolvedSchema = object({ properties: {
 } });
 
 /** Translate parsed neutral intent and validated account/assets into the existing Search plan.
- * @param required - Neutral subset, selected target, and server-resolved metadata (no I/O).
+ * @param required - Parsed v2 intent, selected target, and server-resolved metadata (no I/O).
  * @returns A plan for createOperations' PAUSED hierarchy, or a non-retryable typed failure.
  * @example translateCampaign({ campaign: parsedLaunch, target, resolved: accountAndAssets })
  * @complexity O(c+k) time/space, c<=20 countries, k<=50 terms; no effects or activation.
  */
 export function translateCampaign(required: CampaignTranslationInput): Outcome<SearchPlan> {
   const { campaign, target } = required;
-  if (campaign.objective !== "traffic" || campaign.creativeIds.length !== 1) return failure({ code: "not_implemented", message: "Google supports traffic with one responsive search creative" });
+  if (campaign.objective !== "traffic" || campaign.ads.length !== 1 || campaign.audience.localTargeting !== undefined) return failure({ code: "not_implemented", message: "Google supports country-only traffic with one responsive search creative" });
   const parsed = parse<Resolved>({ schema: resolvedSchema, input: required.resolved });
   if (!parsed.ok) return parsed;
   const resolved = parsed.value;
   const binding = resolved.binding;
   if (binding.customerId !== target.accountId || binding.connectionId !== target.connectionId) return failure({ code: "conflict", message: "Google target differs from account binding" });
   if (target.dailyBudget.currency !== binding.currency || campaign.schedule.timezone !== binding.timezone) return failure({ code: "conflict", message: "Google currency or timezone differs from account" });
-  if (resolved.creativeId !== campaign.creativeIds[0] || resolved.creativeDigest !== campaign.creativeDigest) return failure({ code: "conflict", message: "Google creative resolution differs from intent" });
+  if (resolved.creativeId !== campaign.ads[0].creativeId || resolved.creativeDigest !== campaign.creativeDigest) return failure({ code: "conflict", message: "Google creative resolution differs from intent" });
   return translateSearch({ campaign, target, resolved });
 }
 
-/** Preserve explicit exact-match terms, geography and units; missing mappings reject the whole plan.
+/** Preserve the selected ad destination, exact-match terms, geography and units;
+ * missing mappings reject the whole plan.
  * @complexity O(c+k) time/space, c<=20 countries and k<=50 terms; pure.
  */
 function translateSearch(required: { campaign: CampaignTranslationInput["campaign"]; target: CampaignTranslationInput["target"]; resolved: Resolved }): Outcome<SearchPlan> {
@@ -60,7 +61,7 @@ function translateSearch(required: { campaign: CampaignTranslationInput["campaig
     averageDailyBudgetMicros: (BigInt(target.dailyBudget.minorUnits) * 10n ** BigInt(6 - resolved.currencyExponent)).toString(),
     cpcBidMicros: resolved.cpcBidMicros, startsAt: campaign.schedule.window.start, endsAt: campaign.schedule.window.end,
     geoTargetIds: campaign.audience.countries.map(country => locations.get(country)), keywords: terms.map(text => ({ text, matchType: "EXACT" })),
-    headlines: resolved.headlines, descriptions: resolved.descriptions, finalUrl: resolved.finalUrl, euPoliticalAdvertising: resolved.euPoliticalAdvertising,
+    headlines: resolved.headlines, descriptions: resolved.descriptions, finalUrl: campaign.ads[0].destinationUrl, euPoliticalAdvertising: resolved.euPoliticalAdvertising,
   } });
   if (!plan.ok) return plan;
   return validatePlan({ plan: plan.value, binding: resolved.binding });

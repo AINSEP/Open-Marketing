@@ -2,7 +2,7 @@
 import { z } from 'zod';
 import { buildUiToolDefinitions } from './ui-tools.js';
 import { assistantSettingsSchema, boundedJsonSchema, callContextSchema, generationAllowanceSettingsSchema, idSchema, pageQuerySchema, timeWindowSchema, digestSchema, moneySchema,
-    parseBoundary, toolCallSchema, toolDescriptorSchema, toolSearchSchema, addonToolEffectsSchema } from '@open-marketing/contracts';
+    parseBoundary, toolCallSchema, toolDescriptorSchema, toolSearchSchema, addonToolEffectsSchema, neutralCampaignLaunchSchema } from '@open-marketing/contracts';
 import type { ApprovalResponse, CallContext, ClockPort, ConfirmationCard, Outcome, ToolCall, ToolDescriptor, ToolOperation, ToolResult } from '@open-marketing/contracts';
 import { digestArguments } from '@open-marketing/safety';
 import type { DispatchPermit, EffectRequest, FrozenDispatchRequest, ConfirmationExchangePort, SafetyService } from '@open-marketing/safety';
@@ -21,7 +21,7 @@ import { webEventSnippetSource } from '@open-marketing/web-events';
 import type { WebEventService } from '@open-marketing/web-events';
 import type { PrivacyService } from '@open-marketing/privacy';
 import type { MeasureService } from '@open-marketing/measure';
-import { neutralCampaignLaunchSchema, type CampaignService } from '@open-marketing/campaigns';
+import type { CampaignService } from '@open-marketing/campaigns';
 import type { AccountBindingLookupPort, WorkspaceListing } from '@open-marketing/workspaces';
 import type { ScopedJobs } from '@open-marketing/jobs';
 import { paidSendingAllowanceSchema } from '@open-marketing/safety';

@@ -28,7 +28,7 @@ async function fixture() {
     const database = bindServerDatabase({ native, context, observer });
     await provisionWorkspace({ database: database.workspace, scope: context.scope });
     const repo = createMemoryCampaignRepo({});
-    const campaign: NeutralCampaignLaunch = { operationId: 'local', name: 'Traffic', objective: 'traffic', schedule: { window: { start: 2000, end: 1000000 }, timezone: 'UTC' }, audience: { countries: ['US'] }, creativeIds: ['creative'], creativeDigest: 'a'.repeat(64),
+    const campaign: NeutralCampaignLaunch = { schemaVersion: 2, operationId: 'local', name: 'Traffic', objective: 'traffic', schedule: { window: { start: 2000, end: 1000000 }, timezone: 'UTC' }, audience: { countries: ['US'] }, ads: [{ creativeId: 'creative', destinationUrl: 'https://example.test/landing' }], creativeDigest: 'a'.repeat(64),
         targets: [1, 2, 3].map(accountId => ({ pluginId: 'fixture', connectionId: 'connection', accountId: String(accountId), dailyBudget: { minorUnits: 500, currency: accountId === 2 ? 'EUR' : 'USD' }, expectedExposure: { minorUnits: 2500, currency: accountId === 2 ? 'EUR' : 'USD' } })) };
     const saved = value({ result: await repo.saveNeutral({ context, campaign }) });
     const confirmations = createMemoryConfirmationExchange({ clock, ids });
@@ -173,6 +173,22 @@ it('preparation failure prevents the entire card and enqueue', async () => {
     try {
         f.setUnavailable();
         expect(await f.tools.dispatch({ context, call: f.call })).toMatchObject({ ok: false, error: { retryable: false } });
+        expect(value({ result: await f.confirmations.list({ context, query: { limit: 100 } }) }).items).toEqual([]);
+        expect(f.native.prepare('SELECT id FROM job').all()).toEqual([]); expect(f.sends).toEqual([]);
+    } finally { await f.close(); }
+});
+
+it('returns typed invalid input for stored v1 intent before translation, review or enqueue', async () => {
+    const f = await fixture();
+    const getNeutral = f.ports.repo.getNeutral;
+    f.ports.repo.getNeutral = async input => {
+        const result = await getNeutral(input);
+        if (result.ok && result.value) Object.assign(result.value.campaign, { schemaVersion: 1 });
+        return result;
+    };
+    f.ports.prepare = async () => { throw new Error('Invalid intent must not translate'); };
+    try {
+        expect(await f.definition.prepareEffect!({ context, call: f.call })).toMatchObject({ ok: false, error: { code: 'invalid_input' } });
         expect(value({ result: await f.confirmations.list({ context, query: { limit: 100 } }) }).items).toEqual([]);
         expect(f.native.prepare('SELECT id FROM job').all()).toEqual([]); expect(f.sends).toEqual([]);
     } finally { await f.close(); }

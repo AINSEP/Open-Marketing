@@ -1,14 +1,14 @@
 import { z } from "zod";
 import { digestSchema, idSchema, parseBoundary } from "@open-marketing/contracts";
-import type { Money, Outcome, TimeWindow } from "@open-marketing/contracts";
+import type { NeutralCampaignLaunch, Outcome, TimeWindow } from "@open-marketing/contracts";
 import { failure, vendorIdSchema } from "./commands.js";
 import { campaignDeploymentPlanSchema } from "./campaign-deployment.js";
 import type { TikTokPausedPlan } from "./campaign-deployment.js";
 
-/** Canonical neutral subset; caller parses the launch before resolving account/creative metadata. */
+/** Canonical v2 intent; caller parses the launch before resolving account/creative metadata. */
 export interface CampaignTranslationInput {
-  campaign: { name: string; objective: string; schedule: { window: TimeWindow; timezone: string }; audience: { countries: readonly string[]; searchTerms?: readonly string[] }; creativeIds: readonly string[]; creativeDigest: string };
-  target: { accountId: string; dailyBudget: Money };
+  campaign: NeutralCampaignLaunch;
+  target: Pick<NeutralCampaignLaunch["targets"][number], "accountId" | "dailyBudget">;
   resolved: unknown;
 }
 const resolvedSchema = z.strictObject({
@@ -26,7 +26,7 @@ const resolvedSchema = z.strictObject({
  */
 export function translateCampaign(required: CampaignTranslationInput): Outcome<TikTokPausedPlan> {
   const { campaign, target } = required;
-  if (campaign.objective !== "traffic" || campaign.creativeIds.length !== 1 || campaign.audience.searchTerms !== undefined) return failure({ code: "not_implemented", message: "TikTok supports country-only website traffic with one existing creative" });
+  if (campaign.objective !== "traffic" || campaign.ads.length !== 1 || campaign.audience.searchTerms !== undefined || campaign.audience.localTargeting !== undefined) return failure({ code: "not_implemented", message: "TikTok supports country-only website traffic with one existing creative" });
   const metadata = parseBoundary({ schema: resolvedSchema, input: required.resolved });
   if (!metadata.ok) return failure({ code: "not_implemented", message: "TikTok account, country or creative mapping unsupported" });
   const resolved = metadata.value;
@@ -43,11 +43,13 @@ export function translateCampaign(required: CampaignTranslationInput): Outcome<T
     ad: { kind: "create-ad-paused", name: campaign.name, adgroupId: { from: "adgroup" }, identityType: "CUSTOMIZED_USER", ...resolved.creative },
   } });
 }
-/** Exact account/currency/timezone/creative/country binding; no inferred vendor locations. O(c). */
+/** Exact account/currency/timezone/creative/destination/country binding;
+ * mismatched destination is unsupported. No inferred vendor locations. O(c) for <=20 countries. */
 function resolvedLocations(required: { campaign: CampaignTranslationInput["campaign"]; target: CampaignTranslationInput["target"]; resolved: z.infer<typeof resolvedSchema> }): Outcome<Map<string, string>> {
   const { campaign, target, resolved } = required;
   if (target.accountId !== resolved.accountId || target.dailyBudget.currency !== resolved.currency || campaign.schedule.timezone !== resolved.timezone) return failure({ code: "conflict", message: "TikTok account, currency or timezone differs" });
-  if (campaign.creativeIds[0] !== resolved.creativeId || campaign.creativeDigest !== resolved.creativeDigest) return failure({ code: "conflict", message: "TikTok creative differs from intent" });
+  if (campaign.ads[0].creativeId !== resolved.creativeId || campaign.creativeDigest !== resolved.creativeDigest) return failure({ code: "conflict", message: "TikTok creative differs from intent" });
+  if (campaign.ads[0].destinationUrl !== resolved.creative.landingPageUrl) return failure({ code: "not_implemented", message: "TikTok resolved landing URL differs from the requested destination" });
   const locations = new Map(resolved.locations.map(location => [location.country, location.id]));
   if (locations.size !== resolved.locations.length || !countriesMatch({ countries: campaign.audience.countries, locations })) return failure({ code: "not_implemented", message: "TikTok country mapping must be exact" });
   return { ok: true, value: locations };

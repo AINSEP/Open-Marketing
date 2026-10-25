@@ -35,7 +35,7 @@ CampaignRepoPortSuite({ create: () => createSqlFixture().repo });
 describe("SQL boundary/restart", () => {
   it("restores neutral JSON after repository replacement and rejects substituted identity", async () => {
     const first = createSqlFixture();
-    const campaign = { operationId: 'local', name: 'Traffic', objective: 'traffic' as const, schedule: { window: { start: 1000, end: 5000 }, timezone: 'UTC' }, audience: { countries: ['US'] }, creativeIds: ['asset'], creativeDigest: 'a'.repeat(64), targets: [{ pluginId: 'meta-ads', connectionId: 'connection', accountId: '123', dailyBudget: { minorUnits: 500, currency: 'USD' }, expectedExposure: { minorUnits: 2000, currency: 'USD' } }] };
+    const campaign = { schemaVersion: 2 as const, operationId: 'local', name: 'Traffic', objective: 'traffic' as const, schedule: { window: { start: 1000, end: 5000 }, timezone: 'UTC' }, audience: { countries: ['US'] }, ads: [{ creativeId: 'asset', destinationUrl: 'https://example.test/landing' }], creativeDigest: 'a'.repeat(64), targets: [{ pluginId: 'meta-ads', connectionId: 'connection', accountId: '123', dailyBudget: { minorUnits: 500, currency: 'USD' }, expectedExposure: { minorUnits: 2000, currency: 'USD' } }] };
     const saved = value({ outcome: await first.repo.saveNeutral({ context, campaign }) });
     const reopened = createSqlCampaignRepo({ db: first.db });
     expect(value({ outcome: await reopened.getNeutral({ context, campaignId: saved.campaignId }) })).toEqual(saved);

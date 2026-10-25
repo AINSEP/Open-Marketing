@@ -401,8 +401,8 @@ function tikTokDeploymentResponse(required: { uri: URL; init?: RequestInit; rows
     required.rows.set(id, { ...fields, advertiser_id: '123', campaign_id: ids.campaign, ...(entity !== 'campaign' ? { adgroup_id: ids.adgroup } : {}), ...(entity === 'ad' ? { ad_id: id } : {}) });
     return Response.json({ code: 0, data: entity === 'ad' ? { ad_ids: [id] } : { [entity + '_id']: id } });
 }
-const socialCampaign: NeutralCampaignLaunch = { operationId: 'social-draft', name: 'Traffic', objective: 'traffic',
-    schedule: { window: { start: 1791849600000, end: 1792022400000 }, timezone: 'UTC' }, audience: { countries: ['US'] }, creativeIds: ['creative'], creativeDigest: 'a'.repeat(64),
+const socialCampaign: NeutralCampaignLaunch = { schemaVersion: 2, operationId: 'social-draft', name: 'Traffic', objective: 'traffic',
+    schedule: { window: { start: 1791849600000, end: 1792022400000 }, timezone: 'UTC' }, audience: { countries: ['US'] }, ads: [{ creativeId: 'creative', destinationUrl: 'https://example.test/landing' }], creativeDigest: 'a'.repeat(64),
     targets: ['meta-ads', 'linkedin-ads'].map(pluginId => ({ pluginId, connectionId: 'connection', accountId: '123', dailyBudget: { currency: 'USD', minorUnits: 4321 }, expectedExposure: { currency: 'USD', minorUnits: 10000 } })) };
 function socialMetadata(required: { pluginId: string }) {
     const common = { accountId: '123', currency: 'USD', currencyExponent: 2, timezone: 'UTC', creativeId: 'creative', creativeDigest: 'a'.repeat(64) };
@@ -412,10 +412,35 @@ function socialMetadata(required: { pluginId: string }) {
         ? { ...common, locations: [{ country: 'US', id: '6252001' }], creative: { adFormat: 'SINGLE_VIDEO', videoId: 'video', imageIds: ['cover'], identityId: 'identity', text: 'Visit us', landingPageUrl: 'https://example.test/landing' } }
         : { ...common, reference: 'urn:li:share:987', organizationId: '789', locale: { country: 'US', language: 'en' }, politicalIntent: 'NOT_POLITICAL', unitCost: { currency: 'USD', minorUnits: 237 }, locations: [{ country: 'US', id: '103644278' }] } };
 }
-/** Real grouped safety, real SQL outbox and actual plugin modules; fixture network only. */
+/** Prepared vendor plans isolate approval/outbox regressions from unsupported v2 translation.
+ * Only these two translators are doubled; deployment codecs/adapters and readback remain real.
+ */
+function usePreparedSocialPlans(required: { ports: Parameters<typeof bindAgentPluginBackends>[0] }): void {
+    const plans = {
+        'meta-ads': {
+            campaign: { kind: 'create-campaign', name: 'Traffic', objective: 'OUTCOME_TRAFFIC', specialAdCategories: [] },
+            adset: { kind: 'create-adset', name: 'Traffic', campaignId: { from: 'campaign' }, targeting: { countries: ['US'], age_min: 18, age_max: 65 }, billingEvent: 'IMPRESSIONS', optimizationGoal: 'LINK_CLICKS', dailyBudgetMinor: 4321, schedule: socialCampaign.schedule.window },
+            ad: { kind: 'create-ad', name: 'Traffic', creativeId: '987', adsetId: { from: 'adset' } },
+        },
+        'linkedin-ads': {
+            group: { kind: 'create_campaign_group_draft', name: 'Traffic', runSchedule: socialCampaign.schedule.window },
+            campaign: { kind: 'create_campaign_draft', name: 'Traffic', campaignGroupId: { from: 'group' }, organizationId: '789', locale: { country: 'US', language: 'en' }, geoIds: ['103644278'], dailyBudget: { amount: '43.21', currencyCode: 'USD' }, unitCost: { amount: '2.37', currencyCode: 'USD' }, costType: 'CPC', runSchedule: socialCampaign.schedule.window, politicalIntent: 'NOT_POLITICAL' },
+            creative: { kind: 'create_creative_draft', campaignId: { from: 'campaign' }, reference: 'urn:li:share:987' },
+        },
+    };
+    const load = required.ports.loadModule;
+    required.ports.loadModule = async input => {
+        const module = await load(input);
+        const pluginId = new URL(input.moduleUrl).pathname.split('/').at(-4);
+        if (pluginId !== 'meta-ads' && pluginId !== 'linkedin-ads') return module;
+        return { ...module, translateCampaign: () => ({ ok: true, value: plans[pluginId] }) };
+    };
+}
+/** Real grouped safety/SQL outbox and plugin deployment adapters; prepared social plans above. */
 async function deploymentFixture(required: Parameters<typeof socialVendor>[0] = {}) {
     const campaign = required.includeTikTok ? { ...socialCampaign, targets: [...socialCampaign.targets, { ...socialCampaign.targets[0], pluginId: 'tiktok-ads' }] } : socialCampaign;
     const vendor = socialVendor(required); const f = await fixture({ admitted: true, fetch: vendor.fetch });
+    usePreparedSocialPlans({ ports: f.ports });
     for (const [pluginId, state] of f.states) { state.enabled = ['meta-ads', 'linkedin-ads'].includes(pluginId) || (pluginId === 'tiktok-ads' && required.includeTikTok === true); state.metadata = { ...state.metadata, campaignFixture: socialMetadata({ pluginId }) }; }
     const confirmations = createMemoryConfirmationExchange({ clock, ids: f.ids });
     const prepared = value({ result: await f.binding.prepareCampaign({ context, campaign, operationId: 'social-launch' }) });
@@ -633,12 +658,25 @@ it('unadmitted preparation/dispatch and unresolved or incompatible metadata perf
         f.states.get('meta-ads')!.admitted = true;
         expect(await f.binding.prepareCampaign({ context, campaign: { ...socialCampaign, targets: [socialCampaign.targets[0]] }, operationId: 'missing' })).toMatchObject({ ok: false, error: { code: 'not_implemented' } });
         f.states.get('meta-ads')!.metadata.campaignFixture = socialMetadata({ pluginId: 'meta-ads' });
+        const loadModule = f.ports.loadModule;
+        usePreparedSocialPlans({ ports: f.ports });
         const call = value({ result: await f.binding.prepareCampaign({ context, campaign: { ...socialCampaign, targets: [socialCampaign.targets[0]] }, operationId: 'ready' }) })[0];
+        f.ports.loadModule = loadModule;
         f.states.get('meta-ads')!.admitted = false;
         expect(await f.binding.executeCampaign({ context, call, evidence: [], checkpoint: async () => ({ ok: true, value: undefined }) })).toMatchObject({ ok: false });
         f.states.get('meta-ads')!.admitted = true;
         expect(await f.binding.prepareCampaign({ context, campaign: { ...socialCampaign, audience: { countries: ['US'], searchTerms: ['cannot discard'] }, targets: [socialCampaign.targets[0]] }, operationId: 'incompatible' })).toMatchObject({ ok: false, error: { code: 'not_implemented' } });
         expect(f.accesses).toEqual([]); expect(f.calls).toEqual([]); expect(f.native.prepare('SELECT id FROM job').all()).toEqual([]);
+    } finally { f.close(); }
+});
+it.each(['meta-ads', 'linkedin-ads'])('rejects unverified %s destinations without credentials, egress or enqueue', async pluginId => {
+    const f = await fixture({ admitted: true, only: pluginId });
+    f.states.get(pluginId)!.metadata.campaignFixture = socialMetadata({ pluginId });
+    const campaign = { ...socialCampaign, targets: socialCampaign.targets.filter(target => target.pluginId === pluginId) };
+    try {
+        expect(await f.binding.prepareCampaign({ context, campaign, operationId: 'unverified-destination' })).toMatchObject({ ok: false, error: { code: 'not_implemented', message: expect.stringContaining('destination URL') } });
+        expect(f.accesses).toEqual([]); expect(f.calls).toEqual([]);
+        expect(f.native.prepare('SELECT id FROM job').all()).toEqual([]);
     } finally { f.close(); }
 });
 it('rejects duplicate step dispatch and foreign/oversized checkpoints in the owning journal', async () => {

@@ -8,9 +8,9 @@ export function CampaignRepoPortSuite(required: { create: () => CampaignRepoPort
   describe("CampaignRepoPort behavior", () => {
     it("persists one neutral local draft, deduplicates exact reuse and rejects changed/cross-scope reads", async () => {
       const port = await required.create();
-      const campaign = { operationId: 'neutral-local', name: 'Traffic', objective: 'traffic' as const,
+      const campaign = { schemaVersion: 2 as const, operationId: 'neutral-local', name: 'Traffic', objective: 'traffic' as const,
         schedule: { window: { start: 1000, end: 5000 }, timezone: 'UTC' }, audience: { countries: ['US'] },
-        creativeIds: ['creative'], creativeDigest: revisionDigest,
+        ads: [{ creativeId: 'creative', destinationUrl: 'https://example.test/landing' }], creativeDigest: revisionDigest,
         targets: [{ pluginId: 'fixture', connectionId: 'connection', accountId: 'account', dailyBudget: { minorUnits: 500, currency: 'USD' }, expectedExposure: { minorUnits: 2000, currency: 'USD' } }] };
       const first = value({ outcome: await port.saveNeutral({ context, campaign }) });
       expect(value({ outcome: await port.saveNeutral({ context, campaign }) })).toEqual(first);
