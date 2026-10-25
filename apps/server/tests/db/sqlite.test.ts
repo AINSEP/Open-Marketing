@@ -1,7 +1,7 @@
 import { sqliteKernel } from '@jini-ai/db/kernel/sqlite';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createCheckedSqliteClient, createSqlitePool, withTransaction, runMigrations, claimBatch } from '../../src/platform/jini-compat/db/src/index.js';
+import { createCheckedSqliteClient, createSqlitePool, withTransaction, runMigrations } from '../../src/platform/jini-compat/db/src/index.js';
 
 const handles: Database.Database[] = [];
 function fixture() {
@@ -44,21 +44,6 @@ describe('server-owned SQLite shim', () => {
         await expect(withTransaction({ pool, work: async tx => { await tx.query({ text: 'INSERT INTO items VALUES ($1)', values: ['rolled-back'] }); throw failure; } })).rejects.toMatchObject({ code: 'transaction_failed', cause: failure });
         await withTransaction({ pool, work: tx => tx.query({ text: 'INSERT INTO items VALUES ($1)', values: ['committed'] }) }, { observer: () => { throw new Error('telemetry'); } });
         expect(database.prepare('SELECT id FROM items').all()).toEqual([{ id: 'committed' }]);
-    });
-    it('isolates scoped bounded claims and never reclaims an uncertain processing job', async () => {
-        const { pool, database } = fixture();
-        database.exec(`CREATE TABLE om_outbox (id TEXT, tenant_id TEXT, workspace_id TEXT, status TEXT,
-            available_at TEXT, lease_until TEXT, attempts INTEGER, PRIMARY KEY (tenant_id, workspace_id, id));
-            INSERT INTO om_outbox VALUES ('same', 't', 'w', 'pending', '2026-01-01', NULL, 0);
-            INSERT INTO om_outbox VALUES ('same', 't', 'other', 'pending', '2026-01-01', NULL, 0);
-            INSERT INTO om_outbox VALUES ('unknown', 't', 'w', 'processing', '2026-01-01', '2026-01-01', 1);`);
-        const queue = { schema: 'om', table: 'outbox' };
-        const input = { pool, queue, allowedTables: [queue], tenantId: 't', workspaceId: 'w', limit: 1,
-            now: new Date('2026-01-02T00:00:00Z'), leaseUntil: new Date('2026-01-02T00:01:00Z') };
-        expect((await claimBatch(input)).map(row => row.id)).toEqual(['same']);
-        expect(await claimBatch(input)).toEqual([]);
-        expect(database.prepare("SELECT attempts FROM om_outbox WHERE workspace_id = 'other'").get()).toEqual({ attempts: 0 });
-        expect(database.prepare("SELECT attempts FROM om_outbox WHERE id = 'unknown'").get()).toEqual({ attempts: 1 });
     });
     it('rejects overlapping bodies before sharing a transaction and rejects use after release', async () => {
         const { pool } = fixture();

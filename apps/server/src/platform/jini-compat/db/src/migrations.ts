@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { sourceChecksum } from '@jini-ai/db/migrate';
 import { PgFoundationError, type PgPool, type PgQueryable } from './ports.js';
 import { withTransaction, type TransactionOptions } from './transaction.js';
 /** Trusted, transaction-compatible SQL only: no transaction control, concurrent indexes or external effects. */
@@ -44,7 +44,7 @@ function prepareMigration(migration: Migration): PreparedMigration {
     if (!migration.sql.trim() || Buffer.byteLength(migration.sql) > 1024 * 1024) {
         throw new PgFoundationError({ code: 'invalid_migration', message: 'Migration SQL must contain 1 byte to 1 MiB' });
     }
-    return { ...migration, checksum: createHash('sha256').update(migration.sql).digest('hex') };
+    return { ...migration, checksum: sourceChecksum(migration.sql) };
 }
 interface AppliedMigration extends Record<string, unknown> {
     version: string;

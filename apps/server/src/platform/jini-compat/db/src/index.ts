@@ -2,5 +2,4 @@
 export * from './ports.js';
 export * from './transaction.js';
 export * from './migrations.js';
-export * from './claim-batch.js';
 export { createCheckedSqliteClient, createSqlitePool, type SqlitePool } from './sqlite.js';
