@@ -2,10 +2,11 @@
   "$schema": "https://agent-plugins.org/schemas/1.1.0/plugin.schema.json",
   "name": "apple-search-ads",
   "version": "0.1.0",
-  "description": "Apple organization discovery, campaign pages and daily reports; disabled until server admission.",
+  "description": "Apple organization/campaign reads, daily reports and PAUSED install deployment; disabled fixture implementation.",
   "license": "Apache-2.0",
   "extensions": { "io.github.ainsep.openmarketing": { "version": 1, "enabled": false, "admitted": false, "capabilities": [
-    {"capabilityId": "campaign.read.v1", "version": 1, "pluginId": "apple-search-ads", "schemaFingerprint": "6cea91330c02cca56ab1369e7a2f1ea44ca58dc3bcdcacfedf2d776e5a9e205a", "admitted": false, "effects": ["read"]},
-    {"capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "apple-search-ads", "schemaFingerprint": "6cea91330c02cca56ab1369e7a2f1ea44ca58dc3bcdcacfedf2d776e5a9e205a", "admitted": false, "effects": ["read"]}
+    {"capabilityId": "campaign.read.v1", "version": 1, "pluginId": "apple-search-ads", "schemaFingerprint": "0fb783574573c8d6b3c17acd5b124fa5d6093b7684c870445715deb1b8e431ac", "admitted": false, "effects": ["read"]},
+    {"capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "apple-search-ads", "schemaFingerprint": "0fb783574573c8d6b3c17acd5b124fa5d6093b7684c870445715deb1b8e431ac", "admitted": false, "effects": ["read"]},
+    {"capabilityId": "campaign.create-draft.v1", "version": 1, "pluginId": "apple-search-ads", "schemaFingerprint": "7d60ab48dbd46edb554ef0c40c0661090e6c014063154ab1ff59f30c88c97b0a", "admitted": false, "effects": ["write"]}
   ] } }
 }

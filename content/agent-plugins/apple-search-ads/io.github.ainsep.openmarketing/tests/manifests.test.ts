@@ -13,9 +13,14 @@ it("advertises exactly the three implemented reads, disabled with matching sourc
   const hash = createHash("sha256");
   for (const file of ["commands", "reporting", "transport"]) hash.update(readFileSync(new URL("../src/" + file + ".ts", import.meta.url)));
   const fingerprint = hash.digest("hex");
-  expect(capabilities.capabilities).toEqual(["campaign.read.v1", "report.account-spend.v1"].map(capabilityId => ({ capabilityId, version: 1, pluginId: "apple-search-ads", schemaFingerprint: fingerprint, admitted: false, effects: ["read"] })));
+  const deploymentHash = createHash("sha256");
+  for (const file of ["campaign-translation", "campaign-deployment"]) deploymentHash.update(readFileSync(new URL("../src/" + file + ".ts", import.meta.url)));
+  expect(capabilities.capabilities).toEqual([
+    ...["campaign.read.v1", "report.account-spend.v1"].map(capabilityId => ({ capabilityId, version: 1, pluginId: "apple-search-ads", schemaFingerprint: fingerprint, admitted: false, effects: ["read"] })),
+    { capabilityId: "campaign.create-draft.v1", version: 1, pluginId: "apple-search-ads", schemaFingerprint: deploymentHash.digest("hex"), admitted: false, effects: ["write"] },
+  ]);
   expect(extension.capabilities).toEqual(capabilities.capabilities); expect(capabilities.admitted).toBe(false);
-  expect(capabilities.deployment).toBeUndefined();
+  expect(capabilities.deployment).toEqual({ capabilityId: "campaign.create-draft.v1", create: "deployCampaignPaused", read: "readCampaignDeployment", planSchema: "campaignDeploymentPlanSchema", admitted: false });
   const evidence = JSON.parse(readFileSync(new URL("../evidence/primary-sources.json", import.meta.url), "utf8"));
   expect(evidence.apiVersion).toBe("v5"); expect(evidence.admitted).toBe(false);
   expect(evidence.facts.length).toBeGreaterThan(0);

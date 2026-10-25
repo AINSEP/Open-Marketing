@@ -1,6 +1,6 @@
-# Apple Search Ads — R1
+# Apple Search Ads — R1 + R2
 
-Disabled/unadmitted v5 fixture implementation: accessible organizations (`list_accounts`), campaign pages (`list_campaigns`), daily campaign reports (`report`). It is not wired into OM yet. No deployment capability or placeholder is advertised.
+Disabled/unadmitted v5 fixture implementation: accessible organizations (`list_accounts`), campaign pages (`list_campaigns`), daily campaign reports (`report`) and PAUSED install deployment. It is not wired into OM yet.
 
 ## Connection
 
@@ -20,7 +20,7 @@ One fixed HTTPS v5 request, 64 KiB input/request, 1 MiB streamed response, 15-se
 
 Integrator: add Apple catalog/invoke branches and the exact `list_accounts`/`accountId:null` exception to server binding; preserve scoped connection and final authority checks. Append this package to root `om:build-plugins`, and bind `tests/contract/dispatch-suite.ts` to the real server adapter. Remove no restrictions or gates elsewhere in this lane. Existing bundled-only host checks conflict with owner upload policy and remain integrator work.
 
-Apple [marks Campaign Management API deprecated](https://developer.apple.com/documentation/apple_ads/useracllistresponse). Exact sunset/support evidence is unverified: establish support before live admission. Platform API v1 is a separate replacement decision; there is no fallback. R2 PAUSED deployment, the campaigns owner's `app_install` objective, production app/creative resolution and DS2 connection/UI guidance remain deferred. No conversion upload, browser OAuth, signing-key custody, migration or dependency addition.
+Apple [marks Campaign Management API deprecated](https://developer.apple.com/documentation/apple_ads/useracllistresponse). Exact sunset/support evidence is unverified: establish support before live admission. Platform API v1 is a separate replacement decision; there is no fallback. The campaigns owner's `app_install` objective, production app/creative resolution and DS2 connection/UI guidance remain deferred. No conversion upload, browser OAuth, signing-key custody, migration or dependency addition.
 
 ## Verification handoff
 
@@ -42,3 +42,24 @@ Static function review (runtime evidence remains INCONCLUSIVE because test execu
 | decode, decodeList, observe | INCONCLUSIVE | No unresolved static finding | Strip provider extras; isolate observer failures |
 
 Skepticism pass checked misleading variable names, unsafe integer conversion, duplicate campaign/date rows, partial invalid pages, caller mutation across awaits, token echoes, input/response bounds and final authority ownership. No unresolved Critical/High semantic findings recorded. All seams have direct fixture inputs; adapter tests assert public receipts and outbound bytes, with mixed-validity regressions. Coverage and mechanical lint metrics were not measured under the dispatch's no-test/no-build limits. Native fetch and abort/listener callbacks retain their foreign ABIs; owned boundaries take object arguments. No certified tests were changed. Runtime self-validation is unrun for the same instruction.
+
+## R2 paused deployment and handoff
+
+Public entry adds `translateCampaign({campaign, target, resolved})`, `campaignDeploymentPlanSchema`, `deployCampaignPaused({context, operationId, plan, dependencies, checkpoint}, {signal})`, and `readCampaignDeployment({context, operationId, plan, dependencies, references}, {signal})`. Outcomes retain `{status, entityIds, references, hierarchy}`. `app_install` alone is supported, with one OM creative, countries only, Search Match/manual CPC bid and finite UTC schedule. Explicit search terms, other placements, creative creation and activation are unsupported. Resolved metadata is strict: `{accountId, adamId, appleCreativeId, creativeId, creativeDigest, currency, currencyExponent, timezone:'UTC', bid:{minorUnits,currency}}`. Payload int64 IDs must fit safe JSON integers; monetary formatting/comparison never uses floating-point division.
+
+Translation freezes the app/creative, countries, budget, bid, dates, placement and three PAUSED statuses before approval. The executor [preflights the existing creative](https://developer.apple.com/documentation/apple_ads/get-a-creative?changes=_1), creates campaign → ad group → ad and verifies each parent before its child. Readbacks require matching scope/identity/configuration, `PAUSED`, `NOT_RUNNING` and `deleted:false`; numeric money equivalence, reordered countries and documented suffix-free UTC timestamps normalize safely. Missing or contradictory evidence stops with `unknown`, preserving validated IDs. No rollback, activation, create retry, discovery scan or automatic continuation exists.
+
+The host MUST use the existing grouped exact card/outbox and reject repeated dispatch checkpoints across crashes. `checkpoint({step:'campaign'|'adgroup'|'ad', phase:'dispatch'|'acknowledged', references})` journals isolated ID snapshots; failed/thrown checkpoints stop. Each request obtains fresh credentials and rechecks admission/expiry/cancellation; guarded fetch owns final authority/halt/approval checks and durable audit. Unknown creates without an ID cannot be resolved here. Recovery reads saved IDs only, even if a write could complete the hierarchy. No vendor idempotency header or guarantee is invented.
+
+Integrator NEEDS: Apple catalog/invoke/deployment branches in `apps/server/src/composition/agent-plugin-backends.ts`, root `om:build-plugins` entry and host acceptance tests; use these public exports with existing guarded credential/egress fences and map saved journal references for reconciliation. Campaigns owner adds `app_install` to `features/campaigns/src/neutral-launch.ts` and tests; integrator updates traffic-only wording in server campaign composition. Production metadata resolution and DS2 guidance/objective/card surfaces remain outstanding. No shared file, contracts package, dependency, migration or other plugin changed in R2.
+
+R2 fixture tests cover translation, unsupported plans, authority denial, parent mismatch, unsafe IDs, readback drift, checkpoint loss, partial references, uncertain creates, repeated-intent fencing and GET-only recovery. Tests/builds/om:check/runtime validation are deliberately unrun. Static architecture review: pure translation, injected I/O/clock, public contracts imports, one host-owned policy/outbox and lane-only files. Function assessment remains INCONCLUSIVE pending runtime evidence: translation/plan validation, snapshot/decimal conversion, executor/checkpoints, response matching and credential/transport fences have direct fixture seams. Public exports/boundary constraints are documented; tiny private mappers inherit their caller's assessment. No mechanical lint/coverage claim is made.
+
+R2 verification (2026-10-24): the sole `corepack pnpm run typecheck` in this package passed, exit 0; lane whitespace review passed. No tests, builds, installs, vendor calls, commits or pushes. Static skepticism rechecked variable meanings, money precision, unsafe IDs, cross-await mutation, partial references and repeated intents; no unresolved static finding recorded. Coverage/runtime behavior remain unverified under the dispatch limits.
+
+| Assessment units | Disposition | Findings | Local review/fix |
+| --- | --- | --- | --- |
+| translateCampaign, validPlan, formatMoney | INCONCLUSIVE | Runtime evidence unavailable | Freeze all launch fields; reject unsupported intent |
+| snapshot, decimalUnits, decodeRow, creationRequest, checkInput | INCONCLUSIVE | Runtime evidence unavailable | Bound snapshots; safe integer IDs; exact decimal scale; fixed paths |
+| deployCampaignPaused, readCampaignDeployment, createStep, readStep, checkpoint, receipt | INCONCLUSIVE | Runtime evidence unavailable | Stop before children; preserve references; read-only recovery |
+| send, dispatchAllowed, futureStart, observe | INCONCLUSIVE | Runtime evidence unavailable | Reuse bounded transport; extract pre/post-credential fences; sanitize telemetry |

@@ -6,7 +6,8 @@ import type { AppleRequest, ParsedCommand } from "./commands.js";
 import { decodeReport } from "./reporting.js";
 import type { AppleSearchAdsReport } from "./reporting.js";
 
-const configurationSchema = z.strictObject({ scope: scopeSchema, connectionId: idSchema, accountId: vendorIdSchema.nullable(), currency: z.string().regex(/^[A-Z]{3}$/).nullable() });
+/** Internal read/deployment boundary; only discovery may use the nullable account. */
+export const configurationSchema = z.strictObject({ scope: scopeSchema, connectionId: idSchema, accountId: vendorIdSchema.nullable(), currency: z.string().regex(/^[A-Z]{3}$/).nullable() });
 const invocationSchema = z.strictObject({ context: callContextSchema, operationId: idSchema, command: commandSchema });
 const credentialSchema = z.strictObject({ accessToken: z.string().min(1).max(4096).regex(/^[\x21-\x7e]+$/), expiresAt: epochSchema.optional() });
 const account = z.object({ orgId: responseIdSchema, orgName: z.string().max(1024), currency: z.string().regex(/^[A-Z]{3}$/), timeZone: z.string().max(128), roleNames: z.array(z.string().max(128)).max(32) });
@@ -95,7 +96,7 @@ async function dispatch(required: { prepared: Prepared; dependencies: AppleSearc
 }
 
 /** Parse broker output and scrub its errors; credentials never enter results or telemetry. @complexity O(1), one broker call. */
-async function resolveCredential(required: { dependencies: AppleSearchAdsDependencies; configuration: AppleSearchAdsConfiguration }, optional?: CallOptions): Promise<Outcome<z.infer<typeof credentialSchema>>> {
+export async function resolveCredential(required: { dependencies: AppleSearchAdsDependencies; configuration: AppleSearchAdsConfiguration }, optional?: CallOptions): Promise<Outcome<z.infer<typeof credentialSchema>>> {
   const result = await required.dependencies.credentials.access({ connectionId: required.configuration.connectionId, accountId: required.configuration.accountId }, optional);
   if (!result.ok) {
     const error = appErrorSchema.safeParse(result.error);
@@ -122,7 +123,7 @@ function checkTime(required: { dependencies: AppleSearchAdsDependencies; prepare
 /** Fixed HTTPS URL, no redirects, <=64KiB request, 15s fetch/body deadline; no automatic retry.
  * @complexity O(b) time/space, b<=1MiB. Foreign fetch errors stay inside this boundary.
  */
-async function send(required: { dependencies: AppleSearchAdsDependencies; request: AppleRequest; token: string; accountId: string | null }, optional?: CallOptions): Promise<Outcome<unknown>> {
+export async function send(required: { dependencies: AppleSearchAdsDependencies; request: AppleRequest; token: string; accountId: string | null }, optional?: CallOptions): Promise<Outcome<unknown>> {
   if (Buffer.byteLength(required.request.body ?? "") > 65536) return failure({ code: "limit_exceeded" });
   const signal = AbortSignal.any([AbortSignal.timeout(15000), ...(optional?.signal ? [optional.signal] : [])]);
   try {

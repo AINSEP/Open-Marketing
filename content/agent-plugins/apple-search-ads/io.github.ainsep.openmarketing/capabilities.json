@@ -1,13 +1,15 @@
 {
   "version": 1, "admitted": false,
   "capabilities": [
-    {"capabilityId": "campaign.read.v1", "version": 1, "pluginId": "apple-search-ads", "schemaFingerprint": "6cea91330c02cca56ab1369e7a2f1ea44ca58dc3bcdcacfedf2d776e5a9e205a", "admitted": false, "effects": ["read"]},
-    {"capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "apple-search-ads", "schemaFingerprint": "6cea91330c02cca56ab1369e7a2f1ea44ca58dc3bcdcacfedf2d776e5a9e205a", "admitted": false, "effects": ["read"]}
+    {"capabilityId": "campaign.read.v1", "version": 1, "pluginId": "apple-search-ads", "schemaFingerprint": "0fb783574573c8d6b3c17acd5b124fa5d6093b7684c870445715deb1b8e431ac", "admitted": false, "effects": ["read"]},
+    {"capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "apple-search-ads", "schemaFingerprint": "0fb783574573c8d6b3c17acd5b124fa5d6093b7684c870445715deb1b8e431ac", "admitted": false, "effects": ["read"]},
+    {"capabilityId": "campaign.create-draft.v1", "version": 1, "pluginId": "apple-search-ads", "schemaFingerprint": "7d60ab48dbd46edb554ef0c40c0661090e6c014063154ab1ff59f30c88c97b0a", "admitted": false, "effects": ["write"]}
   ],
   "tools": [
     {"name": "list_accounts", "effects": ["read"], "capabilityId": "campaign.read.v1"},
     {"name": "list_campaigns", "effects": ["read"], "capabilityId": "campaign.read.v1"},
     {"name": "report", "effects": ["read"], "capabilityId": "report.account-spend.v1"}
   ],
-  "fingerprintBasis": "SHA-256 of concatenated src/commands.ts + src/reporting.ts + src/transport.ts bytes in that order; compatibility metadata only, never plugin trust or an allowlist."
+  "deployment": {"capabilityId": "campaign.create-draft.v1", "create": "deployCampaignPaused", "read": "readCampaignDeployment", "planSchema": "campaignDeploymentPlanSchema", "admitted": false},
+  "fingerprintBasis": "SHA-256 of concatenated src/commands.ts + src/reporting.ts + src/transport.ts for reads; src/campaign-translation.ts + src/campaign-deployment.ts for deployment. Compatibility metadata only, never plugin trust or an allowlist."
 }
