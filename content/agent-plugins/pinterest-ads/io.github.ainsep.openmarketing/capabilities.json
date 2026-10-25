@@ -1,6 +1,13 @@
 {
   "version": 1, "admitted": false,
-  "capabilities": [{"capabilityId": "campaign.read.v1", "version": 1, "pluginId": "pinterest-ads", "schemaFingerprint": "5cfe4e48033b17be2a757e3264fa7e6be0f6ed8429ecdebbb296564d6270bd9a", "admitted": false, "effects": ["read"]}, {"capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "pinterest-ads", "schemaFingerprint": "6cf944edbba975e9dc4b67cff9795df2b7e18d2d752c387eace65c3a22ea1f3f", "admitted": false, "effects": ["read"]}],
+  "capabilities": [
+    {"capabilityId": "campaign.read.v1", "version": 1, "pluginId": "pinterest-ads", "schemaFingerprint": "5cfe4e48033b17be2a757e3264fa7e6be0f6ed8429ecdebbb296564d6270bd9a", "admitted": false, "effects": ["read"]},
+    {"capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "pinterest-ads", "schemaFingerprint": "6cf944edbba975e9dc4b67cff9795df2b7e18d2d752c387eace65c3a22ea1f3f", "admitted": false, "effects": ["read"]},
+    {"capabilityId": "campaign.create-paused.v1", "version": 1, "pluginId": "pinterest-ads", "schemaFingerprint": "784d3ea5a26eaeab507234be1314722cc9d5033c00bafdcbc67f97eaf9cda20c", "admitted": false, "effects": ["write"]},
+    {"capabilityId": "conversion.deliver.v1", "version": 1, "pluginId": "pinterest-ads", "schemaFingerprint": "9096cf59a739ff0322a90ad494b052b843723992076b2d264deac104b475ddda", "admitted": false, "effects": ["conversion"]}
+  ],
   "tools": [{"name": "list_accounts", "effects": ["read"], "capabilityId": "campaign.read.v1"}, {"name": "list_campaigns", "effects": ["read"], "capabilityId": "campaign.read.v1"}, {"name": "report", "effects": ["read"], "capabilityId": "report.account-spend.v1"}],
-  "fingerprintBasis": "SHA-256 of src/commands.ts (reads), src/reporting.ts (reports); compatibility metadata only."
+  "fingerprintBasis": "SHA-256 of commands.ts (reads), reporting.ts (reports), campaign-translation.ts (paused plan), capi.ts (backend conversion). Source compatibility metadata only; never plugin trust restrictions.",
+  "deployment": {"capabilityId": "campaign.create-paused.v1", "create": "deployCampaignPaused", "read": "readCampaignDeployment", "planSchema": "campaignDeploymentPlanSchema", "admitted": false},
+  "backendConversion": {"capabilityId": "conversion.deliver.v1", "effects": ["conversion"], "agentTool": false}
 }

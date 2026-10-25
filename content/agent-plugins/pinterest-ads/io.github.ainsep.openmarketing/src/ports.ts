@@ -11,11 +11,13 @@ export interface PinterestConfiguration {
   readonly pluginDigest: string;
   readonly bindingId: string;
 }
-/** Server broker owns scope checks (ads:read), token custody and refresh; expiry is epoch ms. */
+/** Server broker owns required scope checks (ads:read/ads:write), token custody and refresh; expiry is epoch ms. */
 export interface PinterestCredentialPort {
   access(required: { connectionId: string; accountId: string | null }, optional?: CallOptions): Promise<Outcome<{ accessToken: string; expiresAt?: number }>>;
 }
 export interface PinterestWireRequest { readonly method: "GET"; readonly url: string }
+/** Internal finite deployment/CAPI request; never exposed as a standalone assistant tool. */
+export interface PinterestWriteRequest { readonly method: "GET" | "POST"; readonly url: string; readonly body?: string }
 export interface PinterestResult { readonly operationId: string; readonly status: "succeeded"; readonly observedState: "unknown"; readonly data: unknown }
 export interface PinterestInvocation { readonly context: CallContext; readonly operationId: string; readonly command: PinterestCommand }
 /** Recheck current admission/connection/account after token lookup, then execute under the server

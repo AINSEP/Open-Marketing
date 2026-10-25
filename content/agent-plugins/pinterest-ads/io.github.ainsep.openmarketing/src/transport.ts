@@ -1,13 +1,14 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { digestSchema, epochSchema, idSchema, parseBoundary, scopeSchema } from "@open-marketing/contracts";
-import type { CallOptions, EffectEnvelope, Outcome } from "@open-marketing/contracts";
+import type { CallContext, CallOptions, EffectEnvelope, Outcome } from "@open-marketing/contracts";
 import { cursor, encodeCommand, invocationSchema, vendorId } from "./commands.js";
 import { failure } from "./ports.js";
-import type { PinterestAdsAdapter, PinterestDependencies, PinterestInvocation, PinterestResult, PinterestWireRequest } from "./ports.js";
+import type { PinterestAdsAdapter, PinterestDependencies, PinterestInvocation, PinterestResult, PinterestWireRequest, PinterestWriteRequest } from "./ports.js";
 import { decodeReport } from "./reporting.js";
 
-const configurationSchema = z.strictObject({ scope: scopeSchema, connectionId: idSchema, accountId: vendorId.nullable(), currency: z.string().regex(/^[A-Z]{3}$/).nullable(), apiVersion: z.literal("v5"), pluginDigest: digestSchema, bindingId: idSchema });
+/** Shared binding schema for reads and internal server jobs; parsing performs no effects. */
+export const configurationSchema = z.strictObject({ scope: scopeSchema, connectionId: idSchema, accountId: vendorId.nullable(), currency: z.string().regex(/^[A-Z]{3}$/).nullable(), apiVersion: z.literal("v5"), pluginDigest: digestSchema, bindingId: idSchema });
 const credentialSchema = z.strictObject({ accessToken: z.string().min(1).max(4096).regex(/^[\x21-\x7e]+$/), expiresAt: epochSchema.optional() });
 const account = z.object({ id: vendorId, name: z.string().max(256).optional(), currency: z.string().regex(/^[A-Z]{3}$/).optional(), time_zone: z.string().min(1).max(128).optional() });
 const campaign = z.object({ id: vendorId, ad_account_id: vendorId, name: z.string().max(256).optional(), status: z.enum(["ACTIVE", "PAUSED", "ARCHIVED", "DRAFT", "DELETED_DRAFT"]).optional() });
@@ -89,6 +90,59 @@ async function send(required: { dependencies: PinterestDependencies; prepared: P
     if (!decoded.ok) return decoded;
     return { ok: true, value: { operationId: required.prepared.invocation.operationId, status: "succeeded", observedState: "unknown", data: decoded.value } };
   } catch { return failure({ code: options?.signal?.aborted ? "cancelled" : "unavailable" }); }
+}
+
+/** Snapshot JSON before awaits; reject oversized or unserializable boundaries. O(b), b<=64KiB. */
+export function boundInput(required: { input: unknown }): Outcome<unknown> {
+  try {
+    const bytes = JSON.stringify(required.input);
+    if (bytes === undefined || Buffer.byteLength(bytes) > 65536) return failure({ code: "limit_exceeded" });
+    return { ok: true, value: JSON.parse(bytes) as unknown };
+  } catch { return failure({ code: "invalid_input" }); }
+}
+
+/** Fresh broker lookup; validate tainted token and redact opaque broker faults. O(1) I/O. */
+export async function resolveCredential(required: { dependencies: Omit<PinterestDependencies, "gateway"> }, optional?: CallOptions): Promise<Outcome<z.infer<typeof credentialSchema>>> {
+  const { dependencies } = required;
+  if (!dependencies.admitted) return failure({ code: "forbidden" });
+  if (optional?.signal?.aborted) return failure({ code: "cancelled" });
+  try {
+    const token = await dependencies.credentials.access({ connectionId: dependencies.configuration.connectionId, accountId: dependencies.configuration.accountId }, optional);
+    if (!token.ok) return failure({ code: token.error.code });
+    const parsed = credentialSchema.safeParse(token.value);
+    return parsed.success ? { ok: true, value: parsed.data } : failure({ code: "protocol_mismatch" });
+  } catch { return failure({ code: "unavailable" }); }
+}
+
+/** Shared fixed-origin transport, final synchronous fence, no redirects/retries; body/status stay private.
+ * Host-fenced fetch owns durable egress audit/current approval. O(b), <=1MiB and <=15s per call.
+ */
+export async function requestPinterest(required: { dependencies: Omit<PinterestDependencies, "gateway">; context: Pick<CallContext, "correlationId" | "traceId" | "runId">; request: PinterestWriteRequest; credential: z.infer<typeof credentialSchema>; isCurrent: () => boolean }, optional?: CallOptions): Promise<Outcome<{ status: number; body: unknown }>> {
+  const { dependencies, request, credential } = required;
+  let result: Outcome<{ status: number; body: unknown }>;
+  try {
+    const deadline = dependencies.deadline({ timeoutMs: 15000 });
+    const signal = optional?.signal ? AbortSignal.any([deadline, optional.signal]) : deadline;
+    if (signal.aborted) return failure({ code: "cancelled" });
+    const checked = checkEgress(required);
+    if (!checked.ok) return checked;
+    const response = await dependencies.fetch(request.url, { method: request.method, body: request.body, redirect: "error", signal, headers: { Authorization: "Bearer " + credential.accessToken, Accept: "application/json", "Content-Type": "application/json" } });
+    const body = await readBody({ response, signal });
+    result = body.ok ? { ok: true, value: { status: response.status, body: body.value } } : body;
+  } catch { result = failure({ code: optional?.signal?.aborted ? "cancelled" : "unavailable" }); }
+  try { dependencies.observer.observe({ operation: "pinterest-ads.http", outcome: result.ok ? String(result.value.status) : result.error.code, ...required.context }); }
+  catch { /* Durable audit remains host-owned; telemetry cannot erase an outcome. */ }
+  return result;
+}
+
+/** Synchronous final transport checks; the injected fetch supplies the host's current authority. O(1). */
+function checkEgress(required: { dependencies: Omit<PinterestDependencies, "gateway">; request: PinterestWriteRequest; credential: z.infer<typeof credentialSchema>; isCurrent: () => boolean }): Outcome<void> {
+  if (!required.request.url.startsWith("https://api.pinterest.com/v5/ad_accounts")) return failure({ code: "invalid_input" });
+  const now = required.dependencies.clock.now({});
+  if (!epochSchema.safeParse(now).success) return failure({ code: "invalid_input" });
+  if (required.credential.expiresAt !== undefined && now >= required.credential.expiresAt) return failure({ code: "expired" });
+  if (!required.dependencies.admitted || !required.isCurrent()) return failure({ code: "forbidden" });
+  return { ok: true, value: undefined };
 }
 function statusFailure(required: { status: number }): Outcome<never> {
   switch (required.status) {
