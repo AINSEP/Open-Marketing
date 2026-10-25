@@ -1,0 +1,77 @@
+{
+  "version": "1.0.0",
+  "topics": [
+    {
+      "id": "workspaces",
+      "title": "Workspaces and account scope",
+      "summary": "Work within the authenticated workspace and its account bindings.",
+      "explanation": "The server derives workspace and owner scope from verified authentication. Start with om_workspace_current; use om_workspaces_list or om_account_binding_get when connected. Tool arguments cannot select another caller's identity. Workspace listing does not switch the session or bind an account: those actions require the owning authenticated workflow, currently unavailable as catalog actions. Live facts show only the current workspace."
+    },
+    {
+      "id": "creative",
+      "title": "Creative generation and Higgsfield",
+      "summary": "Request generation, inspect status and cancel, with a configurable daily allowance.",
+      "explanation": "The creative lifecycle persists generation intent and jobs, with status, cancellation and cost provenance. Current om_creative_generate composition accepts only model sandbox with a zero-cost fixture backend; it does not produce live Higgsfield media. The separate Higgsfield plugin ships disabled/unadmitted and needs a verified host binding and pricing before live generation. Default generation allowance is $10/day, configurable with an owner timezone. Known-cost generation within allowance uses ordinary write grants, including Always allow. Over-allowance or unknown-cost generation requires explicit spend approval with no reusable waiver. An allowance setting is not remaining balance or a price quote. Read current facts before acting and use tool results as execution evidence."
+    },
+    {
+      "id": "media",
+      "title": "Media library and rights",
+      "summary": "List assets, import with rights evidence, create placement crops and append provenance.",
+      "explanation": "The server binds durable scoped media storage and guarded imports. Discover om_media_list, om_media_import, om_media_crop and om_media_record_provenance. Imports require an expected digest and rights evidence; placement crops are non-destructive. Provenance and cost evidence append rather than rewriting history. Availability depends on actual composition: if om_media_list is absent or fails, facts say unavailable, never an invented empty library. Help reads one page of at most five asset IDs, without blob addresses or private provenance. Import and transform failures remain explicit tool results."
+    },
+    {
+      "id": "campaigns",
+      "title": "Campaign drafts and paused deployment",
+      "summary": "Save neutral drafts, review one grouped exact launch card and deploy only PAUSED/DRAFT.",
+      "explanation": "Use om_campaign_save_local and om_campaign_get_local for neutral campaign drafts. om_campaign_deploy_paused prepares ONE grouped exact launch card containing each destination, finite vendor call, budget and schedule. Approval covers those exact calls only; each call rechecks current authority. Google and Meta adapters support PAUSED creation and LinkedIn DRAFT creation with readback; TikTok deployment and other destinations must be checked against actual connected bindings and may be unavailable. Plugin presence, saved tokens and catalog membership do not establish vendor admission or production readiness. Unadmitted/unsupported targets fail before approval. Creation and reconciliation verify paused/draft hierarchy; unknown outcomes reconcile rather than blindly retry. Activation is currently unavailable and cannot be inferred from launch approval."
+    },
+    {
+      "id": "measurement",
+      "title": "Measurement and conversions",
+      "summary": "Create tracked links and inspect scoped CAC reports; conversions remain typed server jobs.",
+      "explanation": "Discover om_measure_create_link and om_measure_report_cac. Current reporting composition provides explicitly labelled sandbox-account fixtures, not live vendor performance. Conversion ingestion and delivery require verified sources and a narrow server measurement grant, dispatch-time consent recheck and egress audit. They are not arbitrary agent tools. Local sandbox conversion delivery is denied; production job/grant storage and some vendor mappings remain unavailable. Do not claim conversions were delivered or real spend was observed from a fixture report."
+    },
+    {
+      "id": "contacts",
+      "title": "Contacts, consent and erasure",
+      "summary": "Resolve or update contacts, merge identities and request tracked privacy erasure.",
+      "explanation": "Connected tools resolve/upsert contacts and merge identity lineage within the caller's workspace. Merging and privacy erasure retain destructive exact confirmation. om_privacy_request_erasure begins the owning workflow; om_privacy_status checks its result. A request is not proof that erasure has finished. Consent and suppression are owned by policy and rechecked before conversion dispatch; the guide offers no consent bypass. Help never lists contact records or personal identifiers."
+    },
+    {
+      "id": "forms-events",
+      "title": "Forms and web events",
+      "summary": "Publish validated forms, preview them, read submissions and connect verified attribution events.",
+      "explanation": "Use om_forms_publish, om_forms_preview and om_forms_submissions when connected. The server validates publication fields and consent, serves hosted forms and owns verified public submission ingress. om_web_events_snippet returns the fixed collector snippet; om_web_events_touches reads attribution for a specific subject and bounded window. Visitor binding requires a scoped, unexpired verified visit token. Help does not enumerate submissions, visit tokens or attribution records. A snippet or publication receipt does not prove that a browser has delivered an event."
+    },
+    {
+      "id": "integrations",
+      "title": "Integrations and sign-in",
+      "summary": "Inspect saved connections; use supported OAuth or owner-only paste-token ingress.",
+      "explanation": "integrations_list returns secret-free saved/reconnect_required/disconnected status, not a live verification probe. OAuth start/status tools are available for supported configured providers; Google, LinkedIn and Meta have implemented sign-in paths. TikTok OAuth remains unavailable until its own binding lands. The human completes sign-in in the browser or existing CLI workflow. Developer application client configuration is owner-only sealed ingress. Paste API tokens through Add-ons integrations or the CLI stdin workflow, never chat or tool arguments. Server-owned credential custody and plugin admission still apply after saving a connection. Help projects plugin IDs and statuses only."
+    },
+    {
+      "id": "addons",
+      "title": "Plugins, agent plugins, skills and charts",
+      "summary": "Upload, enable, inspect and remove add-ons through one existing lifecycle.",
+      "explanation": "Add-ons includes Plugins, Agent Plugins, Skills and Integrations. Use addons_list, addons_install, addons_set_enabled and addons_uninstall; installation alone does not enable a package. Discover enabled instruction sources with search_tools and load selected skills. om-playbook remains disabled by default: built-in site_guide works independently, while its packaged skills require enabling the agent plugin. Uploaded plugins, including browser chart providers, may run on the studio origin without an allowlist, digest pin or sandbox. Integrity maps check corruption. Chart provider inventory comes from om_chart_providers_list and the neutral UI chart contract; no npm chart libraries belong in OM. Uploaded executable vendor backend loading remains unavailable; uploaded instructions/MCP retain the existing lifecycle. Missing provider bindings cannot be repaired by help text."
+    },
+    {
+      "id": "safety",
+      "title": "Approval policy and halt",
+      "summary": "One server policy admits reads and requires exact authority for irreversible actions.",
+      "explanation": "Admitted read-only tools, including site_guide, run without a card. Other tools use the generic exact card and server policy. Ad spend needs exact confirmation for EVERY call, with no budget envelope, reallocation authority, Always allow or chat-wide spend waiver. Grouped campaign review freezes its finite exact calls. Destructive calls retain exact confirmation. Known generation within the configurable default $10/day allowance uses normal write grants, including Always allow; unknown or over-allowance cost needs explicit spend approval. Only the human answers cards. om_halt_account records local durable halt first. Remote pause/stop needs typed backend targets and authority; current remote status may remain pending and must not be reported as stopped. Plugins cannot weaken policy; every dispatch rechecks authority."
+    },
+    {
+      "id": "settings",
+      "title": "Settings and appearance",
+      "summary": "Choose assistant settings, adjust generation allowance and use the bound studio appearance controls.",
+      "explanation": "om_assistant_settings_get and om_assistant_settings_set inspect and change Sandbox/Anthropic model selection; configuration and API keys stay on the server, with owner approval for settings changes. om_allowance_get and om_allowance_set use the configurable daily generation allowance and timezone. For appearance, use connected page tools to navigate to Settings, inspect current elements and use the actual appearance-mode handle; never invent a handle or claim a detached browser changed. Themes use studio tokens, with Light/Dark remembered per origin. Appearance has no separate backend settings tool. Help reads allowance settings only and does not expose model credentials."
+    },
+    {
+      "id": "build-agent-plugin",
+      "title": "Build an OM agent plugin",
+      "summary": "Package self-contained instructions, MCP configuration and vendor implementation under OM's namespace.",
+      "explanation": "Start from a current OM plugin: plugin.json, optional mcp.json, skills/<name>/SKILL.md and references. Use extensions.io.github.ainsep.openmarketing and keep vendor code/configuration inside the plugin. All tools declare accurate effects and go through the one server policy. Validate external data, inject I/O/clocks/IDs and test with fixtures. External writes use stable idempotency keys and the one jobs outbox; unknown outcomes reconcile. Upload with existing Add-ons controls or addons_install, enable separately, then discover actual instructions/tools. Host executable bindings and admission are separate from manifests; uploaded executable backend loading is currently unavailable. Enable om-playbook to discover its build-agent-plugin skill for detailed guidance. Never place vendor credentials, product DB access or vendor egress in the separate agent runtime."
+    }
+  ]
+}

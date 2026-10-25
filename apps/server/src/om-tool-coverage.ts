@@ -24,6 +24,7 @@ export const ownerRouteDisposition = {
  * This is a capability inventory, not a manually maintained transport coverage table.
  */
 const capabilities = [
+    ['How Open Marketing works', 'site_guide', 'read', 'read', 'SG1', 'Built-in topic guide and caller-scoped facts'],
     ['Workspace current', 'om_workspace_current', 'read', 'read', 'FEATURE_COMPOSITION', 'Current authenticated scope projection'],
     ['Account binding lookup', 'om_account_binding_get', 'read', 'read', 'FEATURE_COMPOSITION', 'Inject the existing AccountBindingLookupPort in server composition'],
     ['Workspace list', 'om_workspaces_list', 'read', 'read', 'FEATURE_COMPOSITION', 'Inject the public scoped workspace listing'],
@@ -96,6 +97,9 @@ export function generateOmToolCoverage(required: { definitions: readonly OmToolD
         access: tool.name === 'execute_tool' ? 'write' as const : 'read' as const, policy: tool.name === 'execute_tool' ? 'write' as const : 'read' as const,
         http: '/api/agent/v1/mcp', studio: 'chat model transport', cli: 'om tools list/show/call', mcp: tool.name, status: 'connected' as const })));
     rows.push(...ownerRouteRows({ ownerRoutes }));
+    rows.push({ capability: 'Site guide MCP resource', tool: null, access: 'read', policy: 'read', http: '/api/agent/v1/mcp',
+        studio: 'chat via site_guide', cli: 'om tools call site_guide', mcp: 'jini://site-guide',
+        status: names.has('site_guide') ? 'connected' : 'NEEDS', ...(names.has('site_guide') ? {} : { needs: 'SG1', reason: 'Built-in guide binding unavailable' }) });
     rows.push(...['/api/frontend-sessions/stream', '/api/frontend-sessions/:sessionId/responses', '/api/runs/:runId/surfaces'].map(http => ({
         capability: 'Authenticated owner frontend transport', tool: null, access: 'write' as const, policy: 'owner' as const,
         http, studio: 'Jini browser session bridge', cli: 'browser transport only', mcp: 'not an agent tool', status: 'internal' as const,

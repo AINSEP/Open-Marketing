@@ -615,8 +615,9 @@ export const discoveryTools: readonly ToolDescriptor[] = [
  * A failed package description marks only that source unavailable; catalog-list failures propagate.
  * @complexity Fixed read bindings plus D2's bounded source loading; no second plugin registry.
  */
-export async function buildOmToolDefinitions(required: { context: CallContext; services: OwnerServices & OmFeatureServices; addons?: AddonToolDependencies }): Promise<Outcome<readonly OmToolDefinition[]>> {
+export async function buildOmToolDefinitions(required: { context: CallContext; services: OwnerServices & OmFeatureServices; addons?: AddonToolDependencies; siteGuide?: OmToolDefinition }): Promise<Outcome<readonly OmToolDefinition[]>> {
     const definitions: OmToolDefinition[] = readBindings.map(binding => ownerDefinition({ ...required, binding }));
+    if (required.siteGuide) definitions.push(required.siteGuide);
     definitions.push(ownerSettingsDefinition(required), ...assistantDefinitions(required), ...mediaDefinitions({ media: required.services.media }), ...coreDefinitions(required), ...featureDefinitions(required),
         ...buildUiToolDefinitions({ runtime: required.services.ui?.runtime ?? null, frontend: required.services.ui?.frontend }));
     if (!required.addons) return { ok: true, value: definitions };
@@ -949,7 +950,10 @@ const addonRoutes = { addons_list: 'addons', addons_install: 'addonInstall', add
     addons_uninstall: 'addonUninstall', integrations_list: 'integrations', integrations_disconnect: 'integrationDisconnect',
     integrations_developer_token_status: 'integrationDeveloperTokenStatus',
     integrations_oauth_start: 'integrationOAuthStart', integrations_oauth_status: 'integrationOAuthStatus' } as const;
-/** D2 owns installation/lifecycle and credential custody; all management calls use its one seam. */
+/** D2 owns installation/lifecycle and credential custody; all management calls use its one seam.
+ * After dispatcher admission, only secret-free integration listing uses trusted service identity;
+ * the verified scope and trace IDs survive, while mutations retain the caller's identity.
+ */
 function addonDefinitions(required: { dependencies: AddonToolDependencies }): OmToolDefinition[] {
     return [...addonManagementTools, ...integrationOAuthTools].map(tool => {
         const name = tool.name as keyof typeof addonToolSchemas;
@@ -957,7 +961,13 @@ function addonDefinitions(required: { dependencies: AddonToolDependencies }): Om
         return { ...tool, effects: addonToolEffectsSchema.parse(tool.effects), inputSchema: toolDescriptorSchema.shape.inputSchema.parse(tool.inputSchema), revision: '1',
             capability: 'Add-on management: ' + name, policy: toolPolicy({ effects: tool.effects }), ownerRoute: addonRoutes[name],
             parse: input => parseBoundary({ schema, input: input.input }),
-            invoke: async input => redactAddonOutcome({ outcome: await invokeAddonManagementTool({ ...input, name, dependencies: required.dependencies }, { signal: input.signal }) }) };
+            invoke: async input => {
+                // Dispatcher verified current caller authority. Only this secret-free summary read
+                // uses trusted server identity, preserving the verified scope and trace IDs.
+                const context: CallContext = name === 'integrations_list'
+                    ? { ...input.context, principal: { kind: 'service', serviceId: 'integration-summary' } } : input.context;
+                return redactAddonOutcome({ outcome: await invokeAddonManagementTool({ ...input, context, name, dependencies: required.dependencies }, { signal: input.signal }) });
+            } };
     });
 }
 /** Third-party messages never reach addonBoundary's schema-valid failure passthrough.

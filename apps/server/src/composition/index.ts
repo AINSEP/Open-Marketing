@@ -4,8 +4,9 @@ import { bindCatalogAudit, catalogAuditPort, bindCatalogScope, bindCatalogMeasur
 import type { OmFeatureServices } from '../om-tools.js';
 import { bindServerAddons, type AddonEffects } from './addons.js';
 import { createSqlToolOperationStore } from '../tool-operations.js';
-import { buildOmToolDefinitions, createOmTools } from '../om-tools.js';
-import type { OmTools } from '../om-tools.js';
+import { buildOmToolDefinitions, createOmTools, toolInputSchema } from '../om-tools.js';
+import { runOmSiteGuide, siteGuideInputSchema } from '../site-guide.js';
+import type { OmTools, OmToolDefinition } from '../om-tools.js';
 import type { YamlReaderPort } from '@jini-ai/agentic/skills/install';
 import type { ExternalMcpSessions } from '../external-mcp.js';
 import { bindAddonFederationSessions } from './addon-federation.js';
@@ -151,7 +152,7 @@ async function handleBootRequest(required: BootRequestInput): Promise<HttpRespon
     }
     if (required.request.path === '/bootstrap') return required.auth.bootstrap({ request: required.request, origin });
     if (required.request.path.startsWith('/api/agent/v1/model/')) return handleModelRequest({ request: required.request, grants: required.agent.grants, clock: required.clock, observer: required.observer, ...required.model });
-    if (required.request.path.startsWith('/api/agent/')) return handleOmRequest({ request: required.request, grants: required.agent.grants, callbacks: required.agent.callbacks, clock: required.clock, tools: required.services.tools });
+    if (required.request.path.startsWith('/api/agent/')) return handleOmRequest({ request: required.request, grants: required.agent.grants, callbacks: required.agent.callbacks, clock: required.clock, tools: required.services.tools, ids: required.ids });
     return handleAuthenticatedBootRequest({ ...required, origin });
 }
 
@@ -316,12 +317,18 @@ export async function bootServer(required: {
             execute: input => pluginBackends?.executeCampaign(input) ?? campaignUnavailable(), read: input => pluginBackends?.readCampaign(input) ?? campaignUnavailable() });
         Object.assign(services, { safety: { ...services.safety, halt: halt.halt } });
         resources.workers = createFormWorkers({ unit: database.unit, forms, creative: services.creative, halt, clock: required.clock, ids: required.ids, observer: required.observer, context, schedule: required.io.schedule });
-        resources.tools = createOmTools({ store: createSqlToolOperationStore({ unit: database.unit }), clock: required.clock, observer: required.observer, confirmations: resources.confirmations,
-            authorize: input => input.context.principal.kind === 'owner'
+        const siteGuideCatalog = await loadSiteGuideCatalog({ ...required, context });
+        const authorize: Parameters<typeof createOmTools>[0]['authorize'] = input => input.context.principal.kind === 'owner'
                 ? scopedOwnerAuthority({ context: input.context, expected: context! })
-                : resources.agent!.authorize(input),
-            definitions: async input => {
-                const base = await buildOmToolDefinitions({ ...input, services,
+                : resources.agent!.authorize(input);
+        const siteGuide: OmToolDefinition = {
+            name: 'site_guide', capability: 'How Open Marketing works', description: 'Read OM capability overview, then explain one topic with fresh scoped facts. Help grants no action authority.',
+            effects: ['read'], policy: 'read', revision: '1', inputSchema: toolInputSchema({ schema: siteGuideInputSchema }),
+            parse: input => { const parsed = siteGuideInputSchema.safeParse(input.input); return parsed.success ? { ok: true, value: parsed.data } : localFailure({ code: 'invalid_input', message: 'Invalid guide input' }); },
+            invoke: input => runOmSiteGuide({ ...input, catalog: siteGuideCatalog, tools: resources.tools!, ids: required.ids, definitions, authorize }, { signal: input.signal }),
+        };
+        const definitions: Parameters<typeof createOmTools>[0]['definitions'] = async input => {
+                const base = await buildOmToolDefinitions({ ...input, services, siteGuide,
                     addons: services.addons ? { addons: services.addons, integrations, observer: required.observer } : undefined });
                 if (!base.ok) return base;
                 const plugins = await pluginBackends?.definitions(input);
@@ -329,7 +336,9 @@ export async function bootServer(required: {
                 const mcp = await resources.addons?.federation?.definitions(input);
                 if (mcp && !mcp.ok) return mcp;
                 return { ok: true, value: [...base.value, ...(plugins?.value ?? []), ...(mcp?.value ?? [])] };
-            } });
+            };
+        resources.tools = createOmTools({ store: createSqlToolOperationStore({ unit: database.unit }), clock: required.clock, observer: required.observer,
+            confirmations: resources.confirmations, authorize, definitions });
         await restoreTools({ tools: resources.tools, context });
         services.tools = resources.tools;
         const agent = resources.agent;
@@ -357,6 +366,14 @@ export async function bootServer(required: {
     } catch {
         return failedBoot({ resources, context, observer: required.observer, phase });
     }
+}
+
+/** Boot-only bounded help loading. A missing catalog disables help without blocking the app.
+ * @complexity O(b) time/space, b <=64 KiB; one injected local file read, no vendor effects. */
+async function loadSiteGuideCatalog(required: { io: ServerBootIo; observer: ObserverPort; context: CallContext }): Promise<unknown> {
+    try { return JSON.parse((await readLocalFile({ fs: required.io.fs, path: join(required.io.projectRoot,
+        'content/agent-plugins/om-playbook/skills/om-playbook/references/om-site-guide.json'), maxBytes: 64512 })).toString('utf8')); }
+    catch { observeBoot({ observer: required.observer, context: required.context, operation: 'site-guide.load', outcome: 'unavailable' }); return undefined; }
 }
 
 /** Boot admission stays closed until all operation recovery transitions have persisted. */

@@ -1,10 +1,10 @@
 import { z } from 'zod';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
-import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import { CallToolRequestSchema, ListToolsRequestSchema, ListResourcesRequestSchema, ReadResourceRequestSchema, McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import { mcpRequestSchema, parseBoundary, notImplemented, runEventSchema, idSchema, toolCallSchema, toolSearchSchema } from "@open-marketing/contracts";
 import type { Outcome, RunGrantMetadata, ClockPort, RunEvent, AssistantContext } from "@open-marketing/contracts";
-import type { CallContext } from '@open-marketing/contracts';
+import type { CallContext, IdPort } from '@open-marketing/contracts';
 import { discoveryTools } from '../om-tools.js';
 import type { OmTools } from '../om-tools.js';
 import type { HttpRequest, HttpResponse } from "../ports.js";
@@ -15,7 +15,7 @@ export interface SandboxCallbacks {
  record(required: { grant: RunGrantMetadata; event: RunEvent }): Promise<Outcome<{ recorded: true }>>;
 }
 /** Scope comes only from server-verified run grants. No body can widen authority or answer cards. */
-export async function handleOmRequest(required: { request: HttpRequest; grants: RunGrantVerifierPort; clock: ClockPort; callbacks?: SandboxCallbacks; tools?: OmTools }): Promise<HttpResponse> {
+export async function handleOmRequest(required: { request: HttpRequest; grants: RunGrantVerifierPort; clock: ClockPort; callbacks?: SandboxCallbacks; tools?: OmTools; ids?: IdPort }): Promise<HttpResponse> {
  const grant = await required.grants.verify({ authorization: required.request.authorization });
  if (!grant.ok) return { status: 401, body: grant };
  const metadata = grant.value;
@@ -36,7 +36,7 @@ function toolContext(required: { grant: RunGrantMetadata; request: HttpRequest }
   principal: { kind: 'agent', runId: required.grant.runId, agentInstanceId: required.grant.agentInstanceId },
   correlationId: correlation.success ? correlation.data : required.grant.grantId, traceId: trace.success ? trace.data : required.grant.grantId };
 }
-async function toolRequest(required: { request: HttpRequest; tools: OmTools; grant: RunGrantMetadata; callbacks?: SandboxCallbacks }): Promise<HttpResponse> {
+async function toolRequest(required: { request: HttpRequest; tools: OmTools; grant: RunGrantMetadata; callbacks?: SandboxCallbacks; ids?: IdPort }): Promise<HttpResponse> {
  const context = toolContext(required);
  if (required.request.path === '/api/agent/v1/mcp' && required.request.method === 'POST') return mcpRequest({ ...required, context });
  const prefix = '/api/agent/v1/runs/' + encodeURIComponent(required.grant.runId) + '/operations/';
@@ -84,12 +84,12 @@ export async function callDiscoveryTool(required: { tools: OmTools; context: Cal
  * Disconnect closes observation; execute_tool returns pending immediately, never holds the card here.
  * @complexity One SDK dispatch, <=100 descriptors or <=64 KiB tool output; no retries.
  */
-async function mcpRequest(required: { request: HttpRequest; tools: OmTools; context: CallContext }): Promise<HttpResponse> {
+async function mcpRequest(required: { request: HttpRequest; tools: OmTools; context: CallContext; ids?: IdPort }): Promise<HttpResponse> {
  const body = required.request.readBody ? await required.request.readBody({}) : { ok: true as const, value: required.request.body };
  const parsed = body.ok ? parseBoundary({ schema: mcpRequestSchema, input: body.value }) : body;
  if (!parsed.ok) return { status: 400, body: parsed };
  const response = Promise.withResolvers<HttpResponse>();
- const server = new Server({ name: 'Open Marketing', version: '0.0.0' }, { capabilities: { tools: {} } });
+ const server = new Server({ name: 'Open Marketing', version: '0.0.0' }, { capabilities: { tools: {}, resources: {} } });
  const transport: Transport = { async start() {}, async close() { this.onclose?.(); },
   async send(message) { response.resolve({ status: 200, body: message }); } };
  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: discoveryTools.map(tool => ({ name: tool.name,
@@ -98,6 +98,19 @@ async function mcpRequest(required: { request: HttpRequest; tools: OmTools; cont
  server.setRequestHandler(CallToolRequestSchema, async input => {
   const result = await callDiscoveryTool({ ...required, name: input.params.name, input: input.params.arguments ?? {}, signal: required.request.signal });
   return { content: [{ type: 'text' as const, text: JSON.stringify(result) }], isError: !result.ok };
+ });
+ server.setRequestHandler(ListResourcesRequestSchema, async () => {
+  const guide = await required.tools.describe({ context: required.context, name: 'site_guide' });
+  if (!guide.ok) throw new McpError(ErrorCode.InternalError, 'Site guide unavailable');
+  return { resources: [{ uri: 'jini://site-guide', name: 'Open Marketing site guide', mimeType: 'application/json' }] };
+ });
+ server.setRequestHandler(ReadResourceRequestSchema, async input => {
+  if (input.params.uri !== 'jini://site-guide') throw new McpError(ErrorCode.InvalidParams, 'Unknown resource URI');
+  if (!required.ids) throw new McpError(ErrorCode.InternalError, 'Site guide IDs unavailable');
+  const result = await required.tools.dispatch({ context: required.context, signal: required.request.signal,
+   call: { name: 'site_guide', input: { operation: 'overview' }, operationId: required.ids.next({}) } });
+  if (!result.ok || result.value.status !== 'completed') throw new McpError(ErrorCode.InternalError, 'Site guide unavailable');
+  return { contents: [{ uri: 'jini://site-guide', mimeType: 'application/json', text: JSON.stringify(result.value.output) }] };
  });
  const abort = () => response.resolve({ status: 499, body: { ok: false, error: { code: 'cancelled', message: 'MCP request cancelled', retryable: false } } });
  required.request.signal?.addEventListener('abort', abort, { once: true });
