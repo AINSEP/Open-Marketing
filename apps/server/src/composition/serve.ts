@@ -47,7 +47,7 @@ export function createNodeBootIo(required: { projectRoot: string; studioRoot: st
 }
 
 /** Reuse Jini's DNS-pinned transport; cap full DNS/body work at 15s/64 KiB, no redirects/retries.
- * Foreign fetch ABI accepts only the explicit URL/string-form requests emitted by Jini OAuth.
+ * Foreign fetch ABI accepts Jini's POST forms and Meta's two verified GET endpoint paths.
  * @complexity One bounded HTTP request; construction opens no socket and retains no credentials.
  */
 export function createOAuthHttp(_required: Record<string, never>): OAuthHttpPorts {
@@ -61,9 +61,13 @@ export function createOAuthHttp(_required: Record<string, never>): OAuthHttpPort
         } else if (url.protocol !== 'https:') throw new Error('Invalid OAuth endpoint');
     } }, { allowLoopbackHttp: true });
     return { guard, async fetchFn({ url }, init = {}) {
-        if (url instanceof Request || init.method !== 'POST' || typeof init.body !== 'string') throw new Error('Invalid OAuth request');
-        return guardedFetch({ client, url: String(url), timeoutMs: 15000 }, { method: 'POST', headers: init.headers,
-            body: init.body, signal: init.signal ?? undefined, redirect: 'error', totalDeadlineMs: 15000 });
+        if (url instanceof Request) throw new Error('Invalid OAuth request');
+        const endpoint = new URL(String(url));
+        const metaGet = init.method === 'GET' && init.body === undefined && endpoint.origin === 'https://graph.facebook.com'
+            && ['/v26.0/oauth/access_token', '/v26.0/debug_token'].includes(endpoint.pathname) && !endpoint.username && !endpoint.password && !endpoint.hash;
+        if (!metaGet && (init.method !== 'POST' || typeof init.body !== 'string')) throw new Error('Invalid OAuth request');
+        return guardedFetch({ client, url: String(url), timeoutMs: 15000 }, { method: metaGet ? 'GET' : 'POST', headers: init.headers,
+            body: typeof init.body === 'string' ? init.body : undefined, signal: init.signal ?? undefined, redirect: 'error', totalDeadlineMs: 15000 });
     } };
 }
 

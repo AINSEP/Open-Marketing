@@ -9,7 +9,7 @@ import { removeStateRoot } from './state-root.js';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import type { ClockPort, ObserverEvent } from '@open-marketing/contracts';
-import { bootServer, type BootedServer, type ServerBootIo } from '../src/composition/index.js';
+import { bootServer, loadOAuthProviders, type BootedServer, type ServerBootIo } from '../src/composition/index.js';
 import { createNodeBootIo } from '../src/composition/serve.js';
 import { loadCliEnvironment } from '../src/composition/cli.js';
 import { bindServerDatabase } from '../src/composition/database.js';
@@ -308,11 +308,14 @@ function statusWithHost(required: { url: string; host: string }): Promise<number
     });
 }
 
-it('authenticates OAuth management, approves start once and accepts only the exact browser GET without cookies', async () => {
+it.each(['google-ads', 'meta-ads'])('authenticates %s management, approves start once and enforces admission on the exact browser GET', async pluginId => {
     const f = await createFixture({}); let exchanges = 0;
     try {
+        const scopes = (await loadOAuthProviders({ io: f.io })).get('meta-ads')!.provider.defaultScopes;
         const result = await f.start({ io: { oauth: { guard: createOAuthUrlGuard({ assertAllowed() {} }, { allowLoopbackHttp: true }), async fetchFn() {
-                exchanges++; return Response.json({ access_token: 'fixture-access', refresh_token: 'fixture-refresh', token_type: 'Bearer', expires_in: 3600 });
+                exchanges++;
+                if (pluginId === 'meta-ads' && exchanges === 3) return Response.json({ data: { app_id: 'fixture-client', type: 'USER', is_valid: true, expires_at: 3601, data_access_expires_at: 3601, scopes } });
+                return Response.json({ access_token: 'fixture-access', refresh_token: 'fixture-refresh', token_type: 'Bearer', expires_in: 3600 });
             } } } });
         if (!result.ok) throw new Error(result.error.message);
         const origin = new URL(result.value.studioUrl).origin;
@@ -321,12 +324,12 @@ it('authenticates OAuth management, approves start once and accepts only the exa
         const headers = { authorization: 'Bearer ' + local.value.token, 'content-type': 'application/json', 'idempotency-key': 'oauth-start' };
         const clientPath = '/api/addons/v1/integrations/oauth/client';
         expect((await fetch(origin + clientPath, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).status).toBe(401);
-        expect((await fetch(origin + clientPath, { method: 'POST', headers, body: JSON.stringify({ pluginId: 'google-ads', client: { clientId: 'fixture-client', clientSecret: 'fixture-secret' } }) })).status).toBe(200);
+        expect((await fetch(origin + clientPath, { method: 'POST', headers, body: JSON.stringify({ pluginId, client: { clientId: 'fixture-client', clientSecret: 'fixture-secret', ...(pluginId === 'meta-ads' ? { configId: '999' } : {}) } }) })).status).toBe(200);
         for (const suffix of ['start', 'callback']) expect((await fetch(origin + '/api/addons/v1/integrations/oauth/' + suffix,
             { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).status).toBe(401);
         expect((await fetch(origin + '/api/addons/v1/integrations/oauth/status?transactionId=unknown')).status).toBe(401);
         expect((await fetch(origin + oauthCallbackPath + '/extra')).status).toBe(401);
-        const pending = await (await fetch(origin + '/api/addons/v1/integrations/oauth/start', { method: 'POST', headers, body: JSON.stringify({ pluginId: 'google-ads' }) })).json();
+        const pending = await (await fetch(origin + '/api/addons/v1/integrations/oauth/start', { method: 'POST', headers, body: JSON.stringify({ pluginId }) })).json();
         expect(pending).toMatchObject({ ok: true, value: { status: 'pending', operationId: 'oauth-start' } });
         expect(exchanges).toBe(0);
         const card = await (await fetch(origin + '/api/safety/approvals/' + pending.value.cardId, { headers })).json();
@@ -338,20 +341,20 @@ it('authenticates OAuth management, approves start once and accepts only the exa
         const query = new URLSearchParams({ state: new URL(operation.value.output.authorizationUrl).searchParams.get('state')!, code: 'fixture-code' });
         expect((await fetch(origin + oauthCallbackPath + '?' + query + '&code=duplicate')).status).toBe(400);
         const callback = await fetch(origin + oauthCallbackPath + '?' + query);
-        expect(callback.status).toBe(200);
+        expect(callback.status).toBe(pluginId === 'meta-ads' ? 400 : 200);
         expect(callback.headers.get('referrer-policy')).toBe('no-referrer');
         expect(callback.headers.get('cache-control')).toBe('no-store');
         expect(await callback.text()).not.toMatch(/fixture-code|fixture-access|fixture-refresh/);
         expect((await fetch(origin + oauthCallbackPath + '?' + query)).status).toBe(400);
-        expect(exchanges).toBe(1);
+        expect(exchanges).toBe(pluginId === 'meta-ads' ? 0 : 1);
         const status = await (await fetch(origin + '/api/addons/v1/integrations/oauth/status?transactionId=' + operation.value.output.transactionId, { headers })).json();
-        expect(status).toMatchObject({ value: { status: 'complete', connection: { status: 'saved' } } });
+        expect(status).toMatchObject({ value: pluginId === 'meta-ads' ? { status: 'expired' } : { status: 'complete', connection: { status: 'saved' } } });
         expect(JSON.stringify(f.events)).not.toMatch(/fixture-code|fixture-access|fixture-refresh|fixture-secret/);
         await result.value.stop({});
         const restarted = await f.start({});
         if (!restarted.ok) throw new Error(restarted.error.message);
         const restartedOrigin = new URL(restarted.value.studioUrl).origin;
-        expect(await (await fetch(restartedOrigin + '/api/addons/v1/integrations/oauth/status?pluginId=google-ads', { headers })).json()).toEqual({ ok: true, value: { configured: true, clientId: 'fixture-client' } });
+        expect(await (await fetch(restartedOrigin + '/api/addons/v1/integrations/oauth/status?pluginId=' + pluginId, { headers })).json()).toEqual({ ok: true, value: { configured: true, clientId: 'fixture-client', ...(pluginId === 'meta-ads' ? { guidance: expect.stringContaining('Strict Mode/Enforce HTTPS') } : {}) } });
         expect((await fetch(restartedOrigin + '/api/addons/v1/integrations', { headers })).status).toBe(200);
         expect((await fetch(restartedOrigin + oauthCallbackPath + '?' + query)).status).toBe(400);
     } finally { await f.close(); }

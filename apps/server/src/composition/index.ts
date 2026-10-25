@@ -1,6 +1,6 @@
 import { bindSandboxCreative } from './creative.js';
 import { bindSandboxCampaigns, bindPausedCampaignDeployment } from './campaigns.js';
-import { bindCatalogAudit, catalogAuditPort, bindCatalogScope, bindCatalogMeasure, sandboxPlatformReports } from './catalog.js';
+import { bindCatalogAudit, catalogAuditPort, bindCatalogScope, bindCatalogMeasure, bindCatalogMedia, createCatalogMediaEffects, sandboxPlatformReports } from './catalog.js';
 import type { OmFeatureServices } from '../om-tools.js';
 import { bindServerAddons, type AddonEffects } from './addons.js';
 import { createSqlToolOperationStore } from '../tool-operations.js';
@@ -23,9 +23,10 @@ import { createSqlMeasureRepo, createSqlTrackedLink, type MeasureSqlDatabase } f
 import { handlePublicRequest } from '../inbound/public.js';
 import { createAesGcmSecretSealer, createCredentialBroker, createCredentialKeyring, createCredentialService,
     createMemoryCredentialLock, createSqlCredentialAudit, createSqlCredentialRepo, createJiniOAuthClient, createJiniCredentialRefresh } from '@open-marketing/credentials';
-import type { KeyringConfiguration, JiniOAuthProvider, OAuthClientPort, CredentialBrokerPort } from '@open-marketing/credentials';
+import type { KeyringConfiguration, OAuthClientPort, CredentialBrokerPort } from '@open-marketing/credentials';
 import { createPendingAuthorizationStore, type OAuthHttpPorts } from '@jini-ai/oauth';
-import { oauthCallbackPath, oauthMetadataSchema } from '../integration-oauth-contracts.js';
+import { metaOAuthChallengeRules, oauthCallbackPath, oauthMetadataSchema, type IntegrationOAuthProvider } from '../integration-oauth-contracts.js';
+import { createVendorOAuthBindings } from '../integration-oauth-vendors.js';
 import { createIntegrations, type Integrations } from '../integrations.js';
 import { handleIntegrationRequest, handleOAuthBrowserCallback } from '../inbound/integrations.js';
 import { bindForms, seedSandboxForm } from './forms.js';
@@ -249,6 +250,7 @@ export async function bootServer(required: {
         const integrations = bindServerIntegrations({ db: campaignDb, clock: required.clock, ids: required.ids,
             observer: required.observer, io: required.io, stateRoot: config.value.stateRoot, masterHex: required.env.OM_CREDENTIAL_KEY,
             providers: await loadOAuthProviders({ io: required.io }),
+            agentPluginState: async input => resources.addons?.agentPluginState(input) ?? null,
             redirectUri: () => { const origin = listener.origin({}); return origin ? origin + oauthCallbackPath : null; } });
         const services: OwnerServices & OmFeatureServices = {
             campaigns: createSqlCampaignRepo({ db: campaignDb }, { observer: required.observer }),
@@ -274,6 +276,8 @@ export async function bootServer(required: {
         services.formSubjects = forms.subjects;
         const audit = bindCatalogAudit({ unit: database.unit, clock: required.clock, ids: required.ids, observer: required.observer });
         Object.assign(services, bindCatalogScope({ database, safetyDb, clock: required.clock, ids: required.ids, observer: required.observer, timezone: config.value.timezone }), {
+            media: bindCatalogMedia({ db: campaignDb, context, clock: required.clock, ids: required.ids, observer: required.observer, audit,
+                effects: createCatalogMediaEffects({ stateRoot: config.value.stateRoot, clock: required.clock }) }),
             creative: bindSandboxCreative({ unit: database.unit, safetyRepo: services.safety, confirmations: resources.confirmations, clock: required.clock, ids: required.ids, observer: required.observer, audit }),
             campaignWorkflow: bindSandboxCampaigns({ unit: database.unit, repo: services.campaigns, safety: services.safety, clock: required.clock, ids: required.ids, observer: required.observer, audit }),
             audit, contacts: identity.contacts, forms: forms.forms, webEvents: identity.webEvents, privacy: resources.privacy.privacy,
@@ -375,13 +379,15 @@ async function failedBoot(required: { resources: BootResources; context?: CallCo
 
 /** Sole composition binding for credential storage, crypto, locks and operations on the owned SQLite handle.
  * OAuth adapters are lazy until the listener has its exact loopback redirect. Key reads are injected;
+ * Meta rechecks server plugin admission for each request; missing lifecycle state denies egress.
  * importing/constructing integrations opens no file, listener, database or vendor connection.
  * @example const integrations = bindServerIntegrations({ db, clock, ids, observer, io, stateRoot });
  * @complexity O(1) construction; bounded repository/crypto work belongs to the supplied adapters.
  */
 export function bindServerIntegrations(required: {
     db: CampaignSqlPort; clock: ClockPort; ids: IdPort; observer: ObserverPort; io: ServerBootIo; stateRoot: string; masterHex?: string;
-    providers?: ReadonlyMap<string, JiniOAuthProvider>; redirectUri?: () => string | null;
+    providers?: ReadonlyMap<string, IntegrationOAuthProvider>; redirectUri?: () => string | null;
+    agentPluginState?: NonNullable<ReturnType<typeof bindBootAddons>>['agentPluginState'];
 }): Integrations {
     const configuration: KeyringConfiguration = { hkdfSalt: 'io.github.ainsep.openmarketing.credentials.v1',
         envVarName: 'OM_CREDENTIAL_KEY', keyFilePath: join(required.stateRoot, 'credentials.key') };
@@ -396,7 +402,8 @@ export function bindServerIntegrations(required: {
     const locks = createMemoryCredentialLock({});
     const repo = createSqlCredentialRepo({ db: required.db, clock: required.clock });
     const audit = createSqlCredentialAudit({ db: required.db, ids: required.ids, clock: required.clock });
-    const providers = required.providers ?? new Map<string, JiniOAuthProvider>();
+    const providers = required.providers ?? new Map<string, IntegrationOAuthProvider>();
+    const challengeRules = new Map([['meta-ads', metaOAuthChallengeRules]]);
     const randomBytesFn = ({ byteLength }: { byteLength: number }) => new Uint8Array(Buffer.from(z.string().regex(/^[a-f0-9]{64}$/).parse(required.io.randomToken({})), 'hex').subarray(0, byteLength));
     const pending = createPendingAuthorizationStore({ clock: { nowMs: () => required.clock.now({}) }, randomBytesFn });
     const http = required.io.oauth;
@@ -404,13 +411,24 @@ export function bindServerIntegrations(required: {
     const broker: CredentialBrokerPort = createCredentialBroker({ repo, sealer, locks, audit, refresh: dependencies ? { refresh: (input, options) =>
         createJiniCredentialRefresh({ ...dependencies, clientCredentials: { repo, broker } }).refresh(input, options) } : undefined });
     let oauth: OAuthClientPort | undefined;
-    const service = createCredentialService({ repo, sealer, keyring, locks, audit, clock: required.clock,
+    const service = createCredentialService({ repo, sealer, keyring, locks, audit, clock: required.clock, challengeRules,
         oauth: {
             async begin(input, options) {
                 const redirect = required.redirectUri?.();
                 if (!dependencies || !redirect) return localFailure({ message: 'OAuth configuration unavailable' });
-                oauth ??= createJiniOAuthClient({ ...dependencies, clientCredentials: { repo, broker }, pending, randomBytesFn, ids: required.ids, allowedReturnUris: [redirect],
+                oauth ??= createJiniOAuthClient({ ...dependencies, clientCredentials: { repo, broker }, pending, randomBytesFn, ids: required.ids, allowedReturnUris: [redirect], challengeRules,
                     allowedAuthorizationOrigins: [...providers.values()].map(value => new URL(value.provider.authorizationEndpoint!).origin),
+                    bindings: ({ standard }) => createVendorOAuthBindings({ standard, metadata: providers.get('meta-ads'), repo, broker, sealer,
+                        pending, randomBytesFn, clock: required.clock, http: dependencies, observer: required.observer,
+                        admission: async input => {
+                            const state = await required.agentPluginState?.(input);
+                            return state?.enabled === true && state.bundled && state.admitted;
+                        },
+                        deadline: { create({ timeoutMs }) {
+                            const controller = new AbortController();
+                            const dispose = required.io.schedule({ callback: () => controller.abort(), delayMs: timeoutMs });
+                            return { signal: controller.signal, dispose };
+                        } } }),
                     clientDisplayName: 'Open Marketing', softwareId: 'io.github.ainsep.openmarketing' });
                 return oauth.begin(input, options);
             },
@@ -421,11 +439,11 @@ export function bindServerIntegrations(required: {
 
 /** Parse plugin metadata; client configuration comes only from sealed storage at use time.
  * @throws On invalid/oversized config or metadata; boot reports a fixed startup failure.
- * @complexity Two bounded local reads, <=16 KiB each; no vendor calls or admission changes.
+ * @complexity Three bounded local reads, <=16 KiB each; no vendor calls or admission changes.
  */
-export async function loadOAuthProviders(required: { io: ServerBootIo }): Promise<ReadonlyMap<string, JiniOAuthProvider>> {
-    const providers = new Map<string, JiniOAuthProvider>();
-    for (const id of ['google-ads', 'linkedin-ads']) {
+export async function loadOAuthProviders(required: { io: ServerBootIo }): Promise<ReadonlyMap<string, IntegrationOAuthProvider>> {
+    const providers = new Map<string, IntegrationOAuthProvider>();
+    for (const id of ['google-ads', 'linkedin-ads', 'meta-ads']) {
         const metadata = oauthMetadataSchema.parse(JSON.parse((await readLocalFile({ fs: required.io.fs,
             path: join(required.io.projectRoot, 'content/agent-plugins', id, 'io.github.ainsep.openmarketing/oauth.json'), maxBytes: 16384 })).toString('utf8')));
         if (metadata.provider.providerId !== id) throw new Error('OAuth provider mismatch');

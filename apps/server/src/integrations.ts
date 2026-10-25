@@ -66,7 +66,7 @@ export function createIntegrations(required: IntegrationDependencies): Integrati
             const saved = await connectCredentialToken({ ...required, context: input.context, pluginId: parsed.value.pluginId, connectionId: 'oauth-client.' + parsed.value.pluginId,
                 plaintext: JSON.stringify(parsed.value.client), purpose: 'oauth-client' }, options);
             const client = parsed.value.client as { clientId: string } | null; // Successful credential ingress validates the complete client shape.
-            return saved.ok ? oauthClientSummary({ client }) : saved;
+            return saved.ok ? oauthClientSummary({ client, pluginId: parsed.value.pluginId }) : saved;
         } }, options),
         startOAuth: (input, options) => integrationBoundary({ dependencies: required, context: input.context, operation: 'integrations.oauth.start', run: async () => {
             const parsed = parseBoundary({ schema: oauthStartSchema, input: input.request });
@@ -88,11 +88,7 @@ export function createIntegrations(required: IntegrationDependencies): Integrati
             const { context, ...query } = input;
             const parsed = parseBoundary({ schema: oauthStatusQuerySchema, input: query });
             if (!parsed.ok) return parsed;
-            if ('pluginId' in parsed.value) {
-                if (context.principal.kind !== 'owner' || context.principal.ownerId !== context.scope.ownerId) return integrationFailure({ code: 'forbidden' });
-                const client = await readCredentialOAuthClient({ ...required, pluginId: parsed.value.pluginId, context: { ...context, principal: { kind: 'service', serviceId: 'oauth-client' } } }, options);
-                return client.ok ? oauthClientSummary({ client: client.value }) : client;
-            }
+            if ('pluginId' in parsed.value) return oauthPluginStatus({ dependencies: required, context, pluginId: parsed.value.pluginId }, options);
             if (/^(oauth-client|developer-token)\./.test(parsed.value.transactionId)) return { ok: true, value: { status: 'expired' } };
             const status = await required.service.connectStatus({ context, transactionId: parsed.value.transactionId }, options);
             if (!status.ok) return status;
@@ -133,9 +129,21 @@ function publicSummary(required: { summary: ConnectionSummary }): Outcome<Integr
     return parseBoundary({ schema: integrationSummarySchema, input: summaryDto(required) });
 }
 
-/** Expose only configured/clientId after credential validation. @complexity O(1). */
-function oauthClientSummary(required: { client: { clientId: string } | null }): Outcome<z.infer<typeof oauthClientStatusSchema>> {
-    return { ok: true, value: required.client ? { configured: true, clientId: required.client.clientId } : { configured: false } };
+/** Owner-only configuration guidance; TikTok remains paste-token without reading OAuth secrets.
+ * @complexity Fixed audited credential lookup, bounded client bytes; no vendor I/O.
+ */
+async function oauthPluginStatus(required: { dependencies: IntegrationDependencies; context: CallContext; pluginId: string }, optional?: CallOptions): Promise<Outcome<z.infer<typeof oauthClientStatusSchema>>> {
+    const { context, pluginId } = required;
+    if (context.principal.kind !== 'owner' || context.principal.ownerId !== context.scope.ownerId) return integrationFailure({ code: 'forbidden' });
+    if (pluginId === 'tiktok-ads') return { ok: true, value: { configured: false, guidance: 'TikTok uses paste-token. Connect a Marketing API advertiser access token with integrations connect --token-stdin.' } };
+    const client = await readCredentialOAuthClient({ ...required.dependencies, pluginId, context: { ...context, principal: { kind: 'service', serviceId: 'oauth-client' } } }, optional);
+    return client.ok ? oauthClientSummary({ client: client.value, pluginId }) : client;
+}
+
+/** Secret-free client status includes Meta callback/configuration guidance. @complexity O(1). */
+function oauthClientSummary(required: { client: { clientId: string } | null; pluginId: string }): Outcome<z.infer<typeof oauthClientStatusSchema>> {
+    const guidance = required.pluginId === 'meta-ads' ? { guidance: 'Meta Business Login needs a user-token config with the required permissions. If Meta rejects the callback, check the exact redirect URI: Strict Mode/Enforce HTTPS may reject http://127.0.0.1. Sign-in must be restarted after expiry.' } : {};
+    return { ok: true, value: required.client ? { configured: true, clientId: required.client.clientId, ...guidance } : { configured: false, ...guidance } };
 }
 
 /** Reuse the credential service's locked revocation/audit sequence; no local duplicate lifecycle.

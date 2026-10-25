@@ -176,16 +176,23 @@ it('rejects a malformed completed start response before printing extra secret fi
   expect(f.stdout.join('') + f.stderr.join('')).not.toContain('fixture-secret');
 });
 
-it('sets OAuth client JSON from stdin and clears without stdin, returning only configuration status', async () => {
-  const client = { clientId: 'fixture-client', clientSecret: 'fixture-client-secret' };
+it.each(['google-ads', 'meta-ads'])('sets %s client JSON from stdin and clears without stdin, returning only configuration status', async pluginId => {
+  const client = { clientId: 'fixture-client', clientSecret: 'fixture-client-secret', ...(pluginId === 'meta-ads' ? { configId: '999' } : {}) };
   const f = fixture({ value: { configured: true, clientId: client.clientId } });
   const runtime = { ...f.runtime, async *readPrompt() { f.reads.push('-'); yield Buffer.from(JSON.stringify(client)); } };
-  expect((await runOmCli({ argv: ['integrations', 'oauth', 'client', 'set', '--plugin', 'google-ads', '--json'], runtime })).ok).toBe(true);
-  expect(f.reads).toEqual(['-']); expect(f.calls[0].body).toEqual({ pluginId: 'google-ads', client });
+  expect((await runOmCli({ argv: ['integrations', 'oauth', 'client', 'set', '--plugin', pluginId, '--json'], runtime })).ok).toBe(true);
+  expect(f.reads).toEqual(['-']); expect(f.calls[0].body).toEqual({ pluginId, client });
   expect(f.stdout.join('') + f.stderr.join('')).not.toContain(client.clientSecret);
   const clear = fixture({ value: { configured: false } });
-  expect((await runOmCli({ argv: ['integrations', 'oauth', 'client', 'clear', '--plugin', 'google-ads'], runtime: clear.runtime })).ok).toBe(true);
-  expect(clear.reads).toEqual([]); expect(clear.calls[0].body).toEqual({ pluginId: 'google-ads', client: null });
+  expect((await runOmCli({ argv: ['integrations', 'oauth', 'client', 'clear', '--plugin', pluginId], runtime: clear.runtime })).ok).toBe(true);
+  expect(clear.reads).toEqual([]); expect(clear.calls[0].body).toEqual({ pluginId, client: null });
+});
+
+it('keeps TikTok on the existing stdin paste-token command', async () => {
+  const f = fixture({ value: { ...connection, pluginId: 'tiktok-ads' } });
+  expect((await runOmCli({ argv: ['integrations', 'connect', '--plugin', 'tiktok-ads', '--connection', 'account-one', '--token-stdin', '--json'], runtime: f.runtime })).ok).toBe(true);
+  expect(f.calls[0].body).toEqual({ pluginId: 'tiktok-ads', connectionId: 'account-one', plaintext: 'fixture-secret-stdin' });
+  expect(f.stdout.join('') + f.stderr.join('')).not.toContain('fixture-secret-stdin');
 });
 
 it('sets the Google developer token from stdin and exposes only configured status', async () => {

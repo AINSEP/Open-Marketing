@@ -325,3 +325,82 @@ it('refuses developer-token bodies before reading them for non-owners', async ()
         expect(reads).toBe(0);
     } finally { f.dispose(); }
 });
+
+it.each([false, true])('completes Meta on O1, rejects replay and uses broker reconnect without refresh (non-expiring=%s)', async nonExpiring => {
+    const f = fixture({}); let now = 1000; let sequence = 0; let exchanges = 0;
+    const pluginId = 'meta-ads'; const client = { clientId: '12345', clientSecret: 'fixture-meta-secret', configId: '999' };
+    const io = { ...createNodeBootIo({ projectRoot: fileURLToPath(new URL('../../../', import.meta.url)), studioRoot: '/fixture', ready() {} }),
+        randomToken: () => (++sequence).toString(16).padStart(2, '0').repeat(32), loadCredentialMaster: async () => ({ ok: true as const, value: new Uint8Array(32).fill(3) }) };
+    try {
+        const providers = await loadOAuthProviders({ io }); const scopes = providers.get(pluginId)!.provider.defaultScopes;
+        const integrations = bindServerIntegrations({ db: f.dependencies.db, clock: { now: () => now }, ids: { next: () => 'meta-' + ++sequence },
+            agentPluginState: async () => ({ enabled: true, bundled: true, admitted: true, revision: 'fixture', metadata: {} }),
+            observer: f.dependencies.observer, stateRoot: '/fixture', providers, redirectUri: () => 'http://127.0.0.1:43120' + oauthCallbackPath,
+            io: { ...io, oauth: { guard: createOAuthUrlGuard({ assertAllowed() {} }, { allowLoopbackHttp: true }), async fetchFn() {
+                exchanges++;
+                return Response.json(exchanges === 3 ? { data: { app_id: client.clientId, type: 'USER', is_valid: true, expires_at: nonExpiring ? 0 : 3601,
+                    data_access_expires_at: nonExpiring ? 0 : 3601, scopes: [...scopes, 'email'] } }
+                    : { access_token: exchanges === 1 ? 'fixture-meta-short' : 'fixture-meta-long', token_type: 'bearer', expires_in: nonExpiring ? 0 : 3600 });
+            } } } });
+        const saved = unwrap({ result: await integrations.setOAuthClient({ context: owner, request: { pluginId, client } }) });
+        expect(saved).toMatchObject({ configured: true, guidance: expect.stringContaining('Strict Mode/Enforce HTTPS') });
+        expect(await integrations.setOAuthClient({ context: owner, request: { pluginId, client: { clientId: client.clientId, clientSecret: client.clientSecret } } })).toMatchObject({ ok: false });
+        const challenge = unwrap({ result: await integrations.startOAuth({ context: owner, request: { pluginId } }) });
+        const query = { state: new URL(challenge.authorizationUrl).searchParams.get('state')!, code: 'fixture-meta-code' };
+        expect(await integrations.completeOAuth({ context: owner, response: { ...query, error: 'access_denied' } })).toMatchObject({ ok: false });
+        expect(await integrations.completeOAuth({ context: owner, response: { ...query, state: 'foreign-state' } })).toMatchObject({ ok: false });
+        const callback = await handleOAuthBrowserCallback({ context: owner, integrations, request: { method: 'GET', path: oauthCallbackPath, query } });
+        expect(callback.status).toBe(200);
+        expect(await integrations.completeOAuth({ context: owner, response: query })).toMatchObject({ ok: false });
+        expect(await integrations.access({ context: host, pluginId, connectionId: challenge.transactionId })).toMatchObject({ ok: true, value: { accessToken: 'fixture-meta-long', scopes: [...scopes, 'email'] } });
+        now = 10000000000;
+        const used = await integrations.access({ context: host, pluginId, connectionId: challenge.transactionId });
+        expect(used.ok).toBe(nonExpiring); expect(exchanges).toBe(3);
+        expect(await integrations.list({ context: owner, query: { limit: 25 } })).toMatchObject({ value: { items: [{ status: nonExpiring ? 'saved' : 'reconnect_required' }] } });
+        expect(await integrations.oauthStatus({ context: owner, pluginId: 'tiktok-ads' })).toMatchObject({ ok: true, value: { configured: false, guidance: expect.stringContaining('paste-token') } });
+        expect(await integrations.oauthStatus({ context: host, pluginId: 'tiktok-ads' })).toMatchObject({ ok: false });
+        expect(await integrations.startOAuth({ context: owner, request: { pluginId: 'tiktok-ads' } })).toMatchObject({ ok: false });
+        const denied = unwrap({ result: await integrations.startOAuth({ context: owner, request: { pluginId } }) });
+        expect(await integrations.completeOAuth({ context: owner, response: { state: new URL(denied.authorizationUrl).searchParams.get('state')!, error: 'access_denied', error_description: 'fixture-meta-secret' } })).toMatchObject({ ok: false });
+        expect(exchanges).toBe(3);
+        expect(JSON.stringify([saved, callback, f.events, f.native.prepare('SELECT * FROM om_credential_connection').all()])).not.toMatch(/fixture-meta-secret|fixture-meta-code|fixture-meta-short|fixture-meta-long/);
+    } finally { f.dispose(); }
+});
+
+it('denies admitted:false Meta through composed integrations with zero network and no saved connection', async () => {
+    const f = fixture({}); let sequence = 0; let exchanges = 0; let admissionChecks = 0;
+    const pluginId = 'meta-ads';
+    const io = { ...createNodeBootIo({ projectRoot: fileURLToPath(new URL('../../../', import.meta.url)), studioRoot: '/fixture', ready() {} }),
+        randomToken: () => (++sequence).toString(16).padStart(2, '0').repeat(32),
+        loadCredentialMaster: async () => ({ ok: true as const, value: new Uint8Array(32).fill(3) }),
+        oauth: { guard: createOAuthUrlGuard({ assertAllowed() {} }, { allowLoopbackHttp: true }), async fetchFn() {
+            exchanges++; return Response.json({ access_token: 'fixture-token', token_type: 'bearer', expires_in: 3600 });
+        } } };
+    try {
+        const integrations = bindServerIntegrations({ db: f.dependencies.db, clock, ids: { next: () => 'denied-' + ++sequence },
+            observer: f.dependencies.observer, io, stateRoot: '/fixture', providers: await loadOAuthProviders({ io }),
+            redirectUri: () => 'http://127.0.0.1:43120' + oauthCallbackPath,
+            agentPluginState: async input => {
+                expect(input).toEqual({ context: owner, pluginId }); admissionChecks++;
+                return { enabled: true, bundled: true, admitted: false, revision: 'fixture', metadata: {} };
+            } });
+        unwrap({ result: await integrations.setOAuthClient({ context: owner, request: { pluginId,
+            client: { clientId: '12345', clientSecret: 'fixture-meta-secret', configId: '999' } } }) });
+        const challenge = unwrap({ result: await integrations.startOAuth({ context: owner, request: { pluginId } }) });
+        const response = { state: new URL(challenge.authorizationUrl).searchParams.get('state')!, code: 'fixture-code' };
+        expect(await integrations.completeOAuth({ context: owner, response })).toMatchObject({ ok: false, error: { code: 'forbidden', retryable: false } });
+        expect(admissionChecks).toBe(1); expect(exchanges).toBe(0);
+        expect(await integrations.completeOAuth({ context: owner, response })).toMatchObject({ ok: false });
+        expect(admissionChecks).toBe(1); expect(exchanges).toBe(0);
+        expect(await integrations.oauthStatus({ context: owner, transactionId: challenge.transactionId })).toEqual({ ok: true, value: { status: 'expired' } });
+        expect(await integrations.list({ context: owner, query: { limit: 25 } })).toMatchObject({ value: { items: [] } });
+        expect(f.native.prepare('SELECT COUNT(*) AS total FROM om_credential_connection WHERE connection_id = ?').get(challenge.transactionId)).toEqual({ total: 0 });
+    } finally { f.dispose(); }
+});
+
+it('refuses GET outside the two Meta token paths before attempting network access', async () => {
+    const http = createOAuthHttp({});
+    for (const url of ['https://oauth2.googleapis.com/token', 'https://graph.facebook.com/v26.0/me', 'https://graph.facebook.com.attacker.test/v26.0/debug_token']) {
+        await expect(http.fetchFn({ url }, { method: 'GET' })).rejects.toThrow('Invalid OAuth request');
+    }
+});
