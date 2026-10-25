@@ -2,9 +2,9 @@
 import { constants } from 'node:fs';
 import type * as filesystem from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
-import { timingSafeEqual } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
-import type { AppError, ClockPort, IdPort, Outcome, Scope } from '@open-marketing/contracts';
+import type { ApproverRef, AppError, ClockPort, IdPort, Outcome, Scope } from '@open-marketing/contracts';
 import type { HttpRequest, HttpResponse } from '../ports.js';
 
 /** Native filesystem ABI, supplied by executable composition or a temporary-file test. */
@@ -13,6 +13,15 @@ const tokenSchema = z.string().regex(/^[a-f0-9]{64}$/);
 const credentialsSchema = z.strictObject({ token: tokenSchema, ownerId: z.uuid(), workspaceId: z.uuid() });
 /** Owner scope and token stay server-side; neither is derived from request payloads. */
 export type LocalCredentials = z.infer<typeof credentialsSchema>;
+/** Nonsecret, domain-separated references to the existing private installation credentials.
+ * @returns Stable device/token references across restart; credential rotation changes both.
+ * @complexity O(1), fixed-size private credentials; no I/O or token exposure. */
+export function localApprover(required: { credentials: LocalCredentials }): ApproverRef {
+    const encoded = JSON.stringify(credentialsSchema.parse(required.credentials));
+    return { kind: 'local_token', ownerId: required.credentials.ownerId,
+        deviceId: createHash('sha256').update('io.github.ainsep.openmarketing.approver.device.v1\0').update(encoded).digest('hex'),
+        tokenId: createHash('sha256').update('io.github.ainsep.openmarketing.approver.token.v1\0').update(encoded).digest('hex') };
+}
 const originSchema = z.url().max(2048).refine(value => {
     const url = new URL(value);
     return url.protocol === 'http:' && url.hostname === '127.0.0.1' && Number(url.port) > 0

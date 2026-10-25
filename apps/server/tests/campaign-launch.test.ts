@@ -16,6 +16,15 @@ import { bindServerDatabase, provisionWorkspace } from '../src/composition/datab
 import { migrationManifest } from '../src/composition/migrations.js';
 import { createSqlToolOperationStore } from '../src/tool-operations.js';
 
+/** Captured approval evidence; each fixture owns its audit records. */
+function answerAudit() {
+    const answers: unknown[] = [];
+    return { answers, async recordAnswer(input: { answer: unknown }) {
+        answers.push(structuredClone(input.answer));
+        return { ok: true as const, value: undefined };
+    } };
+}
+
 const context: CallContext = { scope: { ownerId: 'owner', workspaceId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }, principal: { kind: 'owner', ownerId: 'owner' }, correlationId: 'correlation', traceId: 'trace', runId: 'run' };
 function value<T>(input: { result: Outcome<T> }): T { if (!input.result.ok) throw new Error(input.result.error.message); return input.result.value; }
 function digest(input: { value: unknown }): string { return value({ result: digestArguments({ arguments: input.value }) }); }
@@ -31,7 +40,7 @@ async function fixture() {
     const campaign: NeutralCampaignLaunch = { schemaVersion: 2, operationId: 'local', name: 'Traffic', objective: 'traffic', schedule: { window: { start: 2000, end: 1000000 }, timezone: 'UTC' }, audience: { countries: ['US'] }, ads: [{ creativeId: 'creative', destinationUrl: 'https://example.test/landing' }], creativeDigest: 'a'.repeat(64),
         targets: [1, 2, 3].map(accountId => ({ pluginId: 'fixture', connectionId: 'connection', accountId: String(accountId), dailyBudget: { minorUnits: 500, currency: accountId === 2 ? 'EUR' : 'USD' }, expectedExposure: { minorUnits: 2500, currency: accountId === 2 ? 'EUR' : 'USD' } })) };
     const saved = value({ result: await repo.saveNeutral({ context, campaign }) });
-    const confirmations = createMemoryConfirmationExchange({ clock, ids });
+    const confirmations = createMemoryConfirmationExchange({ ...answerAudit(), clock, ids });
     const safetyRepo = createMemorySafetyRepo({ clock, ids, ownerTimezone: 'UTC' });
     const sends: string[] = [];
     let afterFirst = async () => {};
@@ -65,7 +74,7 @@ async function fixture() {
         expect(value({ result: await tools.dispatch({ context, call }) }).status).toBe('pending');
         const card = value({ result: await tools.card({ context, operationId: 'launch' }) });
         if (!card) throw new Error('Expected owning card');
-        value({ result: await tools.answer({ context, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } }) });
+        value({ result: await tools.answer({ context, approver: { kind: 'local_token', ownerId: context.scope.ownerId, deviceId: 'fixture-device', tokenId: 'fixture-token-reference' }, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } }) });
         return card;
     }
     return { native, tools, toolPorts, definition, ports, safety, confirmations, calls, sends, campaign, call, approve,
@@ -84,7 +93,7 @@ it('one exact card reviews every destination and executes only non-serving const
         expect(card.arguments.campaign).toEqual(f.campaign); expect(card.arguments.calls).toEqual(f.calls);
         expect(card.arguments.budgetSemantics).toContain('not hard spending caps');
         expect(f.sends).toEqual([]); expect(f.native.prepare('SELECT id FROM job').all()).toEqual([]);
-        value({ result: await f.tools.answer({ context, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } }) });
+        value({ result: await f.tools.answer({ context, approver: { kind: 'local_token', ownerId: context.scope.ownerId, deviceId: 'fixture-device', tokenId: 'fixture-token-reference' }, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } }) });
         expect(value({ result: await f.tools.operation({ context, operationId: 'launch' }) })).toMatchObject({ status: 'completed', output: { status: 'submitted' } });
         expect(f.sends).toEqual(['1', '2', '3']);
         expect(f.native.prepare('SELECT state FROM job').all()).toEqual([{ state: 'succeeded' }]);
@@ -149,7 +158,7 @@ it('rejects changed plans, extra calls and cross-scope authority before enqueue'
     try {
         const prepared = value({ result: await f.definition.prepareEffect!({ context, call: f.call }) });
         const card = value({ result: await f.ports.safety.prepareApproval({ context, request: prepared }) });
-        value({ result: await f.confirmations.confirm({ context, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } }) });
+        value({ result: await f.confirmations.confirm({ context, approver: { kind: 'local_token', ownerId: context.scope.ownerId, deviceId: 'fixture-device', tokenId: 'fixture-token-reference' }, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } }) });
         const authorization = { ...prepared, approvalId: card.cardId, policyRevision: 0 };
         const changed = { ...authorization, pausedCampaignCalls: [...authorization.pausedCampaignCalls!, f.calls[0]] };
         expect(await f.definition.invoke({ context, input: f.call.input, authorization: changed })).toMatchObject({ ok: false });
@@ -204,7 +213,7 @@ it('denies invalid grouped authority and direct root dispatch without creating a
         expect(await f.safety.prepareApproval({ context, request: { ...request, arguments: args, pausedCampaignCalls: calls, envelope: { ...request.envelope, argumentsDigest: digest({ value: args }) } } })).toMatchObject({ ok: false });
         expect(value({ result: await f.confirmations.list({ context, query: { limit: 100 } }) }).items).toEqual([]);
         const card = value({ result: await f.safety.prepareApproval({ context, request }) });
-        value({ result: await f.confirmations.confirm({ context, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } }) });
+        value({ result: await f.confirmations.confirm({ context, approver: { kind: 'local_token', ownerId: context.scope.ownerId, deviceId: 'fixture-device', tokenId: 'fixture-token-reference' }, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } }) });
         let dispatches = 0;
         expect(await f.safety.withDispatch({ context, request: { ...request, approvalId: card.cardId, policyRevision: 0 }, dispatch: async () => { dispatches++; return { ok: true, value: null }; } })).toMatchObject({ ok: false });
         expect(dispatches).toBe(0); expect(f.sends).toEqual([]);

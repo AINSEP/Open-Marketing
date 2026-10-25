@@ -1,6 +1,13 @@
 import { expect, it } from "vitest";
-import { createMemoryConfirmationExchange, digestArguments } from "../../index.js";
-import { approve, context, createHarness, generationRequest, spendRequest, timing, unwrap } from "../fixtures.js";
+import { createMemoryConfirmationExchange, digestArguments, mayAnswer } from "../../index.js";
+import { approve, approver, context, createHarness, generationRequest, spendRequest, timing, unwrap } from "../fixtures.js";
+it("mayAnswer requires authenticated owner scope in addition to a valid local or Jini reference", () => {
+ const card = { scope: context.scope };
+ expect(mayAnswer({ card, approver: { context, reference: approver } })).toEqual({ ok: true, value: undefined });
+ expect(mayAnswer({ card, approver: { context, reference: { kind: "jini_user", userId: "authenticated-human" } } })).toEqual({ ok: true, value: undefined });
+ expect(mayAnswer({ card: { scope: { ...context.scope, workspaceId: "other" } }, approver: { context, reference: approver } })).toMatchObject({ ok: false, error: { message: "Approver differs from card scope" } });
+ expect(mayAnswer({ card, approver: { context, reference: undefined } } as unknown as Parameters<typeof mayAnswer>[0])).toMatchObject({ ok: false, error: { message: "Invalid approver identity" } });
+});
 it("canonical digest is stable by object-key order and rejects non-JSON, huge and deeply nested arguments", () => {
  expect(digestArguments({ arguments: { b: 2, a: 1 } })).toEqual(digestArguments({ arguments: { a: 1, b: 2 } }));
  expect(digestArguments({ arguments: { value: "x".repeat(65_537) } }).ok).toBe(false);
@@ -70,7 +77,7 @@ it("the confirmation double can reset its instance without preserving authority"
  const exchange = createMemoryConfirmationExchange(timing());
  const request = spendRequest();
  const card = unwrap({ outcome: await exchange.present({ context, request }) });
- unwrap({ outcome: await exchange.confirm({ context, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: "allow" } }) });
+ unwrap({ outcome: await exchange.confirm({ context, approver, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: "allow" } }) });
  exchange.reset({});
  expect((await exchange.verify({ context, request: { ...request, approvalId: card.cardId, policyRevision: 0 }, classification: "spend" })).ok).toBe(false);
 });

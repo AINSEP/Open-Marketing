@@ -1,14 +1,11 @@
 import type { CallContext, CallOptions, Outcome, Page, PageQuery } from "@open-marketing/contracts";
+import type { z } from "zod";
+import type { auditEntrySchema } from "./validation.js";
 
-/** Digest-only evidence. References identify caller-secured evidence, never raw arguments.
+/** Schema-derived evidence. Approval entries include exact response and nonsecret approver reference.
+ * References identify caller-secured evidence, never raw arguments.
  * Corrections name a receipt's entryId and append evidence for the same operation. */
-export type AuditEntry = {
-  readonly operationId: string;
-  readonly kind: "intent" | "approval" | "dispatch" | "outcome" | "correction";
-  readonly argumentsDigest: string;
-  readonly references: readonly string[];
-  readonly correctionOf?: string;
-};
+export type AuditEntry = z.infer<typeof auditEntrySchema>;
 /** Returned only after append commits. Keep this receipt to identify correction lineage.
  * IDs must be opaque non-personal identifiers using letters, digits, colon, underscore or hyphen. */
 export type AuditReceipt = { readonly entryId: string; readonly recordedAt: number };

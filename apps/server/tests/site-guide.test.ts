@@ -20,6 +20,15 @@ import { handleOwnerRequest } from '../src/inbound/owner.js';
 import { runOmCli, type CliRuntime } from '../src/cli/index.js';
 import { generateOmToolCoverage } from '../src/om-tool-coverage.js';
 
+/** Captured approval evidence; each fixture owns its audit records. */
+function answerAudit() {
+    const answers: unknown[] = [];
+    return { answers, async recordAnswer(input: { answer: unknown }) {
+        answers.push(structuredClone(input.answer));
+        return { ok: true as const, value: undefined };
+    } };
+}
+
 const catalog = JSON.parse(readFileSync(new URL('../../../content/agent-plugins/om-playbook/skills/om-playbook/references/om-site-guide.json', import.meta.url), 'utf8'));
 const owner: CallContext = { scope: { ownerId: 'owner', workspaceId: 'a' }, principal: { kind: 'owner', ownerId: 'owner' }, correlationId: 'correlation', traceId: 'trace' };
 const agent: CallContext = { ...owner, runId: 'run', principal: { kind: 'agent', runId: 'run', agentInstanceId: 'instance' } };
@@ -30,7 +39,7 @@ function value<T>({ outcome }: { outcome: Outcome<T> }): T {
 function fixture(required: { addons?: AddonToolDependencies } = {}) {
     let sequence = 0; let active = true; let currentCatalog: unknown = catalog;
     const ids: IdPort = { next: () => 'guide-' + ++sequence }; const clock = { now: () => 1000 }; const observer = { observe() {} };
-    const confirmations = createMemoryConfirmationExchange({ clock, ids });
+    const confirmations = createMemoryConfirmationExchange({ ...answerAudit(), clock, ids });
     const services = { confirmations, campaigns: createMemoryCampaignRepo({}), safety: createMemorySafetyRepo({ clock, ids, ownerTimezone: 'UTC' }) };
     const reads: { name: string; context: CallContext; input: unknown }[] = [];
     const overrides = new Map<string, OmToolDefinition>(); const removed = new Set<string>(); const hiddenForAgent = new Set<string>();

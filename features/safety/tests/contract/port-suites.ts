@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { AccountDispatchLockPort, ConfirmationExchangePort, PlatformLimitEvidencePort, SafetyAuditPort, SafetyRepoPort, SpendPolicyPort, VerifiedEffectResolverPort } from "../../index.js";
-import { context, otherContext, spendRequest, capEvidence, timing, unwrap, generationRequest, NOW } from "../fixtures.js";
+import { approver, context, otherContext, spendRequest, capEvidence, timing, unwrap, generationRequest, NOW } from "../fixtures.js";
 import { digestArguments } from "../../index.js";
 import type { CampaignConstituent, EffectRequest, FrozenDispatchRequest } from "../../index.js";
 /** B1 behavioral suite; both memory and SQL MUST preserve the same accounting semantics. */
@@ -95,8 +95,71 @@ export function SpendPolicyPortSuite(required: { create: () => SpendPolicyPort }
  });
 }
 /** Explicit response, scope and exact arguments are tested against every confirmation adapter. */
-export function ConfirmationExchangePortSuite(required: { create: () => ConfirmationExchangePort; reopen?: (required: { port: ConfirmationExchangePort }) => ConfirmationExchangePort }) {
+export function ConfirmationExchangePortSuite(required: { create: (required?: { recordAnswer: Parameters<typeof import("../../index.js").createMemoryConfirmationExchange>[0]["recordAnswer"] }) => ConfirmationExchangePort; reopen?: (required: { port: ConfirmationExchangePort }) => ConfirmationExchangePort }) {
  describe("ConfirmationExchangePort B1", () => {
+  it("owner-only generic cards reject agents/services, wrong scope and forged or missing identity", async () => {
+   const port = required.create();
+   const agent = { ...context, principal: { kind: "agent" as const, agentInstanceId: "agent", runId: "run" } };
+   const seed = spendRequest();
+   const request = { ...seed, envelope: { ...seed.envelope, effects: ["write" as const], moneyExposure: null, requiredLimit: null } };
+   const card = unwrap({ outcome: await port.present({ context: agent, request }) });
+   const response = { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: "allow" as const };
+   for (const caller of [agent, { ...context, principal: { kind: "service" as const, serviceId: "worker" } }, otherContext,
+    { ...context, scope: { ...context.scope, workspaceId: "other-workspace" } }]) {
+    expect(await port.confirm({ context: caller, approver, response })).toMatchObject({ ok: false, error: { code: "forbidden" } });
+   }
+   expect(await port.confirm({ context, approver: { ...approver, ownerId: "other" }, response })).toMatchObject({ ok: false, error: { message: "Approver differs from card owner" } });
+   for (const reference of [undefined, { kind: "local_token", ownerId: "owner", deviceId: "device" }, { ...approver, token: "secret" }]) {
+    expect(await port.confirm({ context, response, approver: reference } as Parameters<typeof port.confirm>[0])).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+   }
+   unwrap({ outcome: await port.confirm({ context, response, approver }) });
+   expect(await port.verify({ context: agent, request: { ...request, approvalId: card.cardId, policyRevision: 0 }, classification: "write" })).toEqual({ ok: true, value: undefined });
+  });
+  it("snapshots identity and response before audit, with one winner across competing answers", async () => {
+   const entered = Promise.withResolvers<void>();
+   const release = Promise.withResolvers<void>();
+   const evidence: Parameters<Parameters<typeof import("../../index.js").createMemoryConfirmationExchange>[0]["recordAnswer"]>[0][] = [];
+   const original = required.create({ async recordAnswer(input) {
+    evidence.push(structuredClone(input));
+    input.answer.response.choice = "cancel";
+    if (input.answer.approver.kind === "local_token") input.answer.approver.ownerId = "mutated-callback-owner";
+    entered.resolve();
+    await release.promise;
+    return { ok: true, value: undefined };
+   } });
+   const request = spendRequest();
+   const card = unwrap({ outcome: await original.present({ context, request }) });
+   const response = { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: "allow" as "allow" | "cancel" };
+   const reference = { ...approver };
+   const first = original.confirm({ context, response, approver: reference });
+   await entered.promise;
+   const second = original.confirm({ context, response: { ...response, choice: "cancel" }, approver });
+   response.choice = "cancel"; reference.ownerId = "mutated-caller-owner";
+   release.resolve();
+   expect(await first).toEqual({ ok: true, value: undefined });
+   expect(await second).toMatchObject({ ok: false, error: { code: "conflict" } });
+   expect(evidence).toEqual([{ context, answer: { response: { ...response, choice: "allow" }, approver, answeredAt: NOW } }]);
+   const reopened = required.reopen?.({ port: original }) ?? original;
+   expect(await reopened.verify({ context, request: { ...request, approvalId: card.cardId, policyRevision: 0 }, classification: "spend" })).toEqual({ ok: true, value: undefined });
+   unwrap({ outcome: await reopened.revoke({ context, cardId: card.cardId }) });
+   expect(evidence).toHaveLength(1);
+  });
+  it.each([false, true])("audit failure (throws=%s) leaves no confirmed authority and permits a fresh answer", async throws => {
+   let fail = true;
+   const port = required.create({ async recordAnswer() {
+    if (!fail) return { ok: true, value: undefined };
+    if (throws) throw new Error("fixture audit failure");
+    return { ok: false, error: { code: "unavailable", message: "Audit unavailable", retryable: false } };
+   } });
+   const request = spendRequest();
+   const card = unwrap({ outcome: await port.present({ context, request }) });
+   const response = { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: "allow" as const };
+   expect(await port.confirm({ context, response, approver })).toMatchObject({ ok: false, error: { code: "unavailable" } });
+   expect(await port.list({ context, query: { limit: 100 } })).toMatchObject({ ok: true, value: { items: [card] } });
+   expect(await port.verify({ context, request: { ...request, approvalId: card.cardId, policyRevision: 0 }, classification: "spend" })).toMatchObject({ ok: false, error: { code: "forbidden" } });
+   fail = false;
+   expect(await port.confirm({ context, response, approver })).toEqual({ ok: true, value: undefined });
+  });
   it("binds one owning card to exact constituents after reopen, denying extra calls, drift, scope and revocation", async () => {
    const first = required.create();
    const seed = spendRequest();
@@ -108,7 +171,7 @@ export function ConfirmationExchangePortSuite(required: { create: () => Confirma
     envelope: { ...seed.envelope, effects: ['ad_spend'], accountId: null, moneyExposure: null, requiredLimit: null, argumentsDigest: unwrap({ outcome: digestArguments({ arguments: reviewed }) }) } };
    const card = unwrap({ outcome: await first.present({ context, request }) });
    expect(card.allowedChoices).toEqual(['allow', 'cancel']);
-   unwrap({ outcome: await first.confirm({ context, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } }) });
+   unwrap({ outcome: await first.confirm({ context, approver, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } }) });
    const port = required.reopen?.({ port: first }) ?? first;
    const dispatch: FrozenDispatchRequest = { ...call, approvalId: card.cardId, policyRevision: 0, campaignApproval: { operationId: card.operationId, argumentsDigest: card.argumentsDigest, index: 0 } };
    expect(await port.verify({ context, request: dispatch, classification: 'write' })).toMatchObject({ ok: true });
@@ -126,11 +189,11 @@ export function ConfirmationExchangePortSuite(required: { create: () => Confirma
    expect(await reopened.list({ context, query: { limit: 100 } })).toEqual({ ok: true, value: { items: [card], cursor: null } });
    expect(await reopened.get({ context, cardId: card.cardId })).toEqual({ ok: true, value: card });
    const response = { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: "allow" as const };
-   const answers = await Promise.all([reopened.confirm({ context, response }), reopened.confirm({ context, response })]);
+   const answers = await Promise.all([reopened.confirm({ context, approver, response }), reopened.confirm({ context, approver, response })]);
    expect(answers.filter(answer => answer.ok)).toHaveLength(1);
    expect(answers.find(answer => !answer.ok)).toMatchObject({ error: { code: "conflict" } });
    const answered = required.reopen?.({ port: reopened }) ?? reopened;
-   expect(await answered.confirm({ context, response })).toMatchObject({ ok: false, error: { code: "conflict" } });
+   expect(await answered.confirm({ context, approver, response })).toMatchObject({ ok: false, error: { code: "conflict" } });
    expect(await answered.verify({ context, request: { ...request, approvalId: card.cardId, policyRevision: 0 }, classification: "spend" })).toEqual({ ok: true, value: undefined });
    unwrap({ outcome: await answered.revoke({ context: otherContext, cardId: card.cardId }) });
    expect(await answered.get({ context, cardId: card.cardId })).toEqual({ ok: true, value: card });
@@ -150,7 +213,7 @@ export function ConfirmationExchangePortSuite(required: { create: () => Confirma
    const next = unwrap({ outcome: await port.list({ context, query: { limit: 1, cursor: page.cursor! } }) });
    expect([...page.items, ...next.items].map(card => card.cardId)).toEqual([first.cardId, second.cardId].sort());
    expect(next.cursor).toBeNull();
-   unwrap({ outcome: await port.confirm({ context, response: { cardId: first.cardId, operationId: first.operationId, argumentsDigest: first.argumentsDigest, choice: 'cancel' } }) });
+   unwrap({ outcome: await port.confirm({ context, approver, response: { cardId: first.cardId, operationId: first.operationId, argumentsDigest: first.argumentsDigest, choice: 'cancel' } }) });
    expect(unwrap({ outcome: await port.list({ context, query: { limit: 100 } }) }).items).toEqual([second]);
    expect(await port.list({ context, query: { limit: 101 } })).toMatchObject({ ok: false, error: { code: 'invalid_input' } });
    expect(await port.get({ context, cardId: first.cardId }, { signal: AbortSignal.abort() })).toMatchObject({ ok: false, error: { code: 'cancelled' } });
@@ -162,8 +225,8 @@ export function ConfirmationExchangePortSuite(required: { create: () => Confirma
    const dispatch = { ...request, approvalId: card.cardId, policyRevision: 0 };
    expect(card.allowedChoices).toEqual(["allow", "cancel"]);
    expect((await port.verify({ context, request: dispatch, classification: "spend" })).ok).toBe(false);
-   expect((await port.confirm({ context, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: "always_allow" } })).ok).toBe(false);
-   unwrap({ outcome: await port.confirm({ context, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: "allow" } }) });
+   expect(await port.confirm({ context, approver, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: "always_allow" } })).toMatchObject({ ok: false, error: { code: "forbidden", message: "Response differs from exact card or choices" } });
+   unwrap({ outcome: await port.confirm({ context, approver, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: "allow" } }) });
    expect((await port.verify({ context, request: dispatch, classification: "spend" })).ok).toBe(true);
    expect((await port.verify({ context: otherContext, request: dispatch, classification: "spend" })).ok).toBe(false);
    expect((await port.verify({ context, request: { ...dispatch, pluginDigest: "f".repeat(64) }, classification: "spend" })).ok).toBe(false);

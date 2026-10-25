@@ -15,7 +15,7 @@ import { createSqlCampaignRepo, type CampaignSqlPort } from '@open-marketing/cam
 import { createSqlSafetyRepo, createMemoryConfirmationExchange, digestArguments, type EffectRequest } from '@open-marketing/safety';
 import { bootServer } from '../src/composition/index.js';
 import { createNodeBootIo } from '../src/composition/serve.js';
-import { readLocalOwner, createLocalAuth } from '../src/composition/local-auth.js';
+import { readLocalOwner, createLocalAuth, localApprover } from '../src/composition/local-auth.js';
 import { bindServerDatabase } from '../src/composition/database.js';
 import { createNodeHttpListener } from '../src/inbound/http.js';
 import { handleOwnerRequest } from '../src/inbound/owner.js';
@@ -47,8 +47,10 @@ async function ownerFixture(_required: Record<string, never>) {
     const safety = createSqlSafetyRepo({ db: { transaction: ({ execute }) => db.unit.transaction({ work: ({ session }) => execute({ session: {
         query: ({ sql, parameters }) => session.query({ text: sql, values: [...parameters] }),
     } }) }) }, clock, ids, observer, ownerTimezone: 'UTC' });
-    const confirmations = createMemoryConfirmationExchange({ clock, ids });
-    const services: OwnerServices = { campaigns, safety, confirmations, recentEvents };
+    const answers: unknown[] = [];
+    const confirmations = createMemoryConfirmationExchange({ clock, ids, async recordAnswer(input) { answers.push(structuredClone(input)); return { ok: true, value: undefined }; } });
+    const approver = localApprover({ credentials: { ...context.scope, token: "a".repeat(64) } });
+    const services: OwnerServices = { campaigns, safety, confirmations, recentEvents, approver };
     const token = 'a'.repeat(64);
     const auth = createLocalAuth({ credentials: { ...context.scope, token }, clock, bootstrapToken: 'b'.repeat(64) });
     const io = createNodeBootIo({ projectRoot: '', studioRoot: '', ready() {} });
@@ -66,7 +68,7 @@ async function ownerFixture(_required: Record<string, never>) {
     const runtime: CliRuntime = { env: { OM_SERVER_URL: origin, OM_OWNER_TOKEN: token }, fetch, clock, ids,
         deadline: { create: () => ({ signal: AbortSignal.timeout(15000), dispose() {} }) },
         stdout: { write: ({ text }) => { output.push(text); } }, stderr: { write() {} }, confirm: async () => true, readPrompt: async function* () {} };
-    return { native, context, otherContext, campaigns, safety, confirmations, events, origin, runtime, output, services, recentEvents,
+    return { native, context, otherContext, campaigns, safety, confirmations, answers, approver, events, origin, runtime, output, services, recentEvents,
         reads: () => bodyReads,
         async get(required: { path: string }) { return fetch(origin + required.path, { headers: { authorization: 'Bearer ' + token } }); },
         async post(required: { path: string; body: unknown }) { return fetch(origin + required.path, { method: 'POST', headers: {
@@ -130,6 +132,24 @@ it('reads and answers existing exact cards over HTTP/CLI without enqueuing or re
         expect((await fixture.post({ path: '/api/safety/approvals/' + card.cardId + '/answer', body: response })).status).toBe(409);
         expect(value({ result: await fixture.safety.snapshot({ context: fixture.context, accountId: draft.accountId }) }).reserved.minorUnits).toBe(0);
         expect(fixture.native.prepare('SELECT COUNT(*) AS count FROM safety_journal').get()).toEqual({ count: 0 });
+    } finally { await fixture.close(); }
+});
+
+it.each([false, true])('rejects forged and missing trusted approvers on catalog=%s answer paths', async catalog => {
+    const fixture = await ownerFixture({});
+    try {
+        const card = value({ result: await fixture.confirmations.present({ context: fixture.context, request: effect({ operationId: 'identity-bound' }) }) });
+        const unused = async () => { throw new Error('Unexpected fixture call'); };
+        if (catalog) fixture.services.tools = { card: async () => ({ ok: true, value: card }), answer: input => fixture.confirmations.confirm(input),
+            list: unused, describe: unused, dispatch: unused, operation: unused, restore: unused, cancel: unused, dispose: unused };
+        const body = { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' };
+        const path = '/api/safety/approvals/' + card.cardId + '/answer';
+        expect((await fixture.post({ path, body: { ...body, approver: fixture.approver } })).status).toBe(400);
+        const { approver: _approver, ...missingIdentity } = fixture.services;
+        expect(await handleOwnerRequest({ request: { method: 'POST', path, body }, context: fixture.context, services: missingIdentity })).toMatchObject({ status: 401, body: { ok: false, error: { code: 'unauthenticated' } } });
+        expect(fixture.answers).toEqual([]);
+        expect((await fixture.post({ path, body })).status).toBe(200);
+        expect(fixture.answers).toEqual([{ context: fixture.context, answer: { response: body, approver: fixture.approver, answeredAt: 1000 } }]);
     } finally { await fixture.close(); }
 });
 
@@ -224,6 +244,8 @@ it.each(['none', 'create', 'end', 'observer', 'clock'].flatMap(fault => [false, 
         expect(await (await fixture.post({ path: '/api/safety/approvals/' + card.cardId + '/answer', body })).json()).toEqual({ ok: true, value: { status: 'recorded' } });
         expect(confirm).toHaveBeenCalledTimes(1);
         expect(confirm.mock.calls[0][0].context).toEqual(fixture.context);
+        expect(confirm.mock.calls[0][0].approver).toEqual(fixture.approver);
+        expect(fixture.answers).toEqual([{ context: fixture.context, answer: { response: body, approver: fixture.approver, answeredAt: 1000 } }]);
         expect(trackRequest).toHaveBeenCalledWith({ method: 'POST', path: '/api/safety/approvals/:id/answer' }, { requestId: fixture.context.correlationId });
         expect(end).toHaveBeenCalledTimes(fault === 'create' ? 0 : 1);
         if (fault !== 'create') expect(end).toHaveBeenCalledWith({ statusCode: 200, routePattern: '/api/safety/approvals/:id/answer' });

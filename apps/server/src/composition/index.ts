@@ -40,7 +40,7 @@ import { createLocalAgent, createNodeAgentEffects, type AgentEffects } from './a
 import { createFrontendSessions, type FrontendSessions } from '../inbound/frontend.js';
 import { join } from 'node:path';
 import type Database from 'better-sqlite3';
-import type { CallContext, ClockPort, IdPort, ObserverPort, Outcome, UnitOfWork } from '@open-marketing/contracts';
+import type { CallContext, ClockPort, IdPort, ObserverPort, Outcome, SqlSession, UnitOfWork } from '@open-marketing/contracts';
 import { z } from 'zod';
 import { createSqlCampaignRepo, type CampaignSqlPort } from '@open-marketing/campaigns';
 import { createMemoryAccountDispatchLock, createSqlConfirmationExchange, createSafetyService, createSqlSafetyRepo, type AccountDispatchLockPort, type ConfirmationExchangePort, type SafetySqlDatabase } from '@open-marketing/safety';
@@ -51,7 +51,7 @@ import { createNodeHttpListener, prepareStudioAssets, serveStudioAsset, type Htt
 import { bindServerDatabase, provisionWorkspace } from './database.js';
 import { loadMigrations } from './migrations.js';
 import { runMigrations } from '../platform/jini-compat/db/src/index.js';
-import { createLocalAuth, localFailure, parseLocalEnvironment, provisionLocalOwner, readLocalFile, writeLocalEndpoint, type LocalFilesystem } from './local-auth.js';
+import { createLocalAuth, localApprover, localFailure, parseLocalEnvironment, provisionLocalOwner, readLocalFile, writeLocalEndpoint, type LocalFilesystem } from './local-auth.js';
 
 /** Retain the inert grant-authenticated shell; boot supplies its concrete HTTP dispatcher.
  * @example const app = createServerApp({ listener, handle }); await app.start({});
@@ -257,7 +257,20 @@ export async function bootServer(required: {
         const safetyDb: SafetySqlDatabase = { transaction: ({ execute }) => database.unit.transaction({ work: ({ session }) => execute({
             session: { query: ({ sql, parameters }) => session.query({ text: sql, values: [...parameters] }) },
         }) }) };
-        resources.confirmations = createSqlConfirmationExchange({ db: safetyDb, clock: required.clock, ids: required.ids });
+        resources.confirmations = createSqlConfirmationExchange({ db: safetyDb, clock: required.clock, ids: required.ids,
+            recordAnswer: async ({ session, context, answer }) => {
+                // Borrow the confirmation transaction: audit must never open a root transaction here.
+                const borrowed: SqlSession = { transaction: ({ work }) => work({ session: borrowed }),
+                    query: async <Row extends Record<string, unknown>>({ text, values }: { text: string; values?: unknown[] }) => {
+                        const result = await session.query({ sql: text, parameters: values ?? [] });
+                        return { rows: [...result.rows] as Row[], rowCount: result.rows.length };
+                    } };
+                const audit = bindCatalogAudit({ ...required, unit: borrowed });
+                const recorded = await audit.record({ context, entry: { kind: 'approval', operationId: answer.response.operationId,
+                    argumentsDigest: answer.response.argumentsDigest, references: [answer.response.cardId],
+                    approval: { response: answer.response, approver: answer.approver } } });
+                return recorded.ok ? { ok: true, value: undefined } : recorded;
+            } });
         const campaignDb: CampaignSqlPort = {
             query: <Row extends Record<string, unknown>>(input: { text: string; values?: unknown[] }) =>
                 database.unit.transaction({ work: ({ session }) => session.query<Row>(input) }),
@@ -274,7 +287,7 @@ export async function bootServer(required: {
             observability: optional.observability ?? createNoopObservabilityPort({}),
             campaigns: createSqlCampaignRepo({ db: campaignDb }, { observer: required.observer }),
             safety: createSqlSafetyRepo({ db: safetyDb, clock: required.clock, ids: required.ids, ownerTimezone: config.value.timezone, observer: required.observer }),
-            confirmations: resources.confirmations, integrations,
+            confirmations: resources.confirmations, integrations, approver: localApprover({ credentials: credentials.value }),
         };
         resources.addons = bindBootAddons({ ...required, context, db: campaignDb, unit: database.unit, stateRoot: config.value.stateRoot, integrations });
         services.addons = resources.addons?.addons;

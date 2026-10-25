@@ -26,6 +26,15 @@ import { createMemoryConfirmationExchange, createSqlSafetyRepo } from '@open-mar
 import { runMigrations } from '../src/platform/jini-compat/db/src/index.js';
 import { loadMigrations } from '../src/composition/migrations.js';
 
+/** Captured approval evidence; each fixture owns its audit records. */
+function answerAudit() {
+    const answers: unknown[] = [];
+    return { answers, async recordAnswer(input: { answer: unknown }) {
+        answers.push(structuredClone(input.answer));
+        return { ok: true as const, value: undefined };
+    } };
+}
+
 /** Real boot/HTTP/kernel/file; host scheduler is manually advanced, never a fake outbox. */
 async function fixture(_input: Record<string, never>) {
     const directory = await fs.mkdtemp(join(tmpdir(), 'om-i3-'));
@@ -69,7 +78,7 @@ async function fixture(_input: Record<string, never>) {
         await seedSandboxForm({ binding: composed.forms, context, clock, ids });
         const campaigns = composed.campaigns;
         const safety = createSqlSafetyRepo({ db: { transaction: ({ execute }) => database.unit.transaction({ work: ({ session }) => execute({ session: { query: ({ sql, parameters }) => session.query({ text: sql, values: [...parameters] }) } }) }) }, clock, ids, ownerTimezone: 'UTC', observer });
-        const confirmations = createMemoryConfirmationExchange({ clock, ids });
+        const confirmations = createMemoryConfirmationExchange({ ...answerAudit(), clock, ids });
         const listener = createNodeHttpListener({ effects: io, host: '127.0.0.1', port: 0, ids, observer });
         const auth = createLocalAuth({ credentials, clock, bootstrapToken: io.randomToken({}) });
         const started = await listener.start({ async handle(request) {

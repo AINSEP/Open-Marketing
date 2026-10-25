@@ -13,7 +13,7 @@ import type { AssistantRunRequest } from '@open-marketing/contracts';
 import { surfaceAcknowledgementSchema } from '@open-marketing/contracts';
 import type { ClockPort, IdPort } from '@open-marketing/contracts';
 import { assistantRunRequestSchema, assistantSettingsSchema, approvalResponseSchema, idSchema, pageQuerySchema, parseBoundary, toolCallSchema, toolDescriptorSchema, toolOperationSchema, toolResultSchema, toolSearchSchema } from '@open-marketing/contracts';
-import type { CallContext, Money, Outcome, PageQuery } from '@open-marketing/contracts';
+import type { ApproverRef, CallContext, Money, Outcome, PageQuery } from '@open-marketing/contracts';
 import type { FormSubjectPort } from '@open-marketing/forms';
 import type { CampaignRecord, CampaignRepoPort } from '@open-marketing/campaigns';
 import type { ConfirmationExchangePort, SafetyRepoPort } from '@open-marketing/safety';
@@ -27,6 +27,8 @@ import type { OmTools } from '../om-tool-types.js';
 
 /** Existing owning repositories/exchange; tests inject the same public memory adapters. */
 export interface OwnerServices {
+    /** Trusted composition identity, never populated from HTTP bodies or agent credentials. */
+    readonly approver?: ApproverRef;
     recentEvents?: ReturnType<typeof createRecentEvents>;
     observability?: ObservabilityPort;
     ui?: { runtime: { clock: ClockPort; ids: IdPort }; frontend?: UiFrontendPort; sessions?: FrontendSessions };
@@ -153,6 +155,8 @@ async function approval(required: OwnerInput & { id: string }): Promise<HttpResp
 
 /** Authentication precedes this lazy body read. The path must agree with the exact response. */
 async function answerResponse(required: OwnerInput & { id: string }): Promise<HttpResponse> {
+    const approver = required.services.approver;
+    if (!approver) return respond({ outcome: localFailure({ code: 'unauthenticated', message: 'Authenticated approver identity required' }), schema: routes.answer.schema });
     const body = await requestBody(required);
     if (!body.ok) return respond({ outcome: body, schema: routes.answer.schema });
     const response = parseBoundary({ schema: approvalResponseSchema, input: body.value });
@@ -160,8 +164,8 @@ async function answerResponse(required: OwnerInput & { id: string }): Promise<Ht
     if (response.value.cardId !== required.id) return respond({ outcome: localFailure({ code: 'conflict', message: 'Card path differs from response' }), schema: routes.answer.schema });
     const result = required.services.tools && await required.services.tools.card({ context: required.context, operationId: response.value.operationId });
     const continued = result?.ok && result.value
-        ? await required.services.tools!.answer({ context: required.context, response: response.value })
-        : await required.services.confirmations.confirm({ context: required.context, response: response.value });
+        ? await required.services.tools!.answer({ context: required.context, response: response.value, approver })
+        : await required.services.confirmations.confirm({ context: required.context, response: response.value, approver });
     return respond({ outcome: continued.ok ? { ok: true, value: { status: 'recorded' as const } } : continued, schema: routes.answer.schema });
 }
 

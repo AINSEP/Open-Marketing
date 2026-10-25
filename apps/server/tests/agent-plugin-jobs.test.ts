@@ -16,6 +16,15 @@ import { bindAgentPluginHaltJobs, createFormWorkers } from '../src/composition/w
 import { bindServerDatabase, provisionWorkspace } from '../src/composition/database.js';
 import { migrationManifest } from '../src/composition/migrations.js';
 
+/** Captured approval evidence; each fixture owns its audit records. */
+function answerAudit() {
+    const answers: unknown[] = [];
+    return { answers, async recordAnswer(input: { answer: unknown }) {
+        answers.push(structuredClone(input.answer));
+        return { ok: true as const, value: undefined };
+    } };
+}
+
 const context: CallContext = { scope: { ownerId: 'owner', workspaceId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }, principal: { kind: 'owner', ownerId: 'owner' }, correlationId: 'correlation', traceId: 'trace' };
 const serviceContext = { scope: context.scope, serviceId: 'om-halt-worker', correlationId: context.correlationId, traceId: context.traceId };
 const clock = { now: () => 1000 };
@@ -60,7 +69,7 @@ async function fixture(required: { pluginId?: 'linkedin-ads' | 'tiktok-ads'; onF
 function safety(required: { f: Awaited<ReturnType<typeof fixture>>; requests: HaltStopRequest[] }) {
     const { f } = required;
     return createSafetyService({ repo: f.repo, accountLocks: f.locks, clock, ids: f.ids, audit: createMemorySafetyAudit({}),
-        confirmations: createMemoryConfirmationExchange({ clock, ids: f.ids }), policy: createMemorySpendPolicy({}), platformLimits: createMemoryPlatformLimitEvidence({}),
+        confirmations: createMemoryConfirmationExchange({ ...answerAudit(), clock, ids: f.ids }), policy: createMemorySpendPolicy({}), platformLimits: createMemoryPlatformLimitEvidence({}),
         effects: { ...createMemoryVerifiedEffectResolver({}), async verifyHaltStop({ request }) {
             return required.requests.some(known => JSON.stringify(known) === JSON.stringify(request)) ? { ok: true, value: undefined }
                 : { ok: false, error: { code: 'forbidden', message: 'Unverified fixture target', retryable: false } };

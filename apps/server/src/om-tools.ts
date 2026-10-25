@@ -1,10 +1,10 @@
 /** One OM catalog and dispatcher. SDK/HTTP adapters share these exact operations. */
 import { z } from 'zod';
 import { buildUiToolDefinitions } from './ui-tools.js';
-import { assistantSettingsSchema, boundedJsonSchema, callContextSchema, generationAllowanceSettingsSchema, idSchema, pageQuerySchema, timeWindowSchema, digestSchema, moneySchema,
+import { approvalResponseSchema, approverRefSchema, assistantSettingsSchema, boundedJsonSchema, callContextSchema, generationAllowanceSettingsSchema, idSchema, pageQuerySchema, timeWindowSchema, digestSchema, moneySchema,
     parseBoundary, toolCallSchema, toolDescriptorSchema, toolSearchSchema, addonToolEffectsSchema, neutralCampaignLaunchSchema } from '@open-marketing/contracts';
-import type { ApprovalResponse, CallContext, ClockPort, ConfirmationCard, Outcome, ToolCall, ToolDescriptor, ToolOperation, ToolResult } from '@open-marketing/contracts';
-import { digestArguments } from '@open-marketing/safety';
+import type { ApproverRef, ApprovalResponse, CallContext, ClockPort, ConfirmationCard, Outcome, ToolCall, ToolDescriptor, ToolOperation, ToolResult } from '@open-marketing/contracts';
+import { digestArguments, mayAnswer } from '@open-marketing/safety';
 import type { DispatchPermit, EffectRequest, FrozenDispatchRequest, ConfirmationExchangePort, SafetyService } from '@open-marketing/safety';
 import { addonManagementTools, addonToolSchemas, integrationOAuthTools, loadAddonToolSources, invokeAddonManagementTool, invokeAddonTool } from './addon-tools.js';
 import type { AddonToolDependencies } from './addon-tools.js';
@@ -43,6 +43,7 @@ type Dependencies = { definitions(required: { context: CallContext }): Promise<O
     /** Omitted only by existing ephemeral callers; boot always injects durable storage. */
     store?: ToolOperationStore;
     authorize(required: { context: CallContext }): Outcome<void> };
+const answerInputSchema = z.strictObject({ context: callContextSchema, response: approvalResponseSchema, approver: approverRefSchema });
 
 // Reserve 1 KiB for ToolResult/Outcome fields and MCP's escaped text wrapper (128 KiB wire cap).
 const toolOutputSchema = boundedJsonSchema.refine(value => Buffer.byteLength(JSON.stringify(value)) <= 64512,
@@ -439,10 +440,12 @@ export function createOmTools(required: Dependencies): OmTools {
         operation.state = { status: 'pending', operationId: operation.call.operationId, cardId: card.value.cardId };
         await persist({ operation });
     }
-    async function answer(input: { context: CallContext; response: ApprovalResponse }): Promise<Outcome<void>> {
+    async function answer(input: { context: CallContext; response: ApprovalResponse; approver: ApproverRef }): Promise<Outcome<void>> {
         const owner = admitted(input);
         if (!owner.ok) return owner;
         if (input.context.principal.kind !== 'owner') return localFailure({ code: 'forbidden', message: 'Only the authenticated owner can answer a card' });
+        const eligible = mayAnswer({ card: { scope: input.context.scope }, approver: { context: input.context, reference: input.approver } });
+        if (!eligible.ok) return eligible;
         const found = await owned({ ...input, operationId: input.response.operationId });
         if (!found.ok) return found;
         const operation = found.value;
@@ -457,9 +460,9 @@ export function createOmTools(required: Dependencies): OmTools {
         }
         return confirmAndInvoke({ ...input, operation, definition });
     }
-    async function confirmAndInvoke(input: { context: CallContext; response: ApprovalResponse; operation: Operation; definition: OmToolDefinition }): Promise<Outcome<void>> {
+    async function confirmAndInvoke(input: { context: CallContext; response: ApprovalResponse; approver: ApproverRef; operation: Operation; definition: OmToolDefinition }): Promise<Outcome<void>> {
         const { operation } = input;
-        const confirmed = await required.confirmations.confirm({ context: input.context, response: input.response });
+        const confirmed = await required.confirmations.confirm({ context: input.context, response: input.response, approver: input.approver });
         if (!confirmed.ok) return confirmed;
         if (input.response.choice === 'cancel') return interrupt({ operation, status: 'cancelled' });
         const verified = await required.confirmations.verify({ context: operation.context,
@@ -496,7 +499,11 @@ export function createOmTools(required: Dependencies): OmTools {
             if (!found.ok) return found;
             return { ok: true, value: (await state({ operation: found.value })).status === 'pending' ? structuredClone(found.value.card ?? null) : null };
         } }),
-        answer: input => boundary({ ...input, operation: 'om.tools.answer', run: () => answer(input) }),
+        answer: input => {
+            const parsed = parseBoundary({ schema: answerInputSchema, input });
+            if (!parsed.ok) return Promise.resolve(parsed);
+            return boundary({ ...parsed.value, operation: 'om.tools.answer', run: () => answer(parsed.value) });
+        },
         restore: input => boundary({ ...input, operation: 'om.tools.restore', run: () => restore(input) }),
         cancel: input => boundary({ ...input, operation: 'om.tools.cancel', run: async () => {
             if (disposed) return { ok: true, value: undefined };

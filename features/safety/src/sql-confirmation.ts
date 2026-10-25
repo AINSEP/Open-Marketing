@@ -3,8 +3,8 @@ import type { CallContext, CallOptions, ClockPort, IdPort, Outcome, Confirmation
 import { parseBoundary } from "@open-marketing/contracts";
 import type { ConfirmationExchangePort } from "./ports.js";
 import type { SafetySqlDatabase, SafetySqlSession } from "./sql.js";
-import { cardListSchema, cardReadSchema, makeCard, storedCardSchema, validateAnswer, validateAuthority } from "./confirmation.js";
-import type { StoredCard } from "./confirmation.js";
+import { cardListSchema, cardReadSchema, confirmInputSchema, makeAnswer, makeCard, storedCardSchema, validateAnswer, validateAuthority } from "./confirmation.js";
+import type { ApprovalAnswer, StoredCard } from "./confirmation.js";
 import { failure, success, validContext } from "./rules.js";
 
 /** Parse bounded database payloads before restoring authority. @complexity O(b), b <=256KiB. */
@@ -19,10 +19,11 @@ async function loadCard(required: { session: SafetySqlSession; context: CallCont
 }
 /** Immutable answers and scoped revocation share the memory adapter's validation.
  * The supplied db must serialize transactions; SQL/storage failures grant no authority.
- * @example createSqlConfirmationExchange({ db: safetyDb, clock, ids });
+ * The db must roll back returned failed Outcomes as well as thrown storage errors.
+ * @example createSqlConfirmationExchange({ db: safetyDb, clock, ids, recordAnswer });
  * @complexity Reads <=101 cards/page; <=10,000 retained cards/scope, <=256KiB/card.
  */
-export function createSqlConfirmationExchange(required: { db: SafetySqlDatabase; clock: ClockPort; ids: IdPort; ttlMs?: number }): ConfirmationExchangePort {
+export function createSqlConfirmationExchange(required: { db: SafetySqlDatabase; clock: ClockPort; ids: IdPort; ttlMs?: number; recordAnswer(required: { session: SafetySqlSession; context: CallContext; answer: ApprovalAnswer }): Promise<Outcome<void>> }): ConfirmationExchangePort {
  /** Map driver exceptions to a typed denial; server db instrumentation retains correlation IDs. */
  async function transact<T>(input: { context: CallContext; ownerOnly?: boolean; execute(required: { session: SafetySqlSession }): Promise<Outcome<T>> }, options?: CallOptions): Promise<Outcome<T>> {
   if (!validContext(input)) return failure({ message: "Invalid confirmation scope" });
@@ -65,14 +66,23 @@ export function createSqlConfirmationExchange(required: { db: SafetySqlDatabase;
     return success({ value: stored.card });
    } }, options);
   },
-  confirm: (input, options) => transact<void>({ context: input.context, ownerOnly: true, execute: async ({ session }) => {
-   const stored = await loadCard({ context: input.context, cardId: input.response.cardId, session });
-   const checked = validateAnswer({ ...input, stored, now: required.clock.now({}) });
-   if (!checked.ok) return checked;
-   stored!.choice = input.response.choice;
-   await session.query({ sql: "UPDATE safety_confirmations SET status='answered', payload=$1 WHERE owner_id=$2 AND workspace_id=$3 AND card_id=$4", parameters: [JSON.stringify(stored), input.context.scope.ownerId, input.context.scope.workspaceId, input.response.cardId] });
-   return success({ value: undefined });
-  } }, options),
+  async confirm(input, options) {
+   const parsed = parseBoundary({ schema: confirmInputSchema, input });
+   if (!parsed.ok) return parsed;
+   const { context, response, approver } = parsed.value;
+   return transact<void>({ context, ownerOnly: true, execute: async ({ session }) => {
+    const stored = await loadCard({ context, cardId: response.cardId, session });
+    const now = required.clock.now({});
+    const checked = validateAnswer({ ...parsed.value, stored, now });
+    if (!checked.ok) return checked;
+    const answer = makeAnswer({ response, approver, answeredAt: now });
+    if (!answer.ok) return answer;
+    stored!.answer = answer.value;
+    const updated = await session.query({ sql: "UPDATE safety_confirmations SET status='answered', payload=$1 WHERE owner_id=$2 AND workspace_id=$3 AND card_id=$4 RETURNING card_id", parameters: [JSON.stringify(stored), context.scope.ownerId, context.scope.workspaceId, response.cardId] });
+    if (updated.rows.length !== 1 || updated.rows[0]?.card_id !== response.cardId) return failure({ code: "unavailable", message: "Approval answer update failed" });
+    return required.recordAnswer({ session, ...structuredClone({ context, answer: answer.value }) });
+   } }, options);
+  },
   verify: (input, options) => transact<void>({ context: input.context, execute: async ({ session }) => {
    const stored = await loadCard({ context: input.context, cardId: input.request.approvalId, session });
    return validateAuthority({ ...input, stored, now: required.clock.now({}) });

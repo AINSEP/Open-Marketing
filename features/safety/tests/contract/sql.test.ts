@@ -1,6 +1,6 @@
 import { afterEach, expect, it } from "vitest";
 import { SafetyRepoPortSuite, ConfirmationExchangePortSuite } from "./port-suites.js";
-import { context, createHarness, generationRequest, unwrap, sqliteFixture, timing, spendRequest } from "../fixtures.js";
+import { approver, context, createHarness, generationRequest, unwrap, sqliteFixture, timing, spendRequest } from "../fixtures.js";
 import { createSqlSafetyRepo, createSqlConfirmationExchange } from "../../index.js";
 SafetyRepoPortSuite({ create: () => createHarness({ backend: "sql" }) });
 it('balance reads do not insert state, change versions, or append financial journal entries', async () => {
@@ -67,11 +67,11 @@ const confirmationFixtures: ReturnType<typeof sqliteFixture>[] = [];
 const reopeners = new WeakMap<object, () => ReturnType<typeof createSqlConfirmationExchange>>();
 afterEach(() => { for (const fixture of confirmationFixtures.splice(0)) fixture.close(); });
 ConfirmationExchangePortSuite({
- create() {
+ create(input) {
   const sqlite = sqliteFixture(); confirmationFixtures.push(sqlite);
   const time = timing();
   function open() {
-   const port = createSqlConfirmationExchange({ ...time, db: sqlite.port });
+   const port = createSqlConfirmationExchange({ ...time, db: sqlite.port, ...input });
    reopeners.set(port, open); return port;
   }
   return open();
@@ -86,7 +86,58 @@ it("SQL confirmation expiry and corrupt storage fail closed after reopening", as
  const reopened = createSqlConfirmationExchange({ ...time, db: sqlite.port });
  time.setNow({ now: time.clock.now({}) + 10 });
  expect(await reopened.list({ context, query: { limit: 100 } })).toEqual({ ok: true, value: { items: [], cursor: null } });
- expect(await reopened.confirm({ context, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: "allow" } })).toMatchObject({ ok: false, error: { code: "expired" } });
+ expect(await reopened.confirm({ context, approver, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: "allow" } })).toMatchObject({ ok: false, error: { code: "expired" } });
  sqlite.db.prepare("UPDATE safety_confirmations SET payload=?").run("{broken");
  expect(await reopened.get({ context, cardId: card.cardId })).toMatchObject({ ok: false, error: { code: "unavailable", retryable: false } });
+});
+
+it("persists identity and answer time across reopen and rejects old or malformed identity", async () => {
+ const sqlite = sqliteFixture(); confirmationFixtures.push(sqlite);
+ const time = timing();
+ const port = createSqlConfirmationExchange({ ...time, db: sqlite.port });
+ const request = spendRequest();
+ const card = unwrap({ outcome: await port.present({ context, request }) });
+ const response = { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: "allow" as const };
+ unwrap({ outcome: await port.confirm({ context, response, approver }) });
+ const stored = JSON.parse((sqlite.db.prepare("SELECT payload FROM safety_confirmations").get() as { payload: string }).payload);
+ expect(stored.answer).toEqual({ response, approver, answeredAt: time.clock.now({}) });
+ expect(stored.choice).toBeUndefined();
+ const reopened = createSqlConfirmationExchange({ ...time, db: sqlite.port });
+ const dispatch = { context, request: { ...request, approvalId: card.cardId, policyRevision: 0 }, classification: "spend" as const };
+ expect(await reopened.verify(dispatch)).toEqual({ ok: true, value: undefined });
+ for (const bad of [{ reference: undefined, code: "unavailable" }, { reference: { kind: "local_token", ownerId: "owner" }, code: "unavailable" }, { reference: { ...approver, ownerId: "other" }, code: "forbidden" }]) {
+  sqlite.db.prepare("UPDATE safety_confirmations SET payload=?").run(JSON.stringify({ ...stored, answer: { ...stored.answer, approver: bad.reference } }));
+  expect(await reopened.verify(dispatch)).toMatchObject({ ok: false, error: { code: bad.code } });
+ }
+ const { answer: _answer, ...old } = stored;
+ sqlite.db.prepare("UPDATE safety_confirmations SET payload=?").run(JSON.stringify({ ...old, choice: "allow" }));
+ expect(await reopened.verify(dispatch)).toMatchObject({ ok: false, error: { code: "unavailable" } });
+});
+
+it("rolls answer and append back together on failed Outcomes and thrown audit/update faults", async () => {
+ const sqlite = sqliteFixture(); confirmationFixtures.push(sqlite);
+ sqlite.db.exec("CREATE TABLE approval_evidence (payload TEXT NOT NULL)");
+ const time = timing();
+ let fault: "outcome" | "throw" | "none" = "outcome";
+ const port = createSqlConfirmationExchange({ ...time, db: sqlite.port, async recordAnswer({ session, answer }) {
+  await session.query({ sql: "INSERT INTO approval_evidence (payload) VALUES ($1)", parameters: [JSON.stringify(answer)] });
+  if (fault === "throw") throw new Error("fixture audit fault");
+  if (fault === "outcome") return { ok: false, error: { code: "unavailable", message: "Audit unavailable", retryable: false } };
+  return { ok: true, value: undefined };
+ } });
+ const card = unwrap({ outcome: await port.present({ context, request: spendRequest() }) });
+ const response = { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: "allow" as const };
+ for (const mode of ["outcome", "throw"] as const) {
+  fault = mode;
+  expect(await port.confirm({ context, response, approver })).toMatchObject({ ok: false, error: { code: "unavailable" } });
+  expect(sqlite.db.prepare("SELECT status FROM safety_confirmations").get()).toEqual({ status: "pending" });
+  expect(sqlite.db.prepare("SELECT COUNT(*) AS count FROM approval_evidence").get()).toEqual({ count: 0 });
+ }
+ fault = "none";
+ sqlite.db.exec("CREATE TRIGGER answer_fault BEFORE UPDATE ON safety_confirmations BEGIN SELECT RAISE(IGNORE); END");
+ expect(await port.confirm({ context, response, approver })).toMatchObject({ ok: false, error: { code: "unavailable", message: "Approval answer update failed" } });
+ expect(sqlite.db.prepare("SELECT COUNT(*) AS count FROM approval_evidence").get()).toEqual({ count: 0 });
+ sqlite.db.exec("DROP TRIGGER answer_fault");
+ unwrap({ outcome: await port.confirm({ context, response, approver }) });
+ expect(sqlite.db.prepare("SELECT COUNT(*) AS count FROM approval_evidence").get()).toEqual({ count: 1 });
 });

@@ -15,6 +15,35 @@ export function AuditRepoPortSuite(required: { name: string; create(required: Re
     }
     afterEach(() => { for (const fixture of fixtures.splice(0)) fixture.dispose({}); });
 
+    it("round trips structured approval identity with defensive input/output snapshots", async () => {
+      const repo = create();
+      const approval: AuditEntry = { ...entry(), kind: "approval", approval: {
+        response: { cardId: "card", operationId: "operation-1", argumentsDigest: "a".repeat(64), choice: "allow" },
+        approver: { kind: "local_token", ownerId: "owner-1", deviceId: "installation", tokenId: "nonsecret-reference" },
+      } };
+      const expected = structuredClone(approval);
+      const pending = repo.append({ context: context(), entry: approval });
+      approval.approval!.response.choice = "cancel";
+      value({ outcome: await pending });
+      const page = value({ outcome: await repo.list({ context: context(), query: { limit: 10 } }) });
+      expect(page.items).toEqual([expected]);
+      page.items[0].approval!.response.choice = "cancel";
+      expect(value({ outcome: await repo.list({ context: context(), query: { limit: 10 } }) }).items).toEqual([expected]);
+    });
+
+    it("requires matching structured evidence only for approval entries and never accepts token secrets", async () => {
+      const repo = create();
+      const approval = { response: { cardId: "card", operationId: "operation-1", argumentsDigest: "a".repeat(64), choice: "allow" as const },
+        approver: { kind: "jini_user" as const, userId: "authenticated-user" } };
+      for (const invalid of [entry({ kind: "approval" }), entry({ approval }),
+        entry({ kind: "approval", approval, operationId: "other" }), entry({ kind: "approval", approval, argumentsDigest: "b".repeat(64) }),
+        { ...entry({ kind: "approval", approval }), approval: { ...approval, approver: { ...approval.approver, token: "secret" } } }]) {
+        expect(await repo.append({ context: context(), entry: invalid as AuditEntry })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+      }
+      expect(value({ outcome: await repo.list({ context: context(), query: { limit: 10 } }) }).items).toEqual([]);
+      value({ outcome: await repo.append({ context: context(), entry: entry({ kind: "approval", approval }) }) });
+    });
+
     it("appends distinct receipts and keeps earlier evidence unchanged", async () => {
       const repo = create();
       const intent = entry();

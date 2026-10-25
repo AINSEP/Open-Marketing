@@ -5,7 +5,7 @@ import type { CreativeService } from '@open-marketing/creative';
 import type { DispatchPermit, EffectRequest, FrozenDispatchRequest, SafetyService } from '@open-marketing/safety';
 import { effectRequestSchema } from '@open-marketing/safety';
 import type { routes } from './cli/http.js';
-import type { ApprovalResponse, CallContext, ConfirmationCard, Outcome, ToolCall, ToolDescriptor, ToolOperation, ToolResult } from '@open-marketing/contracts';
+import type { ApproverRef, ApprovalResponse, CallContext, ConfirmationCard, Outcome, ToolCall, ToolDescriptor, ToolOperation, ToolResult } from '@open-marketing/contracts';
 
 /** Leaf dispatcher contract shared by owner ingress and the catalog implementation.
  * Unknown outcomes remain queryable for reconciliation and never authorize a retry.
@@ -17,7 +17,7 @@ export interface OmTools {
     dispatch(required: { context: CallContext; call: ToolCall; signal?: AbortSignal }): Promise<Outcome<ToolResult>>;
     operation(required: { context: CallContext; operationId: string }): Promise<Outcome<ToolOperation>>;
     card(required: { context: CallContext; operationId: string }): Promise<Outcome<ConfirmationCard | null>>;
-    answer(required: { context: CallContext; response: ApprovalResponse }): Promise<Outcome<void>>;
+    answer(required: { context: CallContext; response: ApprovalResponse; approver: ApproverRef }): Promise<Outcome<void>>;
     /** Boot-only owner recovery; no callbacks run and old agent authority is discarded. */
     restore(required: { context: CallContext }): Promise<Outcome<void>>;
     /** Rejects with a non-retryable boundary error if cancellation cannot be persisted/revoked. */

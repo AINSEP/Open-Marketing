@@ -1,4 +1,4 @@
-import type { Outcome, CallContext, CallOptions, ObserverPort, ConfirmationCard, ApprovalResponse, EffectEnvelope, GenerationAllowanceSettings, GenerationCostQuote, GenerationApprovalRequirement, HaltStopRequest, ServiceContext, Page, PageQuery, Money } from "@open-marketing/contracts";
+import type { ApproverRef, Outcome, CallContext, CallOptions, ObserverPort, ConfirmationCard, ApprovalResponse, EffectEnvelope, GenerationAllowanceSettings, GenerationCostQuote, GenerationApprovalRequirement, HaltStopRequest, ServiceContext, Page, PageQuery, Money } from "@open-marketing/contracts";
 import type { EffectRequest, FrozenDispatchRequest, DispatchPermit, HaltReceipt, FrozenGenerationRequest, PlatformLimitEvidence, SafetySnapshot, DispatchAdmission, GenerationReservation, GenerationSettlement } from "./types.js";
 /** Durable atomic financial state. All mutations and their accounting journal commit together. */
 export interface SafetyRepoPort {
@@ -26,7 +26,8 @@ export interface ConfirmationExchangePort {
  list(required: { context: CallContext; query: PageQuery }, optional?: CallOptions): Promise<Outcome<Page<ConfirmationCard>>>;
  get(required: { context: CallContext; cardId: string }, optional?: CallOptions): Promise<Outcome<ConfirmationCard | null>>;
  present(required: { context: CallContext; request: EffectRequest; policyRevision?: number; classification?: ConfirmationCard["classification"] }, optional?: CallOptions): Promise<Outcome<ConfirmationCard>>;
- confirm(required: { context: CallContext; response: ApprovalResponse }, optional?: CallOptions): Promise<Outcome<void>>;
+ /** Approver is derived by trusted server authentication; success includes required answer audit. */
+ confirm(required: { context: CallContext; response: ApprovalResponse; approver: ApproverRef }, optional?: CallOptions): Promise<Outcome<void>>;
  verify(required: { context: CallContext; request: FrozenDispatchRequest; classification: ConfirmationCard["classification"] }, optional?: CallOptions): Promise<Outcome<void>>;
 }
 /** Host-verified effects and scoped existing entities; plugin declarations alone are insufficient. */

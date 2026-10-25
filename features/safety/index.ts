@@ -6,7 +6,8 @@ export type { Outcome, CallContext, CallOptions, ClockPort, IdPort, Scope, Confi
 export type { DispatchAdmission, GenerationReservation, GenerationSettlement, GenerationAuthorization } from "./src/types.js";
 export { digestArguments } from "./src/rules.js";
 export { effectRequestSchema } from "./src/rules.js";
-export type { MemoryConfirmationExchange } from "./src/confirmation.js";
+export { mayAnswer } from "./src/confirmation.js";
+export type { MemoryConfirmationExchange, ApprovalAnswer } from "./src/confirmation.js";
 export type { VerifiedEffectFixture, VerifiedQuoteFixture, VerifiedStopFixture } from "./src/memory.js";
 export { createSqlSafetyRepo } from "./src/sql.js";
 export { createSqlConfirmationExchange } from "./src/sql-confirmation.js";

@@ -16,6 +16,30 @@ async function effectAfterReceipt(required: { audit: AuditService; effect(requir
 }
 
 describe("audit service", () => {
+  it.each(["drop", "identity", "choice", "in-place"])("rejects %s changes to structured approval evidence during redaction", async mutation => {
+    const original: AuditEntry = { ...entry(), kind: "approval", approval: {
+      response: { cardId: "card", operationId: "operation-1", argumentsDigest: "a".repeat(64), choice: "allow" },
+      approver: { kind: "local_token", ownerId: "owner-1", deviceId: "device", tokenId: "reference" },
+    } };
+    const audit = service({ redactor: { async redact(input) {
+      if (mutation === "drop") { const { approval: _approval, ...rest } = input.entry; return { ok: true, value: rest }; }
+      const projected = mutation === "in-place" ? input.entry : structuredClone(input.entry);
+      if (mutation === "identity") projected.approval!.approver = { kind: "jini_user", userId: "substituted-user" };
+      else projected.approval!.response.choice = "cancel";
+      return { ok: true, value: projected };
+    } } });
+    value({ outcome: await audit.record({ context: context(), entry: original }) });
+    expect(await audit.list({ context: context(), query: { limit: 10 } })).toMatchObject({ ok: false, error: { code: "protocol_mismatch" } });
+  });
+  it("preserves nonsecret approval identity in the normal redacted operational view", async () => {
+    const original: AuditEntry = { ...entry(), kind: "approval", approval: {
+      response: { cardId: "card", operationId: "operation-1", argumentsDigest: "a".repeat(64), choice: "allow" },
+      approver: { kind: "local_token", ownerId: "owner-1", deviceId: "device", tokenId: "reference" },
+    } };
+    const audit = service();
+    value({ outcome: await audit.record({ context: context(), entry: original }) });
+    expect(value({ outcome: await audit.list({ context: context(), query: { limit: 10 } }) }).items).toEqual([{ ...original, references: ["[redacted]"] }]);
+  });
   it("stores durable references and exposes only the redacted operational view", async () => {
     const ports = dependencies();
     const repo = createMemoryAuditRepo(ports);

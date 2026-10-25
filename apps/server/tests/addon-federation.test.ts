@@ -13,6 +13,15 @@ import type { ExternalMcpConnection } from '../src/external-mcp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import type { StdioServerParameters } from '@modelcontextprotocol/sdk/client/stdio.js';
 
+/** Captured approval evidence; each fixture owns its audit records. */
+function answerAudit() {
+    const answers: unknown[] = [];
+    return { answers, async recordAnswer(input: { answer: unknown }) {
+        answers.push(structuredClone(input.answer));
+        return { ok: true as const, value: undefined };
+    } };
+}
+
 it('safe YAML accepts core scalars and rejects duplicate keys, custom tags, aliases and oversize', () => {
   expect(readAddonYaml({ yaml: 'name: sample\ndescription: Sample skill' })).toEqual({ name: 'sample', description: 'Sample skill' });
   for (const yaml of ['name: one\nname: two', 'name: !custom sample', 'a: &a [1, 2]\nb: *a', 'x'.repeat(65537)]) expect(() => readAddonYaml({ yaml })).toThrow();
@@ -159,13 +168,13 @@ it('discovered MCP tools use the ONE dispatcher card and ignore remote read-only
   expect(definitions).toHaveLength(1); expect(definitions[0].policy).toBe('write');
   expect(definitions[0].parse({ input: { operationId: 'invalid', arguments: { query: 1 } } })).toMatchObject({ ok: false });
   const clock = { now: () => 1000 }; let sequence = 0;
-  const confirmations = createMemoryConfirmationExchange({ clock, ids: { next: () => 'mcp-card-' + ++sequence } });
+  const confirmations = createMemoryConfirmationExchange({ ...answerAudit(), clock, ids: { next: () => 'mcp-card-' + ++sequence } });
   const tools = createOmTools({ definitions: input => sessions.definitions(input), confirmations, clock, observer: { observe() {} }, authorize: () => ({ ok: true, value: undefined }) });
   const call = { name: definitions[0].name, operationId: 'mcp-tool-operation', input: { operationId: 'mcp-tool-operation', arguments: { query: 'fixture' } } };
   expect(await tools.dispatch({ context: f.context, call })).toMatchObject({ ok: true, value: { status: 'pending' } });
   expect(f.calls.map(item => item.method)).not.toContain('tools/call');
   const card = value({ result: await tools.card({ context: f.context, operationId: call.operationId }) })!;
-  expect(await tools.answer({ context: f.context, response: { cardId: card.cardId, operationId: call.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } })).toMatchObject({ ok: true });
+  expect(await tools.answer({ context: f.context, approver: { kind: 'local_token', ownerId: f.context.scope.ownerId, deviceId: 'fixture-device', tokenId: 'fixture-token-reference' }, response: { cardId: card.cardId, operationId: call.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } })).toMatchObject({ ok: true });
   expect(await tools.operation({ context: f.context, operationId: call.operationId })).toMatchObject({ ok: true, value: { status: 'completed',
     output: { status: 'succeeded', content: [{ type: 'text', text: 'fixture-result' }] } } });
   expect(f.calls.filter(item => item.method === 'tools/call')).toHaveLength(1); expect(claims).toBe(1);
@@ -185,12 +194,12 @@ it.each(['failed', 'unknown'] as const)('keeps observed MCP %s outcomes distinct
   const definitions = value({ result: await sessions.definitions({ context: f.context }) });
   const clock = { now: () => 1000 };
   const tools = createOmTools({ definitions: input => sessions.definitions(input), clock, observer: { observe() {} }, authorize: () => ({ ok: true, value: undefined }),
-    confirmations: createMemoryConfirmationExchange({ clock, ids: { next: () => 'outcome-card-' + ++sequence } }) });
+    confirmations: createMemoryConfirmationExchange({ ...answerAudit(), clock, ids: { next: () => 'outcome-card-' + ++sequence } }) });
   const call = { name: definitions[0].name, operationId: 'observed-outcome', input: { operationId: 'observed-outcome', arguments: { query: 'fixture' } } };
   try {
     value({ result: await tools.dispatch({ context: f.context, call }) });
     const card = value({ result: await tools.card({ context: f.context, operationId: call.operationId }) })!;
-    value({ result: await tools.answer({ context: f.context, response: { cardId: card.cardId, operationId: call.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } }) });
+    value({ result: await tools.answer({ context: f.context, approver: { kind: 'local_token', ownerId: f.context.scope.ownerId, deviceId: 'fixture-device', tokenId: 'fixture-token-reference' }, response: { cardId: card.cardId, operationId: call.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } }) });
     const operation = value({ result: await tools.operation({ context: f.context, operationId: call.operationId }) });
     if (status === 'unknown') expect(operation).toMatchObject({ status: 'unknown', error: { retryable: false } });
     else expect(operation).toMatchObject({ status: 'completed', output: { status: 'failed' } });
@@ -237,7 +246,7 @@ it('isolates unreachable MCP discovery, caches its failure until reload, and sti
   await sessions.reload({ context: f.context, connection: broken });
   await sessions.reload({ context: f.context, connection: f.connection });
   const tools = createOmTools({ definitions: input => sessions.definitions(input), clock: { now: () => 1000 }, observer: { observe() {} },
-    authorize: () => ({ ok: true, value: undefined }), confirmations: createMemoryConfirmationExchange({ clock: { now: () => 1000 }, ids: { next: () => 'isolated-card-' + ++sequence } }) });
+    authorize: () => ({ ok: true, value: undefined }), confirmations: createMemoryConfirmationExchange({ ...answerAudit(), clock: { now: () => 1000 }, ids: { next: () => 'isolated-card-' + ++sequence } }) });
   try {
     const definitions = value({ result: await sessions.definitions({ context: f.context }) });
     expect(definitions.filter(tool => tool.unavailableReason)).toHaveLength(1);
@@ -247,7 +256,7 @@ it('isolates unreachable MCP discovery, caches its failure until reload, and sti
     expect(await tools.list({ context: f.context, limit: 100 })).toMatchObject({ ok: true });
     expect(await tools.dispatch({ context: f.context, call })).toMatchObject({ ok: true, value: { status: 'pending' } });
     const card = value({ result: await tools.card({ context: f.context, operationId: call.operationId }) })!;
-    expect(await tools.answer({ context: f.context, response: { cardId: card.cardId, operationId: call.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } })).toMatchObject({ ok: true });
+    expect(await tools.answer({ context: f.context, approver: { kind: 'local_token', ownerId: f.context.scope.ownerId, deviceId: 'fixture-device', tokenId: 'fixture-token-reference' }, response: { cardId: card.cardId, operationId: call.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } })).toMatchObject({ ok: true });
     expect(await tools.operation({ context: f.context, operationId: call.operationId })).toMatchObject({ ok: true, value: { status: 'completed' } });
     expect(failures).toBe(1);
     await sessions.reload({ context: f.context, connection: broken });

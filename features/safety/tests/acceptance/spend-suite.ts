@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createSafetyService, createMemorySpendPolicy, createMemoryVerifiedEffectResolver, createMemoryPlatformLimitEvidence } from "../../index.js";
-import { approve, capEvidence, context, createHarness, NOW, otherContext, spendRequest, unwrap } from "../fixtures.js";
+import { approve, capEvidence, approver, context, createHarness, NOW, otherContext, spendRequest, unwrap } from "../fixtures.js";
 import type { EffectRequest, FrozenDispatchRequest, PlatformLimitEvidence } from "../../index.js";
 /** Exact authorization and financial authority are independent across both repositories. */
 export function spendSuite(required: { backend: "memory" | "sql" }) {
@@ -20,7 +20,7 @@ export function spendSuite(required: { backend: "memory" | "sql" }) {
    const service = harness.service();
    const card = unwrap({ outcome: await service.prepareApproval({ context, request: spendRequest() }) });
    expect(card.allowedChoices).toEqual(["allow", "cancel"]);
-   expect((await harness.confirmations.confirm({ context, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice } })).ok).toBe(false);
+   expect(await harness.confirmations.confirm({ context, approver, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice } })).toMatchObject({ ok: false, error: { code: "forbidden", message: "Response differs from exact card or choices" } });
    harness.close();
   });
   it("presentation alone, forged card IDs, stale policy and cross-owner authority fail", async () => {

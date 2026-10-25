@@ -24,6 +24,15 @@ import { createMemoryCampaignRepo } from '@open-marketing/campaigns';
 import type { NeutralCampaignLaunch } from '@open-marketing/campaigns';
 import { bindPausedCampaignDeployment } from '../src/composition/campaigns.js';
 
+/** Captured approval evidence; each fixture owns its audit records. */
+function answerAudit() {
+    const answers: unknown[] = [];
+    return { answers, async recordAnswer(input: { answer: unknown }) {
+        answers.push(structuredClone(input.answer));
+        return { ok: true as const, value: undefined };
+    } };
+}
+
 const context: CallContext = { scope: { ownerId: 'owner', workspaceId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }, principal: { kind: 'owner', ownerId: 'owner' }, correlationId: 'correlation', traceId: 'trace', runId: 'fixture-run' };
 const pluginIds = ['google-ads', 'linkedin-ads', 'tiktok-ads', 'meta-ads'] as const;
 const clock = { now: () => 1000 };
@@ -115,7 +124,7 @@ it('fences LinkedIn admission before its adapter can resolve credentials or clai
     } finally { f.close(); }
 });
 it('rechecks the owning campaign card after LinkedIn credentials resolve and before transport', async () => {
-    const confirmations = createMemoryConfirmationExchange({ clock, ids: { next: () => randomUUID() } });
+    const confirmations = createMemoryConfirmationExchange({ ...answerAudit(), clock, ids: { next: () => randomUUID() } });
     const f = await fixture({ admitted: true, only: 'linkedin-ads', confirmations });
     try {
         const definition = value({ result: await f.binding.definitions({ context }) }).find(tool => tool.name === 'vendor_linkedin_ads_pause')!;
@@ -125,7 +134,7 @@ it('rechecks the owning campaign card after LinkedIn credentials resolve and bef
         const reviewed = { calls: [child] };
         const root: EffectRequest = { ...child, arguments: reviewed, pausedCampaignCalls: [child], envelope: { ...child.envelope, operationId: 'group', accountId: null, effects: ['ad_spend'], argumentsDigest: value({ result: digestArguments({ arguments: reviewed }) }) } };
         const card = value({ result: await confirmations.present({ context, request: root }) });
-        value({ result: await confirmations.confirm({ context, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } }) });
+        value({ result: await confirmations.confirm({ context, approver: { kind: 'local_token', ownerId: context.scope.ownerId, deviceId: 'fixture-device', tokenId: 'fixture-token-reference' }, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } }) });
         f.setBeforeCredential({ async callback() { value({ result: await confirmations.revoke({ context, cardId: card.cardId }) }); } });
         expect(await definition.invoke({ context, input, authorization: { ...child, approvalId: card.cardId, policyRevision: 0, campaignApproval: { operationId: 'group', argumentsDigest: card.argumentsDigest, index: 0 } }, permit: { operationId: input.operationId, argumentsDigest: child.envelope.argumentsDigest, approvalId: card.cardId, expiresAt: 30000, reservationId: 'fixture-permit' } })).toMatchObject({ ok: false });
         expect(f.accesses).toHaveLength(1); expect(f.calls).toEqual([]);
@@ -210,7 +219,7 @@ it.each(['state', 'module', 'descriptors'] as const)('isolates one plugin %s fai
         expect(unavailable.unavailableReason).toContain('om:build-plugins');
         expect(await unavailable.invoke({ context, input: {} })).toMatchObject({ ok: false, error: { code: 'unavailable' } });
         for (const pluginId of ['linkedin-ads', 'tiktok-ads', 'meta-ads']) expect(definitions.some(tool => tool.name === readNames[pluginId])).toBe(true);
-        const confirmations = createMemoryConfirmationExchange({ clock, ids: f.ids });
+        const confirmations = createMemoryConfirmationExchange({ ...answerAudit(), clock, ids: f.ids });
         const tools = createOmTools({ definitions: input => f.binding.definitions(input), confirmations, clock, observer, authorize: () => ({ ok: true, value: undefined }) });
         try {
             const listed = value({ result: await tools.list({ context, limit: 100 }) });
@@ -235,7 +244,7 @@ it('claims the one durable outbox once across binding recreation and leaves unce
 
 it('uses one exact spend card for each single-entity activation and never a gateway card', async () => {
     const ids = { next: () => randomUUID() };
-    const confirmations = createMemoryConfirmationExchange({ clock, ids });
+    const confirmations = createMemoryConfirmationExchange({ ...answerAudit(), clock, ids });
     const repo = createMemorySafetyRepo({ clock, ids, ownerTimezone: 'UTC' });
     const requests: EffectRequest[] = [];
     const safety = createSafetyService({ repo, confirmations, clock, ids, policy: createMemorySpendPolicy({}),
@@ -257,7 +266,7 @@ it('uses one exact spend card for each single-entity activation and never a gate
             expect(await tools.dispatch({ context, call })).toMatchObject({ ok: true, value: { status: 'pending' } });
             const card = value({ result: await tools.card({ context, operationId }) })!;
             expect(card.classification).toBe('spend'); expect(card.allowedChoices).toEqual(['allow', 'cancel']);
-            expect(await tools.answer({ context, response: { cardId: card.cardId, operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } })).toMatchObject({ ok: true });
+            expect(await tools.answer({ context, approver: { kind: 'local_token', ownerId: context.scope.ownerId, deviceId: 'fixture-device', tokenId: 'fixture-token-reference' }, response: { cardId: card.cardId, operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } })).toMatchObject({ ok: true });
         }
         expect(f.calls).toHaveLength(2);
         expect(value({ result: await confirmations.list({ context, query: { limit: 100 } }) }).items).toHaveLength(0);
@@ -442,7 +451,7 @@ async function deploymentFixture(required: Parameters<typeof socialVendor>[0] = 
     const vendor = socialVendor(required); const f = await fixture({ admitted: true, fetch: vendor.fetch });
     usePreparedSocialPlans({ ports: f.ports });
     for (const [pluginId, state] of f.states) { state.enabled = ['meta-ads', 'linkedin-ads'].includes(pluginId) || (pluginId === 'tiktok-ads' && required.includeTikTok === true); state.metadata = { ...state.metadata, campaignFixture: socialMetadata({ pluginId }) }; }
-    const confirmations = createMemoryConfirmationExchange({ clock, ids: f.ids });
+    const confirmations = createMemoryConfirmationExchange({ ...answerAudit(), clock, ids: f.ids });
     const prepared = value({ result: await f.binding.prepareCampaign({ context, campaign, operationId: 'social-launch' }) });
     const safety = createSafetyService({ repo: f.safetyRepo, confirmations, clock, ids: f.ids, accountLocks: f.ports.accountLocks, policy: createMemorySpendPolicy({}), platformLimits: createMemoryPlatformLimitEvidence({}), audit: createMemorySafetyAudit({}),
         effects: { async resolve({ request }) { const known = prepared.find(call => value({ result: digestArguments({ arguments: call }) }) === value({ result: digestArguments({ arguments: request }) })); return known ? { ok: true, value: known.envelope } : { ok: false, error: { code: 'forbidden', message: 'Unverified fixture', retryable: false } }; }, async verifyGenerationQuote() { throw new Error('Not generation'); }, async verifyHaltStop() { throw new Error('Not stop'); } } });
@@ -455,7 +464,7 @@ async function deploymentFixture(required: Parameters<typeof socialVendor>[0] = 
         expect(value({ result: await tools.dispatch({ context, call: { name: definition.name, operationId: 'social-launch', input: { campaignId: draft.campaignId } } }) }).status).toBe('pending');
         const card = value({ result: await tools.card({ context, operationId: 'social-launch' }) })!;
         expect(card.allowedChoices).toEqual(['allow', 'cancel']); expect(f.calls).toEqual([]);
-        value({ result: await tools.answer({ context, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } }) });
+        value({ result: await tools.answer({ context, approver: { kind: 'local_token', ownerId: context.scope.ownerId, deviceId: 'fixture-device', tokenId: 'fixture-token-reference' }, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } }) });
     }
     return { ...f, binding, tools, confirmations, approve, vendor, async closeAll() { await tools.dispose({}); f.close(); } };
 }
@@ -619,7 +628,7 @@ it.each([null, 'A'.repeat(22)])('Google journals mutation IDs in the owning job 
         }
         return Response.json({ results: String(body.query).endsWith('FROM customer') ? [{ customer: { id: '1234567890', currencyCode: 'USD', timeZone: 'UTC', testAccount: true } }] : [] });
     } });
-    const confirmations = createMemoryConfirmationExchange({ clock, ids: f.ids });
+    const confirmations = createMemoryConfirmationExchange({ ...answerAudit(), clock, ids: f.ids });
     const state = f.states.get('google-ads')!; state.metadata.loginCustomerId = '9999999999';
     const campaign = { ...socialCampaign, audience: { countries: ['US'], searchTerms: ['marketing tools'] }, targets: [{ ...socialCampaign.targets[0], pluginId: 'google-ads', accountId: '1234567890' }] };
     state.metadata.campaignFixture = { scope: context.scope, connectionId: 'connection', resolved: {
@@ -633,7 +642,7 @@ it.each([null, 'A'.repeat(22)])('Google journals mutation IDs in the owning job 
         const rootArgs = { calls }; const root: EffectRequest = { arguments: rootArgs, pausedCampaignCalls: calls, pluginDigest: 'a'.repeat(64), schemaFingerprint: 'b'.repeat(64),
             envelope: { ...calls[0].envelope, operationId: 'google-launch', accountId: null, effects: ['ad_spend'], argumentsDigest: value({ result: digestArguments({ arguments: rootArgs }) }) } };
         const card = value({ result: await confirmations.present({ context, request: root }) });
-        value({ result: await confirmations.confirm({ context, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } }) });
+        value({ result: await confirmations.confirm({ context, approver: { kind: 'local_token', ownerId: context.scope.ownerId, deviceId: 'fixture-device', tokenId: 'fixture-token-reference' }, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } }) });
         const authorization = { ...calls[0], approvalId: card.cardId, policyRevision: 0, campaignApproval: { operationId: 'google-launch', argumentsDigest: card.argumentsDigest, index: 0 } };
         const result = await f.jobs.dispatch({ context, pluginId: 'om-campaigns', input: { operationId: 'google-launch', connectionId: 'om_campaign_deploy_paused', accountId: null, arguments: { intent: 'deploy-paused', request: boundedJsonSchema.parse(root) } },
             execute: async ({ jobId }) => binding.executeCampaign({ context, call: calls[0], authorization, permit: { operationId: calls[0].envelope.operationId, argumentsDigest: calls[0].envelope.argumentsDigest, approvalId: card.cardId, expiresAt: 300000, reservationId: 'fixture-permit' },

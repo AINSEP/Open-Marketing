@@ -30,6 +30,15 @@ import type { OmFeatureServices } from '../src/om-tools.js';
 import type { OwnerServices } from '../src/inbound/owner.js';
 import { generateOmToolCoverage } from '../src/om-tool-coverage.js';
 
+/** Captured approval evidence; each fixture owns its audit records. */
+function answerAudit() {
+    const answers: unknown[] = [];
+    return { answers, async recordAnswer(input: { answer: unknown }) {
+        answers.push(structuredClone(input.answer));
+        return { ok: true as const, value: undefined };
+    } };
+}
+
 function value<T>(required: { result: Outcome<T> }): T { if (!required.result.ok) throw new Error('Fixture precondition: ' + required.result.error.message); return required.result.value; }
 const imageBytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aQx8AAAAASUVORK5CYII=', 'base64');
 const imageUrl = 'https://fixture.invalid/generated.png';
@@ -42,7 +51,7 @@ async function fixture() {
     const database = bindServerDatabase({ native, observer, context: owner });
     await provisionWorkspace({ database: database.workspace, scope: owner.scope });
     const safetyDb = { transaction: <T>(input: { execute: (required: { session: { query(required: { sql: string; parameters: readonly unknown[] }): Promise<{ rows: readonly Readonly<Record<string, unknown>>[] }> } }) => Promise<T> }) => database.unit.transaction({ work: ({ session }) => input.execute({ session: { query: ({ sql, parameters }) => session.query({ text: sql, values: [...parameters] }) } }) }) };
-    const confirmations = createMemoryConfirmationExchange({ clock, ids });
+    const confirmations = createMemoryConfirmationExchange({ ...answerAudit(), clock, ids });
     const safety = createSqlSafetyRepo({ db: safetyDb, clock, ids, observer, ownerTimezone: 'UTC' });
     const campaignDb = { query: <Row extends Record<string, unknown>>(input: { text: string; values?: unknown[] }) => database.unit.transaction({ work: ({ session }) => session.query<Row>(input) }) };
     const campaigns = createSqlCampaignRepo({ db: campaignDb });
@@ -82,7 +91,7 @@ async function fixture() {
         if (initial.status !== 'pending') return initial;
         const card = value({ result: await tools.card({ context: agent, operationId: call.operationId }) });
         if (!card) throw new Error('Pending card missing');
-        value({ result: await tools.answer({ context: owner, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: input.choice ?? 'allow' } }) });
+        value({ result: await tools.answer({ context: owner, approver: { kind: 'local_token', ownerId: owner.scope.ownerId, deviceId: 'fixture-device', tokenId: 'fixture-token-reference' }, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: input.choice ?? 'allow' } }) });
         const result = value({ result: await tools.operation({ context: agent, operationId: call.operationId }) });
         if (result.status !== 'completed') throw new Error('Catalog call failed: ' + JSON.stringify(result));
         return { status: 'completed', output: result.output };
@@ -326,7 +335,7 @@ describe('real feature catalog composition', () => {
             const card = value({ result: await f.tools.card({ context: f.agent, operationId: call.operationId }) })!;
             expect(card.classification).toBe('generation'); expect(card.allowedChoices).toContain('always_allow');
             expect(f.native.prepare('SELECT COUNT(*) AS count FROM creative_generation_request').get()).toEqual({ count: 0 });
-            value({ result: await f.tools.answer({ context: f.owner, response: { cardId: card.cardId, operationId: call.operationId, argumentsDigest: card.argumentsDigest, choice: 'always_allow' } }) });
+            value({ result: await f.tools.answer({ context: f.owner, approver: { kind: 'local_token', ownerId: f.owner.scope.ownerId, deviceId: 'fixture-device', tokenId: 'fixture-token-reference' }, response: { cardId: card.cardId, operationId: call.operationId, argumentsDigest: card.argumentsDigest, choice: 'always_allow' } }) });
             expect(value({ result: await f.tools.operation({ context: f.agent, operationId: call.operationId }) })).toMatchObject({ status: 'completed', output: { generationId: call.operationId } });
             expect(await f.call({ name: 'om_creative_status', input: { generationId: call.operationId } })).toMatchObject({ output: { state: 'pending', dispatchState: 'queued' } });
             await f.workers.processOne();
@@ -408,7 +417,7 @@ it('refuses expired sandbox quotes at the deadline and afterwards without dispat
             input: { prompt: 'Fixture', surface: 'image', model: 'sandbox', rightsEvidenceId: 'rights', deadlineAt: f.clock.now({}) + 60000 } } }) });
         expect(await creative.safety.assessGeneration({ context: f.owner, ...effect.generation! })).toMatchObject({ ok: true, value: { kind: 'normal_write' } });
         const card = value({ result: await creative.safety.prepareApproval({ context: f.owner, request: effect }) });
-        value({ result: await f.services.confirmations!.confirm({ context: f.owner, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } }) });
+        value({ result: await f.services.confirmations!.confirm({ context: f.owner, approver: { kind: 'local_token', ownerId: f.owner.scope.ownerId, deviceId: 'fixture-device', tokenId: 'fixture-token-reference' }, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } }) });
         let dispatches = 0;
         for (const now of [effect.generation!.quote.expiresAt, effect.generation!.quote.expiresAt + 1]) {
             f.clock.now = () => now;

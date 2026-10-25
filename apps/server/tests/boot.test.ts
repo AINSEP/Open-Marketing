@@ -8,12 +8,13 @@ import { tmpdir } from 'node:os';
 import { removeStateRoot } from './state-root.js';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
-import type { ClockPort, ObserverEvent } from '@open-marketing/contracts';
+import type { CallContext, ClockPort, ObserverEvent } from '@open-marketing/contracts';
+import { createSqlConfirmationExchange, digestArguments } from '@open-marketing/safety';
 import { bootServer, loadOAuthProviders, type BootedServer, type ServerBootIo } from '../src/composition/index.js';
 import { createNodeBootIo } from '../src/composition/serve.js';
 import { loadCliEnvironment } from '../src/composition/cli.js';
 import { bindServerDatabase } from '../src/composition/database.js';
-import { readLocalOwner } from '../src/composition/local-auth.js';
+import { localApprover, readLocalOwner } from '../src/composition/local-auth.js';
 import { runOmCli } from '../src/cli/index.js';
 import { createNodeHttpListener, serveStudioAsset } from '../src/inbound/http.js';
 import { migrationManifest } from '../src/composition/migrations.js';
@@ -54,6 +55,63 @@ async function createFixture(_required: Record<string, never>) {
         },
     };
 }
+
+it('commits owner identity and audit together through boot HTTP, rejecting agent tokens and rolling back audit/update faults', async () => {
+    const f = await createFixture({});
+    try {
+        const booted = await f.start({});
+        if (!booted.ok) throw new Error(booted.error.message);
+        const credentials = await readLocalOwner({ fs, stateRoot: f.stateRoot });
+        if (!credentials.ok) throw new Error(credentials.error.message);
+        const approver = localApprover({ credentials: credentials.value });
+        expect(approver.kind).toBe('local_token');
+        expect(JSON.stringify(approver)).not.toContain(credentials.value.token);
+        if (approver.kind !== 'local_token') throw new Error('Expected local reference');
+        expect(approver.deviceId).not.toBe(approver.tokenId);
+        const context: CallContext = { scope: { ownerId: credentials.value.ownerId, workspaceId: credentials.value.workspaceId },
+            principal: { kind: 'owner', ownerId: credentials.value.ownerId }, correlationId: 'identity-correlation', traceId: 'identity-trace' };
+        const native = f.handles[0];
+        const { unit } = bindServerDatabase({ native, context, observer: f.observer });
+        const cards = createSqlConfirmationExchange({ ...f, db: { transaction: ({ execute }) => unit.transaction({ work: ({ session }) => execute({ session: {
+            query: ({ sql, parameters }) => session.query({ text: sql, values: [...parameters] }),
+        } }) }) }, async recordAnswer() { throw new Error('Seed-only adapter cannot answer'); } });
+        const args = { action: 'fixture_write' };
+        const digest = digestArguments({ arguments: args });
+        if (!digest.ok) throw new Error(digest.error.message);
+        const presented = await cards.present({ context, request: { arguments: args, pluginDigest: 'b'.repeat(64), schemaFingerprint: 'c'.repeat(64),
+            envelope: { operationId: 'identity-operation', connectionId: 'fixture', accountId: null, effects: ['write'], argumentsDigest: digest.value, moneyExposure: null, requiredLimit: null } } });
+        if (!presented.ok) throw new Error(presented.error.message);
+        const card = presented.value;
+        const origin = new URL(booted.value.studioUrl).origin;
+        const path = '/api/safety/approvals/' + card.cardId + '/answer';
+        const body = { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' };
+        const post = (input: { token: string }) => fetch(origin + path, { method: 'POST', headers: { authorization: 'Bearer ' + input.token, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+        expect((await post({ token: 'c'.repeat(64) })).status).toBe(401);
+        native.exec("CREATE TRIGGER approval_audit_fault BEFORE INSERT ON audit_entry WHEN NEW.kind='approval' BEGIN SELECT RAISE(ABORT, 'fixture'); END");
+        expect((await post({ token: credentials.value.token })).status).toBe(503);
+        expect(native.prepare('SELECT status FROM safety_confirmations WHERE card_id=?').get(card.cardId)).toEqual({ status: 'pending' });
+        expect(native.prepare("SELECT COUNT(*) AS count FROM audit_entry WHERE kind='approval'").get()).toEqual({ count: 0 });
+        native.exec('DROP TRIGGER approval_audit_fault');
+        native.exec("CREATE TRIGGER approval_update_fault BEFORE UPDATE ON safety_confirmations BEGIN SELECT RAISE(ABORT, 'fixture'); END");
+        expect((await post({ token: credentials.value.token })).status).toBe(503);
+        expect(native.prepare("SELECT COUNT(*) AS count FROM audit_entry WHERE kind='approval'").get()).toEqual({ count: 0 });
+        native.exec('DROP TRIGGER approval_update_fault');
+        expect((await post({ token: credentials.value.token })).status).toBe(200);
+        const stored = JSON.parse((native.prepare('SELECT payload FROM safety_confirmations WHERE card_id=?').get(card.cardId) as { payload: string }).payload);
+        expect(stored.answer).toEqual({ response: body, approver, answeredAt: 1000 });
+        const audit = native.prepare("SELECT payload, context_json FROM audit_entry WHERE kind='approval'").all() as { payload: string; context_json: string }[];
+        expect(audit).toHaveLength(1);
+        expect(JSON.parse(audit[0].payload)).toMatchObject({ approval: { response: body, approver } });
+        expect(JSON.stringify(audit)).not.toContain(credentials.value.token);
+        await booted.value.stop({});
+        const restarted = await f.start({});
+        expect(restarted.ok).toBe(true);
+        const readAgain = await readLocalOwner({ fs, stateRoot: f.stateRoot });
+        if (!readAgain.ok) throw new Error(readAgain.error.message);
+        expect(localApprover({ credentials: readAgain.value })).toEqual(approver);
+        expect(JSON.parse((f.handles[1].prepare('SELECT payload FROM safety_confirmations WHERE card_id=?').get(card.cardId) as { payload: string }).payload).answer).toEqual(stored.answer);
+    } finally { await f.close(); }
+});
 
 it('boots on SQLite, serves built studio, publishes desktop readiness and shares CLI discovery', async () => {
     const fixture = await createFixture({});

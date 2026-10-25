@@ -89,5 +89,6 @@ function sameEvidence(required: { original: AuditEntry; projected: AuditEntry })
   return required.original.operationId === required.projected.operationId
     && required.original.kind === required.projected.kind
     && required.original.argumentsDigest === required.projected.argumentsDigest
-    && required.original.correctionOf === required.projected.correctionOf;
+    && required.original.correctionOf === required.projected.correctionOf
+    && JSON.stringify(required.original.approval) === JSON.stringify(required.projected.approval);
 }

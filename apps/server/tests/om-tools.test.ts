@@ -53,14 +53,19 @@ function value<T>(required: { result: Outcome<T> }): T {
 function fixture(_required: Record<string, never>) {
     let now = 1000; let sequence = 0; let active = true; let revision = '1'; let enabled = true;
     const clock = { now: () => now }; const ids = { next: () => 'id-' + ++sequence }; const observer = { observe() {} };
-    const confirmations = createMemoryConfirmationExchange({ clock, ids });
+    const audit = answerAudit();
+    let auditFailure = false;
+    const confirmations = createMemoryConfirmationExchange({ clock, ids, async recordAnswer(input) {
+        if (auditFailure) return { ok: false, error: { code: 'unavailable', message: 'Fixture approval audit unavailable', retryable: false } };
+        return audit.recordAnswer(input);
+    } });
     const effects: unknown[] = []; const contexts: CallContext[] = [];
     const schema = z.strictObject({ value: z.number() });
     const definition: { -readonly [Key in keyof OmToolDefinition]: OmToolDefinition[Key] } = { name: 'fixture_write', capability: 'Fixture write', description: 'Save the exact fixture value.',
         effects: ['write'], policy: 'write', revision: '1', inputSchema: toolInputSchema({ schema }),
         parse: input => parseBoundary({ schema, input: input.input }),
         async invoke(input) { effects.push(input.input); contexts.push(input.context); return { ok: true, value: { saved: (input.input as { value: number }).value } }; } };
-    const services: OwnerServices = { confirmations, safety: createMemorySafetyRepo({ clock, ids, ownerTimezone: 'UTC' }), campaigns: createMemoryCampaignRepo({}) };
+    const services: OwnerServices = { approver: { kind: 'local_token', ownerId: owner.scope.ownerId, deviceId: 'fixture-device', tokenId: 'fixture-token-reference' }, confirmations, safety: createMemorySafetyRepo({ clock, ids, ownerTimezone: 'UTC' }), campaigns: createMemoryCampaignRepo({}) };
     const tools = createOmTools({ clock, observer, confirmations,
         authorize: input => (active || input.context.principal.kind === 'owner') && input.context.scope.workspaceId === owner.scope.workspaceId && input.context.scope.ownerId === owner.scope.ownerId
             ? { ok: true, value: undefined } : { ok: false, error: { code: 'expired', message: 'Fixture revoked', retryable: false } },
@@ -76,10 +81,53 @@ function fixture(_required: Record<string, never>) {
         return handleOwnerRequest({ context: input.context ?? owner, services, request: { method: 'POST', path: '/api/safety/approvals/' + card.cardId + '/answer',
             body: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: input.choice ?? 'allow' } } });
     }
-    return { tools, call, services, grants, grant, effects, contexts, clock, ids, observer, answer,
+    return { tools, call, services, grants, grant, effects, contexts, clock, ids, observer, answer, answers: audit.answers,
+        setAuditFailure(input: { fail: boolean }) { auditFailure = input.fail; },
         advance() { now = 301001; }, async revoke() { active = false; await tools.cancel({ context: owner, runId: 'run' }); }, endRun() { active = false; },
         replace() { revision = '2'; }, remove() { enabled = false; }, definition };
 }
+
+it('approval audit failure prevents tool continuation and preserves a pending card for retry', async () => {
+    const f = fixture({});
+    try {
+        expect(await f.tools.dispatch({ context: agent, call: f.call })).toMatchObject({ ok: true, value: { status: 'pending' } });
+        f.setAuditFailure({ fail: true });
+        expect(await f.answer()).toMatchObject({ status: 503, body: { ok: false, error: { code: 'unavailable' } } });
+        expect(f.effects).toEqual([]);
+        expect(f.answers).toEqual([]);
+        expect(await f.tools.operation({ context: owner, operationId: f.call.operationId })).toMatchObject({ ok: true, value: { status: 'pending' } });
+        f.setAuditFailure({ fail: false });
+        expect((await f.answer()).status).toBe(200);
+        expect(f.effects).toEqual([{ value: 7 }]);
+        expect(f.answers).toHaveLength(1);
+    } finally { await f.tools.dispose({}); }
+});
+
+it('tool continuation uses the same response and identity snapshot as the pending audit', async () => {
+    const f = fixture({});
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const evidence: unknown[] = [];
+    const confirmations = createMemoryConfirmationExchange({ ...f, async recordAnswer(input) {
+        evidence.push(structuredClone(input.answer)); entered.resolve(); await release.promise;
+        return { ok: true, value: undefined };
+    } });
+    const tools = createOmTools({ ...f, confirmations, definitions: async () => ({ ok: true, value: [f.definition] }), authorize: () => ({ ok: true, value: undefined }) });
+    try {
+        value({ result: await tools.dispatch({ context: agent, call: f.call }) });
+        const card = value({ result: await tools.card({ context: owner, operationId: f.call.operationId }) })!;
+        const response: ApprovalResponse = { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' };
+        const approver = { kind: 'local_token' as const, ownerId: owner.scope.ownerId, deviceId: 'device', tokenId: 'reference' };
+        const expected = structuredClone({ response, approver, answeredAt: 1000 });
+        const answering = tools.answer({ context: owner, response, approver });
+        await entered.promise;
+        response.choice = 'cancel'; approver.ownerId = 'mutated';
+        release.resolve();
+        expect(await answering).toEqual({ ok: true, value: undefined });
+        expect(evidence).toEqual([expected]);
+        expect(f.effects).toEqual([{ value: 7 }]);
+    } finally { release.resolve(); await tools.dispose({}); await f.tools.dispose({}); }
+});
 
 /** Existing SQLite history and public media doubles behind the production catalog/dispatcher. */
 function at1Fixture() {
@@ -114,7 +162,7 @@ function at1Fixture() {
         expect(await call(input)).toMatchObject({ value: { status: 'pending' } });
         const card = value({ result: await tools.card({ context: owner, operationId: input.name }) })!;
         expect(card.arguments).toEqual({ tool: input.name, input: input.input });
-        await tools.answer({ context: owner, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } });
+        await tools.answer({ context: owner, approver: { kind: 'local_token', ownerId: owner.scope.ownerId, deviceId: 'fixture-device', tokenId: 'fixture-token-reference' }, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } });
         return value({ result: await tools.operation({ context: owner, operationId: input.name }) });
     }
     return { ...f, services, tools, conversations, persistence, native, repo, request, call, approve, async close() { await tools.dispose({}); await f.tools.dispose({}); native.close(); } };
@@ -326,7 +374,7 @@ it('cancellation and expiry void cards before a late owner answer can execute', 
         const f = fixture({}); value({ result: await f.tools.dispatch({ context: agent, call: f.call }) });
         const card = value({ result: await f.tools.card({ context: agent, operationId: f.call.operationId }) })!;
         if (interruption === 'cancel') await f.revoke(); else f.advance();
-        const result = await f.tools.answer({ context: owner, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } });
+        const result = await f.tools.answer({ context: owner, approver: { kind: 'local_token', ownerId: owner.scope.ownerId, deviceId: 'fixture-device', tokenId: 'fixture-token-reference' }, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } });
         expect(result.ok).toBe(false); expect(f.effects).toEqual([]);
         expect(value({ result: await f.services.confirmations.list({ context: owner, query: { limit: 100 } }) }).items).toEqual([]);
         await f.tools.dispose({});
@@ -585,7 +633,7 @@ function financialFixture(required: { policy: 'spend' | 'generation'; amounts?: 
     async function answer(input: { call: ToolCall; choice?: ApprovalResponse['choice'] }) {
         const card = value({ result: await f.tools.card({ context: owner, operationId: input.call.operationId }) })!;
         expect(card).not.toBeNull();
-        return f.tools.answer({ context: owner, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: input.choice ?? 'allow' } });
+        return f.tools.answer({ context: owner, approver: { kind: 'local_token', ownerId: owner.scope.ownerId, deviceId: 'fixture-device', tokenId: 'fixture-token-reference' }, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: input.choice ?? 'allow' } });
     }
     return { ...f, calls, requests, answer, disconnect() { enabled = false; } };
 }
@@ -669,7 +717,7 @@ it('one exact owner continuation sets the allowance and records local halt witho
             value({ result: await tools.dispatch({ context: agent, call }) });
             const card = value({ result: await tools.card({ context: agent, operationId: call.operationId }) })!;
             expect(card.allowedChoices).toEqual(['allow', 'cancel']);
-            value({ result: await tools.answer({ context: owner, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } }) });
+            value({ result: await tools.answer({ context: owner, approver: { kind: 'local_token', ownerId: owner.scope.ownerId, deviceId: 'fixture-device', tokenId: 'fixture-token-reference' }, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } }) });
             expect(value({ result: await tools.operation({ context: agent, operationId: call.operationId }) }).status).toBe('completed');
         }
         expect(value({ result: await f.services.safety.getGenerationAllowance({ context: owner }) }).amount.minorUnits).toBe(1500);
@@ -709,7 +757,7 @@ it('keeps the catalog and healthy add-on usable when another package description
         expect(value({ result: await healthy.invoke({ context: owner, input: {} }) })).toMatchObject({ instructions: 'Fixture contribution' });
         const unavailable = definitions.find(tool => tool.name.startsWith('addon_agent_plugin_'))!;
         expect(unavailable.unavailableReason).toContain('unavailable');
-        const tools = createOmTools({ definitions: async () => ({ ok: true, value: definitions }), confirmations: createMemoryConfirmationExchange({ clock: f.clock, ids: f.ids }),
+        const tools = createOmTools({ definitions: async () => ({ ok: true, value: definitions }), confirmations: createMemoryConfirmationExchange({ ...answerAudit(), clock: f.clock, ids: f.ids }),
             clock: f.clock, observer: f.observer, authorize: () => ({ ok: true, value: undefined }) });
         try {
             expect(await tools.dispatch({ context: owner, call: { name: unavailable.name, operationId: 'broken-plugin', input: {} } })).toMatchObject({ ok: false });
@@ -756,7 +804,7 @@ it('binds contact writes to the public service and requests an exact destructive
             const call = { name: 'om_contacts_upsert', operationId: email, input: { identifiers: [{ kind: 'email', raw: email }] } };
             value({ result: await tools.dispatch({ context: agent, call }) });
             const card = value({ result: await tools.card({ context: agent, operationId: call.operationId }) })!;
-            value({ result: await tools.answer({ context: owner, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } }) });
+            value({ result: await tools.answer({ context: owner, approver: { kind: 'local_token', ownerId: owner.scope.ownerId, deviceId: 'fixture-device', tokenId: 'fixture-token-reference' }, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } }) });
             const operation = value({ result: await tools.operation({ context: agent, operationId: call.operationId }) });
             expect(operation.status).toBe('completed');
             if (operation.status !== 'completed') throw new Error('Expected completed contact write');
@@ -765,7 +813,7 @@ it('binds contact writes to the public service and requests an exact destructive
         value({ result: await tools.dispatch({ context: agent, call: { name: 'om_contacts_merge', operationId: 'merge', input: { sourceSubjectId: subjects[1], targetSubjectId: subjects[0] } } }) });
         const card = value({ result: await tools.card({ context: agent, operationId: 'merge' }) })!;
         expect(card.classification).toBe('destructive'); expect(card.allowedChoices).toEqual(['allow', 'cancel']);
-        value({ result: await tools.answer({ context: owner, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } }) });
+        value({ result: await tools.answer({ context: owner, approver: { kind: 'local_token', ownerId: owner.scope.ownerId, deviceId: 'fixture-device', tokenId: 'fixture-token-reference' }, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } }) });
         expect(value({ result: await contacts.resolve({ context: owner, identifier: { kind: 'email', raw: 'two@example.test' } }) }).subjectId).toBe(subjects[0]);
         expect(generateOmToolCoverage({ definitions }).some(row => row.capability === 'Contact upsert' && row.status === 'NEEDS')).toBe(false);
     } finally { await tools.dispose({}); await f.tools.dispose({}); }
@@ -872,6 +920,15 @@ it('typed backend effects cannot be disguised by combining them with read/write/
 import { buildUiToolDefinitions, prepareUiSurface, checkedSurfaceAcknowledgement } from '../src/ui-tools.js';
 import type { UiFrontendPort } from '../src/ui-tools.js';
 
+/** Captured approval evidence; each fixture owns its audit records. */
+function answerAudit() {
+    const answers: unknown[] = [];
+    return { answers, async recordAnswer(input: { answer: unknown }) {
+        answers.push(structuredClone(input.answer));
+        return { ok: true as const, value: undefined };
+    } };
+}
+
 const uiComponents: ToolCall['input'][] = [{ id: 'root', component: 'Column', children: ['text'] }, { id: 'text', component: 'Text', text: 'Fixture' }];
 async function uiFixture(required: { acknowledge?: 'rendered' | 'sent'; foreignRun?: boolean } = {}) {
     const base = fixture({}); const delivered: unknown[] = [];
@@ -903,7 +960,7 @@ it('renders only after the one owner approval and returns the real browser ackno
     expect(await f.tools.dispatch({ context: agent, call })).toMatchObject({ ok: true, value: { status: 'pending' } });
     expect(f.delivered).toEqual([]);
     const card = value({ result: await f.tools.card({ context: owner, operationId: call.operationId }) })!;
-    expect(await f.tools.answer({ context: owner, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } })).toEqual({ ok: true, value: undefined });
+    expect(await f.tools.answer({ context: owner, approver: { kind: 'local_token', ownerId: owner.scope.ownerId, deviceId: 'fixture-device', tokenId: 'fixture-token-reference' }, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } })).toEqual({ ok: true, value: undefined });
     expect(await f.tools.operation({ context: agent, operationId: call.operationId })).toMatchObject({ ok: true, value: { status: 'completed', output: { status: 'rendered', runId: 'run' } } });
     await f.tools.dispatch({ context: agent, call }); expect(f.delivered).toHaveLength(1); await f.tools.dispose({});
 });
@@ -1032,7 +1089,7 @@ for (const throughHttp of [false, true]) describe('bound frontend relay / ' + (t
             expect((await f.request({ method: 'POST', path: '/api/frontend-sessions/' + f.attachment.sessionId + '/responses',
                 body: { invocationId: invocation.invocationId, ok: true, output: {} } })).status).toBe(403);
             expect(await f.tools.card({ context: owner, operationId: f.call.operationId })).toEqual({ ok: true, value: null });
-            expect(await f.tools.answer({ context: owner, response: { cardId: card!.cardId, operationId: card!.operationId, argumentsDigest: card!.argumentsDigest, choice: 'allow' } })).toMatchObject({ ok: false });
+            expect(await f.tools.answer({ context: owner, approver: { kind: 'local_token', ownerId: owner.scope.ownerId, deviceId: 'fixture-device', tokenId: 'fixture-token-reference' }, response: { cardId: card!.cardId, operationId: card!.operationId, argumentsDigest: card!.argumentsDigest, choice: 'allow' } })).toMatchObject({ ok: false });
             expect(f.effects).toEqual([]);
         } finally { await f.dispose(); }
     });
@@ -1070,7 +1127,7 @@ it('surface tool calls use the existing exact card, and cancellation prevents it
         expect(dispatched.body).toMatchObject({ ok: true, value: { status: 'pending' } }); expect(f.effects).toEqual([]);
         const card = value({ result: await f.tools.card({ context: owner, operationId: f.call.operationId }) });
         await f.revoke();
-        expect(await f.tools.answer({ context: owner, response: { cardId: card!.cardId, operationId: card!.operationId, argumentsDigest: card!.argumentsDigest, choice: 'allow' } })).toMatchObject({ ok: false });
+        expect(await f.tools.answer({ context: owner, approver: { kind: 'local_token', ownerId: owner.scope.ownerId, deviceId: 'fixture-device', tokenId: 'fixture-token-reference' }, response: { cardId: card!.cardId, operationId: card!.operationId, argumentsDigest: card!.argumentsDigest, choice: 'allow' } })).toMatchObject({ ok: false });
         expect(f.effects).toEqual([]);
         const foreign = await handleOwnerRequest({ services: f.services, context: owner, request: { ...request,
             body: { call: { ...f.call, operationId: 'other' }, runId: 'run', frontendSessionId: 'foreign' } } });
@@ -1152,11 +1209,11 @@ function durableFixture(input: { backend: 'memory' | 'sql' }) {
         query: ({ sql, parameters }) => session.query({ text: sql, values: [...parameters] }),
     } }) }) };
     const memory = createMemoryToolOperationStore({});
-    const memoryCards = createMemoryConfirmationExchange(base);
+    const memoryCards = createMemoryConfirmationExchange({ ...base, ...answerAudit() });
     let agentActive = true;
     function open(input: { store?: ToolOperationStore; confirmations?: ConfirmationExchangePort } = {}) {
         const store = input.store ?? (inputBackend === 'sql' ? createSqlToolOperationStore({ unit }) : memory);
-        const confirmations: ConfirmationExchangePort = input.confirmations ?? (inputBackend === 'sql' ? createSqlConfirmationExchange({ ...base, db }) : memoryCards);
+        const confirmations: ConfirmationExchangePort = input.confirmations ?? (inputBackend === 'sql' ? createSqlConfirmationExchange({ ...base, db, ...answerAudit() }) : memoryCards);
         const tools = createOmTools({ ...base, store, confirmations, definitions: async () => ({ ok: true, value: [base.definition] }),
             authorize: ({ context }) => context.principal.kind === 'owner' || agentActive
                 ? { ok: true, value: undefined } : { ok: false, error: { code: 'expired', message: 'Old agent run revoked', retryable: false } } });
@@ -1179,10 +1236,10 @@ for (const backend of ['memory', 'sql'] as const) describe('durable tool operati
             expect(await reopened.tools.card({ context: owner, operationId: f.call.operationId })).toEqual({ ok: true, value: card });
             expect(value({ result: await reopened.confirmations.list({ context: owner, query: { limit: 100 } }) }).items).toEqual([card]);
             const response: ApprovalResponse = { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' };
-            value({ result: await reopened.tools.answer({ context: owner, response }) });
+            value({ result: await reopened.tools.answer({ context: owner, approver: { kind: 'local_token', ownerId: owner.scope.ownerId, deviceId: 'fixture-device', tokenId: 'fixture-token-reference' }, response }) });
             expect(f.effects).toEqual([{ value: 7 }]);
             expect(f.contexts[0]).toEqual({ ...agent, principal: owner.principal });
-            expect(await reopened.tools.answer({ context: owner, response })).toMatchObject({ ok: false, error: { code: 'conflict' } });
+            expect(await reopened.tools.answer({ context: owner, approver: { kind: 'local_token', ownerId: owner.scope.ownerId, deviceId: 'fixture-device', tokenId: 'fixture-token-reference' }, response })).toMatchObject({ ok: false, error: { code: 'conflict' } });
             const terminal = f.open(); value({ result: await terminal.tools.restore({ context: owner }) });
             expect(await terminal.tools.dispatch({ context: owner, call: f.call })).toMatchObject({ ok: true, value: { status: 'completed' } });
             expect(f.effects).toHaveLength(1);
@@ -1197,7 +1254,7 @@ for (const backend of ['memory', 'sql'] as const) describe('durable tool operati
             const card = value({ result: await first.tools.card({ context: owner, operationId: f.call.operationId }) })!;
             const record = value({ result: await first.store.loadOpen({ scope: owner.scope }) })[0];
             const response: ApprovalResponse = { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' };
-            if (crash === 'answered') value({ result: await first.confirmations.confirm({ context: owner, response }) });
+            if (crash === 'answered') value({ result: await first.confirmations.confirm({ context: owner, approver: { kind: 'local_token', ownerId: owner.scope.ownerId, deviceId: 'fixture-device', tokenId: 'fixture-token-reference' }, response }) });
             if (crash === 'expired') f.advance();
             if (crash === 'dispatching') record.executing = true;
             if (crash === 'no-card') { delete record.card; record.state = { status: 'pending', operationId: record.call.operationId }; }
@@ -1210,7 +1267,7 @@ for (const backend of ['memory', 'sql'] as const) describe('durable tool operati
                 expect(await reopened.tools.dispatch({ context: owner, call: f.call })).toMatchObject({ ok: false, error: { retryable: false } });
                 expect(await reopened.tools.operation({ context: owner, operationId: f.call.operationId })).toMatchObject({ value: { error: { retryable: false } } });
             }
-            expect((await reopened.tools.answer({ context: owner, response })).ok).toBe(false);
+            expect((await reopened.tools.answer({ context: owner, approver: { kind: 'local_token', ownerId: owner.scope.ownerId, deviceId: 'fixture-device', tokenId: 'fixture-token-reference' }, response })).ok).toBe(false);
             expect(f.effects).toEqual([]);
             await reopened.tools.dispose({});
         } finally { await f.close(); }
@@ -1243,7 +1300,7 @@ for (const backend of ['memory', 'sql'] as const) describe('durable tool operati
             } };
             const first = f.open({ store: guarded }); value({ result: await first.tools.dispatch({ context: agent, call: f.call }) });
             const card = value({ result: await first.tools.card({ context: owner, operationId: f.call.operationId }) })!;
-            const answering = first.tools.answer({ context: owner, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } });
+            const answering = first.tools.answer({ context: owner, approver: { kind: 'local_token', ownerId: owner.scope.ownerId, deviceId: 'fixture-device', tokenId: 'fixture-token-reference' }, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } });
             await entered.promise; expect(f.effects).toEqual([]); release.resolve(); await answering;
             expect(await first.tools.dispatch({ context: owner, call: f.call })).toMatchObject({ ok: false, error: { retryable: false } });
             expect(f.effects).toEqual([]); await first.tools.dispose({});
@@ -1268,7 +1325,7 @@ for (const backend of ['memory', 'sql'] as const) describe('S1R1F regressions / 
             value({ result: await first.tools.dispatch({ context: agent, call: f.call }) });
             const card = value({ result: await first.tools.card({ context: owner, operationId: f.call.operationId }) })!;
             await expect(first.tools.cancel({ context: owner, runId: agent.runId! })).rejects.toMatchObject({ code: 'unavailable', retryable: false });
-            expect((await first.tools.answer({ context: owner, response: { cardId: card.cardId, operationId: card.operationId,
+            expect((await first.tools.answer({ context: owner, approver: { kind: 'local_token', ownerId: owner.scope.ownerId, deviceId: 'fixture-device', tokenId: 'fixture-token-reference' }, response: { cardId: card.cardId, operationId: card.operationId,
                 argumentsDigest: card.argumentsDigest, choice: 'allow' } })).ok).toBe(false);
             expect(f.effects).toEqual([]);
             await first.tools.dispose({});
@@ -1289,7 +1346,7 @@ for (const backend of ['memory', 'sql'] as const) describe('S1R1F regressions / 
             const first = f.open({ store });
             value({ result: await first.tools.dispatch({ context: agent, call: f.call }) });
             const card = value({ result: await first.tools.card({ context: owner, operationId: f.call.operationId }) })!;
-            expect(await first.tools.answer({ context: owner, response: { cardId: card.cardId, operationId: card.operationId,
+            expect(await first.tools.answer({ context: owner, approver: { kind: 'local_token', ownerId: owner.scope.ownerId, deviceId: 'fixture-device', tokenId: 'fixture-token-reference' }, response: { cardId: card.cardId, operationId: card.operationId,
                 argumentsDigest: card.argumentsDigest, choice: 'cancel' } })).toMatchObject({ ok: false, error: { retryable: false } });
             expect(f.effects).toEqual([]); await first.tools.dispose({});
         } finally { await f.close(); }
@@ -1372,7 +1429,7 @@ it('routes OAuth HTTP and assistant starts through one write card and keeps call
         for (const [context, operationId] of [[owner, 'http-start'], [agent, 'assistant-start']] as const) {
             value({ result: await tools.dispatch({ context, call: { name: start.name, input: { pluginId: 'google-ads' }, operationId } }) });
             const card = value({ result: await tools.card({ context, operationId }) })!;
-            value({ result: await tools.answer({ context: owner, response: { cardId: card.cardId, operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } }) });
+            value({ result: await tools.answer({ context: owner, approver: { kind: 'local_token', ownerId: owner.scope.ownerId, deviceId: 'fixture-device', tokenId: 'fixture-token-reference' }, response: { cardId: card.cardId, operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } }) });
             expect(value({ result: await tools.operation({ context, operationId }) })).toMatchObject({ status: 'completed', output: challenge });
         }
         expect(starts).toHaveLength(2);

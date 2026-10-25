@@ -2,8 +2,9 @@ import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import type { Outcome, CallContext, ClockPort, IdPort, ConfirmationCard, GenerationCostQuote } from "@open-marketing/contracts";
 import { createMemorySafetyRepo, createSqlSafetyRepo, createMemoryConfirmationExchange, createMemoryAccountDispatchLock, createMemoryPlatformLimitEvidence, createMemorySpendPolicy, createMemoryVerifiedEffectResolver, createMemorySafetyAudit, createSafetyService, digestArguments } from "../index.js";
-import type { SafetyRepoPort, EffectRequest, FrozenDispatchRequest, FrozenGenerationRequest, SafetySqlDatabase, SafetySqlSession, VerifiedStopFixture, SafetyService, PlatformLimitEvidence } from "../index.js";
+import type { ApprovalAnswer, SafetyRepoPort, EffectRequest, FrozenDispatchRequest, FrozenGenerationRequest, SafetySqlDatabase, SafetySqlSession, VerifiedStopFixture, SafetyService, PlatformLimitEvidence } from "../index.js";
 export const context: CallContext = { scope: { ownerId: "owner", workspaceId: "workspace" }, principal: { kind: "owner", ownerId: "owner" }, correlationId: "correlation", traceId: "trace", runId: "run" };
+export const approver = { kind: "local_token" as const, ownerId: context.scope.ownerId, deviceId: "fixture-device", tokenId: "fixture-token-reference" };
 export const otherContext: CallContext = { ...context, scope: { ownerId: "other", workspaceId: "workspace" }, principal: { kind: "owner", ownerId: "other" } };
 export const NOW = Date.parse("2026-10-01T19:00:00Z");
 export const pluginDigest = "b".repeat(64);
@@ -17,9 +18,14 @@ export function unwrap<T>(required: { outcome: Outcome<T> }): T {
 export function timing(required: { now?: number; prefix?: string } = {}) {
  let now = required.now ?? NOW;
  let next = 0;
+ const answers: { context: CallContext; answer: ApprovalAnswer }[] = [];
+ async function recordAnswer(input: { context: CallContext; answer: ApprovalAnswer }): Promise<Outcome<void>> {
+  answers.push(structuredClone(input));
+  return { ok: true, value: undefined };
+ }
  const clock: ClockPort = { now() { return now; } };
  const ids: IdPort = { next() { return `${required.prefix ?? "fixture"}-${++next}`; } };
- return { clock, ids, ownerTimezone: "America/Los_Angeles", setNow(input: { now: number }) { now = input.now; } };
+ return { clock, ids, answers, recordAnswer, ownerTimezone: "America/Los_Angeles", setNow(input: { now: number }) { now = input.now; } };
 }
 /** One precise activation call and conservative platform cap. */
 export function spendRequest(required: { operationId?: string; amount?: number; arguments?: Record<string, unknown>; now?: number } = {}): EffectRequest {
@@ -59,7 +65,12 @@ export function sqliteFixture(required: Record<string, never> = {}) {
   tail = done.promise;
   await previous;
   db.exec("BEGIN IMMEDIATE");
-  try { const result = await input.execute({ session }); db.exec("COMMIT"); return result; }
+  try {
+   const result = await input.execute({ session });
+   const denied = typeof result === "object" && result !== null && "ok" in result && result.ok === false;
+   db.exec(denied ? "ROLLBACK" : "COMMIT");
+   return result;
+  }
   catch (error) { db.exec("ROLLBACK"); throw error; }
   finally { done.resolve(); }
  } };
@@ -84,6 +95,6 @@ export function createHarness(required: { backend: "memory" | "sql"; now?: numbe
 /** Owner approval is exercised through the real exchange, not forged by the test. */
 export async function approve(required: { harness: Harness; service: SafetyService; request: EffectRequest; choice?: "allow" | "allow_chat" | "always_allow" }): Promise<FrozenDispatchRequest> {
  const card = unwrap({ outcome: await required.service.prepareApproval({ context, request: required.request }) });
- unwrap({ outcome: await required.harness.confirmations.confirm({ context, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: required.choice ?? "allow" } }) });
+ unwrap({ outcome: await required.harness.confirmations.confirm({ context, approver, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: required.choice ?? "allow" } }) });
  return { ...required.request, approvalId: card.cardId, policyRevision: 0 };
 }
