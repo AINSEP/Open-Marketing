@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.1.0/plugin.schema.json",
+  "name": "kakao-ads",
+  "version": "0.1.0",
+  "description": "Kakao Moment account/campaign reads and daily BASIC reports; paste Business token only; disabled until host admission.",
+  "license": "Apache-2.0",
+  "extensions": {"io.github.ainsep.openmarketing": {"version": 1, "enabled": false, "admitted": false, "capabilities": [{"capabilityId": "campaign.read.v1", "version": 1, "pluginId": "kakao-ads", "schemaFingerprint": "817b837db350889ff630b3ba969780046f856e73f4129d4cae96e992d104089c", "admitted": false, "effects": ["read"]}, {"capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "kakao-ads", "schemaFingerprint": "da7b91995dbdb18c3648d086b49ab391d51fe7d7b0d0eb36482b50c49a78de58", "admitted": false, "effects": ["read"]}]}}
+}

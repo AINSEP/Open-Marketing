@@ -1,0 +1,12 @@
+{
+  "version": 1, "admitted": false,
+  "capabilities": [
+    {"capabilityId": "campaign.read.v1", "version": 1, "pluginId": "kakao-ads", "schemaFingerprint": "817b837db350889ff630b3ba969780046f856e73f4129d4cae96e992d104089c", "admitted": false, "effects": ["read"]},
+    {"capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "kakao-ads", "schemaFingerprint": "da7b91995dbdb18c3648d086b49ab391d51fe7d7b0d0eb36482b50c49a78de58", "admitted": false, "effects": ["read"]}
+  ],
+  "tools": [
+    {"name": "list_accounts", "effects": ["read"], "capabilityId": "campaign.read.v1"},
+    {"name": "list_campaigns", "effects": ["read"], "capabilityId": "campaign.read.v1"},
+    {"name": "report", "effects": ["read"], "capabilityId": "report.account-spend.v1"}
+  ]
+}
