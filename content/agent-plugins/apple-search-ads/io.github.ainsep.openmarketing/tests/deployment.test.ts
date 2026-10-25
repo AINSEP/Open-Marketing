@@ -4,7 +4,7 @@ import { context, deploymentFixture, installCampaign, installResolved, installTa
 
 it("translates an explicit App Store install plan with exact money, identity, UTC and PAUSED fields", () => {
   expect(translateCampaign({ campaign: installCampaign, target: installTarget, resolved: installResolved })).toEqual({ ok: true, value: pausedPlan });
-  expect(translateCampaign({ campaign: installCampaign, target: { ...installTarget, dailyBudget: { minorUnits: 9007199254740991, currency: "USD" } }, resolved: installResolved })).toMatchObject({ ok: true, value: { campaign: { dailyBudgetAmount: { amount: "90071992547409.91", currency: "USD" } } } });
+  expect(translateCampaign({ campaign: installCampaign, target: { ...installTarget, dailyBudget: { minorUnits: 9007199254740991, currency: "USD" } }, resolved: installResolved })).toMatchObject({ ok: true, value: { campaign: { dailyBudget: { value: { amount: "90071992547409.91", currency: "USD" } } } } });
 });
 
 it("rejects unsupported intent and strict/mismatched metadata rather than dropping fields", () => {
@@ -30,16 +30,17 @@ it("preflights then creates PAUSED parents with readback before children and exa
   const f = deploymentFixture(); const result = await f.deploy();
   expect(result).toMatchObject({ ok: true, value: { status: "acknowledged", entityIds: ["456", "567", "678"], references: savedReferences } });
   expect(result.ok && result.value.hierarchy).toHaveLength(3);
-  expect(f.calls.map(call => [call.init.method, call.url.replace("https://api.searchads.apple.com/api/v5", "")])).toEqual([
+  expect(f.calls.map(call => [call.init.method, call.url.replace("https://api.ads.apple.com/v1", "")])).toEqual([
     ["GET", "/creatives/789"], ["POST", "/campaigns"], ["GET", "/campaigns/456"],
-    ["POST", "/campaigns/456/adgroups"], ["GET", "/campaigns/456/adgroups/567"],
-    ["POST", "/campaigns/456/adgroups/567/ads"], ["GET", "/campaigns/456/adgroups/567/ads/678"],
+    ["POST", "/adgroups"], ["GET", "/adgroups/567"],
+    ["POST", "/ads"], ["GET", "/ads/678"],
   ]);
   const bodies = f.calls.filter(call => call.init.method === "POST").map(call => JSON.parse(String(call.init.body)));
   expect(bodies.map(body => body.status)).toEqual(["PAUSED", "PAUSED", "PAUSED"]);
   expect(bodies[0]).toEqual(pausedPlan.campaign);
-  expect(bodies[1]).toEqual({ name: "Fixture install", orgId: 123, startTime: "2026-10-25T00:00:00.000Z", endTime: "2026-10-26T00:00:00.000Z", status: "PAUSED", automatedKeywordsOptIn: true, pricingModel: "CPC", defaultBidAmount: { amount: "1.01", currency: "USD" } });
-  expect(bodies[2]).toEqual({ name: "Fixture install", creativeId: 789, status: "PAUSED" });
+  expect(bodies[1]).toEqual({ name: "Fixture install", campaignId: 456, startTime: "2026-10-25T00:00:00.000Z", endTime: "2026-10-26T00:00:00.000Z", status: "PAUSED", automatedKeywordsOptIn: true, pricingModel: "CPT", bidStrategy: { bidStrategyType: "MANUAL_CPT", bidStrategyGoal: "TAP", bid: { amount: "1.01", currency: "USD" } } });
+  expect(bodies[2]).toEqual({ name: "Fixture install", adGroupId: 567, creativeId: 789, status: "PAUSED" });
+  expect(f.calls.every(call => new Headers(call.init.headers).get("X-AP-Context") === "adAccountId=123")).toBe(true);
   expect(f.events).toEqual([
     { step: "campaign", phase: "dispatch", references: {} }, { step: "campaign", phase: "acknowledged", references: { campaign: "456" } },
     { step: "adgroup", phase: "dispatch", references: { campaign: "456" } }, { step: "adgroup", phase: "acknowledged", references: { campaign: "456", adgroup: "567" } },
@@ -54,9 +55,9 @@ it("preflights then creates PAUSED parents with readback before children and exa
 it("denies invalid plans, scope/account/currency mismatches and stale schedules before effects", async () => {
   for (const change of [
     { campaign: { ...pausedPlan.campaign, status: "ENABLED" } },
-    { campaign: { ...pausedPlan.campaign, adamId: Number.MAX_SAFE_INTEGER + 1 } },
-    { campaign: { ...pausedPlan.campaign, dailyBudgetAmount: { amount: "NaN", currency: "USD" } } },
-    { campaign: { ...pausedPlan.campaign, dailyBudgetAmount: { amount: "0.01", currency: "USD" } } },
+    { campaign: { ...pausedPlan.campaign, promotedObjectId: "9007199254740992" } },
+    { campaign: { ...pausedPlan.campaign, dailyBudget: { value: { amount: "NaN", currency: "USD" } } } },
+    { campaign: { ...pausedPlan.campaign, dailyBudget: { value: { amount: "0.01", currency: "USD" } } } },
     { adgroup: { ...pausedPlan.adgroup, startTime: "2026-10-25T01:00:00.000Z" } },
     { ad: { ...pausedPlan.ad, status: "DRAFT" } },
   ]) {
@@ -75,15 +76,15 @@ it("denies invalid plans, scope/account/currency mismatches and stale schedules 
   }
 });
 
-it("fails creative preflight closed on wrong org/app/creative, unsafe ID or invalid state", async () => {
-  for (const change of [{ orgId: 124 }, { adamId: 988 }, { id: 790 }, { id: Number.MAX_SAFE_INTEGER + 1 }, { state: "INVALID" }]) {
-    const f = deploymentFixture(); f.responses[0] = { id: 789, orgId: 123, adamId: 987, state: "VALID", ...change };
+it("fails creative preflight closed on wrong account/app/creative, unsafe ID, deletion or invalid status", async () => {
+  for (const change of [{ adAccountId: 124 }, { destination: { destinationType: "APP_STORE_PRODUCT_PAGE", parameters: { adamId: 988 } } }, { id: 790 }, { id: Number.MAX_SAFE_INTEGER + 1 }, { systemStatus: "INVALID" }, { deleted: true }]) {
+    const f = deploymentFixture(); f.responses[0] = { result: { id: 789, adAccountId: 123, destination: { destinationType: "APP_STORE_PRODUCT_PAGE", parameters: { adamId: 987 } }, systemStatus: "VALID", deleted: false, ...change } };
     expect((await f.deploy()).ok).toBe(false); expect(f.calls).toHaveLength(1); expect(f.events).toEqual([]);
   }
 });
 
 it("stops before child creation on missing/foreign/serving or mismatched parent readback", async () => {
-  for (const change of [{ orgId: 999 }, { adamId: 999 }, { status: "ENABLED" }, { servingStatus: "RUNNING" }, { servingStatus: undefined }, { deleted: true }, { endTime: "2026-10-27T00:00:00.000Z" }, { dailyBudgetAmount: { amount: "37.010000000000000001", currency: "USD" } }]) {
+  for (const change of [{ adAccountId: 999 }, { promotedObjectId: "999" }, { status: "ENABLED" }, { systemStatus: "RUNNING" }, { systemStatus: undefined }, { deleted: true }, { endTime: "2026-10-27T00:00:00.000Z" }, { dailyBudget: { value: { amount: "37.010000000000000001", currency: "USD" } } }]) {
     const f = deploymentFixture(); Object.assign(f.rows[0], change);
     expect(await f.deploy()).toMatchObject({ ok: true, value: { status: "unknown", references: { campaign: "456" } } });
     expect(f.calls).toHaveLength(3);
@@ -94,19 +95,19 @@ it("stops before child creation on missing/foreign/serving or mismatched parent 
 });
 
 it("accepts reordered countries, exact decimal equivalence and documented UTC timestamps", async () => {
-  const f = deploymentFixture(); Object.assign(f.rows[0], { countriesOrRegions: ["CA", "US"], dailyBudgetAmount: { amount: "37.0100", currency: "USD" }, startTime: "2026-10-25T00:00:00.000" });
+  const f = deploymentFixture(); Object.assign(f.rows[0], { targeting: { ...pausedPlan.campaign.targeting, countryOrRegion: { include: ["CA", "US"] } }, dailyBudget: { value: { amount: "37.0100", currency: "USD" } }, startTime: "2026-10-25T00:00:00.000" });
   expect(await f.deploy()).toMatchObject({ ok: true, value: { status: "acknowledged" } });
 });
 
 it("snapshots approval bytes before credential awaits", async () => {
-  const f = deploymentFixture(); f.state.credentialHook = () => { f.plan.campaign.dailyBudgetAmount.amount = "99.00"; f.plan.ad.status = "ENABLED"; };
+  const f = deploymentFixture(); f.state.credentialHook = () => { f.plan.campaign.dailyBudget.value.amount = "99.00"; f.plan.ad.status = "ENABLED"; };
   expect(await f.deploy()).toMatchObject({ ok: true, value: { status: "acknowledged" } });
-  expect(JSON.parse(String(f.calls[1].init.body)).dailyBudgetAmount.amount).toBe("37.01");
+  expect(JSON.parse(String(f.calls[1].init.body)).dailyBudget.value.amount).toBe("37.01");
   expect(JSON.parse(String(f.calls[5].init.body)).status).toBe("PAUSED");
 });
 
 it("retains known references on uncertain creates, unsafe acknowledgements and checkpoint loss", async () => {
-  for (const ack of [{}, { id: Number.MAX_SAFE_INTEGER + 1 }, { data: { id: 567 }, error: { message: "synthetic-secret" } }]) {
+  for (const ack of [{}, { result: { id: Number.MAX_SAFE_INTEGER + 1 } }, { result: { id: 567 }, error: { code: "REJECTED", message: "synthetic-secret", details: [] } }, { id: 567 }, { data: { id: 567 } }]) {
     const f = deploymentFixture(); f.responses[3] = ack;
     expect(await f.deploy()).toMatchObject({ ok: true, value: { status: "unknown", references: { campaign: "456" } } });
     expect(f.calls).toHaveLength(4);
@@ -140,10 +141,10 @@ it("never resends an unknown create, including a repeated invocation fenced by h
 });
 
 it("reconciles complete and partial saved IDs with GETs only; no discovery or continuation", async () => {
-  const f = deploymentFixture(); f.state.response = () => Response.json(f.rows[f.calls.length - 1]);
+  const f = deploymentFixture(); f.state.response = () => Response.json({ result: f.rows[f.calls.length - 1] });
   expect(await f.reconcile()).toMatchObject({ ok: true, value: { status: "acknowledged", references: savedReferences } });
-  expect(f.calls.map(call => call.init.method)).toEqual(["GET", "GET", "GET"]); expect(f.events).toEqual([]);
-  const partial = deploymentFixture(); partial.state.response = () => Response.json(partial.rows[0]);
+  expect(f.calls.map(call => [call.init.method, call.url])).toEqual([["GET", "https://api.ads.apple.com/v1/campaigns/456"], ["GET", "https://api.ads.apple.com/v1/adgroups/567"], ["GET", "https://api.ads.apple.com/v1/ads/678"]]); expect(f.events).toEqual([]);
+  const partial = deploymentFixture(); partial.state.response = () => Response.json({ result: partial.rows[0] });
   expect(await partial.reconcile({ references: { campaign: "456" } })).toMatchObject({ ok: true, value: { status: "unknown", references: { campaign: "456" } } });
   expect(partial.calls).toHaveLength(1);
   const missing = deploymentFixture();
@@ -171,4 +172,19 @@ it("denies admission/cancellation/expiry and rechecks authority after credential
   expect(cancelled.calls).toEqual([]); expect(cancelled.credentialCalls).toEqual([]);
   const expired = deploymentFixture(); expired.state.credential = { ok: true, value: { accessToken: "synthetic-secret", expiresAt: expired.state.time } };
   expect((await expired.deploy()).ok).toBe(false); expect(expired.calls).toEqual([]);
+});
+
+it("preserves unsafe string candidate IDs but never rounds them into a child create", async () => {
+  const f = deploymentFixture(); f.responses[1] = { result: { id: "9007199254740993" } }; f.rows[0].id = "9007199254740993";
+  expect(await f.deploy()).toMatchObject({ ok: true, value: { status: "unknown", references: { campaign: "9007199254740993" } } });
+  expect(f.calls.map(call => call.init.method)).toEqual(["GET", "POST", "GET"]);
+  expect(f.events).toHaveLength(2);
+});
+
+it("stops a cancelled create after its dispatch checkpoint without retrying", async () => {
+  const f = deploymentFixture(); const controller = new AbortController();
+  f.state.credentialHook = () => { if (f.credentialCalls.length === 2) controller.abort(); };
+  expect(await f.deploy({ signal: controller.signal })).toMatchObject({ ok: true, value: { status: "unknown", references: {} } });
+  expect(f.calls.map(call => call.init.method)).toEqual(["GET"]);
+  expect(f.events).toEqual([{ step: "campaign", phase: "dispatch", references: {} }]);
 });

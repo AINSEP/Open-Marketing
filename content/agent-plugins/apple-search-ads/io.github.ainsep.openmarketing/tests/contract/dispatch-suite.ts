@@ -4,11 +4,11 @@ import type { Fixture } from "../fixtures.js";
 /** Two consumers: plugin fixture and integrator host adapter. Assert receipts and real request bytes. */
 export function dispatchSuite(required: { name: string; makeFixture: () => Fixture }): void {
   describe(required.name + " Apple reads dispatch contract", () => {
-    it("discovers accounts without an org header, retaining scoped credential lookup", async () => {
+    it("discovers accounts without an account header, retaining scoped credential lookup", async () => {
       const f = required.makeFixture(); f.dependencies.configuration.accountId = null;
-      expect(await f.invoke()).toMatchObject({ ok: true, value: { data: { items: [{ orgId: "123", orgName: "Fixture org" }] } } });
+      expect(await f.invoke()).toMatchObject({ ok: true, value: { data: { items: [{ adAccount: { id: "123", name: "Fixture account", orgId: "900" }, roles: ["Admin"] }] } } });
       expect(f.calls).toHaveLength(1);
-      expect(f.calls[0]).toMatchObject({ url: "https://api.searchads.apple.com/api/v5/acls", init: { method: "GET", redirect: "error", headers: { Authorization: "Bearer synthetic-secret" } } });
+      expect(f.calls[0]).toMatchObject({ url: "https://api.ads.apple.com/v1/acls", init: { method: "GET", redirect: "error", headers: { Authorization: "Bearer synthetic-secret" } } });
       expect(new Headers(f.calls[0].init.headers).has("X-AP-Context")).toBe(false);
       expect(f.credentialCalls).toEqual([{ connectionId: "connection", accountId: null }]);
     });

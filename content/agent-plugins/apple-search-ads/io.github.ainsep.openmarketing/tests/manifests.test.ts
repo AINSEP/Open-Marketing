@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { expect, it } from "vitest";
 import { appleSearchAdsTools } from "../src/index.js";
 
-it("advertises exactly the three implemented reads, disabled with matching source metadata", () => {
+it("advertises two reads and the recognizable unsupported report, disabled with matching source metadata", () => {
   const manifest = JSON.parse(readFileSync(new URL("../../plugin.json", import.meta.url), "utf8"));
   const capabilities = JSON.parse(readFileSync(new URL("../capabilities.json", import.meta.url), "utf8"));
   const extension = manifest.extensions["io.github.ainsep.openmarketing"];
@@ -22,7 +22,7 @@ it("advertises exactly the three implemented reads, disabled with matching sourc
   expect(extension.capabilities).toEqual(capabilities.capabilities); expect(capabilities.admitted).toBe(false);
   expect(capabilities.deployment).toEqual({ capabilityId: "campaign.create-draft.v1", create: "deployCampaignPaused", read: "readCampaignDeployment", planSchema: "campaignDeploymentPlanSchema", admitted: false });
   const evidence = JSON.parse(readFileSync(new URL("../evidence/primary-sources.json", import.meta.url), "utf8"));
-  expect(evidence.apiVersion).toBe("v5"); expect(evidence.admitted).toBe(false);
+  expect(evidence.apiVersion).toBe("v1"); expect(evidence.admitted).toBe(false);
   expect(evidence.facts.length).toBeGreaterThan(0);
-  for (const fact of evidence.facts) { expect(fact.url).toMatch(/^https:\/\/developer\.apple\.com\//); expect(fact.quote.length).toBeGreaterThan(0); }
+  for (const fact of evidence.facts) { expect(fact.url).toMatch(/^https:\/\/(developer\.apple\.com|ads\.apple\.com)\//); expect(fact.quote.length).toBeGreaterThan(0); }
 });

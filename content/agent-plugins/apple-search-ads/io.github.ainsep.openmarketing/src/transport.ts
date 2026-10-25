@@ -1,19 +1,22 @@
 import { z } from "zod";
 import { appErrorSchema, callContextSchema, epochSchema, idSchema, scopeSchema } from "@open-marketing/contracts";
 import type { CallContext, CallOptions, ClockPort, ObserverPort, Outcome } from "@open-marketing/contracts";
-import { commandSchema, dayMs, decodePagination, encodeCommand, failure, moneySchema, paginationSchema, responseIdSchema, vendorIdSchema } from "./commands.js";
+import { commandSchema, decodePagination, encodeCommand, failure, moneySchema, paginationSchema, responseIdSchema, vendorIdSchema } from "./commands.js";
 import type { AppleRequest, ParsedCommand } from "./commands.js";
-import { decodeReport } from "./reporting.js";
 import type { AppleSearchAdsReport } from "./reporting.js";
 
-/** Internal read/deployment boundary; only discovery may use the nullable account. */
+/** Internal boundary: accountId is an explicitly selected v1 ad-account ID, never a legacy org ID. */
 export const configurationSchema = z.strictObject({ scope: scopeSchema, connectionId: idSchema, accountId: vendorIdSchema.nullable(), currency: z.string().regex(/^[A-Z]{3}$/).nullable() });
 const invocationSchema = z.strictObject({ context: callContextSchema, operationId: idSchema, command: commandSchema });
 const credentialSchema = z.strictObject({ accessToken: z.string().min(1).max(4096).regex(/^[\x21-\x7e]+$/), expiresAt: epochSchema.optional() });
-const account = z.object({ orgId: responseIdSchema, orgName: z.string().max(1024), currency: z.string().regex(/^[A-Z]{3}$/), timeZone: z.string().max(128), roleNames: z.array(z.string().max(128)).max(32) });
-const campaign = z.object({ id: responseIdSchema, orgId: responseIdSchema, name: z.string().max(1024), status: z.enum(["ENABLED", "PAUSED"]), dailyBudgetAmount: moneySchema.optional() });
-const accountsSchema = z.object({ data: z.union([z.array(account).max(100), account.transform(value => [value])]), pagination: paginationSchema.nullable(), error: z.null().optional() });
-const campaignsSchema = z.object({ data: z.array(campaign).max(100), pagination: paginationSchema, error: z.null().optional() });
+const account = z.object({ adAccount: z.object({ id: responseIdSchema, name: z.string().max(1024), orgId: responseIdSchema }), roles: z.array(z.string().max(128)).max(32) });
+const campaign = z.object({ id: responseIdSchema, adAccountId: responseIdSchema, name: z.string().max(1024), status: z.enum(["ENABLED", "PAUSED"]), dailyBudget: z.object({ value: moneySchema }).optional() });
+const accountsSchema = z.object({ result: z.object({ acls: z.array(account).max(100) }).transform(value => value.acls), pagination: z.null().optional(), error: z.null().optional() });
+const campaignsSchema = z.object({ result: z.array(campaign).max(100), pagination: paginationSchema, error: z.null().optional() });
+// Bound provider error text/details for validation only; none is exposed in results or logs.
+const providerError = z.object({ code: z.string().min(1).max(128), message: z.string().max(4096).nullable().optional(),
+  details: z.array(z.object({ code: z.string().max(128), message: z.string().max(4096).nullable().optional() })).max(100).optional() });
+const envelopeSchema = z.object({ error: providerError.nullable().optional() });
 export type AppleSearchAdsConfiguration = z.infer<typeof configurationSchema>;
 type Prepared = { input: z.infer<typeof invocationSchema>; configuration: AppleSearchAdsConfiguration };
 /** Server-custody credential callback; discovery permits accountId:null with a scoped connection. */
@@ -28,7 +31,7 @@ export interface AppleSearchAdsDependencies {
 }
 export interface AppleSearchAdsPage {
   readonly source: "apple_search_ads";
-  readonly apiVersion: "v5";
+  readonly apiVersion: "v1";
   readonly retrievedAt: number;
   readonly accountId: string | null;
   readonly pagination: (z.infer<typeof paginationSchema> & { returned: number; requestedLimit: number; coverage: "page" }) | null;
@@ -67,8 +70,8 @@ function prepare(required: { context: CallContext; operationId: string; command:
     if (!input.success || !configuration.success) return failure({ code: "invalid_input" });
     const scope = input.data.context.scope;
     if (scope.ownerId !== configuration.data.scope.ownerId || scope.workspaceId !== configuration.data.scope.workspaceId) return failure({ code: "forbidden" });
+    if (input.data.command.kind === "report") return failure({ code: "not_implemented" });
     if (input.data.command.kind !== "list_accounts" && configuration.data.accountId === null) return failure({ code: "forbidden" });
-    if (input.data.command.kind === "report" && configuration.data.currency === null) return failure({ code: "invalid_input" });
     return { ok: true, value: { input: input.data, configuration: configuration.data } };
   } catch { return failure({ code: "invalid_input" }); }
 }
@@ -78,15 +81,16 @@ function prepare(required: { context: CallContext; operationId: string; command:
  */
 async function dispatch(required: { prepared: Prepared; dependencies: AppleSearchAdsDependencies }, optional?: CallOptions): Promise<Outcome<AppleSearchAdsResult>> {
   const { prepared, dependencies } = required;
-  const preflight = checkTime({ dependencies, prepared });
+  const request = encodeCommand({ command: prepared.input.command });
+  if (!request) return failure({ code: "not_implemented" });
+  const preflight = checkTime({ dependencies });
   if (!preflight.ok) return preflight;
   const credential = await resolveCredential({ dependencies, configuration: prepared.configuration }, optional);
   if (!credential.ok) return credential;
   if (!dependencies.admitted) return failure({ code: "forbidden" });
   if (optional?.signal?.aborted) return failure({ code: "cancelled" });
-  const time = checkTime({ dependencies, prepared, expiresAt: credential.value.expiresAt });
+  const time = checkTime({ dependencies, expiresAt: credential.value.expiresAt });
   if (!time.ok) return time;
-  const request = encodeCommand({ command: prepared.input.command });
   const response = await send({ dependencies, request, token: credential.value.accessToken, accountId: prepared.input.command.kind === "list_accounts" ? null : prepared.configuration.accountId }, optional);
   if (!response.ok) return response;
   const retrievedAt = epochSchema.safeParse(dependencies.clock.now({}));
@@ -106,17 +110,13 @@ export async function resolveCredential(required: { dependencies: AppleSearchAds
   return parsed.success ? { ok: true, value: parsed.data } : failure({ code: "unauthenticated" });
 }
 
-/** DAILY bounds use the injected UTC day; no future dates or starts more than 90 days ago.
+/** Validate injected time and broker expiry; no hidden clock reads.
  * @complexity O(1), no hidden clock or I/O.
  */
-function checkTime(required: { dependencies: AppleSearchAdsDependencies; prepared: Prepared; expiresAt?: number }): Outcome<void> {
+function checkTime(required: { dependencies: AppleSearchAdsDependencies; expiresAt?: number }): Outcome<void> {
   const now = required.dependencies.clock.now({});
   if (!epochSchema.safeParse(now).success) return failure({ code: "invalid_input" });
   if (required.expiresAt !== undefined && now >= required.expiresAt) return failure({ code: "expired" });
-  const command = required.prepared.input.command;
-  if (command.kind !== "report") return { ok: true, value: undefined };
-  const today = Math.floor(now / dayMs) * dayMs;
-  if (Date.parse(command.startDate) < today - 90 * dayMs || Date.parse(command.endDate) > today) return failure({ code: "invalid_input" });
   return { ok: true, value: undefined };
 }
 
@@ -128,7 +128,7 @@ export async function send(required: { dependencies: AppleSearchAdsDependencies;
   const signal = AbortSignal.any([AbortSignal.timeout(15000), ...(optional?.signal ? [optional.signal] : [])]);
   try {
     const headers: Record<string, string> = { Authorization: "Bearer " + required.token, "Content-Type": "application/json" };
-    if (required.accountId !== null) headers["X-AP-Context"] = "orgId=" + required.accountId;
+    if (required.accountId !== null) headers["X-AP-Context"] = "adAccountId=" + required.accountId;
     const response = await required.dependencies.fetch(required.request.url, { method: required.request.method, body: required.request.body, headers, redirect: "error", signal });
     if (response.status !== 200) { await response.body?.cancel(); return httpFailure({ status: response.status }); }
     const body = await readBody({ response, signal });
@@ -173,9 +173,14 @@ async function readBody(required: { response: Response; signal: AbortSignal }): 
   finally { required.signal.removeEventListener("abort", cancel); reader.releaseLock(); }
 }
 
-/** Malformed JSON is an explicit protocol failure without raw text. @complexity O(b) time/space, b<=1MiB. */
+/** Validate JSON and bounded v1 errors without exposing provider text. @complexity O(b), b<=1MiB. */
 function decodeJson(required: { chunks: Uint8Array[] }): Outcome<unknown> {
-  try { return { ok: true, value: JSON.parse(Buffer.concat(required.chunks).toString("utf8")) as unknown }; }
+  try {
+    const value: unknown = JSON.parse(Buffer.concat(required.chunks).toString("utf8"));
+    const envelope = envelopeSchema.safeParse(value);
+    if (!envelope.success || envelope.data.error) return failure({ code: "protocol_mismatch" });
+    return { ok: true, value };
+  }
   catch { return failure({ code: "protocol_mismatch" }); }
 }
 
@@ -183,28 +188,28 @@ function decodeJson(required: { chunks: Uint8Array[] }): Outcome<unknown> {
 function decode(required: { prepared: Prepared; input: unknown; retrievedAt: number }): Outcome<AppleSearchAdsPage | AppleSearchAdsReport> {
   const { prepared, input, retrievedAt } = required;
   const command = prepared.input.command;
-  if (command.kind === "report") return decodeReport({ input, command, accountId: prepared.configuration.accountId!, currency: prepared.configuration.currency!, retrievedAt });
+  if (command.kind === "report") return failure({ code: "not_implemented" });
   return decodeList({ input, command, configuration: prepared.configuration, retrievedAt });
 }
 
-/** Reject mixed-validity and duplicate lists atomically; ACL schema and documented singleton both work.
+/** Reject mixed-validity and duplicate lists atomically; ACLs contain ad-account identity and roles only.
  * @complexity O(n) time/space, n<=100; never follows provider links.
  */
 function decodeList(required: { input: unknown; command: Exclude<ParsedCommand, { kind: "report" }>; configuration: AppleSearchAdsConfiguration; retrievedAt: number }): Outcome<AppleSearchAdsPage> {
   const parsed = required.command.kind === "list_accounts" ? accountsSchema.safeParse(required.input) : campaignsSchema.safeParse(required.input);
   if (!parsed.success) return failure({ code: "protocol_mismatch" });
-  const items = parsed.data.data;
-  const ids = items.map(item => "id" in item ? item.id : item.orgId);
+  const items = parsed.data.result;
+  const ids = items.map(item => "id" in item ? item.id : item.adAccount.id);
   if (new Set(ids).size !== ids.length) return failure({ code: "protocol_mismatch" });
-  if (required.command.kind === "list_campaigns" && items.some(item => item.orgId !== required.configuration.accountId)) return failure({ code: "protocol_mismatch" });
+  if (required.command.kind === "list_campaigns" && items.some(item => "adAccountId" in item && item.adAccountId !== required.configuration.accountId)) return failure({ code: "protocol_mismatch" });
   let pagination: AppleSearchAdsPage["pagination"] = null;
-  if (parsed.data.pagination !== null) {
+  if (parsed.data.pagination != null) {
     const bounds = required.command.kind === "list_accounts" ? { offset: 0, limit: 100 } : required.command;
     const page = decodePagination({ pagination: parsed.data.pagination, ...bounds, returned: items.length });
     if (!page.ok) return page;
     pagination = page.value;
   }
-  return { ok: true, value: { source: "apple_search_ads", apiVersion: "v5", accountId: required.configuration.accountId, retrievedAt: required.retrievedAt, items, pagination } };
+  return { ok: true, value: { source: "apple_search_ads", apiVersion: "v1", accountId: required.configuration.accountId, retrievedAt: required.retrievedAt, items, pagination } };
 }
 
 /** Best-effort sanitized operation outcome, with existing run/correlation/trace IDs. @complexity O(1). */

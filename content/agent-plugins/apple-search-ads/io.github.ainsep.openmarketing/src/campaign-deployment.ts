@@ -9,7 +9,7 @@ import { configurationSchema, resolveCredential, send as transport } from "./tra
 import type { AppleSearchAdsDependencies } from "./transport.js";
 export { campaignDeploymentPlanSchema } from "./campaign-translation.js";
 
-const base = "https://api.searchads.apple.com/api/v5";
+const base = "https://api.ads.apple.com/v1";
 const steps = ["campaign", "adgroup", "ad"] as const;
 type Step = typeof steps[number];
 const referencesSchema = z.strictObject({ campaign: vendorIdSchema.optional(), adgroup: vendorIdSchema.optional(), ad: vendorIdSchema.optional() });
@@ -23,14 +23,16 @@ type Checked = z.infer<typeof inputSchema> & Pick<Input, "dependencies">;
 // Apple examples omit the UTC suffix; accept that documented representation, never local time.
 const wireTime = z.string().max(24).transform(value => value.endsWith("Z") ? value : value + "Z").pipe(z.iso.datetime()).transform(value => new Date(value).toISOString());
 const wireMoney = moneySchema.transform(value => ({ units: decimalUnits({ amount: value.amount }).toString(), currency: value.currency }));
-const stopped = { id: responseIdSchema, orgId: responseIdSchema, status: z.literal("PAUSED"), servingStatus: z.literal("NOT_RUNNING"), deleted: z.literal(false) };
+const stopped = { id: responseIdSchema, adAccountId: responseIdSchema, status: z.literal("PAUSED"), systemStatus: z.literal("NOT_RUNNING"), deleted: z.literal(false) };
 const reads = {
-  campaign: campaignBodySchema.strip().extend({ ...stopped, adamId: responseIdSchema, startTime: wireTime, endTime: wireTime, dailyBudgetAmount: wireMoney,
-    countriesOrRegions: campaignBodySchema.shape.countriesOrRegions.transform(values => values.slice().sort()) }),
-  adgroup: adgroupBodySchema.strip().extend({ ...stopped, campaignId: responseIdSchema, startTime: wireTime, endTime: wireTime, defaultBidAmount: wireMoney }),
+  campaign: campaignBodySchema.strip().extend({ ...stopped, startTime: wireTime, endTime: wireTime, dailyBudget: z.object({ value: wireMoney }),
+    targeting: z.object({ ...campaignBodySchema.shape.targeting.shape,
+      countryOrRegion: z.object({ include: campaignBodySchema.shape.targeting.shape.countryOrRegion.shape.include.transform(values => values.slice().sort()) }) }) }),
+  adgroup: adgroupBodySchema.strip().extend({ ...stopped, campaignId: responseIdSchema, startTime: wireTime, endTime: wireTime,
+    bidStrategy: z.object({ ...adgroupBodySchema.shape.bidStrategy.shape, bid: wireMoney }) }),
   ad: adBodySchema.strip().extend({ ...stopped, campaignId: responseIdSchema, adGroupId: responseIdSchema, creativeId: responseIdSchema }),
 };
-const creativeSchema = z.object({ id: responseIdSchema, orgId: responseIdSchema, adamId: responseIdSchema, state: z.literal("VALID") });
+const creativeSchema = z.object({ id: responseIdSchema, adAccountId: responseIdSchema, destination: z.object({ destinationType: z.literal("APP_STORE_PRODUCT_PAGE"), parameters: z.object({ adamId: responseIdSchema }) }), systemStatus: z.literal("VALID"), deleted: z.literal(false) });
 
 /** Execute inside the ONE approved host job/card. Checkpoint before each create and verify each
  * parent before its child. Host checkpoints MUST reject repeated dispatch intents across restarts.
@@ -47,7 +49,7 @@ export async function deployCampaignPaused(required: Input, optional?: CallOptio
   const preflight = await send({ input, request: { url: base + "/creatives/" + input.plan.ad.creativeId, method: "GET" } }, optional);
   if (!preflight.ok) return preflight;
   const creative = decodeRow({ body: preflight.value, schema: creativeSchema });
-  if (!creative.ok || !isDeepStrictEqual(creative.value, { id: String(input.plan.ad.creativeId), orgId: input.configuration.accountId, adamId: String(input.plan.campaign.adamId), state: "VALID" })) return failure({ code: "protocol_mismatch" });
+  if (!creative.ok || !isDeepStrictEqual(creative.value, { id: String(input.plan.ad.creativeId), adAccountId: input.configuration.accountId, destination: { destinationType: "APP_STORE_PRODUCT_PAGE", parameters: { adamId: input.plan.campaign.promotedObjectId } }, systemStatus: "VALID", deleted: false })) return failure({ code: "protocol_mismatch" });
   const references: References = {};
   const hierarchy: unknown[] = [];
   for (const step of steps) {
@@ -84,6 +86,8 @@ export async function readCampaignDeployment(required: Omit<Input, "checkpoint">
 /** Candidate ID is retained before acknowledged checkpoint/readback, even if later evidence fails. O(1) I/O. */
 async function createStep(required: { input: Checked & Pick<Input, "checkpoint">; step: Step; references: References }, optional?: CallOptions): Promise<boolean> {
   const { input, step, references } = required;
+  // Flat v1 creates put parent IDs in JSON; never round a retained string ID.
+  if (Object.values(references).some(id => !Number.isSafeInteger(Number(id)))) return false;
   if (optional?.signal?.aborted || !await checkpoint({ input, step, phase: "dispatch", references })) return false;
   const request = creationRequest(required);
   const response = await send({ input, request }, optional);
@@ -103,7 +107,7 @@ async function readStep(required: { input: Checked; step: Step; references: Refe
   const response = await send({ input, request: { url: create.url + "/" + id, method: "GET" } }, optional);
   if (!response.ok) return response;
   const parents = step === "ad" ? { campaignId: references.campaign, adGroupId: references.adgroup } : {};
-  const expected: Record<string, unknown> = { ...JSON.parse(create.body!), ...parents, id, orgId: input.configuration.accountId, servingStatus: "NOT_RUNNING", deleted: false };
+  const expected: Record<string, unknown> = { ...JSON.parse(create.body!), ...parents, id, adAccountId: input.configuration.accountId, systemStatus: "NOT_RUNNING", deleted: false };
   if (step === "adgroup") expected.campaignId = references.campaign;
   const schema = reads[step] as z.ZodType<unknown>;
   const row = decodeRow({ body: response.value, schema });
@@ -121,26 +125,25 @@ function checkInput(required: { input: Omit<Input, "checkpoint"> }): Outcome<Che
   const parsed = inputSchema.safeParse(frozen.value);
   if (!parsed.success) return failure({ code: "not_implemented" });
   const { configuration, context, plan } = parsed.data;
-  if (!isDeepStrictEqual(context.scope, configuration.scope) || configuration.accountId !== String(plan.campaign.orgId)) return failure({ code: "forbidden" });
-  if (configuration.currency !== plan.campaign.dailyBudgetAmount.currency) return failure({ code: "conflict" });
+  if (!isDeepStrictEqual(context.scope, configuration.scope) || configuration.accountId !== String(plan.campaign.adAccountId)) return failure({ code: "forbidden" });
+  if (configuration.currency !== plan.campaign.dailyBudget.value.currency) return failure({ code: "conflict" });
   return { ok: true, value: { ...parsed.data, dependencies: input.dependencies } };
 }
 
-/** Fixed paths and two parent substitutions; names/payloads stay exactly as approved. O(1), no I/O. */
+/** Fixed paths and two numeric parent substitutions; payloads stay as approved. O(b<=64KiB), no I/O. */
 function creationRequest(required: { input: Checked; step: Step; references: References }): AppleRequest {
   const { plan } = required.input;
   const { campaignId: _campaignSlot, ...adgroup } = plan.adgroup;
   const { adgroupId: _groupSlot, ...ad } = plan.ad;
-  const paths = { campaign: "/campaigns", adgroup: `/campaigns/${required.references.campaign}/adgroups`, ad: `/campaigns/${required.references.campaign}/adgroups/${required.references.adgroup}/ads` };
-  return { url: base + paths[required.step], method: "POST", body: JSON.stringify({ campaign: plan.campaign, adgroup, ad }[required.step]) };
+  const paths = { campaign: "/campaigns", adgroup: "/adgroups", ad: "/ads" };
+  const bodies = { campaign: plan.campaign, adgroup: { ...adgroup, campaignId: Number(required.references.campaign) }, ad: { ...ad, adGroupId: Number(required.references.adgroup) } };
+  return { url: base + paths[required.step], method: "POST", body: JSON.stringify(bodies[required.step]) };
 }
 
-/** Accept documented bare objects and data envelopes; provider errors/unsafe IDs never become receipts. O(b). */
+/** Only v1 result envelopes are valid; bare objects and legacy data cannot acknowledge a create. O(b). */
 function decodeRow<T>(required: { body: unknown; schema: z.ZodType<T> }): Outcome<T> {
-  const shell = z.object({ error: z.null().optional() }).passthrough().safeParse(required.body);
-  if (!shell.success) return failure({ code: "protocol_mismatch" });
-  const row = required.schema.safeParse("data" in shell.data ? shell.data.data : shell.data);
-  return row.success ? { ok: true, value: row.data } : failure({ code: "protocol_mismatch" });
+  const shell = z.object({ result: required.schema, error: z.null().optional() }).safeParse(required.body);
+  return shell.success ? { ok: true, value: shell.data.result } : failure({ code: "protocol_mismatch" });
 }
 
 /** Durable host callback receives isolated references; thrown or denied appends stop immediately. O(1). */

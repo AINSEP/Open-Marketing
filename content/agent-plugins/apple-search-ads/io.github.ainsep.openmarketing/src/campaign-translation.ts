@@ -12,11 +12,13 @@ const decimalMoney = z.strictObject(moneySchema.shape).refine(value => /[1-9]/.t
 const schedule = { startTime: z.iso.datetime({ precision: 3 }), endTime: z.iso.datetime({ precision: 3 }) };
 const paused = { status: z.literal("PAUSED") };
 /** Fixed search-results/manual-CPT payloads; only the two named parent slots are substituted. */
-export const campaignBodySchema = z.strictObject({ name, orgId: numericId, adamId: numericId, countriesOrRegions: countries,
-  dailyBudgetAmount: decimalMoney, ...schedule, ...paused, adChannelType: z.literal("SEARCH"),
-  supplySources: z.tuple([z.literal("APPSTORE_SEARCH_RESULTS")]), billingEvent: z.literal("TAPS"), biddingStrategy: z.literal("MANUAL_CPT") });
-export const adgroupBodySchema = z.strictObject({ name, orgId: numericId, ...schedule, ...paused,
-  automatedKeywordsOptIn: z.literal(true), pricingModel: z.literal("CPC"), defaultBidAmount: decimalMoney });
+export const campaignBodySchema = z.strictObject({ name, adAccountId: numericId, promotedObjectType: z.literal("APPSTORE_APP"), promotedObjectId: resolvedId,
+  dailyBudget: z.strictObject({ value: decimalMoney }), ...schedule, ...paused, billingEvent: z.literal("TAPS"),
+  targeting: z.strictObject({ countryOrRegion: z.strictObject({ include: countries }), supplySource: z.strictObject({ include: z.tuple([z.literal("APPSTORE")]) }),
+    supplyPlacement: z.strictObject({ include: z.tuple([z.literal("APPSTORE_SEARCH_RESULTS")]) }) }),
+  bidStrategy: z.strictObject({ bidStrategyType: z.literal("MANUAL_CPT"), bidStrategyGoal: z.literal("TAP") }) });
+export const adgroupBodySchema = z.strictObject({ name, ...schedule, ...paused, automatedKeywordsOptIn: z.literal(true), pricingModel: z.literal("CPT"),
+  bidStrategy: z.strictObject({ bidStrategyType: z.literal("MANUAL_CPT"), bidStrategyGoal: z.literal("TAP"), bid: decimalMoney }) });
 export const adBodySchema = z.strictObject({ name, creativeId: numericId, ...paused });
 /** Frozen approval data includes OM creative provenance and every Apple creation field. */
 export const campaignDeploymentPlanSchema = z.strictObject({ creative: z.strictObject({ id: idSchema, digest: digestSchema }),
@@ -29,7 +31,7 @@ const campaignInput = z.object({ name, objective: z.string(), schedule: z.strict
 const targetInput = z.object({ pluginId: z.literal("apple-search-ads"), accountId: vendorIdSchema, dailyBudget: positiveMoney });
 const resolvedSchema = z.strictObject({ accountId: resolvedId, adamId: resolvedId, appleCreativeId: resolvedId, creativeId: idSchema,
   creativeDigest: digestSchema, currency: z.string().regex(/^[A-Z]{3}$/), currencyExponent: z.number().int().min(0).max(3), timezone: z.literal("UTC"), bid: positiveMoney });
-/** Structural neutral intent subset; the campaigns owner adds app_install to its own schema. */
+/** Existing install subset only; launch-objective integration remains outside this plugin. */
 export interface AppleSearchAdsTranslationInput { campaign: z.input<typeof campaignInput>; target: z.input<typeof targetInput>; resolved: unknown }
 
 /** Translate one App Store install intent without I/O; traffic/search terms are unsupported.
@@ -50,10 +52,12 @@ export function translateCampaign(required: AppleSearchAdsTranslationInput): Out
   if (new Intl.NumberFormat("en", { style: "currency", currency: resolved.currency }).resolvedOptions().maximumFractionDigits !== resolved.currencyExponent) return failure({ code: "invalid_input" });
   const times = { startTime: new Date(campaign.schedule.window.start).toISOString(), endTime: new Date(campaign.schedule.window.end).toISOString() };
   const plan = campaignDeploymentPlanSchema.safeParse({ creative: { id: resolved.creativeId, digest: resolved.creativeDigest },
-    campaign: { name: campaign.name, orgId: Number(resolved.accountId), adamId: Number(resolved.adamId), countriesOrRegions: campaign.audience.countries,
-      dailyBudgetAmount: formatMoney({ money: target.dailyBudget, exponent: resolved.currencyExponent }), ...times, status: "PAUSED", adChannelType: "SEARCH", supplySources: ["APPSTORE_SEARCH_RESULTS"], billingEvent: "TAPS", biddingStrategy: "MANUAL_CPT" },
-    adgroup: { name: campaign.name, orgId: Number(resolved.accountId), ...times, status: "PAUSED", automatedKeywordsOptIn: true, pricingModel: "CPC",
-      defaultBidAmount: formatMoney({ money: resolved.bid, exponent: resolved.currencyExponent }), campaignId: { from: "campaign" } },
+    campaign: { name: campaign.name, adAccountId: Number(resolved.accountId), promotedObjectType: "APPSTORE_APP", promotedObjectId: resolved.adamId,
+      dailyBudget: { value: formatMoney({ money: target.dailyBudget, exponent: resolved.currencyExponent }) }, ...times, status: "PAUSED", billingEvent: "TAPS",
+      targeting: { countryOrRegion: { include: campaign.audience.countries }, supplySource: { include: ["APPSTORE"] }, supplyPlacement: { include: ["APPSTORE_SEARCH_RESULTS"] } },
+      bidStrategy: { bidStrategyType: "MANUAL_CPT", bidStrategyGoal: "TAP" } },
+    adgroup: { name: campaign.name, ...times, status: "PAUSED", automatedKeywordsOptIn: true, pricingModel: "CPT",
+      bidStrategy: { bidStrategyType: "MANUAL_CPT", bidStrategyGoal: "TAP", bid: formatMoney({ money: resolved.bid, exponent: resolved.currencyExponent }) }, campaignId: { from: "campaign" } },
     ad: { name: campaign.name, creativeId: Number(resolved.appleCreativeId), status: "PAUSED", adgroupId: { from: "adgroup" } },
   });
   return plan.success ? { ok: true, value: plan.data } : failure({ code: "not_implemented" });
@@ -75,12 +79,12 @@ export function decimalUnits(required: { amount: string }): bigint {
   return BigInt(whole + fraction.padEnd(64, "0"));
 }
 
-/** Cross-parent budget, currency, account and UTC schedule invariants precede any dispatch. O(1). */
+/** Cross-parent budget, currency and UTC schedule invariants precede any dispatch. O(1). */
 function validPlan(value: { campaign: z.infer<typeof campaignBodySchema>; adgroup: z.infer<typeof adgroupBodySchema> }): boolean {
   const { campaign, adgroup } = value;
-  if (campaign.orgId !== adgroup.orgId || campaign.dailyBudgetAmount.currency !== adgroup.defaultBidAmount.currency) return false;
+  if (campaign.dailyBudget.value.currency !== adgroup.bidStrategy.bid.currency) return false;
   if (campaign.startTime >= campaign.endTime || campaign.startTime !== adgroup.startTime || campaign.endTime !== adgroup.endTime) return false;
-  return decimalUnits({ amount: campaign.dailyBudgetAmount.amount }) >= decimalUnits({ amount: adgroup.defaultBidAmount.amount });
+  return decimalUnits({ amount: campaign.dailyBudget.value.amount }) >= decimalUnits({ amount: adgroup.bidStrategy.bid.amount });
 }
 
 /** Exact minor-unit formatting, including exponent zero. O(d), d<=16 digits. */

@@ -3,12 +3,10 @@ import { deployCampaignPaused, invokeAppleSearchAds, readCampaignDeployment } fr
 import type { AppleSearchAdsDependencies } from "../src/index.js";
 export const now = Date.UTC(2026, 9, 24);
 export const context: CallContext = { scope: { ownerId: "owner", workspaceId: "workspace" }, principal: { kind: "owner", ownerId: "owner" }, correlationId: "correlation", traceId: "trace", runId: "run" };
-export const account = { orgId: 123, orgName: "Fixture org", currency: "USD", timeZone: "America/Los_Angeles", roleNames: ["API Account Read Only"] };
-export const campaign = { id: 456, orgId: 123, name: "Fixture campaign", status: "PAUSED", dailyBudgetAmount: { amount: "37.0123", currency: "USD" } };
-export const pagination = { totalResults: 3, startIndex: 0, itemsPerPage: 100 };
+export const account = { adAccount: { id: 123, name: "Fixture account", orgId: 900 }, roles: ["Admin"] };
+export const campaign = { id: 456, adAccountId: 123, name: "Fixture campaign", status: "PAUSED", dailyBudget: { value: { amount: "37.0123", currency: "USD" } } };
+export const pagination = { totalCount: 3, offset: 0, pageSize: 100 };
 export const reportCommand = { kind: "report", startDate: "2026-10-22", endDate: "2026-10-23" };
-export const reportRow = { metadata: { campaignId: 456, orgId: 123 }, granularity: [{ date: "2026-10-22", localSpend: { amount: "123456789.123456789", currency: "USD" }, impressions: 103, taps: 17, tapInstalls: 4, totalInstalls: 9 }] };
-export const reportPage = { data: { reportingDataResponse: { row: [reportRow] } }, pagination, error: null };
 
 /** Synthetic broker and actual Response streams around the public plugin entry. The integrator
  * binds the same dispatch suite to its real host adapter; no production authority is faked here.
@@ -17,7 +15,7 @@ export function fixture() {
   const calls: { url: string; init: RequestInit }[] = [];
   const credentialCalls: { connectionId: string; accountId: string | null }[] = [];
   const observations: ObserverEvent[] = [];
-  const state = { admitted: true, credentialHook: () => {}, time: now, response: () => Response.json({ data: [account], pagination: null, error: null }), credential: { ok: true, value: { accessToken: "synthetic-secret", expiresAt: now + 60000 } } as Outcome<{ accessToken: string; expiresAt?: number }> };
+  const state = { admitted: true, credentialHook: () => {}, time: now, response: () => Response.json({ result: { acls: [account] } }), credential: { ok: true, value: { accessToken: "synthetic-secret", expiresAt: now + 60000 } } as Outcome<{ accessToken: string; expiresAt?: number }> };
   const dependencies: AppleSearchAdsDependencies = {
     configuration: { scope: context.scope, connectionId: "connection", accountId: "123", currency: "USD" },
     get admitted() { return state.admitted; },
@@ -36,8 +34,9 @@ export const installTarget = { pluginId: "apple-search-ads" as const, accountId:
 export const installResolved = { accountId: "123", adamId: "987", appleCreativeId: "789", creativeId: "om-creative", creativeDigest: "a".repeat(64), currency: "USD", currencyExponent: 2, timezone: "UTC", bid: { minorUnits: 101, currency: "USD" } };
 export const pausedPlan = {
   creative: { id: "om-creative", digest: "a".repeat(64) },
-  campaign: { name: "Fixture install", orgId: 123, adamId: 987, countriesOrRegions: ["US", "CA"], dailyBudgetAmount: { amount: "37.01", currency: "USD" }, startTime: "2026-10-25T00:00:00.000Z", endTime: "2026-10-26T00:00:00.000Z", status: "PAUSED", adChannelType: "SEARCH", supplySources: ["APPSTORE_SEARCH_RESULTS"], billingEvent: "TAPS", biddingStrategy: "MANUAL_CPT" },
-  adgroup: { name: "Fixture install", orgId: 123, startTime: "2026-10-25T00:00:00.000Z", endTime: "2026-10-26T00:00:00.000Z", status: "PAUSED", automatedKeywordsOptIn: true, pricingModel: "CPC", defaultBidAmount: { amount: "1.01", currency: "USD" }, campaignId: { from: "campaign" } },
+  campaign: { name: "Fixture install", adAccountId: 123, promotedObjectType: "APPSTORE_APP", promotedObjectId: "987", dailyBudget: { value: { amount: "37.01", currency: "USD" } }, startTime: "2026-10-25T00:00:00.000Z", endTime: "2026-10-26T00:00:00.000Z", status: "PAUSED", billingEvent: "TAPS",
+    targeting: { countryOrRegion: { include: ["US", "CA"] }, supplySource: { include: ["APPSTORE"] }, supplyPlacement: { include: ["APPSTORE_SEARCH_RESULTS"] } }, bidStrategy: { bidStrategyType: "MANUAL_CPT", bidStrategyGoal: "TAP" } },
+  adgroup: { name: "Fixture install", startTime: "2026-10-25T00:00:00.000Z", endTime: "2026-10-26T00:00:00.000Z", status: "PAUSED", automatedKeywordsOptIn: true, pricingModel: "CPT", bidStrategy: { bidStrategyType: "MANUAL_CPT", bidStrategyGoal: "TAP", bid: { amount: "1.01", currency: "USD" } }, campaignId: { from: "campaign" } },
   ad: { name: "Fixture install", creativeId: 789, status: "PAUSED", adgroupId: { from: "adgroup" } },
 };
 export const savedReferences = { campaign: "456", adgroup: "567", ad: "678" };
@@ -46,14 +45,14 @@ export const savedReferences = { campaign: "456", adgroup: "567", ad: "678" };
 export function deploymentFixture() {
   const f = fixture();
   const plan = structuredClone(pausedPlan);
-  const { campaignId: _campaignSlot, ...group } = pausedPlan.adgroup;
-  const { adgroupId: _groupSlot, ...ad } = pausedPlan.ad;
   const rows: Record<string, unknown>[] = [
-    { ...pausedPlan.campaign, id: 456, servingStatus: "NOT_RUNNING", deleted: false },
-    { ...group, id: 567, campaignId: 456, servingStatus: "NOT_RUNNING", deleted: false },
-    { ...ad, id: 678, orgId: 123, campaignId: 456, adGroupId: 567, servingStatus: "NOT_RUNNING", deleted: false },
+    { id: 456, adAccountId: 123, name: "Fixture install", promotedObjectType: "APPSTORE_APP", promotedObjectId: "987", dailyBudget: { value: { amount: "37.01", currency: "USD" } }, startTime: "2026-10-25T00:00:00.000", endTime: "2026-10-26T00:00:00.000", status: "PAUSED", billingEvent: "TAPS", systemStatus: "NOT_RUNNING", deleted: false,
+      targeting: { countryOrRegion: { include: ["CA", "US"] }, supplySource: { include: ["APPSTORE"] }, supplyPlacement: { include: ["APPSTORE_SEARCH_RESULTS"] } }, bidStrategy: { bidStrategyType: "MANUAL_CPT", bidStrategyGoal: "TAP" } },
+    { id: 567, adAccountId: 123, campaignId: 456, name: "Fixture install", startTime: "2026-10-25T00:00:00.000", endTime: "2026-10-26T00:00:00.000", status: "PAUSED", automatedKeywordsOptIn: true, pricingModel: "CPT", bidStrategy: { bidStrategyType: "MANUAL_CPT", bidStrategyGoal: "TAP", bid: { amount: "1.0100", currency: "USD" } }, systemStatus: "NOT_RUNNING", deleted: false },
+    { id: 678, adAccountId: 123, campaignId: 456, adGroupId: 567, name: "Fixture install", creativeId: 789, status: "PAUSED", systemStatus: "NOT_RUNNING", deleted: false },
   ];
-  const responses: unknown[] = [{ id: 789, orgId: 123, adamId: 987, state: "VALID" }, { data: { id: 456 }, error: null }, { data: rows[0], error: null }, { id: 567 }, rows[1], { id: 678 }, rows[2]];
+  const responses: unknown[] = [{ result: { id: 789, adAccountId: 123, destination: { destinationType: "APP_STORE_PRODUCT_PAGE", parameters: { adamId: 987 } }, systemStatus: "VALID", deleted: false } },
+    { result: { id: 456 } }, { result: rows[0] }, { result: { id: 567 } }, { result: rows[1] }, { result: { id: 678 } }, { result: rows[2] }];
   f.state.response = () => Response.json(responses[f.calls.length - 1]);
   type Event = { step: string; phase: "dispatch" | "acknowledged"; references: Record<string, string | undefined> };
   const events: Event[] = [];
