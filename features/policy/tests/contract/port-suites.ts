@@ -46,6 +46,8 @@ export function PolicyRepoPortSuite(required: { name: string; create: () => Repo
       try {
         const results = await Promise.all([fixture.port.appendEvidence({ context, evidence: grant }), fixture.port.appendEvidence({ context, evidence: grant })]);
         expect(results).toEqual([{ ok: true, value: grant }, { ok: true, value: grant }]);
+        const reordered = { ...Object.fromEntries(Object.entries(grant).reverse()), scope: { workspaceId: grant.scope.workspaceId, ownerId: grant.scope.ownerId }, consent: Object.fromEntries(Object.entries(grant.consent).reverse()) } as typeof grant;
+        expect(await fixture.port.appendEvidence({ context, evidence: reordered })).toEqual({ ok: true, value: grant });
         expect(await fixture.port.appendEvidence({ context, evidence: { ...grant, consent: { ...grant.consent, purpose: "changed" } } })).toMatchObject({ ok: false, error: { code: "conflict" } });
         const result = await fixture.port.snapshot({ context, subjectId: subject.subjectId });
         expect(result).toEqual({ ok: true, value: { consents: [grant.consent], suppressions: [], holdout: false } });

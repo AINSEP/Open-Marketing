@@ -20,10 +20,9 @@ function readBinding(required: { rows: readonly unknown[] }): AccountBinding | n
   return row ? { id: row.id, scope: { ownerId: row.owner_id, workspaceId: row.workspace_id }, connectionId: row.connection_id, externalAccountId: row.external_account_id } : null;
 }
 
-/** Parameterized read of either binding key, always qualified by full scope. @complexity O(log n) with indexes. */
-async function findBinding(required: { db: WorkspaceSqlSession; scope: Scope; externalAccountId?: string; id?: string }): Promise<AccountBinding | null> {
-  const column = required.id === undefined ? "external_account_id" : "id";
-  const result = await required.db.query({ text: `SELECT id, owner_id, workspace_id, connection_id, external_account_id FROM workspace_account_binding WHERE owner_id = $1 AND workspace_id = $2 AND ${column} = $3 LIMIT 1`, values: [required.scope.ownerId, required.scope.workspaceId, required.id ?? required.externalAccountId] });
+/** Parameterized account lookup, always qualified by full scope. @complexity O(log n) with indexes. */
+async function findBinding(required: { db: WorkspaceSqlSession; scope: Scope; externalAccountId: string }): Promise<AccountBinding | null> {
+  const result = await required.db.query({ text: "SELECT id, owner_id, workspace_id, connection_id, external_account_id FROM workspace_account_binding WHERE owner_id = $1 AND workspace_id = $2 AND external_account_id = $3 LIMIT 1", values: [required.scope.ownerId, required.scope.workspaceId, required.externalAccountId] });
   return readBinding(result);
 }
 
@@ -35,9 +34,8 @@ async function bindTransaction(required: { db: WorkspaceSqlSession; binding: Acc
   const ownership = await db.query({ text: "SELECT 1 AS found FROM workspace_connection_scope WHERE owner_id = $1 AND workspace_id = $2 AND connection_id = $3 LIMIT 1", values: [binding.scope.ownerId, binding.scope.workspaceId, binding.connectionId] });
   if (z.array(existsRowSchema).max(1).parse(ownership.rows).length === 0) return failure<AccountBinding>({ code: "forbidden", message: "Connection is not owned by this workspace" });
   await db.query({ text: "INSERT INTO workspace_account_binding (id, owner_id, workspace_id, connection_id, external_account_id) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING", values: [binding.id, binding.scope.ownerId, binding.scope.workspaceId, binding.connectionId, binding.externalAccountId] });
-  const byId = await findBinding({ db, scope: binding.scope, id: binding.id });
   const byAccount = await findBinding({ db, scope: binding.scope, externalAccountId: binding.externalAccountId });
-  if (!byId || !byAccount || !sameBinding({ left: byId, right: binding }) || !sameBinding({ left: byAccount, right: binding })) return failure<AccountBinding>({ code: "conflict", message: "Account binding conflicts with an existing binding" });
+  if (!byAccount || !sameBinding({ left: byAccount, right: binding })) return failure<AccountBinding>({ code: "conflict", message: "Account binding conflicts with an existing binding" });
   return { ok: true as const, value: byAccount };
 }
 

@@ -16,6 +16,7 @@ const metaClientSchema = clientSchema.unwrap().extend({ configId: z.string().reg
 type OAuthClientConfiguration = z.infer<typeof metaClientSchema> | z.infer<typeof clientSchema>;
 type TokenInput = z.infer<typeof tokenSchema>;
 type TokenDependencies = { repo: CredentialRepoPort; sealer: SecretSealerPort; locks: CredentialLockPort; audit: CredentialAuditPort };
+type ReaderDependencies = { context: CallContext; pluginId: string; repo: CredentialRepoPort; broker: CredentialBrokerPort; sealer: SecretSealerPort };
 
 /** Seal a new owner connection under the existing scoped lock; audit metadata before storage.
  * Ordinary IDs conflict; OAuth-client configuration replaces only its connected purpose record.
@@ -80,29 +81,24 @@ function developerPayload(required: { input: TokenInput }): Outcome<string> {
 
 /** Host-only Google configuration decoder; never returns OAuth material. Missing is compatible.
  * @complexity Fixed audited broker/repository I/O; O(b) crypto/JSON, b<=64 KiB; no vendor call. */
-export async function readCredentialDeveloperToken(required: { context: CallContext; pluginId: string; repo: CredentialRepoPort; broker: CredentialBrokerPort; sealer: SecretSealerPort }, optional?: CallOptions): Promise<Outcome<string | null>> {
+export async function readCredentialDeveloperToken(required: ReaderDependencies, optional?: CallOptions): Promise<Outcome<string | null>> {
   if (required.pluginId !== "google-ads" || required.context.principal.kind !== "service") return failure({ code: "forbidden" });
-  return boundary({ run: async () => {
-    const loaded = await required.repo.getSecret({ context: required.context, connectionId: "developer-token.google-ads" }, optional);
-    if (!loaded.ok) return loaded;
-    if (!loaded.value) return { ok: true, value: null };
-    if (loaded.value.summary.pluginId !== "google-ads") return failure({ code: "forbidden" });
-    const used = await required.broker.use({ context: required.context, reference: loaded.value.reference, operationId: required.context.correlationId }, optional);
-    if (!used.ok) return used;
-    const opened = await required.sealer.open({ reference: { ...loaded.value.reference, version: used.value.version }, secret: used.value }, optional);
-    if (!opened.ok) return opened;
-    if (!opened.value.startsWith(developerPrefix)) return failure({ code: "protocol_mismatch" });
-    const parsed = developerSchema.safeParse(JSON.parse(opened.value.slice(developerPrefix.length)));
-    return parsed.success ? { ok: true, value: parsed.data } : failure({ code: "protocol_mismatch" });
-  } }, optional);
+  return readTagged({ ...required, connectionId: "developer-token.google-ads", prefix: developerPrefix, schema: developerSchema }, optional);
 }
 
 /** Host-only purpose decoder; Meta additionally requires configId, other plugins reject it.
  * Null clears configuration without reviving revoked token IDs.
  * @complexity Fixed broker/repository I/O and O(b) crypto/JSON, b <=64 KiB; no provider call. */
-export async function readCredentialOAuthClient(required: { context: CallContext; pluginId: string; repo: CredentialRepoPort; broker: CredentialBrokerPort; sealer: SecretSealerPort }, optional?: CallOptions): Promise<Outcome<OAuthClientConfiguration>> {
+export async function readCredentialOAuthClient(required: ReaderDependencies, optional?: CallOptions): Promise<Outcome<OAuthClientConfiguration>> {
+  return readTagged({ ...required, connectionId: "oauth-client." + required.pluginId, prefix: clientPrefix, schema: oauthClientSchema({ pluginId: required.pluginId }) }, optional);
+}
+
+/** Read only the bound plugin/purpose; decrypt the broker's current version after refresh.
+ * Missing/cleared records return null; malformed tagged payloads and dependency failures stay typed.
+ * @complexity Fixed audited broker/repository I/O; O(b) time/space for crypto/JSON, b<=64 KiB. */
+async function readTagged<T>(required: ReaderDependencies & { connectionId: string; prefix: string; schema: z.ZodType<T> }, optional?: CallOptions): Promise<Outcome<T | null>> {
   return boundary({ run: async () => {
-    const loaded = await required.repo.getSecret({ context: required.context, connectionId: "oauth-client." + required.pluginId }, optional);
+    const loaded = await required.repo.getSecret({ context: required.context, connectionId: required.connectionId }, optional);
     if (!loaded.ok) return loaded;
     if (!loaded.value) return { ok: true, value: null };
     if (loaded.value.summary.pluginId !== required.pluginId) return failure({ code: "forbidden" });
@@ -110,8 +106,8 @@ export async function readCredentialOAuthClient(required: { context: CallContext
     if (!used.ok) return used;
     const opened = await required.sealer.open({ reference: { ...loaded.value.reference, version: used.value.version }, secret: used.value }, optional);
     if (!opened.ok) return opened;
-    if (!opened.value.startsWith(clientPrefix)) return failure({ code: "protocol_mismatch" });
-    const parsed = oauthClientSchema({ pluginId: required.pluginId }).safeParse(JSON.parse(opened.value.slice(clientPrefix.length)));
+    if (!opened.value.startsWith(required.prefix)) return failure({ code: "protocol_mismatch" });
+    const parsed = required.schema.safeParse(JSON.parse(opened.value.slice(required.prefix.length)));
     return parsed.success ? { ok: true, value: parsed.data } : failure({ code: "protocol_mismatch" });
   } }, optional);
 }

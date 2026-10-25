@@ -1,8 +1,7 @@
 import { createHash } from "node:crypto";
-import { createAgentPluginLayout } from "@jini-ai/agent-plugins/lifecycle";
 import { PluginRepoPortSuite, AgentPluginLayoutPortSuite, PluginLifecyclePortSuite, AgentPluginMcpProvisioningPortSuite, PluginTrustPortSuite, PluginAuditPortSuite } from "./port-suites.js";
 import { createFilesystemPluginRepo, createFilesystemAgentPluginLayout, createJiniPluginLifecycleAdapter, createJiniArchivePackageReader, createPluginMcpProvisioningAdapter, createPluginTrustAdapter, createPluginAuditAdapter } from "../../index.js";
-import type { InstalledPlugin, JiniPluginLifecycleApi } from "../../index.js";
+import type { InstalledPlugin } from "../../index.js";
 import { context, descriptor, digest, packageFixture, source } from "../fixtures/plugin.js";
 import { atomicFiles, nativeFilesystem, temporaryDirectory, writePackage } from "../fixtures/filesystem.js";
 import { failure } from "../../src/results.js";
@@ -20,20 +19,6 @@ AgentPluginLayoutPortSuite({ create: async input => {
   const readArchive = createJiniArchivePackageReader({ archiveReader: fixture.archiveReader, async readArchive() { return fixture.packed.bytes; } });
   const port = createFilesystemAgentPluginLayout({ filesystem: nativeFilesystem({}), allowedRoot: fixture.root, readArchive });
   return { port, source: fixture.source };
-} });
-
-/** Adapter contract fixture exercises the actual OM wrapper, without claiming Jini extraction proof. */
-PluginLifecyclePortSuite({ create: () => {
-  const bytes = new Uint8Array([1, 2, 3]);
-  const digest = createHash("sha256").update(bytes).digest("hex");
-  const api: JiniPluginLifecycleApi = {
-    async packAgentPluginDirectory() { return { bytes, sha256: digest, files: ["plugin.json"] }; },
-    async installAgentPlugin(input) { return { pluginId: "demo", version: "1.2.3", archiveDigest: input.expectedSha256, packageRoot: "/fixtures/demo", files: ["plugin.json"], skills: [] }; },
-    async uninstallAgentPlugin() { return { pluginId: "demo", removedDigests: [digest] }; },
-  };
-  const port = createJiniPluginLifecycleAdapter({ lifecycle: api, layout: createAgentPluginLayout({ root: "/fixtures" }), archiveReader: { async *entries() {} },
-    async readArchive() { return bytes; }, workspaceId: input => createHash("sha256").update(JSON.stringify(input.context.scope)).digest("hex"), async runningJobs() { return 0; } });
-  return { port, source: { ...source, expectedDigest: digest } };
 } });
 
 /** Published Jini + native temporary filesystem run the same lifecycle suite as the memory double.

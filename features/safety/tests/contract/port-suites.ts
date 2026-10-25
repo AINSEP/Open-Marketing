@@ -81,6 +81,10 @@ export function SafetyRepoPortSuite(required: { create: () => { repo: SafetyRepo
 /** Policy boundary tests distinguish read admission and unbounded money. */
 export function SpendPolicyPortSuite(required: { create: () => SpendPolicyPort }) {
  describe("SpendPolicyPort B1", () => {
+  it("admits a verified bounded read through the policy port", async () => {
+   const port = required.create();
+   expect(await port.assess({ context, envelope: { operationId: "operation", connectionId: "connection", accountId: null, effects: ["read"], argumentsDigest: "a".repeat(64), moneyExposure: null, requiredLimit: null } })).toMatchObject({ ok: true, value: { allowed: true } });
+  });
   it("denies unbounded ad spend and typed service effects", async () => {
    const port = required.create();
    const envelope = spendRequest().envelope;

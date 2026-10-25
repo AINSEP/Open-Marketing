@@ -2,24 +2,25 @@ import { parseBoundary } from "@open-marketing/contracts";
 import type { CallContext, CallOptions, ClockPort, Outcome } from "@open-marketing/contracts";
 import type { MeasureRepoPort, PlatformReportingPort } from "../ports.js";
 import type { AttributionSummary, CacQuery, CacReport, PlatformMetricSnapshot } from "../types.js";
-import { failure, querySchema, snapshotSchema, summarySchema, validTimezone } from "../rules.js";
+import { failure, snapshotSchema, summarySchema, validTimezone } from "../rules.js";
 
 /** CAC = one platform spend snapshot / attributed customer acquisitions for definitionId.
+ * Consumes the service-parsed query; timezone validity is checked before provider I/O.
  * Persist snapshots before returning success. Zero denominator is null (undefined CAC).
  * @complexity Adapter-dependent read; O(1) core arithmetic. */
 export async function reportCac(required: { context: CallContext; query: CacQuery; repo: MeasureRepoPort; reports: PlatformReportingPort; clock: ClockPort }, optional?: CallOptions): Promise<Outcome<CacReport>> {
-  const query = validateQuery({ query: required.query });
-  if (!query.ok) return query;
-  const observation = await required.reports.snapshot({ context: required.context, query: query.value }, optional);
+  const query = required.query;
+  if (!validTimezone({ timezone: query.timezone })) return failure({ code: "invalid_input", message: "Invalid reporting timezone" });
+  const observation = await required.reports.snapshot({ context: required.context, query }, optional);
   if (!observation.ok) return observation;
-  const snapshot = validateSnapshot({ snapshot: observation.value, query: query.value, now: required.clock.now({}) });
+  const snapshot = validateSnapshot({ snapshot: observation.value, query, now: required.clock.now({}) });
   if (!snapshot.ok) return snapshot;
-  const summary = await readSummary({ context: required.context, repo: required.repo, query: query.value }, optional);
+  const summary = await readSummary({ context: required.context, repo: required.repo, query }, optional);
   if (!summary.ok) return summary;
   const persisted = await required.repo.appendSnapshot({ context: required.context, snapshot: snapshot.value }, optional);
   if (!persisted.ok) return persisted;
   const conversions = summary.value.conversions;
-  return { ok: true, value: { definitionId: query.value.definitionId, accountId: query.value.accountId, attributionWindow: query.value.attributionWindow, spendSource: "platform_report", conversionSource: "om_attribution", spend: snapshot.value.spend, conversions, cacMinorUnits: conversions === 0 ? null : snapshot.value.spend.minorUnits / conversions, modelVersion: summary.value.modelVersion, retrievedAt: snapshot.value.retrievedAt, watermark: summary.value.watermark } };
+  return { ok: true, value: { definitionId: query.definitionId, accountId: query.accountId, attributionWindow: query.attributionWindow, spendSource: "platform_report", conversionSource: "om_attribution", spend: snapshot.value.spend, conversions, cacMinorUnits: conversions === 0 ? null : snapshot.value.spend.minorUnits / conversions, modelVersion: summary.value.modelVersion, retrievedAt: snapshot.value.retrievedAt, watermark: summary.value.watermark } };
 }
 /** Exact boundaries avoid silently dividing different currency/timezone/windows. */
 function validateSnapshot(required: { snapshot: PlatformMetricSnapshot; query: CacQuery; now: number }): Outcome<PlatformMetricSnapshot> {
@@ -34,13 +35,6 @@ function validateSnapshot(required: { snapshot: PlatformMetricSnapshot; query: C
   return parsed;
 }
 
-/** Reject invalid timezone before querying a provider. @complexity O(1). */
-function validateQuery(required: { query: CacQuery }): Outcome<CacQuery> {
-  const parsed = parseBoundary({ schema: querySchema, input: required.query });
-  if (!parsed.ok) return parsed;
-  if (!validTimezone({ timezone: parsed.value.timezone })) return failure({ code: "invalid_input", message: "Invalid reporting timezone" });
-  return parsed;
-}
 /** The watermark is maximum observed event time, not a completeness assertion.
  * @complexity One account/period read; O(1) core validation. */
 async function readSummary(required: { context: CallContext; query: CacQuery; repo: MeasureRepoPort }, optional?: CallOptions): Promise<Outcome<AttributionSummary>> {

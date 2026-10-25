@@ -1,6 +1,6 @@
 import type { Outcome } from "@open-marketing/contracts";
 import type { PolicyEvidence, SubjectPolicy } from "./types.js";
-import { evidenceSchema, failure } from "./validation.js";
+import { failure } from "./validation.js";
 
 /** Build canonical roots with memoized paths; invalid cycles/conflicting merges fail closed.
  * @complexity O(n) amortized time/space for n scoped evidence records.
@@ -48,16 +48,13 @@ export function projectSnapshot(required: { subjectId: string; evidence: readonl
   }
   return { ok: true, value: { consents, suppressions, holdout: false } };
 }
-/** Retry compares schema-normalized values, not caller property ordering. @complexity O(1) bounded payload. */
-export function sameEvidence(required: { left: PolicyEvidence; right: PolicyEvidence }): boolean {
-  return JSON.stringify(evidenceSchema.parse(required.left)) === JSON.stringify(evidenceSchema.parse(required.right));
-}
 /** Validate append against immutable prior evidence; the caller commits atomically.
+ * Records are schema-normalized by repository boundaries, independent of caller property order.
  * Returns the existing row for exact retry; null means append. @complexity O(n).
  */
 export function checkAppend(required: { evidence: PolicyEvidence; existing: readonly PolicyEvidence[]; maxEvidence: number }): Outcome<PolicyEvidence | null> {
   const previous = required.existing.find(record => record.id === required.evidence.id);
-  if (previous) return sameEvidence({ left: previous, right: required.evidence })
+  if (previous) return JSON.stringify(previous) === JSON.stringify(required.evidence)
     ? { ok: true, value: structuredClone(previous) }
     : failure({ code: "conflict", message: "Evidence ID already has different content" });
   if (required.existing.length >= required.maxEvidence) return failure({ code: "limit_exceeded", message: "Policy evidence capacity reached" });

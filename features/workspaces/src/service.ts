@@ -53,14 +53,13 @@ export function createWorkspaceService(required: { repo: WorkspaceRepoPort; iden
 
 /** Verify identity before resolving, then reject mismatched repository authority. @complexity O(1), two port calls. */
 async function resolveAuthenticated(required: { repo: WorkspaceRepoPort; identity: IdentityPort; input: Parameters<WorkspaceService["resolveContext"]>[0] }, optional?: CallOptions): Promise<Outcome<CallContext>> {
-  const parsed = parseBoundary({ schema: resolveSchema, input: required.input });
-  if (!parsed.ok) return parsed;
-  const identity = await callPort({ invoke: () => required.identity.verify({ session: parsed.value.session }, optional), schema: identitySchema }, optional);
+  const input = required.input;
+  const identity = await callPort({ invoke: () => required.identity.verify({ session: input.session }, optional), schema: identitySchema }, optional);
   if (!identity.ok) return identity;
-  if (identity.value.sessionId !== parsed.value.session.sessionId) return failure({ code: "unauthenticated", message: "Identity session mismatch" });
-  const context = await callPort({ invoke: () => required.repo.resolve(parsed.value, optional), schema: callContextSchema }, optional);
+  if (identity.value.sessionId !== input.session.sessionId) return failure({ code: "unauthenticated", message: "Identity session mismatch" });
+  const context = await callPort({ invoke: () => required.repo.resolve(input, optional), schema: callContextSchema }, optional);
   if (!context.ok) return context;
-  const expectedScope = { ownerId: identity.value.ownerId, workspaceId: parsed.value.workspaceId };
+  const expectedScope = { ownerId: identity.value.ownerId, workspaceId: input.workspaceId };
   if (!ownsContext({ context: context.value }) || !sameScope({ left: context.value.scope, right: expectedScope })) return failure({ code: "forbidden", message: "Repository identity or workspace mismatch" });
   return context;
 }

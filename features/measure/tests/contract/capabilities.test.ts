@@ -8,6 +8,15 @@ PlatformReportingPortSuite({ create: () => createPlatformReportingAdapter({ capa
 ConversionSourceAuthenticationPortSuite({ create: () => createConversionSourceAuthenticationAdapter({ capability: createMemoryConversionSourceAuthentication({ sources: [source] }) }) });
 MeasurementShareabilityPortSuite({ create: () => createMeasurementShareabilityAdapter({ capability: createMemoryMeasurementShareability({ clock: createFakeClock({ initial: 300 }), evidence: [consent] }) }) });
 describe("tainted local capability output", () => {
+  it("forwards the worker trace to the delivery capability without an agent session", async () => {
+    const traces: string[] = [];
+    const delivery = createConversionDeliveryAdapter({ capability: { async deliver(input) {
+      traces.push(input.context.traceId);
+      return { ok: true, value: { status: "delivered" } };
+    } } });
+    expect(await delivery.deliver({ context: serviceContext, event: resolvedEvent, grant, deliveryId: "traced-delivery" })).toEqual({ ok: true, value: { status: "delivered" } });
+    expect(traces).toEqual([serviceContext.traceId]);
+  });
   it("names the generic conversion event capability", () => {
     expect(CONVERSION_EVENT_CAPABILITY).toBe("conversion.event.v1");
   });

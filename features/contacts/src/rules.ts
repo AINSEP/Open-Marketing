@@ -40,9 +40,7 @@ export function stableKind(required: { kind: IdentifierKind }): boolean {
 /** Normalize one validated boundary input; opaque IDs preserve case.
  * @complexity O(n) time/space, n <= 2048. */
 export function normalizeInput(required: { identifier: IdentifierInput }): Outcome<string> {
-  const parsed = parseBoundary({ schema: inputSchema, input: required.identifier });
-  if (!parsed.ok) return parsed;
-  const { kind, raw } = parsed.value;
+  const { kind, raw } = required.identifier;
   switch (kind) {
     case "email": return normalizeEmail({ raw });
     case "phone": return normalizePhoneE164({ raw });

@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "node:crypto";
+import { secureEqualsForOwnerBinding } from "@jini-ai/oauth";
 import type { CallContext, CallOptions, ClockPort, IdPort, Outcome } from "@open-marketing/contracts";
 import type { OAuthClientPort } from "./ports.js";
 import type { ConnectRequest, CredentialReference, SealedSecret, VerifiedOAuthCallback } from "./types.js";
@@ -51,7 +51,7 @@ export function createBoundOAuthClient(required: {
         if (!entry) return failure({ code: "expired" });
         pending.delete(input.callback.transactionId);
         if (entry.expiresAt <= required.clock.now({})) return failure({ code: "expired" });
-        if (!equalState({ expected: entry.state, actual: input.callback.state }) || entry.request.returnUri !== input.callback.redirectUri) return failure({ code: "forbidden" });
+        if (!secureEqualsForOwnerBinding({ a: entry.state, b: input.callback.state }) || entry.request.returnUri !== input.callback.redirectUri) return failure({ code: "forbidden" });
         const exchanged = await required.bindings.exchange({ context: entry.context, request: entry.request, reference: entry.reference, callback: input.callback }, options);
         if (input.callback.error !== undefined) return failure({ code: "unauthenticated" });
         if (!exchanged.ok) return exchanged;
@@ -78,12 +78,6 @@ async function authorize(required: {
   if (required.pending.has(transactionId)) return failure({ code: "conflict" });
   required.pending.set(transactionId, { ...input, reference, state: url.searchParams.get("state")!, expiresAt: challenge.expiresAt });
   return { ok: true, value: challenge };
-}
-/** Constant-time opaque-state comparison after length validation. @complexity O(state length). */
-function equalState(required: { expected: string; actual: string }): boolean {
-  const expected = Buffer.from(required.expected);
-  const actual = Buffer.from(required.actual);
-  return expected.length === actual.length && timingSafeEqual(expected, actual);
 }
 /** Bounded expiry cleanup; no timers. @complexity O(pending count). */
 function prune(required: { pending: Map<string, PendingOAuth>; now: number }): void {

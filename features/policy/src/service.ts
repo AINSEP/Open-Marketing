@@ -1,15 +1,15 @@
-import type { ClockPort, IdPort } from "@open-marketing/contracts";
+import type { ClockPort } from "@open-marketing/contracts";
 import type { PolicyObserverPort, PolicyRepoPort } from "./ports.js";
 import type { PolicyService } from "./types.js";
 import { boundary, failure, validateEvidence, validateRequest } from "./validation.js";
 
 /** Validate authenticated evidence before delegating; no factory I/O or ID replacement.
  * IDs remain ingress-owned for stable retries. Injected time rejects future evidence.
- * @example createPolicyService({ repo, clock, ids }).snapshot({ context, subjectId })
+ * @example createPolicyService({ repo, clock }).snapshot({ context, subjectId })
  * @complexity O(n) for repository snapshot, bounded by the adapter; O(1) validation.
  */
 export function createPolicyService(
-  required: { repo: PolicyRepoPort; clock: ClockPort; ids: IdPort },
+  required: { repo: PolicyRepoPort; clock: ClockPort },
   optional?: { observer?: PolicyObserverPort },
 ): PolicyService {
   return {
