@@ -47,7 +47,9 @@ describe("durable SQL audit", () => {
     try {
       const repo = createSqlAuditRepo({ ...dependencies(), db: fixture.db, observer: createMemoryAuditObserver({}) });
       const references = ["secured-evidence-1", "provider-result-1"];
-      const entries = [entry({ kind: "approval", references }), entry({ kind: "dispatch", references }), entry({ kind: "outcome", references })];
+      const approval = { response: { cardId: "card", operationId: "operation-1", argumentsDigest: "a".repeat(64), choice: "allow" as const },
+        approver: { kind: "local_token" as const, ownerId: "owner-1", deviceId: "device", tokenId: "reference" } };
+      const entries = [{ ...entry({ kind: "approval", references }), approval }, entry({ kind: "dispatch", references }), entry({ kind: "outcome", references })];
       for (const input of entries) value({ outcome: await repo.append({ context: context(), entry: input }) });
       expect(value({ outcome: await repo.list({ context: context(), query: { limit: 10, operationId: "operation-1" } }) }).items).toEqual(entries);
       const rows = fixture.native.prepare("SELECT context_json FROM audit_entry ORDER BY sequence").all() as { context_json: string }[];
