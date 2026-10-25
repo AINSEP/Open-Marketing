@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "admitted": false,
+  "capabilities": [
+    {"capabilityId": "campaign.read.v1", "version": 1, "pluginId": "naver-ads", "schemaFingerprint": "fcdac11b32ecd8a7e0fa4d4bfef88308cc271a6506e4d79217084f6766868e85", "admitted": false, "effects": ["read"]},
+    {"capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "naver-ads", "schemaFingerprint": "b67af8350290a5d7f048e75d5342d9f86277c0726f0f18a5b4e6833b8ee704c0", "admitted": false, "effects": ["read"]}
+  ],
+  "tools": [
+    {"name": "list_accounts", "effects": ["read"], "capabilityId": "campaign.read.v1"},
+    {"name": "list_campaigns", "effects": ["read"], "capabilityId": "campaign.read.v1"},
+    {"name": "report", "effects": ["read"], "capabilityId": "report.account-spend.v1"}
+  ]
+}

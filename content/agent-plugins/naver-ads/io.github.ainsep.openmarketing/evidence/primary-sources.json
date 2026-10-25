@@ -1,0 +1,25 @@
+{
+  "checkedAt": "2026-10-24",
+  "verification": "documentation only; synthetic fixtures, no live API calls",
+  "sources": [
+    {"id": "signature", "url": "https://raw.githubusercontent.com/naver/searchad-apidoc/master/python-sample/examples/signaturehelper.py", "quote": "\"{}.{}.{}\"", "fact": "UTF-8 secret HMAC-SHA256 over timestamp.method.path, Base64 digest; no query in signed URI."},
+    {"id": "origin-headers", "url": "https://raw.githubusercontent.com/naver/searchad-apidoc/master/python-sample/examples/ad_management_sample.py", "quote": "https://api.searchad.naver.com", "fact": "Unversioned public origin; X-Timestamp, X-API-KEY, X-Customer, X-Signature headers."},
+    {"id": "public-prefix", "url": "https://raw.githubusercontent.com/naver/searchad-apidoc/gh-pages/app/config.js", "quote": "\"^\\/api\": \"\"", "fact": "Official renderer removes the Swagger /api prefix."},
+    {"id": "accounts", "url": "https://raw.githubusercontent.com/naver/searchad-apidoc/gh-pages/assets/json/atower.json", "quote": "SA Customer ID", "fact": "GET /ad-accounts with page/size returns AdAccountsResponse.content. Preserve adAccountNo separately from adAccount.masterCustomerId."},
+    {"id": "campaigns", "url": "https://raw.githubusercontent.com/naver/searchad-apidoc/gh-pages/assets/json/ncc-heroes-ncc.json", "quote": "Returns the list of partially campaigns of customer", "fact": "GET /ncc/campaigns: baseSearchId, recordSize, selector NEXT/PREVIOUS; array of Campaign with customerId, campaignTp, userLock, ELIGIBLE/PAUSED/DELETED status. Swagger version 2.0 is metadata."},
+    {"id": "stats", "url": "https://raw.githubusercontent.com/naver/searchad-apidoc/gh-pages/assets/json/ncc-report.json", "quote": "Cost Summation(VAT included)", "fact": "GET /stats accepts ids, fields JSON, KST timeRange JSON and allDays. SummaryStatResponse.data contains SummaryStatMap id/impCnt/clkCnt/salesAmt; validate this documented selected response. Report Swagger version 1.0 is metadata; live wire envelope remains untested."},
+    {"id": "limits-delegation", "url": "https://github.com/naver/searchad-apidoc/wiki/FAQ", "quote": "HTTP 429 Too Many Requests", "fact": "Dynamic per-customer throttling without fixed QPS. Use own/delegated account keys; advertisers must not hand keys to third parties."}
+  ],
+  "unverified": [
+    {"fact": "OAuth scopes, expiry, refresh, loopback and app approval; credential lifetime", "behavior": "Paste license/secret only; no OAuth descriptor or invented expiry."},
+    {"fact": "Runtime version/sunset guarantee; native write idempotency; campaign end-date semantics; server conversion API", "behavior": "No version prefix, writes, deployment or CAPI in R1."},
+    {"fact": "Live response envelope, pagination and delegated-account access", "behavior": "Return protocol_mismatch for undocumented shapes; integrator must verify a real server binding before enablement."}
+  ],
+  "blockedPages": [
+    "https://naver.github.io/searchad-apidoc/ (empty renderer)",
+    "https://api.searchad.naver.com/ (inaccessible)",
+    "https://naver.github.io/searchad-apidoc/pages/release/ (inaccessible)",
+    "Shell raw-GitHub fetch: DNS/network restricted; web reader succeeded."
+  ],
+  "omBounds": {"requestBytes": 65536, "responseBytes": 1048576, "timeoutMs": 15000, "maxPageSize": 100, "maxReportDays": 31, "retries": 0}
+}
