@@ -69,7 +69,7 @@ function fixtureHost(required: { fixture: Awaited<ReturnType<typeof packageFixtu
     return { host, charts, activations, registry, addon };
 }
 
-it('admits enabled uploads through OM while Jini still rejects their browser source, and cleans up on disable', async () => {
+it('admits rebuilt uploads through OM while Jini rejects their browser source, and cleans up on disable', async () => {
     const f = await packageFixture();
     try {
         expect(await admitBrowserProviderAssets({ record: f.record, manifest: f.manifest, pluginRoot: f.pluginRoot, approvals: [f.approval] }))
@@ -81,11 +81,37 @@ it('admits enabled uploads through OM while Jini still rejects their browser sou
         expect(imports).toHaveBeenCalledTimes(1);
         expect(imports.mock.calls[0][0]).toMatchObject({ manifest: f.manifest });
         expect(charts.list({}).providers).toMatchObject([{ id: 'uploaded.example' }]);
+        const originalUrl = charts.list({}).providers[0].javascript;
+        expect((await handleChartAssetRequest({ context, charts, observer, request: { method: 'GET', path: originalUrl } })).status).toBe(200);
         expect((await activations.getActivation({ workspaceId: context.scope.workspaceId, pluginId: addon.id }))?.enabled).toBe(true);
         expect(JSON.parse(await fs.readFile(join(f.pluginRoot, 'jini.plugin.json'), 'utf8'))).toEqual(f.manifest);
         await host.setEnabled({ context, addon, enabled: false });
         expect(charts.list({})).toEqual({ providers: [] });
         expect(registry.list({})).toEqual([]);
+        expect((await handleChartAssetRequest({ context, charts, observer, request: { method: 'GET', path: originalUrl } })).status).toBe(404);
+
+        const rebuiltJavascript = javascript + '\n// rebuilt fixture';
+        const rebuiltManifest = { ...f.manifest, integrity: { ...f.manifest.integrity,
+            'client/provider.js': digest({ text: rebuiltJavascript }) } };
+        await fs.writeFile(join(f.pluginRoot, 'client/provider.js'), rebuiltJavascript);
+        await fs.writeFile(join(f.pluginRoot, 'jini.plugin.json'), JSON.stringify(rebuiltManifest));
+        await host.setEnabled({ context, addon, enabled: true });
+        expect(imports).toHaveBeenCalledTimes(2);
+        expect(imports.mock.calls[1][0]).toMatchObject({ manifest: rebuiltManifest });
+        const rebuiltProvider = charts.list({}).providers[0];
+        expect(rebuiltProvider).toMatchObject({ id: 'uploaded.example', pluginId: f.manifest.id, version: f.manifest.version });
+        expect(rebuiltProvider.javascript).not.toBe(originalUrl);
+        const served = await handleChartAssetRequest({ context, charts, observer,
+            request: { method: 'GET', path: rebuiltProvider.javascript } });
+        expect(served).toMatchObject({ status: 200, contentType: 'text/javascript' });
+        expect(Buffer.from(served.body as Uint8Array).toString()).toBe(rebuiltJavascript);
+        expect((await handleChartAssetRequest({ context, charts, observer, request: { method: 'GET', path: originalUrl } })).status).toBe(404);
+
+        await host.setEnabled({ context, addon, enabled: false });
+        expect(charts.list({})).toEqual({ providers: [] });
+        expect(registry.list({})).toEqual([]);
+        expect((await handleChartAssetRequest({ context, charts, observer,
+            request: { method: 'GET', path: rebuiltProvider.javascript } })).status).toBe(404);
     } finally { await f.dispose(); }
 });
 
