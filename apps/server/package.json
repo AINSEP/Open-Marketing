@@ -42,6 +42,7 @@
     "@open-marketing/forms": "workspace:*",
     "@open-marketing/jobs": "workspace:*",
     "@open-marketing/measure": "workspace:*",
+    "@open-marketing/media-library": "workspace:*",
     "@open-marketing/om-clock": "workspace:*",
     "@open-marketing/policy": "workspace:*",
     "@open-marketing/privacy": "workspace:*",
@@ -51,6 +52,7 @@
     "@types/better-sqlite3": "9.6.0",
     "better-sqlite3": "13.0.3",
     "kysely": "0.29.6",
+    "sharp": "0.35.5",
     "yaml": "2.8.1",
     "yauzl": "3.4.0",
     "zod": "4.1.13"

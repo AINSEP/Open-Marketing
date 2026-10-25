@@ -20,6 +20,8 @@
     "dev": "vite --host 127.0.0.1"
   },
   "dependencies": {
+    "@fontsource-variable/dm-sans": "5.3.0",
+    "@fontsource-variable/space-grotesk": "5.3.0",
     "@jini-ai/agentic": "0.4.4",
     "@jini-ai/chat": "0.6.2",
     "@jini-ai/ui": "0.5.2",
