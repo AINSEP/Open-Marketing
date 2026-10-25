@@ -19,5 +19,36 @@
     { "url": "https://ads-api.reddit.com/docs/v3/api/list-ad-accounts-by-business", "reason": "Endpoint prose readable; full request schema absent. ?schema=1 inaccessible." }
   ],
   "unverified": ["Ads-specific loopback/PKCE and separate app approval eligibility", "List-accounts pagination and complete campaign-list codec", "Create/readback schemas, budgets/schedules/pixels/funding/post ownership and vendor idempotency; R2 deferred", "Conversions mapping/acknowledgement; capability omitted"],
-  "omBounds": { "requestBytes": 65536, "responseBytes": 1048576, "timeoutMs": 15000, "maxPageSize": 100, "maxWindowDays": 31, "retries": 0 }
+  "omBounds": { "requestBytes": 65536, "responseBytes": 1048576, "timeoutMs": 15000, "maxPageSize": 100, "maxWindowDays": 31, "retries": 0 },
+  "r2": {
+    "checkedAt": "2026-10-24", "status": "blocked; translation/deployment/reconciliation exports return unavailable; no write capability",
+    "bindingEvidence": "ADS-memory/.local-artifacts/codex-runs/2026-10-24-plugin-reddit-ads/evidence-chrome.md",
+    "sources": [
+      { "url": "https://www.postman.com/reddit-ads-api/reddit-ads-api-v3/http-example/2y662pr/create-campaign", "quote": "Create a campaign for the provided ad account.", "facts": "Binding browser capture confirms account-scoped POST, data envelope, 201 and string data.id. Example fields do not establish required set; no create idempotency documented." },
+      { "url": "https://www.postman.com/reddit-ads-api/reddit-ads-api-v3/http-example/nyvz67p/create-ad-group", "quote": "\"campaign_id\": \"579922433862993631\"", "facts": "Binding browser capture confirms parent, bid/budget/schedule/targeting example fields; required set remains unverified." },
+      { "url": "https://www.postman.com/reddit-ads-api/reddit-ads-api-v3/http-example/jgcp2yo/create-ad", "quote": "\"post_id\": \"t3_12345\"", "facts": "Binding browser capture confirms existing-post example; required set and ownership contract remain unverified." },
+      { "url": "https://ads-api.reddit.com/docs/v3/guides/programs/campaign/campaign-setup", "quote": "\"configured_status\": \"PAUSED\"", "facts": "Setup examples explicitly pause creation; traffic is CLICKS; non-CBO manual bidding examples exist. These are not complete current create schemas." },
+      { "url": "https://ads-api.reddit.com/docs/v3/api/create-ad-group", "quote": "required for all ad groups", "facts": "Pixel required starting July 13, 2026. Direct request/response schema controls omitted by extraction." },
+      { "url": "https://ads-api.reddit.com/docs/v3/api/get-ad-group", "quote": "The amount to pay per bidding event (microcurrency).", "facts": "Indexed v3 GET includes MANUAL_BIDDING, DAILY_SPEND, bid/goal values and status fields. Read fields alone cannot verify the complete create contract." }
+    ],
+    "blocked": [
+      { "url": "https://ads-api.reddit.com/api/v3/openapi.json", "reason": "Web inaccessible; curl DNS resolution failed; Playwright requires approval but host approval policy is never." },
+      { "url": "https://ads-api.reddit.com/docs/v3/api/create-campaign", "reason": "Direct extraction exposes path/201/prose but omits request and response schemas; operation alias did not recover them." },
+      { "url": "https://ads-api.reddit.com/docs/v3/api/create-ad-group", "reason": "Direct extraction omits required-field schema; official Postman example inaccessible in web tool." },
+      { "url": "https://ads-api.reddit.com/docs/v3/api/create-ad", "reason": "Direct extraction omits complete create schema; do not infer fields from example." }
+    ],
+    "needs": ["Complete v3 create/acknowledgement and matching readback contracts", "Funding instrument, pixel, post ownership and exact targeting/budget/bid/time semantics", "Integrator grouped-card/outbox binding; preserve sandbox-only production restriction"],
+    "fixRun": {
+      "checkedAt": "2026-10-24",
+      "status": "R2review items 3 and 5 remain evidence-blocked; only explicit unavailable APIs and denial tests implemented",
+      "retrieval": "Official v3 create pages exposed prose and 201 only; OpenAPI and ?download=1 inaccessible through web; curl exit 6 DNS failure; browser navigation rejected by automatic approval review because approval policy is never",
+      "sources": [
+        { "url": "https://ads-api.reddit.com/docs/v3/api/create-campaign", "quote": "Create a campaign.", "facts": "Account-scoped POST and 201 verified again; required-field controls absent from extracted text." },
+        { "url": "https://ads-api.reddit.com/docs/v3/api/create-ad-group", "quote": "conversion_pixel_id", "facts": "Prose again states pixel required for all ad groups from July 13, 2026; complete schema still unavailable." },
+        { "url": "https://ads-api.reddit.com/docs/v3/api/create-ad", "quote": "Create an ad.", "facts": "Account-scoped POST and 201 verified again; complete schema still unavailable." },
+        { "url": "https://ads-api.reddit.com/docs/v3/api/get-campaign", "quote": "funding_instrument_id", "facts": "Official search extract exposes data, account/id/status, funding and non-CBO configuration fields; does not establish create requirements or ownership." }
+      ],
+      "verificationLimits": "Synthetic unavailable-API tests only; no successful creates, uncertain-create retention, checkpoint ordering, matching readback or GET reconciliation proven; no live account calls"
+    }
+  }
 }
