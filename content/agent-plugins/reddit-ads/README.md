@@ -1,0 +1,45 @@
+# Reddit Ads — R1
+
+Inert server-loaded Agent Plugins 1.1.0 package; disabled and unadmitted by default. Four closed read commands are declared: business discovery and provider reporting are implemented; account/campaign listing fail with `not_implemented` before credentials or egress until missing official v3 schemas are supplied. No server/UI/build wiring or distribution bundle is included in this run.
+
+After the integrator connects the catalog, the owner can ask to list Reddit businesses or report account/campaign spend, impressions and clicks. Account listing excludes shared accounts when implemented. This is a partial R1 handoff, not a complete launch integration.
+
+```ts
+const adapter = createRedditAdsAdapter({ configuration, admitted, credentials, fetch: guardedServerFetch, createDeadline: ({ timeoutMs }) => AbortSignal.timeout(timeoutMs), clock, observer });
+await adapter.invoke({ context, operationId, command: { kind: "list_businesses" }, moneyExposure: null, requiredLimit: null }, { signal });
+```
+
+The only public entry is `io.github.ainsep.openmarketing/src/index.ts`. `configuration` holds `{scope, connectionId, accountId, currency}`; account/currency may be null only for discovery. `admitted({context})` checks current host admission synchronously before credentials and again before fetch. The host's guarded fetch rechecks connection/plugin/account authority after its own awaits. Credentials are server-brokered via `access({connectionId, accountId}, options)`; require adsread and preserve server scope/plugin checks even with a null account. Imports/factories start no services. Canonical OM context/options/outcome/clock/observer contracts are reused.
+
+Auth is paste-token only. After catalog integration, use the existing server CLI `om integrations connect --plugin reddit-ads --token-stdin`; never paste credentials into chat. Reddit returns 3600- or 86400-second lifetimes; the server may supply `expiresAt` in epoch milliseconds. Known expiry rejects locally; 401 means reconnect with a fresh token. Unknown expiry is not a lifetime guarantee. No automatic refresh, OAuth descriptor or O2 work is supplied; Ads loopback eligibility remains unverified.
+
+Each explicit invocation fetches at most one page: pageSize defaults/maxes to 100, input/body <=64KiB, streamed response <=1MiB, host-created fetch deadline 15s, no redirects/retries. The required `createDeadline({timeoutMs})` dependency returns a fresh signal per request; the adapter passes 15000 and combines it with caller cancellation for fetch and response streaming. Deadline failures return sanitized `unavailable`; caller aborts return `cancelled`. Continuation links must match the current origin/path, contain only one page.token and optional unchanged page.size, and contain no credentials/fragment. Return nextPageToken/incomplete; the caller explicitly requests the next page. Unknown link formats fail closed.
+
+`report` takes `{kind:'report', pivot:'ACCOUNT'|'CAMPAIGN', window:{start,end}, pageSize?, pageToken?}` with epoch-millisecond UTC midnights <=31 days apart. POST reporting remains read policy. The exact supplied UTC timestamps go to the provider; `windowBasis:'request_utc'` labels request boundaries without asserting unsourced end-inclusion semantics or neutral measurement coverage. Reports retain source/version/account/currency, retrieval time and optional provider metricsUpdatedAt. Spend stays exact safe integer microcurrency as a string; unsafe/fractional/negative values, foreign account/currency, duplicate pivots and incomplete malformed pages reject atomically. Null metrics stay null; empty means no data/access unconfirmed. No summation, FX, inferred zero or complete-page totals.
+
+Numeric metrics require native JSON.parse source contexts, available in the current Node 24 host. Source lexemes must match their safe decimal integer exactly; fractional/exponent forms and unsupported engines fail closed rather than silently round source microcurrency.
+
+Evidence with dated official URLs and short quotes is in `io.github.ainsep.openmarketing/evidence/primary-sources.json`. Business/report schemas were recovered from official search-index extracts; direct page extraction omits schema controls. OpenAPI download/DNS and full account/campaign schemas remain blocked. v3 is stable through Q3 2027; v4 preview schemas were not used. Fixtures do not prove vendor eligibility.
+
+Handoff NEEDS: integrator adds an explicit Reddit branch in `apps/server/src/composition/agent-plugin-backends.ts`, descriptor conversion, guarded adapter/credentials binding, and the two null-account discovery exceptions. Add Reddit to root om:build-plugins and exercise `tests/contract/dispatch-suite.ts` through real host bindings in server tests. Keep blocked descriptors unavailable in host coverage. DS2 owns studio. Neutral measurement mapping is deferred. No new dependencies, contracts, workspace, lockfile, migrations or shared-file edits. Existing exact dependency pins match LinkedIn; no installation performed.
+
+R2 PAUSED deployment, production account/creative binding, OAuth, conversions, activation/budget mutation, halt and destructive operations are deferred/omitted. Preserve sandbox-only campaign composition. Every future spend call retains the one exact server card rule.
+
+Reuse: transport/package precedent inspected in LinkedIn src/{ports,commands,transport,reporting,index}.ts and server agent-plugin-backends.ts; canonical contracts and native fetch/URL/Buffer plus installed Zod implement this lane. Reddit owns separate codecs because its v3 envelopes, business discovery and read-only POST reporting differ. No gateway/registry/outbox is added.
+
+Audit: lane/public-entry/DI/policy boundaries reviewed; no shared edits. Tests are written, not run by dispatch. Runtime self-validation and coverage measurement are not run for that reason. Function assessment is INCONCLUSIVE pending executed tests/lint: command encoding/pagination, report encoding/projection, preparation/credential dispatch, bounded fetch/JSON, page projection and observations each have direct fixture assertions. Second pass checked names, null/empty handling, duplicate rows, cross-account data, token leakage and bounds; no known Critical/High semantic issue remains. Public boundaries/schemas/types and security/I/O helpers are documented; trivial private failure constructors inherit surrounding docs. Native fetch, Zod and Vitest callbacks retain their library ABIs. Typecheck result is reported in the final handoff.
+
+| Assessment unit | Disposition | Findings / local fix / direct evidence |
+| --- | --- | --- |
+| commandSchema, encodeCommand | INCONCLUSIVE | Missing vendor list evidence; pre-credential block and invalid-input tests |
+| nextPage, sameResource | INCONCLUSIVE | No known semantic issue; hostile/duplicate/repeated/foreign link tests |
+| report schema, encodeReport, decodeReport | INCONCLUSIVE | Unsourced end-inclusion stays request-labelled; exact wire, mixed-row, duplicate, null/empty tests |
+| factory, prepare, sameScope, invoke | INCONCLUSIVE | No known semantic issue; shared dispatch, null binding, cancellation, revocation, expiry, snapshot tests |
+| send, readBody, decodeJson, exactMetric, httpFailure | INCONCLUSIVE | Rounded-source hazard fixed with native source context; bounds/status/throw/fractional-source tests |
+| decodePage, projectData, observe | INCONCLUSIVE | Split collection projection to reduce nesting; malformed pages, secrets and observer-throw tests |
+
+Fresh requirement/scope review found no added write/deployment capability or tests weakened for coverage. Complexity was reviewed manually; lint, coverage and runtime checks were not executed. Tests remain unrun under dispatch; the integrator must execute the retained suites. Documentation classification: public/boundary symbols documented, trivial private failure constructors intentionally inherit adjacent contracts. Function-quality route remains INCONCLUSIVE, with no known unresolved Critical/High finding.
+
+R1F review fixes: campaign reporting now has a shared-suite assertion on the outgoing `["AD_ACCOUNT_ID", "CAMPAIGN_ID"]` breakdowns. Deadline creation is injected rather than using a global timer inside the adapter. Fixture-controlled abort tests cover deadline cancellation with and without a caller signal, caller cancellation, sanitized outcomes and zero retries. The host integrator must supply `createDeadline` alongside guarded fetch; no shared composition file was edited. `send` remains INCONCLUSIVE until tests/lint are executed; the existing bounded streaming/status tests plus the new deadline tests directly cover it. Documentation classification: dependency and factory/send examples updated. No vendor schema or capability was added.
+
+Verification: the R1 run recorded a passing `corepack pnpm run typecheck` on 2026-10-24. R1F's single permitted typecheck result is reported in the final handoff; tests, build, install, om:check, indexing, commit and push remain unrun.

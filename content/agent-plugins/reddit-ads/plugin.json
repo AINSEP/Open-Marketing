@@ -1,0 +1,36 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.1.0/plugin.schema.json",
+  "name": "reddit-ads",
+  "version": "0.1.0",
+  "description": "Reddit v3 business discovery and provider reports; account/campaign lists blocked pending evidence; disabled until host admission.",
+  "license": "Apache-2.0",
+  "extensions": {
+    "io.github.ainsep.openmarketing": {
+      "version": 1,
+      "enabled": false,
+      "admitted": false,
+      "capabilities": [
+        {
+          "capabilityId": "reddit_ads.list_businesses.v1",
+          "version": 1,
+          "pluginId": "reddit-ads",
+          "schemaFingerprint": "8026b011795f91513527b7d17b9843ce72ea85e784338857a5661bd701106bea",
+          "admitted": false,
+          "effects": [
+            "read"
+          ]
+        },
+        {
+          "capabilityId": "report.account-spend.v1",
+          "version": 1,
+          "pluginId": "reddit-ads",
+          "schemaFingerprint": "ccebdd63aa7d9d2ff2f92abae6f07058344739ddc8b70556c502e49acc6fad83",
+          "admitted": false,
+          "effects": [
+            "read"
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "version": 1, "admitted": false,
+  "capabilities": [
+    {"capabilityId": "reddit_ads.list_businesses.v1", "version": 1, "pluginId": "reddit-ads", "schemaFingerprint": "8026b011795f91513527b7d17b9843ce72ea85e784338857a5661bd701106bea", "admitted": false, "effects": ["read"]},
+    {"capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "reddit-ads", "schemaFingerprint": "ccebdd63aa7d9d2ff2f92abae6f07058344739ddc8b70556c502e49acc6fad83", "admitted": false, "effects": ["read"]}
+  ],
+  "tools": [
+    {"name": "list_businesses", "effects": ["read"], "capabilityId": "reddit_ads.list_businesses.v1"},
+    {"name": "list_accounts", "effects": ["read"], "available": false, "reason": "NEEDS: official v3 list request/response schema"},
+    {"name": "list_campaigns", "effects": ["read"], "available": false, "reason": "NEEDS: official v3 list request/response schema"},
+    {"name": "report", "effects": ["read"], "capabilityId": "report.account-spend.v1"}
+  ],
+  "fingerprintBasis": "SHA-256 of src/commands.ts for business discovery and src/reporting.ts for reports; compatibility metadata, not plugin trust or an allowlist."
+}

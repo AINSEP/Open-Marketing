@@ -1,0 +1,23 @@
+{
+  "checkedAt": "2026-10-24", "apiVersion": "v3", "status": "documentation-only; synthetic fixtures, no live account verification",
+  "sources": [
+    { "url": "https://ads-api.reddit.com/docs/v3/guides/versioning", "quote": "v3 joins the model as a Stable version", "facts": "v3 stable through Q3 2027, then 410; v4 preview in Q4 2026; quarterly releases and advance Sunset notices." },
+    { "url": "https://ads-api.reddit.com/docs/v3/guides/quick-start/authenticate", "quote": "either one hour (3600) or one day (86400)", "facts": "Authorization-code and refresh-token grants; adsread reads, adsedit writes; returned expires_in governs lifetime. Plugin uses paste-token only." },
+    { "url": "https://ads-api.reddit.com/docs/v3/guides/quick-start/create-dev-app", "quote": "Only business admins can access this interface.", "facts": "Verified business admin manages Ads developer applications; business-domain redirect recommended. Ads loopback acceptance remains UNVERIFIED." },
+    { "url": "https://github.com/reddit-archive/reddit/wiki/OAuth2", "quote": "must match exactly", "facts": "Archived general Reddit redirect guidance does not establish current Ads loopback eligibility." },
+    { "url": "https://ads-api.reddit.com/docs/v3/api/list-my-businesses", "quote": "data object[]required; id uuid; name string; page.token string; page.size integer; pagination object required", "facts": "GET /me/businesses; projected id/name; next_url nullable; 100 requests/60 seconds. Wire schema recovered via official search-index extract, absent from direct text extraction." },
+    { "url": "https://ads-api.reddit.com/docs/v3/guides/programs/business/fetch-accounts", "quote": "Only ad accounts that the member has permission on will be returned.", "facts": "Business discovery precedes account discovery. Account example contains string id, name, currency, business_id; complete list request schema not recovered." },
+    { "url": "https://ads-api.reddit.com/docs/v3/api/list-ad-accounts-by-business", "quote": "won't be returned", "facts": "GET /businesses/{business_id}/ad_accounts excludes shared accounts; 400 requests/60 seconds. Complete wire schema UNVERIFIED; operation blocked before credentials." },
+    { "url": "https://ads-api.reddit.com/docs/v3/api/list-campaigns", "quote": "Retrieve campaigns by ad account.", "facts": "GET /ad_accounts/{ad_account_id}/campaigns; 400 requests/60 seconds. Complete v3 wire schema UNVERIFIED; operation blocked before credentials. v4 search results deliberately unused." },
+    { "url": "https://ads-api.reddit.com/docs/v3/api/get-a-report", "quote": "data; metrics; metrics_updated_at; account_id; campaign_id; spend int64 nullable; page.token; page.size; YYYY-MM-DDTHH:00:00Z", "facts": "POST /ad_accounts/{id}/reports is a read. data wraps request fields/breakdowns/starts_at/ends_at/time_zone_id and response metrics. SPEND/IMPRESSIONS/CLICKS requested; lowercase response fields. AD_ACCOUNT_ID/CAMPAIGN_ID breakdowns. UTC supported; spend microcurrency, impressions/clicks nullable int64, account_id/currency nullable strings; metrics_updated_at ISO timestamp. 60 requests/60 seconds. Search-index schema recovered. Exact provider boundary inclusion semantics unresolved: expose request_utc window only; no neutral totals." },
+    { "url": "https://ads-api.reddit.com/docs/v3/", "quote": "next_url", "facts": "Paginated list/report responses use pagination links; this plugin validates fixed origin/path/query, returns a token and never follows arbitrary URLs. Descriptive User-Agent recommended." }
+  ],
+  "blocked": [
+    { "url": "https://ads-api.reddit.com/api/v3/openapi.json", "reason": "Web tool inaccessible; direct curl failed DNS resolution. ?download=1 also inaccessible." },
+    { "url": "https://www.postman.com/reddit-ads-api/reddit-ads-api-v3/overview", "reason": "Official overview readable; request/response collection bodies not recovered." },
+    { "url": "https://ads-api.reddit.com/docs/v3/api/list-campaigns", "reason": "Endpoint prose readable; v3 request/response schema controls absent. ?schema=1 inaccessible." },
+    { "url": "https://ads-api.reddit.com/docs/v3/api/list-ad-accounts-by-business", "reason": "Endpoint prose readable; full request schema absent. ?schema=1 inaccessible." }
+  ],
+  "unverified": ["Ads-specific loopback/PKCE and separate app approval eligibility", "List-accounts pagination and complete campaign-list codec", "Create/readback schemas, budgets/schedules/pixels/funding/post ownership and vendor idempotency; R2 deferred", "Conversions mapping/acknowledgement; capability omitted"],
+  "omBounds": { "requestBytes": 65536, "responseBytes": 1048576, "timeoutMs": 15000, "maxPageSize": 100, "maxWindowDays": 31, "retries": 0 }
+}
