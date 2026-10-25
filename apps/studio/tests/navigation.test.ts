@@ -1,4 +1,4 @@
-import { it, expect } from "vitest";
+import { it, expect, vi } from "vitest";
 import { createElement, createRef } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ChatFab } from "../src/widgets/om-chat/ChatFab.js";
@@ -67,4 +67,16 @@ it('renders the pinned Lucide robot in the assistant FAB', async () => {
   expect(html).toContain('aria-label="Assistant"');
   expect(html).toContain(NAV_ICONS.assistant);
   expect(html).not.toContain(NAV_ICONS.agentPlugins);
+});
+
+it('captures initial and committed screen views, ignoring stale/duplicate acknowledgements and diagnostic failures', async () => {
+  const { runtime } = testRuntime(); const track = vi.fn();
+  const route = createNavigationController({ browser: null, timers: runtime.timers, timeoutMs: 5000, track });
+  route.rendered({ target: 'workspaces' }); route.rendered({ target: 'workspaces' }); route.select({ target: 'campaigns' });
+  route.rendered({ target: 'workspaces' }); expect(track.mock.calls).toEqual([['screen.viewed', { screen: 'workspaces' }]]);
+  route.rendered({ target: 'campaigns' }); route.rendered({ target: 'campaigns' });
+  expect(track.mock.calls).toEqual([['screen.viewed', { screen: 'workspaces' }], ['screen.viewed', { screen: 'campaigns' }]]);
+  track.mockImplementation(() => { throw new Error('capture'); }); route.select({ target: 'creative' });
+  expect(() => route.rendered({ target: 'creative' })).not.toThrow(); expect(route.getSnapshot()).toBe('creative'); route.dispose();
+  route.rendered({ target: 'settings' }); expect(track).toHaveBeenCalledTimes(3);
 });

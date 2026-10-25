@@ -1,6 +1,6 @@
 import { navigationActionSchema, navigationTargetSchema, studioNavigationTargetSchema, parseBoundary } from "@open-marketing/contracts";
 import type { NavigationResult, NavigationTarget, StudioNavigationTarget, Outcome } from "@open-marketing/contracts";
-import type { TimerPort } from "../../../shared/api/index.js";
+import type { TimerPort, StudioTrack } from "../../../shared/api/index.js";
 
 /** Browser route writes are separate from React's rendered-route acknowledgement. */
 export interface BrowserRoutePort {
@@ -25,11 +25,12 @@ function failed(required: { actionId: string; code: "unavailable" | "invalid_inp
  * @example controller.apply({ input: { kind: "navigate", actionId: "a1", target: "campaigns" } })
  * @complexity O(1) per action; at most 100 retained results and one pending action.
  */
-export function createNavigationController(required: { browser: BrowserRoutePort | null; timers: TimerPort; timeoutMs: number }): NavigationController {
+export function createNavigationController(required: { browser: BrowserRoutePort | null; timers: TimerPort; timeoutMs: number; track?: StudioTrack }): NavigationController {
   const initial = studioNavigationTargetSchema.safeParse(required.browser?.read({}));
   let target: StudioNavigationTarget = initial.success ? initial.data : "workspaces";
   let pending: Pending | null = null;
   let disposed = false;
+  let renderedTarget: StudioNavigationTarget | undefined;
   const listeners = new Set<() => void>();
   const results = new Map<string, { target: NavigationTarget; result: Promise<NavigationResult> }>();
   const publish = (): void => { for (const listener of listeners) listener(); };
@@ -83,6 +84,11 @@ export function createNavigationController(required: { browser: BrowserRoutePort
       return result;
     },
     rendered(input) {
+      if (disposed || target !== input.target) return;
+      if (renderedTarget !== input.target) {
+        renderedTarget = input.target;
+        try { required.track?.('screen.viewed', { screen: input.target }); } catch { /* Capture cannot block navigation. */ }
+      }
       if (pending?.target === input.target && target === input.target) finish({ result: { status: "completed", actionId: pending.actionId, target: pending.target } });
     },
     dispose() {

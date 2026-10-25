@@ -1,10 +1,10 @@
-import { assistantUsageSchema, confirmationCardSchema, toolOperationSchema, surfaceAcknowledgementSchema, toolCallSchema, toolResultSchema } from '@open-marketing/contracts';
+import { captureEventSchema, recentEventsSchema, assistantUsageSchema, confirmationCardSchema, toolOperationSchema, surfaceAcknowledgementSchema, toolCallSchema, toolResultSchema } from '@open-marketing/contracts';
 /** Cookie-authenticated owner transport. Server state is validated before reaching presentation. */
 import { z } from 'zod';
 import { addonListRequestSchema, addonListSchema, addonSummarySchema, addonUninstallReceiptSchema, installAddonSchema, setAddonEnabledSchema, uninstallAddonSchema, integrationListSchema, integrationSummarySchema, connectIntegrationTokenSchema, disconnectIntegrationSchema, pageQuerySchema } from '@open-marketing/contracts';
 import { assistantRunRequestSchema, assistantSettingsSchema, assistantSettingsStatusSchema, conversationListSchema, conversationSchema, conversationSummarySchema, appErrorSchema, approvalResponseSchema, epochSchema, idSchema, runEventSchema, parseBoundary } from '@open-marketing/contracts';
 import type { AppError, ObserverPort, Outcome } from '@open-marketing/contracts';
-import type { StudioApiPort, StudioRuntime } from './types.js';
+import type { StudioApiPort, StudioRuntime, StudioTrace } from './types.js';
 import { oauthClientSetSchema, oauthClientStatusSchema, oauthStatusQuerySchema, oauthStatusSchema, developerTokenQuerySchema, developerTokenSetSchema, developerTokenStatusSchema, isSafeUiValue, parseStudioSnapshot } from './validation.js';
 
 interface Dependencies {
@@ -96,13 +96,13 @@ function transportResult<T>(required: { result: Outcome<T>; method: 'GET' | 'POS
  */
 async function request<T>(required: {
     dependencies: Dependencies; origin: Outcome<string>; path: string; method: 'GET' | 'POST'; body?: unknown;
-    signal?: AbortSignal; parse: (required: { input: unknown }) => Outcome<T>;
+    signal?: AbortSignal; trace?: StudioTrace; parse: (required: { input: unknown }) => Outcome<T>;
 }): Promise<Outcome<T>> {
     if (!required.origin.ok) return required.origin;
     if (required.signal?.aborted) return failure({ code: 'cancelled', message: 'Request cancelled' });
     const { runtime } = required.dependencies;
-    const correlationId = runtime.ids.next({});
-    const traceId = runtime.ids.next({});
+    const correlationId = required.trace?.correlationId ?? runtime.ids.next({});
+    const traceId = required.trace?.traceId ?? runtime.ids.next({});
     const controller = runtime.abort();
     const abort = (): void => controller.abort();
     required.signal?.addEventListener('abort', abort, { once: true });
@@ -140,32 +140,40 @@ async function request<T>(required: {
 export function createHttpStudioApi(required: Dependencies): StudioApiPort {
     const origin = baseOrigin(required);
     return {
+        async captureEvent(input) {
+            const event = captureEventSchema.safeParse(input.event);
+            if (!event.success || event.data.kind === 'trace') return failure({ code: 'invalid_input', message: 'Invalid browser event' });
+            return request({ dependencies: required, origin, path: '/api/dev/events', method: 'POST', body: event.data, signal: input.signal,
+                parse: value => parseBoundary({ schema: recordedSchema, input: value.input }) });
+        },
+        recentEvents: input => request({ dependencies: required, origin, path: '/api/dev/events', method: 'GET', signal: input.signal,
+            parse: value => parseBoundary({ schema: recentEventsSchema, input: value.input }) }),
         async tool(input) {
             const call = parseBoundary({ schema: toolCallSchema, input: input.call });
             if (!call.ok) return call;
             const body = input.runId || input.frontendSessionId ? { call: call.value, runId: input.runId, frontendSessionId: input.frontendSessionId } : call.value;
-            return request({ dependencies: required, origin, path: '/api/tools/call', method: 'POST', body, signal: input.signal,
+            return request({ dependencies: required, origin, path: '/api/tools/call', method: 'POST', body, signal: input.signal, trace: input.trace,
                 parse: value => parseBoundary({ schema: toolResultSchema, input: value.input }) });
         },
         operation: input => addonRead({ dependencies: required, origin, path: '/api/tools/operations/' + encodeURIComponent(input.operationId), schema: toolOperationSchema,
-            querySchema: z.strictObject({}), query: {}, signal: input.signal }).then(result => {
+            querySchema: z.strictObject({}), query: {}, signal: input.signal, trace: input.trace }).then(result => {
                 if (!result.ok) return result;
                 return result.value.operationId === input.operationId && isSafeUiValue({ value: result.value, maxCharacters: 262144 }) ? result
                     : failure({ code: 'protocol_mismatch', message: 'Operation identity or display data rejected' });
             }),
-        approvalCard: input => request({ dependencies: required, origin, path: '/api/safety/approvals/' + encodeURIComponent(input.cardId), method: 'GET', signal: input.signal,
+        approvalCard: input => request({ dependencies: required, origin, path: '/api/safety/approvals/' + encodeURIComponent(input.cardId), method: 'GET', signal: input.signal, trace: input.trace,
             parse: value => parseBoundary({ schema: confirmationCardSchema, input: value.input }) }),
         async acknowledgeSurface(input) {
             const result = parseBoundary({ schema: surfaceAcknowledgementSchema, input: input.result });
             if (!result.ok) return result;
-            return request({ dependencies: required, origin, path: '/api/runs/' + encodeURIComponent(result.value.runId) + '/surfaces', method: 'POST', body: result.value,
+            return request({ dependencies: required, origin, path: '/api/runs/' + encodeURIComponent(result.value.runId) + '/surfaces', method: 'POST', body: result.value, trace: input.trace,
                 parse: value => parseBoundary({ schema: recordedSchema, input: value.input }) });
         },
         addons: {
             setOAuthClient: input => addonWrite({ dependencies: required, origin, path: '/api/addons/v1/integrations/oauth/client', schema: oauthClientStatusSchema, inputSchema: oauthClientSetSchema, ...input }),
             oauthStatus: input => addonRead({ dependencies: required, origin, path: '/api/addons/v1/integrations/oauth/status', schema: oauthStatusSchema, querySchema: oauthStatusQuerySchema, ...input }),
             setDeveloperToken: input => addonWrite({ dependencies: required, origin, path: '/api/addons/v1/integrations/developer-token', schema: developerTokenStatusSchema, inputSchema: developerTokenSetSchema, ...input }),
-            developerTokenStatus: input => addonRead({ dependencies: required, origin, path: '/api/addons/v1/integrations/developer-token', schema: developerTokenStatusSchema, querySchema: developerTokenQuerySchema, query: { pluginId: input.pluginId }, signal: input.signal }),
+            developerTokenStatus: input => addonRead({ dependencies: required, origin, path: '/api/addons/v1/integrations/developer-token', schema: developerTokenStatusSchema, querySchema: developerTokenQuerySchema, query: { pluginId: input.pluginId }, signal: input.signal, trace: input.trace }),
             list: input => addonRead({ dependencies: required, origin, path: '/api/addons/v1/packages', schema: addonListSchema, querySchema: addonListRequestSchema, ...input }),
             integrations: input => addonRead({ dependencies: required, origin, path: '/api/addons/v1/integrations', schema: integrationListSchema, querySchema: pageQuerySchema, ...input }),
             install: input => addonWrite({ dependencies: required, origin, path: '/api/addons/v1/install', schema: addonSummarySchema, inputSchema: installAddonSchema, ...input }),
@@ -174,35 +182,35 @@ export function createHttpStudioApi(required: Dependencies): StudioApiPort {
             connect: input => addonWrite({ dependencies: required, origin, path: '/api/addons/v1/integrations/token', schema: integrationSummarySchema, inputSchema: connectIntegrationTokenSchema, ...input }),
             disconnect: input => addonWrite({ dependencies: required, origin, path: '/api/addons/v1/integrations/disconnect', schema: integrationSummarySchema, inputSchema: disconnectIntegrationSchema, ...input }),
         },
-        snapshot: input => request({ dependencies: required, origin, path: '/api/studio/snapshot', method: 'GET', signal: input.signal, parse: parseStudioSnapshot }),
+        snapshot: input => request({ dependencies: required, origin, path: '/api/studio/snapshot', method: 'GET', signal: input.signal, trace: input.trace, parse: parseStudioSnapshot }),
         async approve(input) {
             const response = parseBoundary({ schema: approvalResponseSchema, input: input.response });
             if (!response.ok) return response;
             return request({ dependencies: required, origin, path: '/api/safety/approvals/' + encodeURIComponent(response.value.cardId) + '/answer',
-                method: 'POST', body: response.value, signal: input.signal, parse: value => parseBoundary({ schema: recordedSchema, input: value.input }) });
+                method: 'POST', body: response.value, signal: input.signal, trace: input.trace, parse: value => parseBoundary({ schema: recordedSchema, input: value.input }) });
         },
         async start(input) {
             const parsed = parseBoundary({ schema: assistantRunRequestSchema, input: { prompt: input.message.text, conversationId: input.conversationId, frontendSessionId: input.frontendSessionId, frontendBindToken: input.frontendBindToken } });
             if (!parsed.ok) return parsed;
-            return request({ dependencies: required, origin, path: '/api/runs', method: 'POST', body: parsed.value, signal: input.signal,
+            return request({ dependencies: required, origin, path: '/api/runs', method: 'POST', body: parsed.value, signal: input.signal, trace: input.trace,
                 parse: value => parseBoundary({ schema: runReceiptSchema, input: value.input }) });
         },
-        runStatus: input => readRunStatus({ dependencies: required, origin, runId: input.runId, after: input.after ?? 0, signal: input.signal ?? required.runtime.abort().signal }),
+        runStatus: input => readRunStatus({ dependencies: required, origin, runId: input.runId, after: input.after ?? 0, trace: input.trace, signal: input.signal ?? required.runtime.abort().signal }),
         events: input => pollEvents({ dependencies: required, origin, ...input }),
-        cancel: input => request({ dependencies: required, origin, path: '/api/runs/' + encodeURIComponent(input.runId) + '/cancel', method: 'POST', body: {},
+        cancel: input => request({ dependencies: required, origin, path: '/api/runs/' + encodeURIComponent(input.runId) + '/cancel', method: 'POST', body: {}, trace: input.trace,
             parse: value => parseBoundary({ schema: cancellationSchema, input: value.input }) }),
-        conversations: input => request({ dependencies: required, origin, path: '/api/conversations?limit=25' + (input.cursor ? '&cursor=' + encodeURIComponent(input.cursor) : ''), method: 'GET', signal: input.signal,
+        conversations: input => request({ dependencies: required, origin, path: '/api/conversations?limit=25' + (input.cursor ? '&cursor=' + encodeURIComponent(input.cursor) : ''), method: 'GET', signal: input.signal, trace: input.trace,
             parse: value => parseBoundary({ schema: conversationListSchema, input: value.input }) }),
-        conversation: input => request({ dependencies: required, origin, path: '/api/conversations/' + encodeURIComponent(input.conversationId) + '?limit=100' + (input.cursor ? '&cursor=' + encodeURIComponent(input.cursor) : ''), method: 'GET', signal: input.signal,
+        conversation: input => request({ dependencies: required, origin, path: '/api/conversations/' + encodeURIComponent(input.conversationId) + '?limit=100' + (input.cursor ? '&cursor=' + encodeURIComponent(input.cursor) : ''), method: 'GET', signal: input.signal, trace: input.trace,
             parse: value => parseBoundary({ schema: conversationSchema, input: value.input }) }),
-        createConversation: input => request({ dependencies: required, origin, path: '/api/conversations', method: 'POST', body: {}, signal: input.signal,
+        createConversation: input => request({ dependencies: required, origin, path: '/api/conversations', method: 'POST', body: {}, signal: input.signal, trace: input.trace,
             parse: value => parseBoundary({ schema: conversationSummarySchema, input: value.input }) }),
-        settings: input => request({ dependencies: required, origin, path: '/api/assistant/settings', method: 'GET', signal: input.signal,
+        settings: input => request({ dependencies: required, origin, path: '/api/assistant/settings', method: 'GET', signal: input.signal, trace: input.trace,
             parse: value => parseBoundary({ schema: assistantSettingsStatusSchema, input: value.input }) }),
         async setSettings(input) {
             const parsed = parseBoundary({ schema: assistantSettingsSchema, input: input.settings });
             if (!parsed.ok) return parsed;
-            return request({ dependencies: required, origin, path: '/api/assistant/settings', method: 'POST', body: parsed.value, signal: input.signal,
+            return request({ dependencies: required, origin, path: '/api/assistant/settings', method: 'POST', body: parsed.value, signal: input.signal, trace: input.trace,
                 parse: value => parseBoundary({ schema: assistantSettingsStatusSchema, input: value.input }) });
         },
         async acknowledgeNavigation() { return unavailable(); },
@@ -228,7 +236,7 @@ function checkedRunPage(required: { input: unknown; runId: string; after: number
  if (expected && last !== expected) return failure({ code: 'protocol_mismatch', message: 'Run page lacks terminal evidence' });
  return parsed;
 }
-type PollInput = { dependencies: Dependencies; origin: Outcome<string>; runId: string; after: number; signal: AbortSignal };
+type PollInput = { dependencies: Dependencies; origin: Outcome<string>; runId: string; after: number; signal: AbortSignal; trace?: StudioTrace };
 /** One cursor stream, bounded by the run deadline/session cancellation; <=8,192 unique events.
  * Poll interval 1s, no retry of failed pages; every request retains the transport's 15s deadline.
  */
@@ -265,7 +273,7 @@ async function waitForRunPage(required: PollInput): Promise<Outcome<void>> {
 }
 
 /** Add-on reads validate query and response using I-0; one bounded request, no retry. */
-async function addonRead<T>(required: { dependencies: Dependencies; origin: Outcome<string>; path: string; schema: z.ZodType<T>; querySchema: z.ZodType; query: unknown; signal?: AbortSignal }): Promise<Outcome<T>> {
+async function addonRead<T>(required: { dependencies: Dependencies; origin: Outcome<string>; path: string; schema: z.ZodType<T>; querySchema: z.ZodType; query: unknown; signal?: AbortSignal; trace?: StudioTrace }): Promise<Outcome<T>> {
     const query = parseBoundary({ schema: required.querySchema, input: required.query });
     if (!query.ok) return query;
     const search = new URLSearchParams();
@@ -273,7 +281,7 @@ async function addonRead<T>(required: { dependencies: Dependencies; origin: Outc
     return request({ ...required, path: required.path + '?' + search, method: 'GET', parse: input => parseBoundary({ schema: required.schema, input: input.input }) });
 }
 /** Owner mutations are validated before dispatch; plaintext is never copied into diagnostics. */
-async function addonWrite<T>(required: { dependencies: Dependencies; origin: Outcome<string>; path: string; schema: z.ZodType<T>; inputSchema: z.ZodType; request: unknown; signal?: AbortSignal }): Promise<Outcome<T>> {
+async function addonWrite<T>(required: { dependencies: Dependencies; origin: Outcome<string>; path: string; schema: z.ZodType<T>; inputSchema: z.ZodType; request: unknown; signal?: AbortSignal; trace?: StudioTrace }): Promise<Outcome<T>> {
     const body = parseBoundary({ schema: required.inputSchema, input: required.request });
     if (!body.ok) return failure({ code: 'invalid_input', message: 'Invalid add-on request' });
     return request({ ...required, method: 'POST', body: body.value, parse: input => parseBoundary({ schema: required.schema, input: input.input }) });

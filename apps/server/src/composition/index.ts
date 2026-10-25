@@ -1,4 +1,6 @@
 import { bindSandboxCreative } from './creative.js';
+import { createNoopObservabilityPort, type ObservabilityPort } from '@jini-ai/diagnostics/observability';
+import { createRecentEvents } from '../recent-events.js';
 import { bindSandboxCampaigns, bindPausedCampaignDeployment } from './campaigns.js';
 import { bindCatalogAudit, catalogAuditPort, bindCatalogScope, bindCatalogMeasure, bindCatalogMedia, createCatalogMediaEffects, sandboxPlatformReports } from './catalog.js';
 import type { OmFeatureServices } from '../om-tools.js';
@@ -84,7 +86,7 @@ export interface ServerBootIo extends HttpEffects {
 }
 /** Explicit owned lifecycle returned after successful boot. stop is idempotent and closes SQLite last. */
 export interface BootedServer { readonly studioUrl: string; stop(required: Record<string, never>): Promise<Outcome<void>> }
-interface BootResources { frontend?: FrontendSessions; tools?: OmTools; addons?: ReturnType<typeof bindBootAddons>; native?: Database.Database; app?: LifecyclePort; confirmations?: ConfirmationExchangePort; workers?: ReturnType<typeof createFormWorkers>; privacy?: ReturnType<typeof bindPrivacy>; agent?: ReturnType<typeof createLocalAgent>; stopped?: Promise<Outcome<void>> }
+interface BootResources { recentEvents?: ReturnType<typeof createRecentEvents>; frontend?: FrontendSessions; tools?: OmTools; addons?: ReturnType<typeof bindBootAddons>; native?: Database.Database; app?: LifecyclePort; confirmations?: ConfirmationExchangePort; workers?: ReturnType<typeof createFormWorkers>; privacy?: ReturnType<typeof bindPrivacy>; agent?: ReturnType<typeof createLocalAgent>; stopped?: Promise<Outcome<void>> }
 
 /** Best-effort low-cardinality lifecycle diagnostics; no credential/token or raw exception details. */
 function observeBoot(required: { observer: ObserverPort; context: CallContext; operation: string; outcome: string }): void {
@@ -133,6 +135,7 @@ async function closeResources(required: { resources: BootResources }): Promise<O
         if (addons && !addons.ok) result = addons;
     } catch { result = localFailure({ message: 'Add-on cleanup failed' }); }
     required.resources.privacy?.participants.dispose({});
+    required.resources.recentEvents?.dispose({});
     try { if (required.resources.native?.open) required.resources.native.close(); }
     catch { return localFailure({ message: 'SQLite cleanup failed' }); }
     return result;
@@ -224,7 +227,7 @@ function scopedOwnerAuthority(required: { context: CallContext; expected: CallCo
  */
 export async function bootServer(required: {
     env: Readonly<Record<string, string | undefined>>; io: ServerBootIo; clock: ClockPort; ids: IdPort; observer: ObserverPort;
-}): Promise<Outcome<BootedServer>> {
+}, optional: { observability?: ObservabilityPort } = {}): Promise<Outcome<BootedServer>> {
     const config = parseLocalEnvironment({ env: required.env });
     if (!config.ok) return config;
     const resources: BootResources = {};
@@ -267,6 +270,8 @@ export async function bootServer(required: {
             readCredentialAsset: async input => resources.addons?.readCredentialAsset(input) ?? localFailure({ message: 'Connection asset unavailable' }),
             redirectUri: () => { const origin = listener.origin({}); return origin ? origin + oauthCallbackPath : null; } });
         const services: OwnerServices & OmFeatureServices = {
+            recentEvents: resources.recentEvents = createRecentEvents({ clock: required.clock, observer: required.observer }),
+            observability: optional.observability ?? createNoopObservabilityPort({}),
             campaigns: createSqlCampaignRepo({ db: campaignDb }, { observer: required.observer }),
             safety: createSqlSafetyRepo({ db: safetyDb, clock: required.clock, ids: required.ids, ownerTimezone: config.value.timezone, observer: required.observer }),
             confirmations: resources.confirmations, integrations,

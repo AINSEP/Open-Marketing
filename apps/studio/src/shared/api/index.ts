@@ -8,3 +8,6 @@ export type { StudioApiPort, StudioSnapshot, StudioRow, StudioMetric, StudioRun,
 
 export { oauthClientSetSchema, oauthChallengeSchema } from "./validation.js";
 export type { OAuthPlugin, OAuthClientRequest, OAuthClientStatus, OAuthStatus } from "./validation.js";
+
+export { instrumentStudioApi } from "./telemetry.js";
+export type { StudioTrack, StudioTrace } from "./types.js";

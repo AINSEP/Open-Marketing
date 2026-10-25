@@ -1,5 +1,8 @@
 /** Written-only I2 HTTP/CLI coverage. Public feature dist exports must be built by Coordinator. */
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
+import { createNoopObservabilityPort } from '@jini-ai/diagnostics/observability';
+import { createRecentEvents } from '../src/recent-events.js';
+import type { OwnerServices } from '../src/inbound/owner.js';
 import Database from 'better-sqlite3';
 import * as fs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
@@ -35,6 +38,7 @@ async function ownerFixture(_required: Record<string, never>) {
     const ids = { next: () => randomUUID() };
     const events: ObserverEvent[] = [];
     const observer = { observe: (event: ObserverEvent) => { events.push(event); } };
+    const recentEvents = createRecentEvents({ clock, observer });
     for (const path of ['campaigns', 'safety']) native.exec(await fs.readFile(new URL(`../../../features/${path}/migrations/0001_${path}.sql`, import.meta.url), 'utf8'));
     const db = bindServerDatabase({ native, context, observer });
     const campaignDb: CampaignSqlPort = { query: <Row extends Record<string, unknown>>(input: { text: string; values?: unknown[] }) =>
@@ -44,6 +48,7 @@ async function ownerFixture(_required: Record<string, never>) {
         query: ({ sql, parameters }) => session.query({ text: sql, values: [...parameters] }),
     } }) }) }, clock, ids, observer, ownerTimezone: 'UTC' });
     const confirmations = createMemoryConfirmationExchange({ clock, ids });
+    const services: OwnerServices = { campaigns, safety, confirmations, recentEvents };
     const token = 'a'.repeat(64);
     const auth = createLocalAuth({ credentials: { ...context.scope, token }, clock, bootstrapToken: 'b'.repeat(64) });
     const io = createNodeBootIo({ projectRoot: '', studioRoot: '', ready() {} });
@@ -54,19 +59,19 @@ async function ownerFixture(_required: Record<string, never>) {
         if (!authenticated.ok) return { status: 401, body: authenticated };
         const readBody = request.readBody;
         return handleOwnerRequest({ request: { ...request, readBody: readBody ? input => { bodyReads++; return readBody(input); } : undefined },
-            context, services: { campaigns, safety, confirmations } });
+            context, services });
     } }) });
     const origin = listener.origin({})!;
     const output: string[] = [];
     const runtime: CliRuntime = { env: { OM_SERVER_URL: origin, OM_OWNER_TOKEN: token }, fetch, clock, ids,
         deadline: { create: () => ({ signal: AbortSignal.timeout(15000), dispose() {} }) },
         stdout: { write: ({ text }) => { output.push(text); } }, stderr: { write() {} }, confirm: async () => true, readPrompt: async function* () {} };
-    return { native, context, otherContext, campaigns, safety, confirmations, events, origin, runtime, output,
+    return { native, context, otherContext, campaigns, safety, confirmations, events, origin, runtime, output, services, recentEvents,
         reads: () => bodyReads,
         async get(required: { path: string }) { return fetch(origin + required.path, { headers: { authorization: 'Bearer ' + token } }); },
         async post(required: { path: string; body: unknown }) { return fetch(origin + required.path, { method: 'POST', headers: {
             authorization: 'Bearer ' + token, 'content-type': 'application/json' }, body: JSON.stringify(required.body) }); },
-        async close() { await listener.stop({}); confirmations.reset({}); native.close(); },
+        async close() { await listener.stop({}); recentEvents.dispose({}); confirmations.reset({}); native.close(); },
     };
 }
 
@@ -166,6 +171,11 @@ it('real boot serves studio HTTP configuration, keeps read-only allowance free o
         expect(html).toContain('<head><meta name="om-server-url" content="/">');
         const snapshot = await (await fetch(origin + '/api/studio/snapshot', { headers })).json();
         expect(snapshot.value.workspace).toBe(owner.workspaceId);
+        const localEvent = { kind: 'product', name: 'screen.viewed', at: 1000, screen: 'settings' };
+        expect((await fetch(origin + '/api/dev/events', { method: 'POST', headers, body: JSON.stringify(localEvent) })).status).toBe(200);
+        await fetch(origin + '/api/safety/approvals/missing/answer', { method: 'POST', headers, body: JSON.stringify({ cardId: 'missing', operationId: 'missing', argumentsDigest: 'a'.repeat(64), choice: 'allow' }) });
+        expect((await (await fetch(origin + '/api/dev/events', { headers })).json()).value.items).toEqual([localEvent,
+            { kind: 'trace', name: 'approval.submit', at: 1000, correlationId: 'owner-test-correlation', traceId: 'owner-test-trace', outcome: 'error' }]);
         expect(snapshot.value.allowance.remaining.minorUnits).toBe(1000);
         expect(handles[0].prepare('SELECT COUNT(*) AS count FROM safety_state').get()).toEqual({ count: 0 });
         expect(await (await fetch(origin + '/api/safety/halt', { method: 'POST', headers, body: JSON.stringify({ accountId: 'local-account' }) })).json()).toEqual({ ok: true, value: { accountId: 'local-account', status: 'pending' } });
@@ -173,7 +183,55 @@ it('real boot serves studio HTTP configuration, keeps read-only allowance free o
         await server.stop({});
         server = value({ result: await bootServer(input) });
         origin = new URL(server.studioUrl).origin;
+        expect((await (await fetch(origin + '/api/dev/events', { headers })).json()).value.items).toEqual([]);
         expect(await (await fetch(origin + '/api/safety/halt', { method: 'POST', headers, body: JSON.stringify({ accountId: 'local-account' }) })).json()).toEqual({ ok: true, value: { accountId: 'local-account', status: 'pending' } });
         expect(handles[1].prepare('SELECT COUNT(*) AS count FROM safety_journal').get()).toEqual({ count: 1 });
     } finally { await server.stop({}); await removeStateRoot({ path: directory }); }
+});
+
+it('authenticates event ingestion before body reads, enforces origin/bytes and rejects trace claims', async () => {
+    const fixture = await ownerFixture({});
+    try {
+        const path = '/api/dev/events'; const event = { kind: 'product', name: 'screen.viewed', at: 1, screen: 'settings' };
+        expect((await fetch(fixture.origin + path, { method: 'POST', body: 'invalid' })).status).toBe(401);
+        expect((await fetch(fixture.origin + path)).status).toBe(401); expect(fixture.reads()).toBe(0);
+        expect((await fetch(fixture.origin + path, { method: 'POST', headers: { authorization: 'Bearer ' + 'a'.repeat(64), origin: 'https://foreign.test' }, body: '{}' })).status).toBe(403);
+        expect((await fixture.post({ path, body: event })).status).toBe(200);
+        expect((await fixture.post({ path, body: { ...event, token: 'private' } })).status).toBe(400);
+        expect((await fixture.post({ path, body: { kind: 'trace', name: 'approval.submit', at: 1, correlationId: 'c', traceId: 't', outcome: 'recorded' } })).status).toBe(400);
+        expect((await fixture.post({ path, body: { ...event, private: 'x'.repeat(2048) } })).status).toBe(413);
+        expect((await (await fixture.get({ path })).json()).value).toEqual({ items: [event] });
+        const headers = { authorization: 'Bearer ' + 'a'.repeat(64), 'content-type': 'application/json' };
+        expect((await fetch(fixture.origin + path, { method: 'POST', headers, body: JSON.stringify(event).padEnd(2048) })).status).toBe(200);
+        expect((await fetch(fixture.origin + path, { method: 'POST', headers, body: JSON.stringify(event).padEnd(2049) })).status).toBe(413);
+    } finally { await fixture.close(); }
+});
+
+it.each(['none', 'create', 'end', 'observer', 'clock'].flatMap(fault => [false, true].map(catalog => ({ fault, catalog }))))('preserves catalog=$catalog with $fault diagnostic failure', async ({ fault, catalog }) => {
+    const fixture = await ownerFixture({});
+    const confirm = vi.spyOn(fixture.confirmations, 'confirm');
+    try {
+        const card = value({ result: await fixture.confirmations.present({ context: fixture.context, request: effect({ operationId: 'instrumented' }) }) });
+        const unused = async () => { throw new Error('Unexpected fixture call'); };
+        if (catalog) fixture.services.tools = { card: async () => ({ ok: true, value: card }), answer: input => fixture.confirmations.confirm(input),
+            list: unused, describe: unused, dispatch: unused, operation: unused, restore: unused, cancel: unused, dispose: unused };
+        const end = vi.fn(() => { if (fault === 'end') throw new Error('fixture'); });
+        const trackRequest = vi.fn(() => { if (fault === 'create') throw new Error('fixture'); return { end }; });
+        fixture.services.observability = { ...createNoopObservabilityPort({}), trackRequest };
+        fixture.services.recentEvents = createRecentEvents({ clock: { now() { if (fault === 'clock') throw new Error('fixture'); return 1000; } },
+            observer: { observe(event) { if (fault === 'observer') throw new Error('fixture'); fixture.events.push(event); } } });
+        const body = { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' };
+        expect(await (await fixture.post({ path: '/api/safety/approvals/' + card.cardId + '/answer', body })).json()).toEqual({ ok: true, value: { status: 'recorded' } });
+        expect(confirm).toHaveBeenCalledTimes(1);
+        expect(confirm.mock.calls[0][0].context).toEqual(fixture.context);
+        expect(trackRequest).toHaveBeenCalledWith({ method: 'POST', path: '/api/safety/approvals/:id/answer' }, { requestId: fixture.context.correlationId });
+        expect(end).toHaveBeenCalledTimes(fault === 'create' ? 0 : 1);
+        if (fault !== 'create') expect(end).toHaveBeenCalledWith({ statusCode: 200, routePattern: '/api/safety/approvals/:id/answer' });
+        const repeated = await fixture.post({ path: '/api/safety/approvals/' + card.cardId + '/answer', body });
+        expect(repeated.status).toBe(409); expect(confirm).toHaveBeenCalledTimes(2);
+        if (fault !== 'create') expect(end).toHaveBeenLastCalledWith({ statusCode: 409, routePattern: '/api/safety/approvals/:id/answer' });
+        expect(fixture.services.recentEvents.recent({}).items).toEqual(fault === 'clock' ? [] : [
+            { kind: 'trace', name: 'approval.submit', at: 1000, correlationId: 'correlation', traceId: 'trace', outcome: 'recorded' },
+            { kind: 'trace', name: 'approval.submit', at: 1000, correlationId: 'correlation', traceId: 'trace', outcome: 'error' }]);
+    } finally { confirm.mockRestore(); await fixture.close(); }
 });

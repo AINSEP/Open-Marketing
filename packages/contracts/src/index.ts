@@ -1,4 +1,6 @@
 /** Pure OM protocol/value public API. */
+export { captureEventSchema, recentEventsSchema } from './telemetry/index.js';
+export type { CaptureEvent, RecentEvents } from './telemetry/index.js';
 export { PROTOCOL_VERSION, runGrantMetadataSchema, startRunSchema, cancelRunSchema, eventCursorSchema, runEventSchema, eventSubscriptionSchema } from "./agent/index.js";
 export type { RunGrantMetadata, ServiceControlCredential, RunGrantCredential, StartRunRequest, CancelRunRequest, RunEvent, SseEvent, EventSubscription, RunReceipt, CancellationReceipt, AgentHealth } from "./agent/index.js";
 export { navigationTargetSchema, navigationActionSchema, navigationResultSchema, approvalChoiceSchema, confirmationCardSchema, approvalResponseSchema, apiRequestSchema, mcpRequestSchema, chatMessageSchema } from "./api/index.js";

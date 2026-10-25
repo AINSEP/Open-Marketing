@@ -1,7 +1,9 @@
+import { createNoopObservabilityPort } from "@jini-ai/diagnostics/observability";
+import { StudioErrorBoundary } from "../app/shell/StudioErrorBoundary.js";
 import { createElement } from "react";
 import type { Root } from "react-dom/client";
 import { Shell } from "../app/shell/Shell.js";
-import { createSampleStudioApi } from "../shared/api/index.js";
+import { createSampleStudioApi, instrumentStudioApi } from "../shared/api/index.js";
 import type { StudioApiPort } from "../shared/api/index.js";
 import type { StudioRuntime } from "../shared/api/index.js";
 import { createNavigationController } from "../features/navigate/index.js";
@@ -34,17 +36,17 @@ export function createStudioApp(required: StudioAppDependencies) {
       let mounted = true;
       let chartRevision = 0;
       const refreshCharts = () => { if (!mounted) return; chartRevision++; paint(); };
-      const api = chartAwareApi({ api: required.api ?? createSampleStudioApi({ runtime: required.runtime }), changed: refreshCharts });
-      const navigation = createNavigationController({ browser: required.browser, timers: required.runtime.timers, timeoutMs: 5000 });
+      const { api, runtime } = instrumentStudioApi({ api: chartAwareApi({ api: required.api ?? createSampleStudioApi({ runtime: required.runtime }), changed: refreshCharts }), runtime: required.runtime, observability: createNoopObservabilityPort({}) });
+      const navigation = createNavigationController({ browser: required.browser, timers: runtime.timers, timeoutMs: 5000, track: runtime.track });
       let bridge: ReturnType<typeof bindPageActions> | undefined;
-      const session = createChatSession({ api, runtime: required.runtime, navigate: input => navigation.apply({ input: input.action }),
+      const session = createChatSession({ api, runtime, navigate: input => navigation.apply({ input: input.action }),
         frontendSessionId: () => bridge?.sessionId(), frontendBindToken: () => bridge?.bindToken() });
-      const page = required.frontend ? studioPageBinding({ frontend: required.frontend, runtime: required.runtime, currentRun: session.currentRun }) : undefined;
+      const page = required.frontend ? studioPageBinding({ frontend: required.frontend, runtime, currentRun: session.currentRun }) : undefined;
       if (page && required.frontend) bridge = bindPageActions({ driver: page.driver, transport: required.frontend.transport,
         currentRun: session.currentRun, onBound: session.receiveFrontendBinding, onVoided: session.voidFrontendRun, onSurface: session.receiveSurface,
         onError: () => { /* Individual requests report typed failures via the server relay. */ } });
-      function paint() { required.root.render(createElement(Shell, { api, navigation, session, runtime: required.runtime, appearance: required.appearance, doc: required.doc,
-        charts: required.charts ? { host: required.charts, revision: chartRevision } : undefined })); }
+      function paint() { required.root.render(createElement(StudioErrorBoundary, { track: runtime.track, screen: navigation.getSnapshot }, createElement(Shell, { api, navigation, session, runtime, appearance: required.appearance, doc: required.doc,
+        charts: required.charts ? { host: required.charts, revision: chartRevision } : undefined }))); }
       paint();
       stopCurrent = () => { mounted = false; bridge?.close(); page?.dispose(); required.root.unmount(); session.dispose(); navigation.dispose(); };
     },

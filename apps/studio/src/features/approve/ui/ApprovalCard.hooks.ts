@@ -18,6 +18,7 @@ export function useApprovalCard(required: ApprovalCardProps) {
     submission.current.controller.abort(); required.runtime.timers.cancel({ handle: submission.current.handle });
   }, [required.runtime]);
   const [now, setNow] = useState(required.runtime.clock.now({}));
+  const exposure = useApprovalExposure({ ...required, parsed, now, locked });
   useEffect(() => {
     if (!parsed.ok) return;
     const handle = required.runtime.timers.schedule({ delayMs: Math.max(0, parsed.value.expiresAt - required.runtime.clock.now({})), callback: () => setNow(required.runtime.clock.now({})) });
@@ -25,11 +26,13 @@ export function useApprovalCard(required: ApprovalCardProps) {
   }, [parsed, required.runtime]);
   const submit = async (input: { choice: ApprovalResponse["choice"] }): Promise<void> => {
     if (locked.current || !parsed.ok) return;
-    const response = prepareApproval({ card: parsed.value, choice: input.choice, now: required.runtime.clock.now({}) });
+    const decidedAt = required.runtime.clock.now({});
+    const response = prepareApproval({ card: parsed.value, choice: input.choice, now: decidedAt });
     if (!response.ok) { setStatus("expired"); return; }
     locked.current = true; setStatus("submitting");
+    required.runtime.track?.('approval.clicked', { cardId: parsed.value.cardId, operationId: parsed.value.operationId, choice: input.choice, durationMs: Math.max(0, decidedAt - (exposure.current?.at ?? decidedAt)) });
     const controller = required.runtime.abort();
-    const handle = required.runtime.timers.schedule({ delayMs: 15000, callback: () => { controller.abort(); setStatus("failed"); } });
+    const handle = required.runtime.timers.schedule({ delayMs: 15000, callback: () => { controller.abort("timeout"); setStatus("failed"); } });
     submission.current = { controller, handle };
     const result = await required.api.approve({ response: response.value, signal: controller.signal });
     required.runtime.timers.cancel({ handle });
@@ -62,4 +65,25 @@ function statusText(required: { status: string; expired: boolean; sample: boolea
     case "expired": return "Expired · request a fresh server card";
     default: return "Only the choices offered by the server are available.";
   }
+}
+
+/** One exposure survives effect replay; a remount is a new exposure. Invalid cards supply no IDs.
+ * @complexity O(1) retained state; the existing card deadline drives unanswered expiry.
+ */
+function useApprovalExposure(required: ApprovalCardProps & { parsed: ReturnType<typeof readApprovalCard>; now: number; locked: { current: boolean } }) {
+  const exposure = useRef<{ cardId: string | null; at: number; expired: boolean } | null>(null);
+  useEffect(() => {
+    try {
+      const cardId = required.parsed.ok ? required.parsed.value.cardId : null;
+      if (!exposure.current || exposure.current.cardId !== cardId) {
+        exposure.current = { cardId, at: required.runtime.clock.now({}), expired: false };
+        if (required.parsed.ok) required.runtime.track?.('approval.shown', { cardId: required.parsed.value.cardId, operationId: required.parsed.value.operationId });
+        else required.runtime.track?.('approval.invalid_card', { errorCode: 'invalid_card' });
+      }
+      if (!required.parsed.ok || required.locked.current || exposure.current.expired || required.now < required.parsed.value.expiresAt) return;
+      exposure.current.expired = true;
+      required.runtime.track?.('approval.expired', { cardId: required.parsed.value.cardId, operationId: required.parsed.value.operationId, durationMs: Math.max(0, required.now - exposure.current.at) });
+    } catch { /* Diagnostic clocks/capture never change card authority or deadlines. */ }
+  }, [required.card, required.parsed, required.now, required.locked, required.runtime]);
+  return exposure;
 }

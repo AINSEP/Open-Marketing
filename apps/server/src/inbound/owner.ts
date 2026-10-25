@@ -4,6 +4,9 @@ import type { Addons } from '../addons.js';
 import type { Integrations } from '../integrations.js';
 /** Owner HTTP translation. Authentication/scope are supplied by the local server dispatcher. */
 import { z } from 'zod';
+import type { ObservabilityPort, RequestTracker } from '@jini-ai/diagnostics/observability';
+import type { createRecentEvents } from '../recent-events.js';
+import { captureEventSchema, recentEventsSchema } from '@open-marketing/contracts';
 import type { UiFrontendPort } from '../ui-tools.js';
 import type { FrontendSessions } from './frontend.js';
 import type { AssistantRunRequest } from '@open-marketing/contracts';
@@ -24,6 +27,8 @@ import type { OmTools } from '../om-tool-types.js';
 
 /** Existing owning repositories/exchange; tests inject the same public memory adapters. */
 export interface OwnerServices {
+    recentEvents?: ReturnType<typeof createRecentEvents>;
+    observability?: ObservabilityPort;
     ui?: { runtime: { clock: ClockPort; ids: IdPort }; frontend?: UiFrontendPort; sessions?: FrontendSessions };
     readonly campaigns: CampaignRepoPort;
     readonly safety: SafetyRepoPort;
@@ -147,7 +152,7 @@ async function approval(required: OwnerInput & { id: string }): Promise<HttpResp
 }
 
 /** Authentication precedes this lazy body read. The path must agree with the exact response. */
-async function answer(required: OwnerInput & { id: string }): Promise<HttpResponse> {
+async function answerResponse(required: OwnerInput & { id: string }): Promise<HttpResponse> {
     const body = await requestBody(required);
     if (!body.ok) return respond({ outcome: body, schema: routes.answer.schema });
     const response = parseBoundary({ schema: approvalResponseSchema, input: body.value });
@@ -158,6 +163,45 @@ async function answer(required: OwnerInput & { id: string }): Promise<HttpRespon
         ? await required.services.tools!.answer({ context: required.context, response: response.value })
         : await required.services.confirmations.confirm({ context: required.context, response: response.value });
     return respond({ outcome: continued.ok ? { ok: true, value: { status: 'recorded' as const } } : continued, schema: routes.answer.schema });
+}
+
+/** Jini's foreign two-argument ABI takes a fixed route and the existing request correlation ID. */
+function approvalTracker(required: OwnerInput): RequestTracker | undefined {
+    try { return required.services.observability?.trackRequest({ method: 'POST', path: '/api/safety/approvals/:id/answer' },
+        { requestId: required.context.correlationId }); }
+    catch { return undefined; }
+}
+
+/** One tracker encloses existing awaited confirmation work, without retrying or changing errors.
+ * @complexity O(1) diagnostic work; approval behavior belongs to answerResponse.
+ */
+async function answer(required: OwnerInput & { id: string }): Promise<HttpResponse> {
+    const tracker = approvalTracker(required);
+    let statusCode = 503;
+    try {
+        const response = await answerResponse(required);
+        statusCode = response.status;
+        return response;
+    } finally {
+        try { tracker?.end({ statusCode, routePattern: '/api/safety/approvals/:id/answer' }); }
+        catch { /* Tracker completion must not replace the approval response. */ }
+        try { required.services.recentEvents?.observer.observe({ operation: 'approval.submit',
+            outcome: statusCode === 200 ? 'recorded' : 'error',
+            correlationId: required.context.correlationId, traceId: required.context.traceId }); }
+        catch { /* Observer failure must not replace the approval response. */ }
+    }
+}
+
+/** Authenticated browser ingestion accepts only product/error variants; never server trace claims.
+ * @complexity One <=2 KiB event, one bounded buffer append; no recursive capture.
+ */
+async function captureEvent(required: OwnerInput): Promise<HttpResponse> {
+    const body = await requestBody(required);
+    const parsed = body.ok ? parseBoundary({ schema: captureEventSchema, input: body.value }) : body;
+    if (!parsed.ok) return respond({ outcome: parsed, schema: routes.answer.schema });
+    if (parsed.value.kind === 'trace') return respond({ outcome: localFailure({ code: 'invalid_input', message: 'Browser trace events are not accepted' }), schema: routes.answer.schema });
+    const outcome = required.services.recentEvents?.capture({ event: parsed.value }) ?? localFailure<never>({ message: 'Local events unavailable' });
+    return respond({ outcome, schema: routes.answer.schema });
 }
 
 function requestBody(required: { request: HttpRequest }): Promise<Outcome<unknown>> {
@@ -185,6 +229,9 @@ export async function handleOwnerRequest(required: OwnerInput): Promise<HttpResp
     if (required.request.path === '/api/tools' || required.request.path.startsWith('/api/tools/')) return ownerToolRequest(required);
     if (required.request.path.startsWith('/api/addons/v1/')) return addonOwnerRequest(required);
     switch (required.request.method + ' ' + required.request.path) {
+        case 'POST /api/dev/events': return captureEvent(required);
+        case 'GET /api/dev/events': return respond({ outcome: required.services.recentEvents
+            ? { ok: true, value: required.services.recentEvents.recent({}) } : localFailure({ message: 'Local events unavailable' }), schema: recentEventsSchema });
         case 'GET /api/status': return respond({ outcome: { ok: true, value: { ready: true, mode: 'local' as const } }, schema: routes.status.schema });
         case 'GET /api/studio/snapshot': return snapshot(required);
         case 'GET /api/campaigns': return campaigns(required);

@@ -1,5 +1,5 @@
-import { addonListRequestSchema, addonSummarySchema, installAddonSchema, setAddonEnabledSchema, uninstallAddonSchema, connectIntegrationTokenSchema, disconnectIntegrationSchema, pageQuerySchema } from '@open-marketing/contracts';
-import type { AddonSummary, IntegrationSummary } from '@open-marketing/contracts';
+import { captureEventSchema, recentEventsSchema, addonListRequestSchema, addonSummarySchema, installAddonSchema, setAddonEnabledSchema, uninstallAddonSchema, connectIntegrationTokenSchema, disconnectIntegrationSchema, pageQuerySchema } from '@open-marketing/contracts';
+import type { AddonSummary, IntegrationSummary, CaptureEvent } from '@open-marketing/contracts';
 import { approvalResponseSchema, cancelRunSchema, chatMessageSchema, navigationResultSchema, navigationTargetSchema, parseBoundary } from "@open-marketing/contracts";
 import type { Outcome, RunEvent, NavigationResult, ConfirmationCard, ApprovalResponse } from "@open-marketing/contracts";
 import type { StudioApiPort, StudioRun, StudioPayload } from "./types.js";
@@ -26,10 +26,20 @@ function fixtureEvent(required: { runId: string; sequence: number; payload: Stud
  */
 export function createSampleStudioApi(required: { runtime: StudioRuntime }): StudioApiPort {
   const snapshot = sampleSnapshot({ clock: required.runtime.clock });
+  const recent: CaptureEvent[] = [];
   const decisions = new Map<string, string>();
   const runs = new Map<string, SampleRun>();
   const acknowledgements: NavigationResult[] = [];
   return {
+    async captureEvent(input) {
+      const event = parseBoundary({ schema: captureEventSchema, input: input.event });
+      if (!event.ok) return event;
+      if (event.value.kind === 'trace') return unavailable();
+      if (recent.length === 100) recent.shift();
+      recent.push(event.value);
+      return { ok: true, value: { status: 'recorded' } };
+    },
+    async recentEvents() { return parseBoundary({ schema: recentEventsSchema, input: { items: recent } }); },
     async operation() { return unavailable(); },
     addons: sampleAddons({ runtime: required.runtime }),
     async conversations() { return unavailable(); },
