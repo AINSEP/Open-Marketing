@@ -109,6 +109,39 @@ export function OutboxStoreSuite(required: { name: string; create: (required: { 
             expect(await store.complete({ tenantId: "tenant", id: "leased", token: "token", now: 2 }, { state: "succeeded" })).toBe(false);
             expect(await store.get({ tenantId: "tenant", id: "leased" })).toMatchObject({ state: "reconcile" });
         });
+        it("cancels exact nested subjects across a family, fences attempts and isolates tenants", async () => {
+            const store = setup({});
+            for (const subjectId of ["a", "alias", "leased", "dispatching", "other", "a-longer"]) {
+                await store.enqueue(storedJob({ id: subjectId, idempotencyKey: subjectId, payload: JSON.stringify({ payload: { subjectId } }) }));
+            }
+            await store.enqueue(storedJob({ id: "top-level", idempotencyKey: "top-level", payload: JSON.stringify({ subjectId: "a", payload: {} }) }));
+            await store.enqueue(storedJob({ id: "foreign", idempotencyKey: "foreign", tenantId: "foreign", payload: JSON.stringify({ payload: { subjectId: "a" } }) }));
+            // Claim deterministically, then put one attempt into dispatching and another into retry.
+            for (const id of ["a", "a-longer", "alias", "dispatching", "foreign", "leased"]) {
+                expect(await store.claim({ now: 0, leaseToken: id, leaseExpiresAt: 100, maxAttempts: 3 })).toMatchObject({ id });
+            }
+            expect(await store.beginDispatch({ tenantId: "tenant", id: "dispatching", token: "dispatching", now: 1 })).toBe(true);
+            expect(await store.complete({ tenantId: "tenant", id: "alias", token: "alias", now: 1 }, { state: "retry", availableAt: 2 })).toBe(true);
+            expect(await store.cancelBySubject({ tenantId: "tenant", subjectIds: ["a", "alias", "leased", "dispatching", "a"], now: 2 }))
+                .toEqual({ cancelled: 1, reconcile: 3 });
+            for (const id of ["a", "leased", "dispatching"]) {
+                expect(await store.get({ tenantId: "tenant", id })).toMatchObject({ state: "reconcile", leaseToken: null, leaseExpiresAt: null });
+                expect(await store.complete({ tenantId: "tenant", id, token: id, now: 3 }, { state: "succeeded" })).toBe(false);
+            }
+            expect(await store.get({ tenantId: "tenant", id: "alias" })).toMatchObject({ state: "cancelled" });
+            expect(await store.get({ tenantId: "foreign", id: "foreign" })).toMatchObject({ state: "leased" });
+            expect(await store.get({ tenantId: "tenant", id: "a-longer" })).toMatchObject({ state: "leased" });
+            expect(await store.get({ tenantId: "tenant", id: "top-level" })).toMatchObject({ state: "pending" });
+            expect(await store.cancelBySubject({ tenantId: "tenant", subjectIds: ["a", "alias"], now: 3 })).toEqual({ cancelled: 0, reconcile: 0 });
+        });
+        it("validates the whole cancellation batch before effects and fails closed on corrupt payloads", async () => {
+            const store = setup({});
+            await store.enqueue(storedJob({ payload: "not-json" }));
+            await expect(store.cancelBySubject({ tenantId: "tenant", subjectIds: [], now: 0 })).rejects.toMatchObject({ code: "invalid_input" });
+            await expect(store.cancelBySubject({ tenantId: "tenant", subjectIds: Array(101).fill("a"), now: 0 })).rejects.toMatchObject({ code: "invalid_input" });
+            await expect(store.cancelBySubject({ tenantId: "tenant", subjectIds: ["a"], now: 0 })).rejects.toMatchObject({ code: "unavailable" });
+            expect(await store.get({ tenantId: "tenant", id: "job-a" })).toMatchObject({ state: "pending" });
+        });
         it("requires evidence and one CAS to resolve uncertainty; never adds retry authority", async () => {
             const store = setup({});
             await store.enqueue(storedJob({}));

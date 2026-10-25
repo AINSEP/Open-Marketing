@@ -1,7 +1,7 @@
 import type { Completion, EnqueueResult, LeaseFence, OutboxEvent, OutboxJob } from "./types.js";
 import type { ManagedOutboxStore } from "./store.js";
 import type { JobsSqlDatabase, JobsSqlSession } from "./sql-types.js";
-import { validateClaim, validateCompletion, validateFence, validateResolution, validateTime } from "./store.js";
+import { validateClaim, validateCompletion, validateFence, validateResolution, validateTime, validateSubjectCancellation } from "./store.js";
 import { appendTransition, enqueueSqlJob, sqlJob } from "./sql-queries.js";
 import { JobStoreError } from "./errors.js";
 import { validateStoredJob } from "./schema.js";
@@ -83,6 +83,16 @@ export function createSqlOutboxStore(required: { database: JobsSqlDatabase; maxJ
                     parameters: [input.state, input.tenantId, input.id],
                 });
                 return recordUpdate({ session, rows: result.rows, event: "resolve", now: input.now, evidenceId: input.evidenceId });
+            } });
+        },
+        async cancelBySubject(request) {
+            const input = validateSubjectCancellation(request);
+            return transact({ operation: "complete", execute: async ({ session }) => {
+                // One tenant scan, bounded by store capacity; all transitions and journal rows share this transaction.
+                const result = await session.query({ sql: "UPDATE job SET state=CASE WHEN state IN ('pending','retry') THEN 'cancelled' ELSE 'reconcile' END, lease_token=NULL, lease_expires_at=NULL WHERE tenant_id=$1 AND state IN ('pending','retry','leased','dispatching') AND json_type(payload,'$.payload.subjectId')='text' AND json_extract(payload,'$.payload.subjectId') IN (" + input.subjectIds.map((_, index) => '$' + (index + 2)).join(',') + ") RETURNING *",
+                    parameters: [input.tenantId, ...input.subjectIds] });
+                for (const row of result.rows) await appendTransition({ session, job: sqlJob({ row }), event: "cancel", now: input.now });
+                return { cancelled: result.rows.filter(row => row.state === "cancelled").length, reconcile: result.rows.filter(row => row.state === "reconcile").length };
             } });
         },
     };

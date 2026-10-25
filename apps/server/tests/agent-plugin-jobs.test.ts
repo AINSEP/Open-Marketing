@@ -1,16 +1,21 @@
+import { createSqlContactRepo } from '@open-marketing/contacts';
+import { createSqlJobRepo, jobTenant } from '@open-marketing/jobs';
+import { bindIdentity, createVisitTokens } from '../src/composition/identity.js';
+import { createSubjectLane } from '../src/composition/subject-lane.js';
+import { jobsDatabase, formRetryPolicy } from '../src/composition/forms.js';
 /** R2 fixtures use real safety/measure/jobs services and plugin codecs; all egress is injected. */
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { expect, it } from 'vitest';
-import type { CallContext, HaltStopRequest, Outcome, UnitOfWork } from '@open-marketing/contracts';
+import type { CallContext, ClockPort, HaltStopRequest, Outcome, UnitOfWork } from '@open-marketing/contracts';
 import { createMemoryAccountDispatchLock, createMemoryConfirmationExchange, createMemorySafetyAudit, createMemorySafetyRepo,
     createMemorySpendPolicy, createMemoryPlatformLimitEvidence, createMemoryVerifiedEffectResolver, createSafetyService, digestArguments } from '@open-marketing/safety';
-import { createMemoryConversionDeliveryState, createMemoryConversionVerification, createMemoryMeasurementGrant, createSqlMeasureAudit } from '@open-marketing/measure';
+import { createMemoryConversionDeliveryState, createMemoryConversionVerification, createMemoryMeasurementGrant, createSqlMeasureAudit, createMeasurementShareabilityAdapter } from '@open-marketing/measure';
 import type { ConversionInput, MeasureGrant } from '@open-marketing/measure';
-import { createSqlPolicyRepo } from '@open-marketing/policy';
-import { createErasureParticipantRegistry, createMemoryPrivacyRepo, createPrivacyService } from '@open-marketing/privacy';
+import { createSqlFormsStorage } from '@open-marketing/forms';
+import { bindPrivacy } from '../src/composition/privacy.js';
 import { bindAgentPluginBackends, bindAgentPluginJobs } from '../src/composition/agent-plugin-backends.js';
 import { bindAgentPluginHaltJobs, createFormWorkers } from '../src/composition/workers.js';
 import { bindServerDatabase, provisionWorkspace } from '../src/composition/database.js';
@@ -31,7 +36,8 @@ const clock = { now: () => 1000 };
 const observer = { observe() {} };
 function value<T>(required: { result: Outcome<T> }): T { if (!required.result.ok) throw new Error(required.result.error.message); return required.result.value; }
 
-async function fixture(required: { pluginId?: 'linkedin-ads' | 'tiktok-ads'; onFetch?(): Promise<void> } = {}) {
+async function fixture(required: { pluginId?: 'linkedin-ads' | 'tiktok-ads'; clock?: ClockPort; onFetch?(): Promise<void> } = {}) {
+    const fixtureClock = required.clock ?? clock;
     const selectedPlugin = required.pluginId ?? 'linkedin-ads';
     const native = new Database(':memory:');
     native.pragma('foreign_keys = ON');
@@ -39,15 +45,22 @@ async function fixture(required: { pluginId?: 'linkedin-ads' | 'tiktok-ads'; onF
     const database = bindServerDatabase({ native, observer, context });
     await provisionWorkspace({ database: database.workspace, scope: context.scope });
     const ids = { next: () => randomUUID() };
+    const contactRepo = createSqlContactRepo({ uow: database.unit });
+    value({ result: await contactRepo.upsert({ context, subject: { scope: context.scope, subjectId: 'subject', createdAt: 1000, creationOrder: 0, mergedInto: null, lineage: [] },
+        identifiers: [{ identifierId: 'email', subjectId: 'subject', kind: 'email', normalizedValue: 'fixture@example.test', normalizationVersion: 'v1', identifierDigest: 'a'.repeat(64), keyVersion: 'local-v1' }] }) });
+    const subjectLane = createSubjectLane({ resolveSubject: contactRepo.get });
+    const identity = bindIdentity({ unit: database.unit, clock: fixtureClock, ids, observer, digestKey: new Uint8Array([1]),
+        tokens: createVisitTokens({ key: new Uint8Array([1]), clock: fixtureClock, ids }).tokens, subjectLane });
+    const jobs = createSqlJobRepo({ database: jobsDatabase({ unit: database.unit }), clock: fixtureClock, ids, retryPolicy: formRetryPolicy });
     const locks = createMemoryAccountDispatchLock({ ids });
-    const repo = createMemorySafetyRepo({ clock, ids, ownerTimezone: 'UTC' });
+    const repo = createMemorySafetyRepo({ clock: fixtureClock, ids, ownerTimezone: 'UTC' });
     const calls: { url: string; options?: RequestInit }[] = [];
     const credentials: string[] = [];
-    let admitted = true; let tokenCallback = async () => {};
+    let admitted = true; let tokenCallback = async () => {}; let bindingCallback = async () => {};
     const require = createRequire(import.meta.url);
-    const backend = bindAgentPluginBackends({ projectRoot: '/fixture', clock, observer, mode: 'production', accountLocks: locks,
-        jobs: bindAgentPluginJobs({ unit: database.unit, clock, ids, observer }), safetyRepo: repo, unit: database.unit,
-        policyForTransaction: ({ unit }) => createSqlPolicyRepo({ pool: unit, observer }),
+    const backend = bindAgentPluginBackends({ projectRoot: '/fixture', clock: fixtureClock, observer, mode: 'production', accountLocks: locks, subjectLane,
+        jobs: bindAgentPluginJobs({ unit: database.unit, clock: fixtureClock, ids, observer }), safetyRepo: repo, unit: database.unit,
+        policyForTransaction: ({ unit }) => identity.forTransaction({ unit }).policy,
         async moduleDigest() { return 'd'.repeat(64); },
         async loadModule() {
             if (selectedPlugin === 'tiktok-ads') return require('../../../content/agent-plugins/tiktok-ads/io.github.ainsep.openmarketing/dist/index.mjs') as object;
@@ -59,11 +72,12 @@ async function fixture(required: { pluginId?: 'linkedin-ads' | 'tiktok-ads'; onF
             destination: 'linkedin', purpose: 'measurement', payloadSchema: 'om.conversion', mode: 'production-server',
             conversionRules: { purchase: 'urn:lla:llaPartnerConversion:456' },
         } } } : null; },
-        accounts: { async find({ externalAccountId }) { return { ok: true, value: { id: 'binding', scope: context.scope, connectionId: 'connection', externalAccountId } }; } },
+        accounts: { async find({ externalAccountId }) { await bindingCallback(); return { ok: true, value: { id: 'binding', scope: context.scope, connectionId: 'connection', externalAccountId } }; } },
         integrations: { async access({ pluginId }) { credentials.push(pluginId); await tokenCallback(); return { ok: true, value: { accessToken: 'fixture-only-token' } }; } },
         fetch: async (url, options) => { expect(native.inTransaction).toBe(false); calls.push({ url: String(url), options }); await required.onFetch?.(); return new Response(null, { status: 201 }); },
     });
-    return { native, database, ids, locks, repo, backend, calls, credentials,
+    return { native, database, ids, locks, repo, backend, calls, credentials, subjectLane, identity, jobs, clock: fixtureClock,
+        onBinding(input: { callback(): Promise<void> }) { bindingCallback = input.callback; },
         unadmit() { admitted = false; }, onToken(input: { callback(): Promise<void> }) { tokenCallback = input.callback; }, close() { native.close(); } };
 }
 function safety(required: { f: Awaited<ReturnType<typeof fixture>>; requests: HaltStopRequest[] }) {
@@ -154,53 +168,72 @@ it('rejects a stale halt epoch and unadmitted stop before token/network access',
 
 const event: ConversionInput = { eventId: 'event', definitionId: 'purchase', subjectId: 'subject', occurredAt: 1000, destination: 'linkedin', purpose: 'measurement', identifierDigests: { email: 'a'.repeat(64) } };
 const grant: MeasureGrant = { kind: 'measurement', grantId: 'grant', scope: context.scope, connectionId: 'connection', accountId: '123', definitionIds: ['purchase'], destination: 'linkedin', purpose: 'measurement', payloadSchema: 'om.conversion', payloadVersion: 1, expiresAt: 100000, revoked: false };
-function conversions(required: { f: Awaited<ReturnType<typeof fixture>>; local?: boolean; beforeAssess?(): Promise<void> }) {
+async function conversions(required: { f: Awaited<ReturnType<typeof fixture>>; local?: boolean; beforeAssess?(): Promise<void>; beforeAppend?(): Promise<void>;
+    admissionErasure?: 'pending' | 'erased'; failAdmissionEvidence?: boolean }) {
+    const clock = required.f.clock;
     let allowed = true; let withdrawAtAudit = false;
     const records: unknown[] = [];
     const ledger = createMemoryConversionDeliveryState({});
     const grants = createMemoryMeasurementGrant({ grants: [grant] });
+    value({ result: await required.f.identity.policy.appendEvidence({ context, evidence: { id: 'sharing-consent', scope: context.scope, subjectId: event.subjectId,
+        kind: 'consent', recordedAt: 1000, sourceId: 'fixture', consent: { scope: 'destination', target: event.destination, purpose: event.purpose,
+            status: 'granted', start: 1000, end: 100000 } } }) });
     // The grant is deliberately in memory; production grant persistence is outside this lane.
     // Policy and audit always bind the given unit, including the final admission's joined session.
     function authority({ unit }: { unit: UnitOfWork }) {
-        const policy = createSqlPolicyRepo({ pool: unit, observer });
+        const identity = required.f.identity.forTransaction({ unit });
         const audit = createSqlMeasureAudit({ database: {
             query: input => unit.transaction({ work: ({ session }) => session.query(input) }),
             transaction: ({ work }) => unit.transaction({ work: ({ session }) => work(session) }),
         }, clock, ids: required.f.ids }, { observer });
-        return { grants,
-            policy: { async assess(input: { context: CallContext; event: ConversionInput }) {
-                await required.beforeAssess?.();
-                const snapshot = await policy.snapshot({ context: input.context, subjectId: input.event.subjectId });
-                if (!snapshot.ok) return snapshot;
-                const withdrawn = snapshot.value.consents.some(consent => consent.status === 'withdrawn' && consent.target === input.event.destination && consent.purpose === input.event.purpose);
-                return { ok: true as const, value: { allowed: allowed && !withdrawn } };
-            } },
+        const loadEvidence: Parameters<typeof createMeasurementShareabilityAdapter>[0]['loadEvidence'] = async input => {
+            await required.beforeAssess?.();
+            if ('query' in unit && required.failAdmissionEvidence) return { ok: false, error: { code: 'unavailable', message: 'Evidence read failed', retryable: false } };
+            const snapshot = await identity.policy.snapshot({ context: input.context, subjectId: input.event.subjectId });
+            if (!snapshot.ok) return snapshot;
+            const subject = await identity.contactsRepo.get({ context: input.context, subjectId: input.event.subjectId });
+            if (!subject.ok) return subject;
+            if (!subject.value) return { ok: false, error: { code: 'unavailable', message: 'Missing subject', retryable: false } };
+            const subjectIds = [...new Set([subject.value.subjectId, ...subject.value.lineage.map(item => item.sourceSubjectId)])];
+            const consents = [...snapshot.value.consents];
+            if (!allowed) consents.push({ scope: 'destination', target: event.destination, purpose: event.purpose, status: 'withdrawn', start: 1000, end: 100000 });
+            return { ok: true, value: { policy: { ...snapshot.value, consents },
+                lineage: subjectIds.map(subjectId => ({ subject: { scope: input.context.scope, subjectId }, erasure: 'query' in unit ? required.admissionErasure ?? 'none' : 'none' })) } };
+        };
+        return { grants, loadEvidence,
             audit: { async record(input: { context: CallContext; operationId: string; outcome: string }) {
-                if (input.outcome === 'egress_admitted') expect(required.f.native.inTransaction).toBe(true);
+                if (['egress_admitted', 'egress_denied'].includes(input.outcome)) expect(required.f.native.inTransaction).toBe(true);
                 records.push(input); if (withdrawAtAudit) allowed = false;
                 return audit.record(input);
             } },
         };
     }
-    const dispatcher = required.f.backend.conversions({ clock, runtimeMode: required.local ? 'local-sandbox' : 'production-server', payloadSchema: 'om.conversion',
+    const queued = value({ result: await required.f.jobs.enqueue({ context, job: { handler: 'measure.conversion', operationId: 'delivery',
+        idempotencyKey: 'conversion:delivery', argumentsDigest: 'c'.repeat(64), payload: { subjectId: event.subjectId, eventId: event.eventId, deliveryId: 'delivery' } } }) });
+    const leased = value({ result: await required.f.jobs.claim({ worker: { workerId: 'measure-worker' } }) });
+    if (!leased || leased.lease.id !== queued.jobId) throw new Error('Missing conversion claim');
+    const claim = { jobId: queued.jobId, leaseToken: leased.lease.leaseToken! };
+    const rootAuthority = authority({ unit: required.f.database.unit });
+    const claimedDispatcher = required.f.backend.conversions({ clock, runtimeMode: required.local ? 'local-sandbox' : 'production-server', payloadSchema: 'om.conversion',
         identifiers: { async identifiersFor() { return { ok: true, value: { subjectId: 'subject', identifiers: { email: 'b'.repeat(64) }, identifierDigests: event.identifierDigests } }; } },
         verification: createMemoryConversionVerification({ events: [{ scope: context.scope, event }] }),
-        ...authority({ unit: required.f.database.unit }), authority,
-        ledger: { async begin(input) { records.push(input.record); return ledger.begin(input); }, async append(input) { records.push(input.record); return ledger.append(input); } },
+        ...rootAuthority, policy: createMeasurementShareabilityAdapter({ clock, loadEvidence: rootAuthority.loadEvidence }), authority,
+        ledger: { async begin(input) { records.push(input.record); return ledger.begin(input); }, async append(input) { records.push(input.record); await required.beforeAppend?.(); return ledger.append(input); } },
     });
-    return { dispatcher, records, withdraw() { allowed = false; }, withdrawAtAudit() { withdrawAtAudit = true; } };
+    const dispatcher = { dispatch(input: typeof conversionRequest, options?: { signal?: AbortSignal }) { return claimedDispatcher.dispatch({ ...input, claim }, options); } };
+    return { dispatcher, claimedDispatcher, claim, records, withdraw() { allowed = false; }, withdrawAtAudit() { withdrawAtAudit = true; } };
 }
 const conversionRequest = { context: { ...serviceContext, serviceId: 'measure-worker' }, event, grant, deliveryId: 'delivery' };
 
 it('rechecks consent at dispatch and after token resolution, with zero egress after withdrawal', async () => {
     for (const phase of ['audit', 'credentials'] as const) {
-        const f = await fixture(); const c = conversions({ f });
+        const f = await fixture(); const c = await conversions({ f });
         try {
             if (phase === 'audit') c.withdrawAtAudit();
             else f.onToken({ async callback() { c.withdraw(); } });
             const result = await c.dispatcher.dispatch(conversionRequest);
             if (phase === 'audit') expect(result).toMatchObject({ ok: false, error: { code: 'forbidden' } });
-            else { expect(f.credentials).toEqual(['linkedin-ads']); expect(result).toMatchObject({ ok: true, value: { status: 'unknown' } }); }
+            else { expect(f.credentials).toEqual(['linkedin-ads']); expect(result).toMatchObject({ ok: false, error: { code: 'forbidden' } }); }
             expect(f.calls).toEqual([]);
             expect(JSON.stringify(c.records)).not.toContain('b'.repeat(64));
         } finally { f.close(); }
@@ -211,13 +244,13 @@ it('delivers contacts digests through the plugin once and never resends a delive
     const f = await fixture(); let atFetch = false;
     const snapshot = f.repo.snapshot;
     f.repo.snapshot = async (input, options) => { const result = await snapshot(input, options); atFetch = true; return result; };
-    const c = conversions({ f, async beforeAssess() { if (atFetch) expect(f.native.inTransaction).toBe(true); } });
+    const c = await conversions({ f, async beforeAssess() { if (atFetch) expect(f.native.inTransaction).toBe(true); } });
     try {
         expect(await c.dispatcher.dispatch(conversionRequest)).toEqual({ ok: true, value: { status: 'delivered' } });
         expect(f.calls).toHaveLength(1);
         expect(JSON.parse(String(f.calls[0].options?.body))).toEqual({ conversion: 'urn:lla:llaPartnerConversion:456', conversionHappenedAt: 1000, eventId: 'event', user: { userIds: [{ idType: 'SHA256_EMAIL', idValue: 'b'.repeat(64) }] } });
         atFetch = false;
-        expect(await c.dispatcher.dispatch(conversionRequest)).toEqual({ ok: true, value: { status: 'delivered' } });
+        expect(await c.dispatcher.dispatch(conversionRequest)).toMatchObject({ ok: false, error: { code: 'conflict' } });
         expect(f.calls).toHaveLength(1);
         expect(JSON.stringify(c.records)).not.toContain('b'.repeat(64));
         expect(JSON.stringify(c.records)).not.toContain('fixture-only-token');
@@ -225,7 +258,7 @@ it('delivers contacts digests through the plugin once and never resends a delive
 });
 
 it('refuses conversion egress when halt commits after an earlier unhalted snapshot', async () => {
-    const f = await fixture(); const c = conversions({ f }); const service = safety({ f, requests: [] });
+    const f = await fixture(); const c = await conversions({ f }); const service = safety({ f, requests: [] });
     const captured = Promise.withResolvers<void>(); const resume = Promise.withResolvers<void>();
     const snapshot = f.repo.snapshot; let first = true;
     f.repo.snapshot = async (input, options) => {
@@ -241,7 +274,7 @@ it('refuses conversion egress when halt commits after an earlier unhalted snapsh
         resume.resolve();
         expect(await delivering).toEqual({ ok: true, value: { status: 'unknown' } });
         expect(f.calls).toEqual([]);
-        expect(await c.dispatcher.dispatch(conversionRequest)).toEqual({ ok: true, value: { status: 'unknown' } });
+        expect(await c.dispatcher.dispatch(conversionRequest)).toMatchObject({ ok: false, error: { code: 'conflict' } });
         expect(f.calls).toEqual([]);
     } finally { resume.resolve(); await delivering; f.close(); }
 });
@@ -250,7 +283,7 @@ it('refuses conversion egress when the plugin is unadmitted during the final con
     const f = await fixture(); const entered = Promise.withResolvers<void>(); const resume = Promise.withResolvers<void>();
     const snapshot = f.repo.snapshot; let atFetch = false;
     f.repo.snapshot = async (input, options) => { const result = await snapshot(input, options); atFetch = true; return result; };
-    const c = conversions({ f, async beforeAssess() { if (atFetch) { entered.resolve(); await resume.promise; } } });
+    const c = await conversions({ f, async beforeAssess() { if (atFetch) { entered.resolve(); await resume.promise; } } });
     const delivering = c.dispatcher.dispatch(conversionRequest);
     try {
         await entered.promise;
@@ -266,7 +299,7 @@ it('holds the shared halt barrier until an in-flight conversion fetch finishes',
     const entered = Promise.withResolvers<void>(); const resume = Promise.withResolvers<void>();
     let conversionLockId: string | undefined; let heldThroughFetch = false;
     const f = await fixture({ async onFetch() { entered.resolve(); await resume.promise; heldThroughFetch = conversionLockId !== undefined; } });
-    const c = conversions({ f }); const service = safety({ f, requests: [] });
+    const c = await conversions({ f }); const service = safety({ f, requests: [] });
     const acquire = f.locks.acquire; const release = f.locks.release; const haltWaiting = Promise.withResolvers<void>();
     f.locks.acquire = async (input, options) => {
         const acquiring = acquire(input, options);
@@ -294,7 +327,7 @@ it('holds the shared halt barrier until an in-flight conversion fetch finishes',
 
 it('local mode and unadmitted conversion backends make zero credential/network calls', async () => {
     for (const local of [true, false]) {
-        const f = await fixture(); const c = conversions({ f, local });
+        const f = await fixture(); const c = await conversions({ f, local });
         try {
             if (!local) f.unadmit();
             await c.dispatcher.dispatch(conversionRequest);
@@ -341,69 +374,229 @@ it('keeps canonical halt permits fail-closed when LinkedIn uses an incompatible 
 
 /** Real SQLite writes compete with final admission; fetch must always see a committed audit.
  * A future Postgres adapter must run these cases with SERIALIZABLE or a shared subject row lock. */
-async function withdrawConsent(required: { f: Awaited<ReturnType<typeof fixture>> }) {
-    const policy = createSqlPolicyRepo({ pool: required.f.database.unit, observer });
-    return policy.appendEvidence({ context, evidence: { id: 'withdrawal', scope: context.scope, subjectId: 'subject', kind: 'withdrawal',
+async function withdrawConsent(required: { f: Awaited<ReturnType<typeof fixture>>; subjectId?: string }) {
+    return required.f.identity.policy.appendEvidence({ context, evidence: { id: 'withdrawal', scope: context.scope, subjectId: required.subjectId ?? 'subject', kind: 'withdrawal',
         recordedAt: clock.now(), sourceId: 'owner', consent: { scope: 'destination', target: 'linkedin', purpose: 'measurement', status: 'withdrawn', start: 1000, end: 100000 } } });
 }
 function admissionRows(required: { f: Awaited<ReturnType<typeof fixture>> }) {
     return required.f.native.prepare("SELECT operation_id,outcome,context_json FROM measure_egress_audit WHERE outcome='egress_admitted' ORDER BY rowid").all();
 }
-it('blocks a conversion when consent withdrawal commits before final admission', async () => {
-    const f = await fixture(); const c = conversions({ f });
-    try {
-        f.onToken({ async callback() {
-            expect(admissionRows({ f })).toEqual([]);
-            expect(await withdrawConsent({ f })).toMatchObject({ ok: true });
-        } });
-        expect(await c.dispatcher.dispatch(conversionRequest)).toEqual({ ok: true, value: { status: 'unknown' } });
-        expect(f.credentials).toEqual(['linkedin-ads']);
-        expect(f.calls).toEqual([]); expect(admissionRows({ f })).toEqual([]);
-    } finally { f.close(); }
-});
-it('blocks a conversion when erasure is requested before final admission', async () => {
-    const f = await fixture(); const c = conversions({ f });
-    const participants = createErasureParticipantRegistry({});
-    value({ result: participants.register({ participant: { id: 'fixture', async run() { return { ok: true, value: { complete: true, removedCount: 0 } }; } } }) });
-    const policy = createSqlPolicyRepo({ pool: f.database.unit, observer });
-    const privacy = createPrivacyService({ repo: createMemoryPrivacyRepo({}), participants, clock, ids: f.ids,
-        block: { async block(input) {
-            const saved = await policy.appendEvidence({ context: input.context, evidence: { id: input.requestId, scope: input.context.scope, subjectId: input.subjectId,
-                kind: 'suppression', recordedAt: clock.now(), sourceId: 'privacy', suppression: { channel: 'om.processing', start: 1000, end: 100000 } } });
-            return saved.ok ? { ok: true, value: undefined } : saved;
-        } } });
-    try {
-        f.onToken({ async callback() { expect(await privacy.requestErasure({ context, subjectId: 'subject' })).toMatchObject({ ok: true }); } });
-        expect(await c.dispatcher.dispatch(conversionRequest)).toEqual({ ok: true, value: { status: 'unknown' } });
-        expect(f.calls).toEqual([]); expect(admissionRows({ f })).toEqual([]);
-    } finally { f.close(); }
-});
-it('commits admission before fetch and orders a later withdrawal after that admission', async () => {
+it('rejects a lease that expires while final policy evidence is awaited, without starting fetch', async () => {
+    let now = 1000;
+    const f = await fixture({ clock: { now: () => now } });
     const entered = Promise.withResolvers<void>(); const resume = Promise.withResolvers<void>();
-    const f = await fixture({ async onFetch() { entered.resolve(); await resume.promise; } });
-    const c = conversions({ f }); const delivering = c.dispatcher.dispatch(conversionRequest);
+    const c = await conversions({ f, async beforeAssess() {
+        if (!f.native.inTransaction) return;
+        entered.resolve(); await resume.promise;
+    } });
+    const leased = await f.jobs.outbox.get({ tenantId: jobTenant({ context }), id: c.claim.jobId });
+    const delivering = c.dispatcher.dispatch(conversionRequest);
     try {
         await entered.promise;
-        expect(admissionRows({ f })).toMatchObject([{ operation_id: 'delivery', outcome: 'egress_admitted' }]);
-        expect(f.native.inTransaction).toBe(false);
-        expect(await withdrawConsent({ f })).toMatchObject({ ok: true });
-        // Appending withdrawal succeeds while fetch is still blocked: no writer lock crosses egress.
-        expect(f.native.prepare("SELECT kind FROM policy_evidence WHERE id='withdrawal'").get()).toEqual({ kind: 'withdrawal' });
+        now = leased!.leaseExpiresAt! + 1;
         resume.resolve();
-        expect(await delivering).toEqual({ ok: true, value: { status: 'delivered' } });
-        expect(await c.dispatcher.dispatch({ ...conversionRequest, deliveryId: 'later-delivery' })).toMatchObject({ ok: false, error: { code: 'forbidden' } });
-        expect(f.calls).toHaveLength(1);
-        expect(admissionRows({ f })).toHaveLength(1);
-        expect(JSON.stringify(admissionRows({ f }))).not.toContain('b'.repeat(64));
-        expect(JSON.stringify(admissionRows({ f }))).not.toContain('fixture-only-token');
+        expect(await delivering).toMatchObject({ ok: false, error: { code: 'conflict' } });
+        expect(f.calls).toEqual([]); expect(admissionRows({ f })).toEqual([]);
+        expect(f.native.prepare("SELECT state FROM job_attempt WHERE event_type='dispatch'").all()).toEqual([]);
+        expect(await f.jobs.outbox.get({ tenantId: jobTenant({ context }), id: c.claim.jobId })).toMatchObject({ state: 'leased' });
     } finally { resume.resolve(); await delivering; f.close(); }
 });
+
+/** Both mutations use identity's real lane. A merge must finish before withdrawing through its alias. */
+async function raceWithdrawal(required: { f: Awaited<ReturnType<typeof fixture>>; subjectId: string; kind: 'withdrawal' | 'merge' }) {
+    if (required.kind === 'merge') value({ result: await required.f.identity.contacts.merge({ context, sourceSubjectId: required.subjectId, targetSubjectId: 'subject' }) });
+    return withdrawConsent(required);
+}
+
+it.each([{ kind: 'withdrawal' }, { kind: 'merge' }] as const)('serializes conversion dispatch against alias $kind and blocks fresh work after withdrawal commits', async ({ kind }) => {
+    const entered = Promise.withResolvers<void>(); const resume = Promise.withResolvers<void>();
+    const order: string[] = [];
+    const f = await fixture({ async onFetch() {
+        expect(f.native.prepare("SELECT kind FROM policy_evidence WHERE id='withdrawal'").get()).toBeUndefined();
+        order.push('fetch');
+    } });
+    const alias = value({ result: await f.identity.contacts.upsert({ context, identifiers: [{ kind: 'email', raw: 'race-alias@example.test' }] }) });
+    if (kind === 'withdrawal') value({ result: await f.identity.contacts.merge({ context, sourceSubjectId: alias.subjectId, targetSubjectId: 'subject' }) });
+    const c = await conversions({ f });
+    f.onBinding({ async callback() {
+        if (!admissionRows({ f }).length || f.calls.length) return;
+        expect(f.native.inTransaction).toBe(false); entered.resolve(); await resume.promise;
+    } });
+    const delivering = c.dispatcher.dispatch(conversionRequest);
+    let mutating: ReturnType<typeof raceWithdrawal> | undefined;
+    try {
+        await entered.promise;
+        mutating = raceWithdrawal({ f, subjectId: alias.subjectId, kind }).then(result => {
+            value({ result }); order.push('withdrawal-committed'); return result;
+        });
+        // Drain SQLite promise work: bypassing the lane would commit before this next turn.
+        await new Promise<void>(resolve => setImmediate(resolve));
+        // A separate SQLite read completes while the mutation waits for the dispatch's lane.
+        expect(await f.jobs.outbox.get({ tenantId: jobTenant({ context }), id: c.claim.jobId })).toMatchObject({ state: 'dispatching' });
+        expect(f.native.prepare("SELECT kind FROM policy_evidence WHERE id='withdrawal'").get()).toBeUndefined();
+        expect(value({ result: await f.identity.contactsRepo.get({ context, subjectId: alias.subjectId }) })?.subjectId)
+            .toBe(kind === 'withdrawal' ? 'subject' : alias.subjectId);
+        expect(order).toEqual([]);
+        resume.resolve();
+        expect(await delivering).toEqual({ ok: true, value: { status: 'delivered' } });
+        expect(await mutating).toMatchObject({ ok: true });
+        expect(order).toEqual(['fetch', 'withdrawal-committed']);
+        const deliveryId = 'after-withdrawal';
+        const queued = value({ result: await f.jobs.enqueue({ context, job: { handler: 'measure.conversion', operationId: deliveryId,
+            idempotencyKey: deliveryId, argumentsDigest: 'e'.repeat(64), payload: { subjectId: event.subjectId, eventId: event.eventId, deliveryId } } }) });
+        const leased = value({ result: await f.jobs.claim({ worker: { workerId: 'measure-worker' } }) });
+        expect(leased?.lease.id).toBe(queued.jobId);
+        expect(await c.claimedDispatcher.dispatch({ ...conversionRequest, deliveryId, claim: { jobId: queued.jobId, leaseToken: leased!.lease.leaseToken! } }))
+            .toMatchObject({ ok: false, error: { code: 'forbidden' } });
+        expect(f.calls).toHaveLength(1); expect(order).toEqual(['fetch', 'withdrawal-committed']);
+    } finally { resume.resolve(); await delivering; await mutating; f.close(); }
+});
+
+it('commits withdrawal first, durably denies the claim, and makes zero sends', async () => {
+    const f = await fixture(); const c = await conversions({ f });
+    try {
+        expect(await withdrawConsent({ f })).toMatchObject({ ok: true });
+        expect(await c.dispatcher.dispatch(conversionRequest)).toMatchObject({ ok: false, error: { code: 'forbidden' } });
+        expect(f.credentials).toEqual([]); expect(f.calls).toEqual([]); expect(admissionRows({ f })).toEqual([]);
+        expect(await f.jobs.outbox.get({ tenantId: jobTenant({ context }), id: c.claim.jobId })).toMatchObject({ state: 'denied', leaseToken: null });
+    } finally { f.close(); }
+});
+it('commits erasure first and fences the existing leased conversion without sending', async () => {
+    const f = await fixture(); const c = await conversions({ f });
+    const privacy = bindPrivacy({ unit: f.database.unit, identity: f.identity, subjectLane: f.subjectLane,
+        subjects: createSqlFormsStorage({ unitOfWork: f.database.unit }).subjects, measure: { async purgeSubject() { return { ok: true, value: undefined }; } }, clock, ids: f.ids, observer });
+    try {
+        expect(await privacy.privacy.requestErasure({ context, subjectId: 'subject' })).toMatchObject({ ok: true });
+        expect(await c.dispatcher.dispatch(conversionRequest)).toMatchObject({ ok: false, error: { code: 'conflict' } });
+        expect(f.calls).toEqual([]); expect(f.credentials).toEqual([]); expect(admissionRows({ f })).toEqual([]);
+        expect(await f.jobs.outbox.get({ tenantId: jobTenant({ context }), id: c.claim.jobId })).toMatchObject({ state: 'reconcile', leaseToken: null });
+    } finally { privacy.participants.dispose({}); f.close(); }
+});
+it('closes the admission-to-fetch gap while unrelated subjects can commit with SQLite closed', async () => {
+    const entered = Promise.withResolvers<void>(); const resume = Promise.withResolvers<void>();
+    const f = await fixture(); const c = await conversions({ f });
+    f.onBinding({ async callback() {
+        if (admissionRows({ f }).length && !f.calls.length) { expect(f.native.inTransaction).toBe(false); entered.resolve(); await resume.promise; }
+    } });
+    const delivering = c.dispatcher.dispatch(conversionRequest);
+    let withdrawing: ReturnType<typeof withdrawConsent> | undefined;
+    try {
+        await entered.promise;
+        withdrawing = withdrawConsent({ f });
+        const other = value({ result: await f.identity.contacts.upsert({ context, identifiers: [{ kind: 'email', raw: 'other@example.test' }] }) });
+        expect(await f.identity.policy.appendEvidence({ context, evidence: { id: 'unrelated', scope: context.scope, subjectId: other.subjectId,
+            recordedAt: 1000, kind: 'suppression', sourceId: 'owner', suppression: { channel: 'email', start: 0, end: 100000 } } })).toMatchObject({ ok: true });
+        expect(f.calls).toEqual([]);
+        expect(f.native.prepare("SELECT kind FROM policy_evidence WHERE id='withdrawal'").get()).toBeUndefined();
+        expect(f.native.inTransaction).toBe(false);
+        resume.resolve();
+        expect(await delivering).toEqual({ ok: true, value: { status: 'delivered' } });
+        expect(await withdrawing).toMatchObject({ ok: true });
+        expect(f.native.prepare("SELECT kind FROM policy_evidence WHERE id='withdrawal'").get()).toEqual({ kind: 'withdrawal' });
+        expect(f.calls).toHaveLength(1); expect(admissionRows({ f })).toHaveLength(1);
+        expect(JSON.stringify(admissionRows({ f }))).not.toContain('b'.repeat(64));
+        expect(JSON.stringify(admissionRows({ f }))).not.toContain('fixture-only-token');
+    } finally { resume.resolve(); await delivering; await withdrawing; f.close(); }
+});
 it('fails closed on admission audit failure and cannot egress or nest a root transaction', async () => {
-    const f = await fixture(); const c = conversions({ f });
+    const f = await fixture(); const c = await conversions({ f });
     try {
         f.native.exec("CREATE TRIGGER refuse_admission BEFORE INSERT ON measure_egress_audit WHEN NEW.outcome='egress_admitted' BEGIN SELECT RAISE(ABORT,'fixture audit failure'); END");
         expect(await c.dispatcher.dispatch(conversionRequest)).toEqual({ ok: true, value: { status: 'unknown' } });
         expect(f.calls).toEqual([]); expect(admissionRows({ f })).toEqual([]);
+        expect(f.native.prepare("SELECT state FROM job_attempt WHERE event_type='dispatch'").all()).toEqual([]);
         expect(f.native.inTransaction).toBe(false);
     } finally { f.close(); }
+});
+
+it.each(['pending', 'erased'] as const)('evaluates current %s erasure inside admission and commits denial without starting dispatch', async admissionErasure => {
+    const f = await fixture(); const c = await conversions({ f, admissionErasure });
+    try {
+        expect(await c.dispatcher.dispatch(conversionRequest)).toMatchObject({ ok: false, error: { code: 'forbidden' } });
+        expect(f.calls).toEqual([]);
+        expect(f.native.prepare("SELECT state FROM job_attempt WHERE event_type='dispatch'").all()).toEqual([]);
+        expect(await f.jobs.outbox.get({ tenantId: jobTenant({ context }), id: c.claim.jobId })).toMatchObject({ state: 'denied', leaseToken: null });
+        expect(f.native.prepare("SELECT operation_id,outcome FROM measure_egress_audit WHERE outcome LIKE 'egress_%'").all())
+            .toEqual([{ operation_id: 'delivery', outcome: 'egress_denied' }]);
+    } finally { f.close(); }
+});
+
+it('rolls back admission on a current-evidence failure and leaves possible effects for reconciliation', async () => {
+    const f = await fixture(); const c = await conversions({ f, failAdmissionEvidence: true });
+    try {
+        expect(await c.dispatcher.dispatch(conversionRequest)).toEqual({ ok: true, value: { status: 'unknown' } });
+        expect(f.calls).toEqual([]); expect(admissionRows({ f })).toEqual([]);
+        expect(f.native.prepare("SELECT state FROM job_attempt WHERE event_type='dispatch'").all()).toEqual([]);
+        expect(await f.jobs.outbox.get({ tenantId: jobTenant({ context }), id: c.claim.jobId })).toMatchObject({ state: 'reconcile', leaseToken: null });
+    } finally { f.close(); }
+});
+
+it('rolls back a policy denial when its admission evidence cannot be appended', async () => {
+    const f = await fixture(); const c = await conversions({ f, admissionErasure: 'pending' });
+    try {
+        f.native.exec("CREATE TRIGGER refuse_denial BEFORE INSERT ON measure_egress_audit WHEN NEW.outcome='egress_denied' BEGIN SELECT RAISE(ABORT,'fixture audit failure'); END");
+        expect(await c.dispatcher.dispatch(conversionRequest)).toEqual({ ok: true, value: { status: 'unknown' } });
+        expect(f.credentials).toEqual(['linkedin-ads']); expect(f.calls).toEqual([]);
+        expect(f.native.prepare("SELECT outcome FROM measure_egress_audit WHERE outcome LIKE 'egress_%'").all()).toEqual([]);
+        expect(f.native.prepare("SELECT state FROM job_attempt WHERE state='denied'").all()).toEqual([]);
+        expect(await f.jobs.outbox.get({ tenantId: jobTenant({ context }), id: c.claim.jobId })).toMatchObject({ state: 'reconcile', leaseToken: null });
+    } finally { f.close(); }
+});
+
+it.each(['missing', 'token', 'expired', 'identity', 'dispatching', 'tenant'] as const)('rejects a %s outbox claim before egress', async invalid => {
+    const f = await fixture(); const c = await conversions({ f });
+    try {
+        let request = { ...conversionRequest, claim: c.claim };
+        switch (invalid) {
+            case 'missing': request = { ...conversionRequest, claim: undefined! }; break;
+            case 'token': request.claim = { ...c.claim, leaseToken: 'foreign-token' }; break;
+            case 'expired': f.native.prepare('UPDATE job SET lease_expires_at=? WHERE id=?').run(clock.now(), c.claim.jobId); break;
+            case 'identity': request = { ...request, event: { ...event, eventId: 'other-event' } }; break;
+            case 'dispatching': await f.jobs.outbox.beginDispatch({ id: c.claim.jobId, tenantId: jobTenant({ context }), token: c.claim.leaseToken, now: clock.now() }); break;
+            case 'tenant': f.native.prepare('UPDATE job SET tenant_id=? WHERE id=?').run('foreign', c.claim.jobId); break;
+        }
+        expect(await c.claimedDispatcher.dispatch(request)).toMatchObject({ ok: false });
+        expect(f.calls).toEqual([]); expect(f.credentials).toEqual([]);
+        expect(admissionRows({ f })).toEqual([]);
+    } finally { f.close(); }
+});
+
+it('records exactly one dispatch transition and checks abortion immediately after final admission', async () => {
+    const f = await fixture(); const c = await conversions({ f }); const controller = new AbortController();
+    try {
+        f.onBinding({ async callback() { if (admissionRows({ f }).length) controller.abort(); } });
+        expect(await c.dispatcher.dispatch(conversionRequest, { signal: controller.signal })).toEqual({ ok: true, value: { status: 'unknown' } });
+        expect(f.calls).toEqual([]);
+        expect(f.native.prepare("SELECT state FROM job_attempt WHERE event_type='dispatch'").all()).toEqual([{ state: 'dispatching' }]);
+        expect(await f.jobs.outbox.get({ tenantId: jobTenant({ context }), id: c.claim.jobId })).toMatchObject({ state: 'reconcile', leaseToken: null });
+    } finally { f.close(); }
+});
+
+it('honors withdrawal through an alias before canonical conversion dispatch', async () => {
+    const f = await fixture(); const c = await conversions({ f });
+    try {
+        const alias = value({ result: await f.identity.contacts.upsert({ context, identifiers: [{ kind: 'email', raw: 'alias@example.test' }] }) });
+        expect(await f.identity.contacts.merge({ context, sourceSubjectId: alias.subjectId, targetSubjectId: 'subject' })).toMatchObject({ ok: true, value: { subjectId: 'subject' } });
+        expect(await withdrawConsent({ f, subjectId: alias.subjectId })).toMatchObject({ ok: true });
+        expect(await c.dispatcher.dispatch(conversionRequest)).toMatchObject({ ok: false, error: { code: 'forbidden' } });
+        expect(f.calls).toEqual([]);
+    } finally { f.close(); }
+});
+
+it('retains the subject lane until the delivery ledger and outbox outcome are durable', async () => {
+    const f = await fixture(); const entered = Promise.withResolvers<void>(); const resume = Promise.withResolvers<void>();
+    const c = await conversions({ f, async beforeAppend() { entered.resolve(); await resume.promise; } });
+    const delivering = c.dispatcher.dispatch(conversionRequest);
+    let withdrawing: ReturnType<typeof withdrawConsent> | undefined;
+    try {
+        await entered.promise;
+        expect(f.calls).toHaveLength(1); expect(f.native.inTransaction).toBe(false);
+        withdrawing = withdrawConsent({ f });
+        // This later transaction completes while the withdrawal waits on the subject lane.
+        expect(await f.jobs.outbox.get({ tenantId: jobTenant({ context }), id: c.claim.jobId })).toMatchObject({ state: 'dispatching' });
+        expect(f.native.prepare("SELECT kind FROM policy_evidence WHERE id='withdrawal'").get()).toBeUndefined();
+        resume.resolve(); expect(await delivering).toEqual({ ok: true, value: { status: 'delivered' } });
+        expect(await withdrawing).toMatchObject({ ok: true });
+        expect(await f.jobs.outbox.get({ tenantId: jobTenant({ context }), id: c.claim.jobId })).toMatchObject({ state: 'succeeded' });
+    } finally { resume.resolve(); await delivering; await withdrawing; f.close(); }
 });

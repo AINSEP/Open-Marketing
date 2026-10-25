@@ -1,3 +1,5 @@
+import { createSqlContactRepo } from '@open-marketing/contacts';
+import { createSubjectLane } from '../src/composition/subject-lane.js';
 /** R1 written-only fixtures. All transports below are injected; no vendor or native fetch is used. */
 import { readFileSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -78,7 +80,7 @@ async function fixture(required: { admitted?: boolean; only?: string; safety?: S
     let halted = false;
     const safetyRepo = createMemorySafetyRepo({ clock, ids, ownerTimezone: 'UTC' });
     const ports: Parameters<typeof bindAgentPluginBackends>[0] = { projectRoot: fileURLToPath(new URL('../../../', import.meta.url)), clock, observer,
-        jobs, mode: 'sandbox', safety: required.safety, confirmations: required.confirmations, accountLocks: createMemoryAccountDispatchLock({ ids }),
+        jobs, subjectLane: createSubjectLane({ resolveSubject: createSqlContactRepo({ uow: database.unit }).get }), mode: 'sandbox', safety: required.safety, confirmations: required.confirmations, accountLocks: createMemoryAccountDispatchLock({ ids }),
         async state({ pluginId }) {
             if (failure?.stage === 'state' && failure.pluginId === pluginId) throw new Error('Fixture metadata missing');
             return states.get(pluginId) ?? null;

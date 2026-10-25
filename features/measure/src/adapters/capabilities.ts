@@ -1,10 +1,12 @@
 import { z } from "zod";
 import { appErrorSchema, callContextSchema, parseBoundary } from "@open-marketing/contracts";
-import type { Outcome } from "@open-marketing/contracts";
+import type { CallOptions, ClockPort, Outcome } from "@open-marketing/contracts";
+import { dispatchDecision } from "@open-marketing/policy";
+import type { DispatchInput } from "@open-marketing/policy";
 import type { ConversionDeliveryPort, ConversionSourceAuthenticationPort, MeasurementShareabilityPort, MeasureObserverPort, PlatformReportingPort } from "../ports.js";
 import { runBoundary } from "../boundary.js";
 import { parseResolvedDeliveryInput } from "../delivery/input.js";
-import { assessmentSchema, authenticationSchema, conversionSchema, deliveryStatusSchema, querySchema, snapshotSchema, sourceSchema } from "../rules.js";
+import { authenticationSchema, conversionSchema, deliveryStatusSchema, querySchema, snapshotSchema, sourceSchema } from "../rules.js";
 
 /** Parse the entire outcome, including failures, before trusting plugin output.
  * @complexity Schema-dependent bounded traversal, no external effects. */
@@ -70,14 +72,30 @@ export function createConversionSourceAuthenticationAdapter(required: { capabili
   };
 }
 
-/** Canonical policy owns the decision. No inferred consent from hashing or an
- * admitted endpoint. @complexity O(k) bounded identifiers; one policy call. */
-export function createMeasurementShareabilityAdapter(required: { capability: MeasurementShareabilityPort }, optional?: { observer?: MeasureObserverPort }): MeasurementShareabilityPort {
+/** Load current, event-specific evidence; canonical policy owns the decision.
+ * The loader covers all identifier keys and complete merge lineage. Dispatch callers
+ * bind it to their admission transaction and retain the subject lane through egress.
+ * @param required - Evidence loader and injected clock; failures propagate without admission.
+ * @returns The existing shareability port, with invalid evidence denied by policy.
+ * @example createMeasurementShareabilityAdapter({ loadEvidence, clock }, { observer })
+ * @complexity O(c+s+l), policy bounds consent/suppression records and lineage. */
+export function createMeasurementShareabilityAdapter(required: {
+  clock: ClockPort;
+  loadEvidence(required: Parameters<MeasurementShareabilityPort["assess"]>[0], optional?: CallOptions): Promise<Outcome<Pick<DispatchInput, "policy" | "lineage">>>;
+}, optional?: { observer?: MeasureObserverPort }): MeasurementShareabilityPort {
   return {
     async assess(input, options) {
       const parsed = parseBoundary({ schema: z.strictObject({ context: callContextSchema, event: conversionSchema }), input });
       if (!parsed.ok) return parsed;
-      return runBoundary({ context: parsed.value.context, operation: "measure.capability.consent", observer: optional?.observer, work: () => capabilityOutcome({ schema: assessmentSchema, work: () => required.capability.assess(parsed.value, options) }) }, options);
+      return runBoundary({ context: parsed.value.context, operation: "measure.capability.consent", observer: optional?.observer, work: async () => {
+        const evidence = await required.loadEvidence(parsed.value, options);
+        if (!evidence.ok) return evidence;
+        const { context, event } = parsed.value;
+        const decision = dispatchDecision({ policy: evidence.value.policy, lineage: evidence.value.lineage,
+          subject: { scope: context.scope, subjectId: event.subjectId },
+          action: { kind: "conversion_sharing", destinationId: event.destination, purpose: event.purpose }, now: required.clock.now({}) });
+        return { ok: true, value: decision };
+      } }, options);
     },
   };
 }

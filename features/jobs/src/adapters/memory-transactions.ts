@@ -37,6 +37,7 @@ export function createMemoryTransactionalJobs(required: {
         complete(fence, completion) { return serial({ execute: () => current.complete(fence, completion) }); },
         get(input) { return serial({ execute: () => current.get(input) }); },
         cancel(input) { return serial({ execute: () => current.cancel(input) }); },
+        cancelBySubject(input) { return serial({ execute: () => current.cancelBySubject(input) }); },
         resolve(input) { return serial({ execute: () => current.resolve(input) }); },
     };
     const repo = createJobRepository({ ...required, outbox });

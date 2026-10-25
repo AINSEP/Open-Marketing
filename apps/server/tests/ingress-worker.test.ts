@@ -1,3 +1,7 @@
+import { createSqlContactRepo } from '@open-marketing/contacts';
+import { createSqlJobRepo, jobTenant } from '@open-marketing/jobs';
+import { formRetryPolicy, jobsDatabase } from '../src/composition/forms.js';
+import { createSubjectLane } from '../src/composition/subject-lane.js';
 /** Written-only I3 integration: Coordinator builds feature dist exports before running. */
 import { expect, it } from 'vitest';
 import Database from 'better-sqlite3';
@@ -9,7 +13,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import type { CallContext, ClockPort, ObserverEvent } from '@open-marketing/contracts';
-import { createSqlMeasureRepo, createSqlTrackedLink, type MeasureSqlDatabase } from '@open-marketing/measure';
+import { createSqlMeasureRepo, createSqlTrackedLink, createMeasurementShareabilityAdapter, type MeasureSqlDatabase } from '@open-marketing/measure';
 import { bootServer, type BootedServer, type ServerBootIo } from '../src/composition/index.js';
 import { createNodeBootIo } from '../src/composition/serve.js';
 import { createLocalAuth, provisionLocalOwner } from '../src/composition/local-auth.js';
@@ -102,14 +106,17 @@ async function fixture(_input: Record<string, never>) {
         const database = input.database;
         const visits = createVisitTokens({ key: localKey({ ownerToken: credentials.token, domain: 'visits' }), clock, ids });
         const digestKey = localKey({ ownerToken: credentials.token, domain: 'contacts' });
-        const identity = bindIdentity({ unit: database.unit, clock, ids, observer, digestKey, tokens: visits.tokens });
-        const forms = bindForms({ database, clock, ids, observer, digestKey, tokens: visits.tokens });
+        const subjectLane = createSubjectLane({ resolveSubject: createSqlContactRepo({ uow: database.unit }).get });
+        const identity = bindIdentity({ unit: database.unit, subjectLane, clock, ids, observer, digestKey, tokens: visits.tokens });
+        const forms = bindForms({ database, subjectLane, clock, ids, observer, digestKey, tokens: visits.tokens });
         const measureDb: MeasureSqlDatabase = { query: input => database.unit.transaction({ work: ({ session }) => session.query(input) }),
             transaction: ({ work }) => database.unit.transaction({ work: ({ session }) => work(session) }) };
         const measure = createSqlMeasureRepo({ database: measureDb, jobs: { async enqueue() { throw new Error('No conversions'); } } });
         const campaigns = createSqlCampaignRepo({ db: { query: input => database.unit.transaction({ work: ({ session }) => session.query(input) }) } });
         const links = createSqlTrackedLink({ database: measureDb, ids, baseUrl: 'https://sandbox.example.test/l/', allowedOrigins: ['https://sandbox.example.test'] });
-        return { forms, identity, visits, database, campaigns, links, privacy: bindPrivacy({ unit: database.unit, identity, subjects: forms.subjects, measure, clock, ids, observer }) };
+        return { forms, identity, visits, database, campaigns, links, subjectLane,
+            jobs: createSqlJobRepo({ database: jobsDatabase({ unit: database.unit }), clock, ids, retryPolicy: formRetryPolicy }),
+            privacy: bindPrivacy({ unit: database.unit, subjectLane, identity, subjects: forms.subjects, measure, clock, ids, observer }) };
     }
     try { await start(); } catch (error) { if (native?.open) native.close(); await removeStateRoot({ path: directory }); throw error; }
     return {
@@ -128,6 +135,20 @@ async function fixture(_input: Record<string, never>) {
     };
 }
 type Fixture = Awaited<ReturnType<typeof fixture>>;
+/** Seed real subject-bearing outbox intent; tests control the attempt boundary explicitly. */
+async function subjectJob(required: { f: Fixture; subjectId: string; id: string; state?: 'leased' | 'dispatching' }) {
+    const { f } = required;
+    const jobs = f.adapters().jobs;
+    const queued = await jobs.enqueue({ context: f.context, job: { handler: 'measure.conversion', operationId: required.id,
+        idempotencyKey: required.id, argumentsDigest: 'a'.repeat(64), payload: { subjectId: required.subjectId, eventId: required.id, deliveryId: required.id } } });
+    if (!queued.ok) throw new Error('Missing queued job');
+    if (!required.state) return queued.value.jobId;
+    const claimed = await jobs.claim({ worker: { workerId: 'fixture' } });
+    if (!claimed.ok || !claimed.value || claimed.value.lease.id !== queued.value.jobId) throw new Error('Missing lease');
+    if (required.state === 'dispatching') await jobs.outbox.beginDispatch({ tenantId: jobTenant({ context: f.context }), id: queued.value.jobId,
+        token: claimed.value.lease.leaseToken!, now: f.clock.now({}) });
+    return queued.value.jobId;
+}
 /** Extract only server-issued hidden IDs/token from a real rendered form. */
 async function form(required: { fixture: Fixture }) {
     const response = await fetch(required.fixture.origin + '/f/lead');
@@ -194,6 +215,40 @@ it('public lead acceptance is async, exact, linked to a landing, visible in stud
         const replay = await f.adapters().forms.accept({ context: f.context, ...receipt });
         expect(replay).toMatchObject({ ok: true, value: { subjectId: subject.value.subjectId } });
         expect(count({ fixture: f, table: 'policy_evidence' })).toBe(2);
+    } finally { await f.close(); }
+});
+
+it.each(['unchecked', 'withdrawn'] as const)('retains the accepted lead receipt when conversion sharing is %s', async sharing => {
+    const f = await fixture({});
+    try {
+        const page = await form({ fixture: f });
+        const fields: Record<string, string> = { ...page.fields, email: 'independent@example.test' };
+        if (sharing === 'withdrawn') fields.measurement = 'on';
+        const receipt = await submit({ fixture: f, fields });
+        await f.drain();
+        const binding = f.adapters();
+        const accepted = await binding.forms.accept({ context: f.context, ...receipt });
+        if (!accepted.ok) throw new Error('Missing accepted lead receipt');
+        const subjectId = accepted.value.subjectId;
+        const conversion = { eventId: 'lead-sharing', definitionId: 'signup', subjectId, destination: 'meta', purpose: 'measurement',
+            occurredAt: f.clock.now({}), identifierDigests: { email: 'a'.repeat(64) } };
+        const policy = createMeasurementShareabilityAdapter({ clock: f.clock, async loadEvidence(input) {
+            const snapshot = await binding.identity.policy.snapshot({ context: input.context, subjectId: input.event.subjectId });
+            return snapshot.ok ? { ok: true, value: { policy: snapshot.value,
+                lineage: [{ subject: { scope: input.context.scope, subjectId: input.event.subjectId }, erasure: 'none' }] } } : snapshot;
+        } });
+        if (sharing === 'withdrawn') {
+            expect(await policy.assess({ context: f.context, event: conversion })).toEqual({ ok: true, value: { allowed: true } });
+            expect(await binding.identity.policy.appendEvidence({ context: f.context, evidence: { id: 'withdraw-lead-sharing', scope: f.context.scope,
+                subjectId, kind: 'withdrawal', recordedAt: f.clock.now({}), sourceId: 'owner',
+                consent: { scope: 'destination', target: 'meta', purpose: 'measurement', status: 'withdrawn', start: f.clock.now({}), end: f.clock.now({}) + 1000 } } })).toMatchObject({ ok: true });
+        }
+        expect(await policy.assess({ context: f.context, event: conversion })).toEqual({ ok: true, value: { allowed: false, reason: 'consent_withdrawn' } });
+        expect(await binding.forms.accept({ context: f.context, ...receipt })).toEqual(accepted);
+        expect(count({ fixture: f, table: 'om_form_subject_receipts' })).toBe(1);
+        expect(f.native.prepare('SELECT state FROM job WHERE id=?').get(receipt.jobId)).toEqual({ state: 'succeeded' });
+        const snapshot = await fetch(f.origin + '/api/studio/snapshot', { headers: f.headers });
+        expect(await snapshot.json()).toMatchObject({ ok: true, value: { rows: { activity: [{ id: receipt.submissionId, status: 'accepted' }] } } });
     } finally { await f.close(); }
 });
 
@@ -308,4 +363,116 @@ it('the actual boot root seeds the public form and starts/stops its acceptance w
         expect(await server.stop({})).toEqual({ ok: true, value: undefined });
         expect(next).toBeUndefined();
     } finally { await server?.stop({}); await removeStateRoot({ path: directory }); }
+});
+
+it('atomically suppresses a merged family, cancels queued work, fences attempts and preserves all states after restart', async () => {
+    const f = await fixture({});
+    try {
+        const binding = f.adapters();
+        const a = await binding.identity.contacts.upsert({ context: f.context, identifiers: [{ kind: 'email', raw: 'a@example.test' }] });
+        const b = await binding.identity.contacts.upsert({ context: f.context, identifiers: [{ kind: 'email', raw: 'b@example.test' }] });
+        if (!a.ok || !b.ok) throw new Error('Missing subjects');
+        expect(await binding.identity.contacts.merge({ context: f.context, sourceSubjectId: b.value.subjectId, targetSubjectId: a.value.subjectId })).toMatchObject({ ok: true });
+        const leased = await subjectJob({ f, subjectId: a.value.subjectId, id: 'leased', state: 'leased' });
+        const dispatching = await subjectJob({ f, subjectId: b.value.subjectId, id: 'dispatching', state: 'dispatching' });
+        const queued = await subjectJob({ f, subjectId: b.value.subjectId, id: 'queued' });
+        const request = await binding.privacy.privacy.requestErasure({ context: f.context, subjectId: b.value.subjectId });
+        expect(request).toMatchObject({ ok: true, value: { status: 'pending' } });
+        expect(f.native.prepare("SELECT event_type,state FROM job_attempt WHERE event_type='cancel' ORDER BY state").all())
+            .toEqual([{ event_type: 'cancel', state: 'cancelled' }, { event_type: 'cancel', state: 'reconcile' }, { event_type: 'cancel', state: 'reconcile' }]);
+        await f.restart();
+        const jobs = f.adapters().jobs;
+        for (const id of [leased, dispatching]) expect(await jobs.outbox.get({ tenantId: jobTenant({ context: f.context }), id }))
+            .toMatchObject({ state: 'reconcile', leaseToken: null, leaseExpiresAt: null });
+        expect(await jobs.outbox.get({ tenantId: jobTenant({ context: f.context }), id: queued })).toMatchObject({ state: 'cancelled' });
+        expect(await jobs.claim({ worker: { workerId: 'restarted' } })).toEqual({ ok: true, value: null });
+        expect(await processingAllowed({ policy: f.adapters().identity.policy, context: f.context, subjectId: a.value.subjectId })).toEqual({ ok: true, value: false });
+    } finally { await f.close(); }
+});
+
+it('rolls back the whole erasure request on suppression, cancellation journal or request persistence failure', async () => {
+    const f = await fixture({});
+    try {
+        const binding = f.adapters();
+        const subject = await binding.identity.contacts.upsert({ context: f.context, identifiers: [{ kind: 'email', raw: 'atomic@example.test' }] });
+        if (!subject.ok) throw new Error('Missing subject');
+        await subjectJob({ f, subjectId: subject.value.subjectId, id: 'pending' });
+        for (const trigger of [
+            "BEFORE INSERT ON policy_evidence WHEN NEW.kind='suppression'",
+            "BEFORE INSERT ON job_attempt WHEN NEW.event_type='cancel'",
+            "BEFORE INSERT ON privacy_request",
+        ]) {
+            f.native.exec("CREATE TRIGGER fail_erasure " + trigger + " BEGIN SELECT RAISE(ABORT,'fixture erasure failure'); END");
+            expect(await binding.privacy.privacy.requestErasure({ context: f.context, subjectId: subject.value.subjectId })).toMatchObject({ ok: false });
+            expect(f.native.prepare('SELECT COUNT(*) AS n FROM privacy_request').get()).toEqual({ n: 0 });
+            expect(f.native.prepare('SELECT COUNT(*) AS n FROM policy_evidence').get()).toEqual({ n: 0 });
+            expect(f.native.prepare("SELECT COUNT(*) AS n FROM job_attempt WHERE event_type='cancel'").get()).toEqual({ n: 0 });
+            expect(f.native.prepare('SELECT state FROM job').get()).toEqual({ state: 'pending' });
+            expect(f.native.inTransaction).toBe(false);
+            f.native.exec('DROP TRIGGER fail_erasure');
+        }
+    } finally { await f.close(); }
+});
+
+it('recovers a crash around dispatch-start after reopening SQLite without replaying either attempt', async () => {
+    const f = await fixture({});
+    try {
+        const subject = await f.adapters().identity.contacts.upsert({ context: f.context, identifiers: [{ kind: 'email', raw: 'restart@example.test' }] });
+        if (!subject.ok) throw new Error('Missing subject');
+        const before = await subjectJob({ f, subjectId: subject.value.subjectId, id: 'before', state: 'leased' });
+        const after = await subjectJob({ f, subjectId: subject.value.subjectId, id: 'after', state: 'dispatching' });
+        await f.restart();
+        f.advance({ ms: formRetryPolicy.leaseMs });
+        const jobs = f.adapters().jobs;
+        expect(await jobs.claim({ worker: { workerId: 'recovery' } })).toEqual({ ok: true, value: null });
+        for (const id of [before, after]) expect(await jobs.outbox.get({ tenantId: jobTenant({ context: f.context }), id })).toMatchObject({ state: 'reconcile', leaseToken: null });
+        expect(f.native.prepare("SELECT event_type FROM job_attempt WHERE event_type='recovery'").all()).toHaveLength(2);
+    } finally { await f.close(); }
+});
+
+it('holds form withdrawal outside SQLite until the active subject attempt finishes', async () => {
+    const f = await fixture({}); const entered = Promise.withResolvers<void>(); const resume = Promise.withResolvers<void>();
+    let attempt: Promise<unknown> | undefined; let acceptance: Promise<unknown> | undefined;
+    try {
+        const page = await form({ fixture: f });
+        const binding = f.adapters();
+        const subject = await binding.identity.contacts.upsert({ context: f.context, identifiers: [{ kind: 'email', raw: 'withdraw@example.test' }] });
+        if (!subject.ok) throw new Error('Missing subject');
+        const receipt = await submit({ fixture: f, fields: { ...page.fields, email: 'withdraw@example.test' } });
+        attempt = binding.subjectLane.run({ context: f.context, subjectIds: [subject.value.subjectId], work: async () => { entered.resolve(); await resume.promise; return { ok: true, value: undefined }; } });
+        await entered.promise;
+        acceptance = binding.forms.accept({ context: f.context, ...receipt });
+        const other = await binding.identity.contacts.upsert({ context: f.context, identifiers: [{ kind: 'email', raw: 'unrelated@example.test' }] });
+        expect(other).toMatchObject({ ok: true });
+        expect(f.native.inTransaction).toBe(false);
+        expect(f.native.prepare('SELECT COUNT(*) AS n FROM policy_evidence').get()).toEqual({ n: 0 });
+        resume.resolve(); await attempt;
+        expect(await acceptance).toMatchObject({ ok: true, value: { subjectId: subject.value.subjectId } });
+        expect(JSON.stringify(f.native.prepare('SELECT payload FROM policy_evidence').all())).toContain('withdrawn');
+    } finally { resume.resolve(); await attempt; await acceptance; await f.close(); }
+});
+
+it('rolls back identity drift in acceptance and retries once under the newly resolved subject lane', async () => {
+    const f = await fixture({});
+    try {
+        const page = await form({ fixture: f });
+        const receipt = await submit({ fixture: f, fields: { ...page.fields, email: 'drift@example.test' } });
+        const binding = f.adapters(); const run = binding.subjectLane.run;
+        const families: (readonly string[])[] = [];
+        let createdId = '';
+        binding.subjectLane.run = async (input, options) => {
+            families.push(input.subjectIds);
+            if (families.length === 1) {
+                const created = await binding.identity.contacts.upsert({ context: f.context, identifiers: [{ kind: 'email', raw: 'drift@example.test' }] });
+                if (!created.ok) throw new Error('Missing injected identity');
+                createdId = created.value.subjectId;
+            }
+            return run(input, options);
+        };
+        expect(await binding.forms.accept({ context: f.context, ...receipt })).toEqual({ ok: true, value: { subjectId: createdId } });
+        expect(families).toEqual([[], [createdId]]);
+        expect(count({ fixture: f, table: 'contact_subject' })).toBe(1);
+        expect(count({ fixture: f, table: 'policy_evidence' })).toBe(2);
+        expect(count({ fixture: f, table: 'om_form_subject_receipts' })).toBe(1);
+    } finally { await f.close(); }
 });

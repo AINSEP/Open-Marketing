@@ -18,9 +18,10 @@
     "test": "vitest run tests"
   },
   "dependencies": {
-    "zod": "4.1.13",
     "@open-marketing/contracts": "workspace:*",
-    "@open-marketing/om-clock": "workspace:*"
+    "@open-marketing/om-clock": "workspace:*",
+    "@open-marketing/policy": "workspace:*",
+    "zod": "4.1.13"
   },
   "devDependencies": {
     "vitest": "3.2.4",

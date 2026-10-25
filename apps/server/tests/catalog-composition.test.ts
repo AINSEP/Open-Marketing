@@ -1,3 +1,5 @@
+import { createSqlContactRepo } from '@open-marketing/contacts';
+import { createSubjectLane } from '../src/composition/subject-lane.js';
 /** Written-only A4b regressions: real in-memory SQLite and public feature services, no vendor I/O. */
 import Database from 'better-sqlite3';
 import { readFileSync } from 'node:fs';
@@ -56,13 +58,14 @@ async function fixture() {
     const campaignDb = { query: <Row extends Record<string, unknown>>(input: { text: string; values?: unknown[] }) => database.unit.transaction({ work: ({ session }) => session.query<Row>(input) }) };
     const campaigns = createSqlCampaignRepo({ db: campaignDb });
     const visits = createVisitTokens({ key: new Uint8Array([1, 2, 3]), clock, ids });
-    const identity = bindIdentity({ unit: database.unit, tokens: visits.tokens, clock, ids, observer, digestKey: new Uint8Array([1, 2, 3]) });
-    const forms = bindForms({ database, clock, ids, observer, digestKey: new Uint8Array([1, 2, 3]), tokens: visits.tokens });
+    const subjectLane = createSubjectLane({ resolveSubject: createSqlContactRepo({ uow: database.unit }).get });
+    const identity = bindIdentity({ unit: database.unit, subjectLane, tokens: visits.tokens, clock, ids, observer, digestKey: new Uint8Array([1, 2, 3]) });
+    const forms = bindForms({ database, subjectLane, clock, ids, observer, digestKey: new Uint8Array([1, 2, 3]), tokens: visits.tokens });
     await seedSandboxForm({ binding: forms, context: owner, clock, ids });
     const measureDb: MeasureSqlDatabase = { query: campaignDb.query, transaction: ({ work }) => database.unit.transaction({ work: ({ session }) => work(session) }) };
     const measureRepo = createSqlMeasureRepo({ database: measureDb, jobs: { async enqueue() { return { ok: false, error: { code: 'forbidden', message: 'Fixture conversion denied', retryable: false } }; } } });
     const links = createSqlTrackedLink({ database: measureDb, ids, baseUrl: 'https://sandbox.example.test/l/', allowedOrigins: ['https://sandbox.example.test'] });
-    const privacy = bindPrivacy({ unit: database.unit, identity, subjects: forms.subjects, measure: measureRepo, clock, ids, observer });
+    const privacy = bindPrivacy({ unit: database.unit, subjectLane, identity, subjects: forms.subjects, measure: measureRepo, clock, ids, observer });
     const audit = bindCatalogAudit({ unit: database.unit, clock, ids, observer });
     const stateRoot = await mkdtemp(join(tmpdir(), 'om-creative-media-'));
     const fetched: string[] = [];

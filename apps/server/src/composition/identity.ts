@@ -8,6 +8,7 @@ import { createPolicyService, createSqlPolicyRepo, type PolicyService, type Subj
 import { createSqlWebEventRepo, createWebEventService, type Visit, type VisitTokenPort } from '@open-marketing/web-events';
 import type { ConversionIdentifiersPort, AttributionTouchPort } from '@open-marketing/measure';
 import { localFailure } from './local-auth.js';
+import type { createSubjectLane } from './subject-lane.js';
 
 /** Persisted owner secret supplies domain-separated local keys, never destination hashes.
  * @example localKey({ ownerToken, domain: 'visits' }); @complexity O(1). */
@@ -41,12 +42,17 @@ export function createVisitTokens(required: { key: Uint8Array; clock: ClockPort;
 
 /** Canonical identity always follows contacts pointers. Policy snapshots never use its legacy identity table.
  * Sharing is denied locally, even with captured consent; this sandbox has no delivery authority.
- * @example bindIdentity({ unit, clock, ids, observer, digestKey, tokens });
+ * @example bindIdentity({ unit, clock, ids, observer, digestKey, tokens, subjectLane });
  * @complexity Bounded owning repository work, no cross-feature SQL. */
-export function bindIdentity(required: { unit: UnitOfWork; clock: ClockPort; ids: IdPort; observer: ObserverPort; digestKey: Uint8Array; tokens: VisitTokenPort }) {
+export function bindIdentity(required: { unit: UnitOfWork; clock: ClockPort; ids: IdPort; observer: ObserverPort; digestKey: Uint8Array; tokens: VisitTokenPort; subjectLane: ReturnType<typeof createSubjectLane> }) {
     const contactsRepo = createSqlContactRepo({ uow: required.unit });
     const evidence = createPolicyService({ repo: createSqlPolicyRepo({ pool: required.unit, observer: required.observer }), clock: required.clock }, { observer: required.observer });
-    const policy: PolicyService = { appendEvidence: evidence.appendEvidence, async snapshot(input, options) {
+    // Borrowed SqlSessions already belong to a caller holding the lane; never reacquire inside SQLite.
+    const policy: PolicyService = { appendEvidence: (request, options) => {
+        const input = structuredClone(request);
+        return 'query' in required.unit ? evidence.appendEvidence(input, options)
+            : required.subjectLane.run({ context: input.context, subjectIds: [input.evidence.subjectId], work: () => evidence.appendEvidence(input, options) }, options);
+    }, async snapshot(input, options) {
         const root = await contactsRepo.get({ context: input.context, subjectId: input.subjectId }, options);
         if (!root.ok) return root;
         if (!root.value) return localFailure({ message: 'Canonical subject unavailable' });
@@ -76,7 +82,11 @@ export function bindIdentity(required: { unit: UnitOfWork; clock: ClockPort; ids
         const result = await webEvents.touchesFor(input, options);
         return result.ok ? { ok: true, value: result.value.map(({ touchId, occurredAt, linkId, campaignId }) => ({ touchId, occurredAt, linkId, campaignId })) } : result;
     } };
-    return { contactsRepo, contacts, policy, webRepo, webEvents, identifiers, touches };
+    return { contactsRepo, contacts: { ...contacts, merge: (request: Parameters<typeof contacts.merge>[0], options?: Parameters<typeof contacts.merge>[1]) => {
+        const input = structuredClone(request);
+        return 'query' in required.unit ? contacts.merge(input, options) : required.subjectLane.run({ context: input.context, subjectIds: [input.sourceSubjectId, input.targetSubjectId], work: () => contacts.merge(input, options) }, options);
+    } }, policy, webRepo, webEvents, identifiers, touches,
+        forTransaction: (input: { unit: UnitOfWork }): { policy: PolicyService; contactsRepo: typeof contactsRepo } => bindIdentity({ ...required, unit: input.unit }) };
 }
 
 /** Durable erasure barrier is ordinary policy suppression evidence, with no second authority store. */

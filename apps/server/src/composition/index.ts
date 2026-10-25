@@ -34,6 +34,8 @@ import { createIntegrations, type Integrations, type IntegrationDependencies } f
 import { handleIntegrationRequest, handleOAuthBrowserCallback } from '../inbound/integrations.js';
 import { bindForms, seedSandboxForm } from './forms.js';
 import { bindIdentity, createVisitTokens, localKey } from './identity.js';
+import { createSqlContactRepo } from '@open-marketing/contacts';
+import { createSubjectLane } from './subject-lane.js';
 import { bindPrivacy } from './privacy.js';
 import { bindAgentPluginHaltJobs, createFormWorkers } from './workers.js';
 import { createLocalAgent, createNodeAgentEffects, type AgentEffects } from './agent.js';
@@ -294,15 +296,16 @@ export async function bootServer(required: {
         services.handleChartRequest = resources.addons?.handleChartRequest;
         const visits = createVisitTokens({ key: localKey({ ownerToken: credentials.value.token, domain: 'visits' }), clock: required.clock, ids: required.ids });
         const digestKey = localKey({ ownerToken: credentials.value.token, domain: 'contacts' });
-        const identity = bindIdentity({ unit: database.unit, clock: required.clock, ids: required.ids, observer: required.observer, digestKey, tokens: visits.tokens });
-        const forms = bindForms({ database, clock: required.clock, ids: required.ids, observer: required.observer, digestKey, tokens: visits.tokens });
+        const subjectLane = createSubjectLane({ resolveSubject: createSqlContactRepo({ uow: database.unit }).get });
+        const identity = bindIdentity({ unit: database.unit, clock: required.clock, ids: required.ids, observer: required.observer, digestKey, tokens: visits.tokens, subjectLane });
+        const forms = bindForms({ database, clock: required.clock, ids: required.ids, observer: required.observer, digestKey, tokens: visits.tokens, subjectLane });
         await seedSandboxForm({ binding: forms, context, clock: required.clock, ids: required.ids });
         const measureDb: MeasureSqlDatabase = {
             query: input => database.unit.transaction({ work: ({ session }) => session.query(input) }),
             transaction: ({ work }) => database.unit.transaction({ work: ({ session }) => work(session) }),
         };
         const measure = createSqlMeasureRepo({ database: measureDb, jobs: { async enqueue() { return localFailure({ code: 'forbidden', message: 'Conversions denied in local sandbox' }); } } }, { observer: required.observer });
-        resources.privacy = bindPrivacy({ unit: database.unit, identity, subjects: forms.subjects, measure, clock: required.clock, ids: required.ids, observer: required.observer });
+        resources.privacy = bindPrivacy({ unit: database.unit, identity, subjects: forms.subjects, measure, clock: required.clock, ids: required.ids, observer: required.observer, subjectLane });
         const publicServices = { forms, identity, visits, clock: required.clock, campaigns: services.campaigns,
             links: createSqlTrackedLink({ database: measureDb, ids: required.ids, baseUrl: 'https://sandbox.example.test/l/', allowedOrigins: ['https://sandbox.example.test'] }, { observer: required.observer }) };
         services.formSubjects = forms.subjects;
@@ -337,8 +340,8 @@ export async function bootServer(required: {
             frontend: resources.frontend, onRevoked: async input => { await resources.frontend?.endRun(input); await resources.tools?.cancel(input); } });
         services.runs = resources.agent.owner;
         const accountLocks = createMemoryAccountDispatchLock({ ids: required.ids });
-        const pluginBackends = bindBootPluginBackends({ io: required.io, addons: resources.addons, services, integrations, accountLocks, confirmations: resources.confirmations,
-            policyForTransaction: ({ unit }) => bindIdentity({ unit, clock: required.clock, ids: required.ids, observer: required.observer, digestKey, tokens: visits.tokens }).policy,
+        const pluginBackends = bindBootPluginBackends({ io: required.io, addons: resources.addons, services, integrations, accountLocks, confirmations: resources.confirmations, subjectLane,
+            policyForTransaction: ({ unit }) => bindIdentity({ unit, clock: required.clock, ids: required.ids, observer: required.observer, digestKey, tokens: visits.tokens, subjectLane }).policy,
             unit: database.unit, clock: required.clock, ids: required.ids, observer: required.observer });
         const halt = bindBootHalt({ ...required, unit: database.unit, services, audit, accountLocks, confirmations: resources.confirmations, pluginBackends });
         const campaignUnavailable = async () => localFailure<never>({ code: 'not_implemented', message: 'NEEDS: admitted plugin binding and scoped campaign metadata' });
@@ -534,10 +537,10 @@ function createModelUpstream(required: { fetch: typeof fetch }): ModelUpstream {
  * separately. Missing host effects leave vendor definitions absent, without constructing services. */
 function bindBootPluginBackends(required: { io: ServerBootIo; addons: ReturnType<typeof bindBootAddons>; services: OwnerServices & OmFeatureServices;
     policyForTransaction: NonNullable<Parameters<typeof bindAgentPluginBackends>[0]['policyForTransaction']>;
-    integrations: Integrations; unit: UnitOfWork; clock: ClockPort; ids: IdPort; observer: ObserverPort; accountLocks: AccountDispatchLockPort; confirmations: ConfirmationExchangePort }): ReturnType<typeof bindAgentPluginBackends> | undefined {
+    integrations: Integrations; unit: UnitOfWork; clock: ClockPort; ids: IdPort; observer: ObserverPort; accountLocks: AccountDispatchLockPort; confirmations: ConfirmationExchangePort; subjectLane: ReturnType<typeof createSubjectLane> }): ReturnType<typeof bindAgentPluginBackends> | undefined {
     if (!required.io.agentPlugins || !required.addons || !required.services.accountBindings) return undefined;
     return bindAgentPluginBackends({ ...required.io.agentPlugins, projectRoot: required.io.projectRoot, clock: required.clock, observer: required.observer,
-        unit: required.unit, policyForTransaction: required.policyForTransaction,
+        unit: required.unit, policyForTransaction: required.policyForTransaction, subjectLane: required.subjectLane,
         state: required.addons.agentPluginState, integrations: required.integrations, accounts: required.services.accountBindings, safetyRepo: required.services.safety,
         jobs: bindAgentPluginJobs(required), mode: 'read_only', accountLocks: required.accountLocks, confirmations: required.confirmations });
 }

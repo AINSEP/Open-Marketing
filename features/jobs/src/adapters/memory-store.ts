@@ -4,7 +4,7 @@ import type { RetryPolicy } from "../types.js";
 import { createJobRepository } from "../repository.js";
 import type { Completion, EnqueueResult, LeaseFence, OutboxJob } from "../types.js";
 import type { ManagedOutboxStore } from "../store.js";
-import { isDue, isFenced, sameRequest, validateClaim, validateCompletion, validateFence, validateResolution, validateTime } from "../store.js";
+import { isDue, isFenced, sameRequest, validateClaim, validateCompletion, validateFence, validateResolution, validateTime, validateSubjectCancellation, matchesSubject } from "../store.js";
 import { validateStoredJob } from "../schema.js";
 import { JobStoreError } from "../errors.js";
 /** Single-process test double. Synchronous mutations are atomic; this is never a production durability adapter.
@@ -92,6 +92,15 @@ export function createMemoryOutboxStore(required: { maxJobs?: number; initialJob
             if (!job || job.tenantId !== input.tenantId || job.state !== "reconcile") return false;
             save({ ...job, state: input.state });
             return true;
+        },
+        async cancelBySubject(request) {
+            const input = validateSubjectCancellation(request);
+            // Validate every candidate before effects, so corrupt storage cannot leave a partial batch.
+            const selected = [...jobs.values()].filter(job => job.tenantId === input.tenantId && cancellationState({ job }))
+                .filter(job => matchesSubject({ payload: job.payload, subjectIds: input.subjectIds }));
+            for (const job of selected) save({ ...job, state: cancellationState({ job })!, leaseToken: null, leaseExpiresAt: null });
+            return { cancelled: selected.filter(job => job.state === "pending" || job.state === "retry").length,
+                reconcile: selected.filter(job => job.state === "leased" || job.state === "dispatching").length };
         },
     };
 }
