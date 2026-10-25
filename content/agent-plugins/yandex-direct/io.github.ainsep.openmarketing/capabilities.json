@@ -1,0 +1,13 @@
+{
+  "version": 1, "admitted": false,
+  "capabilities": [
+    { "capabilityId": "campaign.read.v1", "version": 1, "pluginId": "yandex-direct", "schemaFingerprint": "4ace2afaeb5de195a68946174519f6d144f7d75eb0ba6a4d159e72f812e7c10b", "admitted": false, "effects": ["read"] },
+    { "capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "yandex-direct", "schemaFingerprint": "42f6bbacbf586413061dc714d7dedaac5ee71e8f93a301234c95b0302bba932e", "admitted": false, "effects": ["read"] }
+  ],
+  "tools": [
+    { "name": "list_accounts", "effects": ["read"], "capabilityId": "campaign.read.v1" },
+    { "name": "list_campaigns", "effects": ["read"], "capabilityId": "campaign.read.v1" },
+    { "name": "report", "effects": ["read"], "capabilityId": "report.account-spend.v1" }
+  ],
+  "fingerprintBasis": "SHA-256 of concatenated UTF-8 source bytes: campaign.read = commands.ts + transport.ts; report = commands.ts + reporting.ts + transport.ts. Compatibility metadata only, not plugin trust or an allowlist."
+}
