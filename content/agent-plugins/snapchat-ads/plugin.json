@@ -1,0 +1,12 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.1.0/plugin.schema.json",
+  "name": "snapchat-ads", "version": "0.1.0", "license": "Apache-2.0",
+  "description": "Read-only Snapchat organizations, accounts, campaigns, existing creatives and TOTAL reporting; server wiring pending, disabled until admission.",
+  "extensions": { "io.github.ainsep.openmarketing": {
+    "version": 1, "enabled": false, "admitted": false,
+    "capabilities": [
+      {"capabilityId": "campaign.read.v1", "version": 1, "pluginId": "snapchat-ads", "schemaFingerprint": "31873ff5ec7a23f56f9a5a699b60616981a65cd63a768a016ae7ec78257517e4", "admitted": false, "effects": ["read"]},
+      {"capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "snapchat-ads", "schemaFingerprint": "555b3a0d5d9abf48eec7bf00a641327bdd0fd8e033d420eb2623bc25ec9ddcad", "admitted": false, "effects": ["read"]}
+    ]
+  } }
+}

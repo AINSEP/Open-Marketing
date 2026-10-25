@@ -1,0 +1,27 @@
+{
+  "checkedAt": "2026-10-24", "apiVersion": "v1", "scope": "R1 reads/auth; documentation, not live eligibility",
+  "sources": [
+    { "id": "version", "url": "https://developers.snap.com/marketing-api/Ads-API/quick-start", "quote": "All requests use the base URL", "facts": "HTTPS adsapi.snapchat.com/v1; Bearer header. Organization-admin-created OAuth app required." },
+    { "id": "auth", "url": "https://developers.snap.com/marketing-api/Ads-API/authentication", "quote": "3600 seconds", "facts": "Authorization-code flow and refresh endpoint; snapchat-marketing-api permits reads/writes; snapchat-offline-conversions-api is separate. Protect client secrets; Organization Admin creates apps." },
+    { "id": "redirect-refresh", "url": "https://developers.snap.com/marketing-api/Ads-API/faq", "quote": "SSL hosted URL you control", "facts": "FAQ specifies SSL redirects and no fixed refresh-token expiry; access removal can invalidate refresh. No loopback exception found: paste-token only." },
+    { "id": "organizations", "url": "https://developers.snap.com/marketing-api/Ads-API/organizations", "quote": "GET https://adsapi.snapchat.com/v1/me/organizations", "facts": "organizations[].organization contains id/name; top-level and per-entity success. No organization-list pagination support located." },
+    { "id": "accounts", "url": "https://developers.snap.com/marketing-api/Ads-API/ad-accounts", "quote": "Get All Ad Accounts", "facts": "GET /organizations/{id}/adaccounts; adaccounts[].adaccount id/name/organization_id/status/currency/timezone. Selected organization must match." },
+    { "id": "campaigns", "url": "https://developers.snap.com/marketing-api/Ads-API/campaigns", "quote": "ACTIVE, PAUSED", "facts": "GET /adaccounts/{id}/campaigns; GET /campaigns/{id}. campaigns[].campaign id/name/ad_account_id/status/start_time/end_time. Private ownership GET precedes campaign stats." },
+    { "id": "creatives", "url": "https://developers.snap.com/marketing-api/Ads-API/creatives", "quote": "Get All Creatives", "facts": "GET /adaccounts/{id}/creatives; creatives[].creative id/name/ad_account_id/type/review_status. Existing creatives only; no uploads." },
+    { "id": "paging", "url": "https://developers.snap.com/marketing-api/Ads-API/api-patterns", "quote": "min 50, max 1000", "facts": "Account/campaign/creative pages support limit and paging.next_link cursor; rebuild fixed URLs. SUCCESS and success appear in official examples; both supported." },
+    { "id": "measurement", "url": "https://developers.snap.com/marketing-api/Ads-API/measurement", "quote": "spend metric is the only metric available", "facts": "GET /adaccounts/{id}/stats account spend only; /campaigns/{id}/stats spend/impressions/swipes. R1 TOTAL + explicit ISO start_time/end_time at account-day boundaries. total_stats[].total_stat id/type/granularity/stats; optional provider windows and finalized_data_end_time/conversion_data_processed_end_time retained. No half-open-boundary guarantee found." },
+    { "id": "money", "url": "https://developers.snap.com/marketing-api/Ads-API/monetary-values", "quote": "1,000,000 micro-currency", "facts": "Money is micro-units of account currency. Preserve decimal integer strings; reject unsafe JSON numbers." },
+    { "id": "limits", "url": "https://developers.snap.com/marketing-api/Ads-API/rate-limits", "quote": "20 requests/second", "facts": "Average 20 requests/s/app and 10/token; excess returns 429. R1 exposes typed limit_exceeded, no automatic retry or limiter." },
+    { "id": "sunset", "url": "https://developers.snap.com/marketing-api/Ads-API/breaking-changes-log", "quote": "90 days after the announcement date", "facts": "Historical deprecation statement only; no current universal sunset promise asserted." },
+    { "id": "sdk-search", "url": "https://github.com/Snapchat/business-sdk-v3-java", "quote": "Snap Conversions API V3", "facts": "Official SDK search located CAPI clients, not a usable TypeScript Marketing API client/spec. No dependency added. R2 must independently verify CAPI v3 mapping." }
+  ],
+  "omBounds": { "requestBytes": 65536, "responseBytes": 1048576, "timeoutMs": 15000, "maxPageSize": 100, "maxReportDays": 366, "retries": 0, "maxFetches": 2 },
+  "unverified": [
+    { "fact": "Loopback OAuth redirects", "behavior": "No OAuth descriptor/refresh service; paste-token only." },
+    { "fact": "Detailed app approval and live account eligibility", "behavior": "Do not assert eligibility; vendor denials stay typed." },
+    { "fact": "Create idempotency and current universal sunset guarantee", "behavior": "No writes/idempotency headers/retries in R1; historical sunset statement only." },
+    { "fact": "Reporting boundary inclusivity", "behavior": "Retain windows, label provider_unspecified; no canonical half-open totals." }
+  ],
+  "blockedPages": [{ "url": "https://businesshelp.snapchat.com/s/article/api-apply?language=en_US", "result": "Loading/CSS Error shell; Coordinator browser follow-up needed for approval details." }],
+  "researchLimits": "No inspected developers.snap.com page blocked. No official Marketing OpenAPI/Swagger/Postman artifact located; official CAPI SDKs do not implement these reads. Review reported Jini npm registry verification blocked; pins unchanged, no Jini dependency requested. No authenticated vendor calls."
+}
