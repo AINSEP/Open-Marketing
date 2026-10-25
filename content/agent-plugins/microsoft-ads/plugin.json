@@ -1,0 +1,12 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.1.0/plugin.schema.json",
+  "name": "microsoft-ads", "version": "0.1.0", "license": "Apache-2.0",
+  "description": "Microsoft Advertising account/Search campaign reads and daily reports; disabled until host admission.",
+  "extensions": { "io.github.ainsep.openmarketing": {
+    "version": 1, "enabled": false, "admitted": false,
+    "capabilities": [
+      {"capabilityId": "campaign.read.v1", "version": 1, "pluginId": "microsoft-ads", "schemaFingerprint": "6da851324f9afe45cacfe09f9321476bdc00dc745d927f4f5e95874c5a99c677", "admitted": false, "effects": ["read"]},
+      {"capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "microsoft-ads", "schemaFingerprint": "6f68d9cba0cd95f696a02c715fce132ff48f95db6aec187987551ad2e1e61aa6", "admitted": false, "effects": ["read"]}
+    ]
+  } }
+}

@@ -1,0 +1,7 @@
+{
+  "provider": {
+    "providerId": "microsoft-ads", "label": "Microsoft Advertising (registered callback required)", "supportedGrants": ["authorization_code"],
+    "authorizationEndpoint": "https://login.microsoftonline.com/common/oauth2/v2.0/authorize", "tokenEndpoint": "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+    "defaultScopes": ["https://ads.microsoft.com/msads.manage", "offline_access"], "usesPkce": true, "clientAuth": "client_secret_post"
+  }
+}
