@@ -1,6 +1,6 @@
 # Open Marketing — todos
 
-Updated 2026-10-24 by open-marketing-6b. Newest priorities first.
+Updated 2026-10-25 by open-marketing-b5. Newest priorities first.
 
 ## HIGH PRIORITY — next Codex credits: roadmap Phases 0–4
 The full plan is in `ADS-memory/reports/2026-10-24-om-roadmap-phases.md`. The debate merged it to 5 phases, P0–P4.
@@ -141,12 +141,17 @@ Check each `codex-runs/2026-10-24-plugin-<p>/` folder's R1/R2 status, review and
   - chat backend (CB1 R1 + fixes);
   - Higgsfield server completion (H1 R2 + fixes; byte import still deferred).
 - [ ] **Vendor cards R2:** cards for the 12 new ad plugins and the 4 messaging plugins. The studio card component is a DS2 need.
+- [ ] **Plugin typecheck (b5, 2026-10-25), one folder at a time:** 14 of 16 green. Two fail only on dependencies that aren't installed, because plugin folders aren't workspace members:
+  - x-ads needs `oauth-1.0a` 2.2.6;
+  - amazon-ses needs `@jini-ai/platform` 0.6.12.
+
+  Fix during the wiring pass (install, or add them to the workspace; this touches the lockfile, so it's integrator-only).
 - [ ] **New-plugin wiring pass:** connect all 12 ad plugins and resend-email, twilio-sms, whatsapp-business and amazon-ses to the server (agent-plugin-backends, build script, catalog). Do this AFTER P0 freezes report.metrics.v1.
 - [ ] **Messaging plugins R2:** broadcasts, suppression and webhooks for Resend, SES, Twilio and WhatsApp.
   - **Email: REUSE Jini.** Make resend-email and amazon-ses adapter modules for `@jini-ai/platform/mail` 0.6.12, the way Tovu's resend plugin does (`tovu-mail-adapters.json`). It provides the provider registry, purpose-scoped mailer, delivery policy with one-click unsubscribe, rate limits, feedback ingest with suppression, and sender-domain verification. Also use `@jini-ai/platform` aws-sigv4 for SES and `@jini-ai/integrations/webhooks`.
   - **SMS/WhatsApp:** no Jini infrastructure, so they stay plugin-only. A Jini messaging engine is a possible upstream addition.
 - [ ] **Official brand logos:** waiting on the owner's OK to use official kits under each vendor's brand guidelines. Then Codex places them in `<plugin>/io.github.ainsep.openmarketing/assets/` (manifest-declared, digested), with the guideline URL recorded per file.
-- [ ] **Agent Plugins standard:** move every `$schema` to the published 1.0.0 (plugin + mcp), and update `features/plugins/src/portable.ts` so it accepts 1.0.0.
+- [x] **Agent Plugins standard:** DONE 2026-10-25 (b5). Every `$schema` is now the published 1.0.0 (1.1.0 returns 404). This covers portable.ts, fixtures, server and tests. `@open-marketing/plugins` typecheck is green; tests not run. The architecture reports still say 1.1.0.
 - [ ] **Lint/complexity sweep:** cognitive >10 and nesting >3 errors, plus 19 two-object-argument breaches (see `codex-runs/2026-10-24-complexity/CX1.md`).
 - [ ] **Marketing skills:** adapt the top MIT/Apache sources into om-playbook and the vendor plugins (see `codex-runs/2026-10-24-marketing-skills/research.md`). Record license and provenance for each.
 - [ ] **Brand logos:** every card uses neutral monograms. Real logos need each vendor's brand-terms acceptance; Google's official button kit is the clean route.
