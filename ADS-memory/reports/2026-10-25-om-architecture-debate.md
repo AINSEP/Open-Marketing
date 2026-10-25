@@ -116,3 +116,22 @@ The integrator fixes the final numbering when P0 is approved.
 8. **Spam after a conversion was shared:** OM-side retraction only in P2; vendor retraction in P3.
 9. **Existing campaigns without URL macros:** the Tracking page proposes template updates through an exact card.
 10. **Jini user-management not yet instance-injectable:** fall back to a `local_token` ApproverRef.
+
+## Round 3: final ballot (Opus 5.5 / Codex 6.1 Sol / Gemini 4 Argon)
+Raw votes: `runs/om-arch-2026-10-25/r3/{opus,codex,gemini}.md`.
+
+| Item | Opus | Codex | Gemini | Result |
+|---|---|---|---|---|
+| S1 reporting | measure (switched from performance) | measure | measure | **3–0: extend `measure`** with enforced lint separation (reporting never imports delivery, identifier ingestion or policy gates) |
+| S2 brand | brand slice | brand slice | brand slice (switched) | **3–0: small P2 `brand` slice** |
+| S3 alerts | server module | server module | server module | **3–0: server module + recurring jobs-outbox evaluation** |
+| S4 metrics | 5; reach later (P3) as an optional period series | 5 + optional period reach | 5 + optional period reach (switched) | **3–0: 5 additive base metrics; reach only as an optional period-grain series** (now vs P3: 2–1 now) |
+| S5 units | integer micros | bounded decimal minor units | integer micros (switched) | **2–1: integer micros** of account currency |
+| S6 old v1 launches | typed legacy error → re-create; raw rows untouched | bounded read-only v1 decoder | typed legacy error | **2–1: typed legacy error → re-create** (raw rows kept) |
+| Q4 pacing | accept + no month-to-date alert before day 3 or below a spend floor; separate lifetime-budget rule | accept, with budget-semantics/data-quality conditions | accept | **3–0 accept, with Opus's guards** |
+| Q5 lookback | 30-day last PAID touch | accept | accept | **3–0** |
+| Q6 email | accept | accept (versioned grant) | accept | **3–0** |
+| Q7 agent stage changes | accept; one card may list several named leads | accept | accept | **3–0** |
+| Q8 spam after sharing | accept (Meta has no retraction API, so P3 is mainly Google) | accept | accept | **3–0** |
+| Q9 missing macros | accept; prefer account/campaign-level templates; warn that Meta ad edits trigger review | accept | accept | **3–0** |
+| Q10 identity fallback | local_token bound to the owner's device, never issuable to the agent | accept, separate from agent credentials | accept | **3–0** |
