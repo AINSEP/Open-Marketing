@@ -1,8 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { parseProviderJson, parseVendorStatus, parseVendorSubmission, pollDelay, validateImportUrl } from "../src/index.js";
-import { completeData, failedData, pendingData, submitData, value } from "./fixtures.js";
+import { completeData, failedData, pendingData, submitData, terminalReasons, value } from "./fixtures.js";
 
 describe("Higgsfield handwritten historical-shape fixtures", () => {
+  it.each(terminalReasons)("preserves %s separately from transport uncertainty and retains charge evidence", reason => {
+    expect(parseVendorStatus({ input: { structuredContent: { ...failedData, status: reason, error: "private provider text" } }, jobId: "fixture-job", operationId: "op" }))
+      .toEqual({ ok: true, value: { kind: "failed", reason, jobId: "fixture-job", credits: 1.25, chargeEvidenceId: "fixture-charge" } });
+  });
+  it.each(["canceled", "timed_out", "unknown", 1])("refuses unaccepted status schema drift %j", status => {
+    expect(parseVendorStatus({ input: { structuredContent: { jobId: "fixture-job", status } }, jobId: "fixture-job", operationId: "op" })).toMatchObject({ ok: false });
+  });
+  it("rejects missing, duplicate and foreign-job completion results", () => {
+    for (const resources of [[], [...completeData.resources, ...completeData.resources]]) {
+      expect(parseVendorStatus({ input: { structuredContent: { ...completeData, resources } }, jobId: "fixture-job", operationId: "op" })).toMatchObject({ ok: false, error: { code: "protocol_mismatch" } });
+    }
+    expect(parseVendorStatus({ input: { structuredContent: { ...completeData, jobId: "other" } }, jobId: "fixture-job", operationId: "op" })).toMatchObject({ ok: false, error: { code: "conflict" } });
+  });
   it("returns a pending job rather than claiming an imported asset", () => {
     expect(parseVendorSubmission({ input: { structuredContent: submitData } })).toEqual({ ok: true, value: { jobId: "fixture-job", retryAfterMs: 2000 } });
   });

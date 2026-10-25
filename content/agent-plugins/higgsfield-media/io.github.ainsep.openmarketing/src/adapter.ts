@@ -70,7 +70,7 @@ async function pollResponse(required: { dependencies: HiggsfieldDependencies; re
   unwrap({ outcome: await recordCharges({ dependencies: d, jobId, status }) });
   switch (status.kind) {
     case "pending": return { kind: "pending", retryAfterMs: status.retryAfterMs };
-    case "failed": return { kind: "failed", code: "HIGGSFIELD_JOB_FAILED", message: "Higgsfield job failed; charge may remain" };
+    case "failed": return { kind: "failed", code: "HIGGSFIELD_JOB_" + status.reason.toUpperCase(), message: "Higgsfield job " + status.reason + "; charge may remain" };
     case "complete": return readImage({ dependencies: d, reference: status.reference });
     default: { const impossible: never = status; throw new Error("Unsupported provider outcome: " + impossible); }
   }

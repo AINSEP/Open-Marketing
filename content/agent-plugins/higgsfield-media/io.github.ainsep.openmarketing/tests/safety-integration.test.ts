@@ -13,18 +13,38 @@ function safetyFixture(required: { amount: number | null }) {
   const generation = { request: { operationId: d.intent.operationId, connectionId: d.binding.connectionId, argumentsDigest: evidence.effect.argumentsDigest, configurationDigest: d.binding.configurationDigest }, quote: evidence.quote };
   const request: EffectRequest = { envelope: evidence.effect, arguments: evidence.arguments, pluginDigest: d.binding.pluginDigest,
     schemaFingerprint: d.binding.generationSchemaFingerprint, operationScope: "image-generation.v1", generation };
+  const requests = [request, ...["next", "exhausted"].map(operationId => ({ ...request,
+    envelope: { ...request.envelope, operationId },
+    generation: { request: { ...generation.request, operationId }, quote: { ...generation.quote, quoteId: "quote-" + operationId } },
+  }))];
   const timing = { clock: d.clock, ids: d.ids, ownerTimezone: "America/Los_Angeles" };
   const confirmations = createMemoryConfirmationExchange(timing);
   const service = createSafetyService({ ...timing, repo: createMemorySafetyRepo(timing), confirmations,
     accountLocks: createMemoryAccountDispatchLock(timing), audit: createMemorySafetyAudit({}), policy: createMemorySpendPolicy({}),
-    effects: createMemoryVerifiedEffectResolver({ effects: [{ scope: d.context.scope, request, envelope: request.envelope }],
-      quotes: [{ scope: d.context.scope, ...generation, pluginDigest: request.pluginDigest, schemaFingerprint: request.schemaFingerprint }] }),
+    effects: createMemoryVerifiedEffectResolver({ effects: requests.map(item => ({ scope: d.context.scope, request: item, envelope: item.envelope })),
+      quotes: requests.map(item => ({ scope: d.context.scope, ...item.generation!, pluginDigest: item.pluginDigest, schemaFingerprint: item.schemaFingerprint })) }),
     platformLimits: createMemoryPlatformLimitEvidence({}),
   });
-  return { f, request, confirmations, service };
+  return { f, request, requests, confirmations, service };
 }
 
 describe("server allowance authority consumes Higgsfield evidence", () => {
+  it("reuses Always allow for the next image and requires exact approval after allowance exhaustion", async () => {
+    const f = safetyFixture({ amount: 400 });
+    const context = f.f.dependencies.context;
+    const card = value({ outcome: await f.service.prepareApproval({ context, request: f.request }) });
+    value({ outcome: await f.confirmations.confirm({ context, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: "always_allow" } }) });
+    let egress = 0;
+    const dispatch = async () => { egress += 1; return { ok: true as const, value: "fixture" }; };
+    for (const request of f.requests.slice(0, 2)) {
+      expect(value({ outcome: await f.service.withDispatch({ context, request: { ...request, approvalId: card.cardId, policyRevision: 0 }, dispatch }) })).toBe("fixture");
+    }
+    const exhausted = f.requests[2]!;
+    expect(await f.service.assessGeneration({ context, ...exhausted.generation! })).toMatchObject({ ok: true, value: { kind: "exact_spend" } });
+    expect(value({ outcome: await f.service.prepareApproval({ context, request: exhausted }) }).allowedChoices).toEqual(["allow", "cancel"]);
+    expect((await f.service.withDispatch({ context, request: { ...exhausted, approvalId: card.cardId, policyRevision: 0 }, dispatch })).ok).toBe(false);
+    expect(egress).toBe(2);
+  });
   it.each([{ amount: 25, choices: ["allow", "allow_chat", "always_allow", "cancel"] },
     { amount: 1001, choices: ["allow", "cancel"] }, { amount: null, choices: ["allow", "cancel"] }])("host selects approval choices for $amount minor units", async input => {
     const f = safetyFixture(input);

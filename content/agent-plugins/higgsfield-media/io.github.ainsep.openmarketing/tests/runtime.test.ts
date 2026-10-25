@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createInMemoryAsyncOperationStore } from "@jini-ai/integrations/media-providers";
 import { createHiggsfieldRuntimeBinding, startOperation, pollDueOperations, recoverAfterRestart, HiggsfieldBoundaryError, MAX_PROVIDER_BYTES } from "../src/index.js";
-import { completeData, failedData, fixture, intent, NOW, pendingData, renderContext, value } from "./fixtures.js";
+import { completeData, failedData, fixture, intent, NOW, pendingData, renderContext, terminalReasons, value } from "./fixtures.js";
 
 /** Actual Jini runtime over a fake, server-owned federation/media boundary; no vendor egress. */
 async function runtimeFixture(required: { maxAttempts?: number; deadlineMs?: number } = {}) {
@@ -18,6 +18,48 @@ async function runtimeFixture(required: { maxAttempts?: number; deadlineMs?: num
 }
 
 describe("Higgsfield async image via released Jini runtime", () => {
+  it.each(terminalReasons)("stores a distinct %s error without refunding or fetching an asset", async reason => {
+    const f = await runtimeFixture();
+    f.setStatus({ status: { ...failedData, status: reason } });
+    f.setNow({ now: NOW + 2000 });
+    expect(await f.poll()).toMatchObject({ failed: 1 });
+    expect(await f.store.get({ id: "async-op" })).toMatchObject({ status: "failed", error: { code: "HIGGSFIELD_JOB_" + reason.toUpperCase(), message: "Higgsfield job " + reason + "; charge may remain" } });
+    expect([...f.observations.values()].map(item => item.kind)).toEqual(["estimated", "actual"]);
+    expect(f.references).toHaveLength(0);
+    expect(f.calls.map(item => item.call.toolName.split(".").at(-1))).toEqual(["generate_image", "job_status"]);
+  });
+  it("restores the original binding after restart and only polls the persisted handle", async () => {
+    const f = await runtimeFixture();
+    const restored = value({ outcome: createHiggsfieldRuntimeBinding({ dependencies: f.dependencies }) });
+    expect(await recoverAfterRestart({ ...f.deps, adapters: () => restored.adapter }, { now: NOW + 1000 })).toMatchObject({ unknownCrashGap: 0, resubmittable: [] });
+    f.setNow({ now: NOW + 2000 });
+    expect(await pollDueOperations({ ...f.deps, signer: restored.signer, adapters: () => restored.adapter, resolveContext: () => renderContext, leaseOwner: "restarted-worker", leaseMs: 30000 }, { limit: 1, httpClient: restored.httpClient })).toMatchObject({ completed: 1 });
+    expect(f.calls.map(item => item.call.toolName.split(".").at(-1))).toEqual(["generate_image", "job_status"]);
+    expect(await f.store.get({ id: "async-op" })).toMatchObject({ status: "succeeded" });
+  });
+  it("reads an owned unknown handle without rewriting terminal Jini history or resubmitting", async () => {
+    const f = await runtimeFixture({ deadlineMs: 1000 });
+    f.setNow({ now: NOW + 2000 });
+    expect(await f.poll()).toMatchObject({ unknown: 1 });
+    const original = await f.store.get({ id: "async-op" });
+    expect(original).toMatchObject({ status: "unknown", state: { jobId: "fixture-job" } });
+    const restored = value({ outcome: createHiggsfieldRuntimeBinding({ dependencies: f.dependencies }) });
+    const wire = restored.adapter.buildPollRequest({ ctx: renderContext, state: { jobId: "fixture-job" } });
+    const result = await restored.httpClient.send({ request: { method: "POST", url: wire.url, headers: {}, body: String(wire.init.body), timeoutMs: 15000 } });
+    expect(JSON.parse(result.bodyText)).toMatchObject({ structuredContent: { jobId: "fixture-job", status: "completed" } });
+    expect(f.calls.map(item => item.call.toolName.split(".").at(-1))).toEqual(["generate_image", "job_status"]);
+    expect(await f.store.get({ id: "async-op" })).toEqual(original);
+    expect(f.references).toHaveLength(0);
+    expect(await f.poll()).toMatchObject({ claimed: 0 });
+  });
+  it("refuses missing or unowned recovery handles before any federation call", async () => {
+    const f = fixture();
+    const runtime = value({ outcome: createHiggsfieldRuntimeBinding({ dependencies: f.dependencies }) });
+    expect(() => runtime.adapter.buildPollRequest({ ctx: renderContext, state: {} })).toThrow(HiggsfieldBoundaryError);
+    const wire = runtime.adapter.buildPollRequest({ ctx: renderContext, state: { jobId: "unowned-job" } });
+    await expect(runtime.httpClient.send({ request: { method: "POST", url: wire.url, headers: {}, body: String(wire.init.body), timeoutMs: 15000 } })).rejects.toMatchObject({ code: "forbidden" });
+    expect(f.calls).toHaveLength(0);
+  });
   it("persists a provider job, polls one tick, imports bytes and deduplicates charge observations", async () => {
     const f = await runtimeFixture();
     expect(f.receipt).toMatchObject({ done: false, operationId: "async-op" });

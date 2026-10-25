@@ -3,6 +3,17 @@ import { bindHiggsfieldEffect, createChargeObservation, createHiggsfieldDispatch
 import { binding, fixture, intent, NOW, pricing, value } from "./fixtures.js";
 
 describe("Higgsfield cost and verified effect evidence", () => {
+  it("uses the documented MCP conversion only with a reviewed exact-request bound", () => {
+    // Synthetic request evidence; the conversion source is official (2026-10-02).
+    const evidence = { ...pricing, source: "https://higgsfield.ai/blog/automate-ai-video-n8n-make",
+      unitUpperBound: { minorUnits: 7, currency: "USD" }, creditRate: { minorUnits: 100, creditUnits: 20 } };
+    expect(observedCreditCharge({ credits: 1.25, pricing: evidence, binding, intent, now: NOW })).toEqual({ minorUnits: 7, currency: "USD" });
+    expect(value({ outcome: createHiggsfieldQuote({ binding, intent, pricing: evidence, now: NOW, quoteId: "mcp" }) })).toMatchObject({ status: "known", upperBound: { minorUnits: 7, currency: "USD" }, pricingEvidenceId: evidence.evidenceId });
+    // A documented rate alone cannot establish this request's monetary bound.
+    const { unitUpperBound: _bound, ...creditsOnly } = evidence;
+    expect(value({ outcome: createHiggsfieldQuote({ binding, intent, pricing: creditsOnly as typeof evidence, now: NOW, quoteId: "no-bound" }) })).toMatchObject({ status: "unknown", estimated: null, upperBound: null });
+    expect(observedCreditCharge({ credits: 1.25, pricing: { ...evidence, argumentsDigest: "0".repeat(64) }, binding, intent, now: NOW })).toBeNull();
+  });
   it("supplies known money provenance and binds both original and wire arguments", () => {
     const f = fixture();
     expect(f.dependencies.quote).toMatchObject({ status: "known", estimated: { minorUnits: 25, currency: "USD" }, pricingEvidenceId: pricing.evidenceId });

@@ -22,6 +22,8 @@ export const pendingData = { jobId: "fixture-job", status: "in_progress", poll_a
 export const completeData = { jobId: "fixture-job", status: "completed", resources: [{ type: "resource_link", uri: "https://cdn.example.test/image.png?signature=fixture", mimeType: "image/png" }],
   charge: { status: "charged", credits_exact: 1.25, evidence_id: "fixture-charge" } };
 export const failedData = { jobId: "fixture-job", status: "failed", charge: { status: "charged", credits_exact: 1.25, evidence_id: "fixture-charge" } };
+/** Proposed terminal spellings are synthetic, not an authenticated tools/list capture. */
+export const terminalReasons = ["failed", "cancelled", "expired"] as const;
 export const renderContext: RenderContext = { surface: "image", model: intent.model, wireModel: intent.model, prompt: intent.prompt, aspect: "1:1", length: undefined,
   duration: undefined, voice: "", audioKind: undefined, language: "", loop: false, promptInfluence: undefined, imageRef: null, imageRefs: [], requestInit: { dispatcher: undefined }, speechFormat: "mp3" };
 

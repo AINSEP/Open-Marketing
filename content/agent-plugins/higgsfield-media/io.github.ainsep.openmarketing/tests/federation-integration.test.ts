@@ -1,3 +1,4 @@
+import { expect, it } from "vitest";
 import { createFederationHost, createMemoryFederationConnectionRepo, createMemoryFederationCredential,
   createMemoryFederatedCallConfirmation, createMemoryExternalMcpToolApprovalRepo, createMemoryFederatedDispatchGate,
   createMemoryFederationAudit, createMemoryToolRegistry, createMemoryMcpTransport, fingerprintSchemas } from "@open-marketing/federation";
@@ -9,7 +10,7 @@ import { federationSuite } from "./contract/federation-suite.js";
 /** Actual host composition with explicit test-only approvals/grants and opaque credential reference.
  * Transport is hand-written response data. No OAuth interaction, HTTP request or real money occurs.
  */
-async function hostFixture(): Promise<ReturnType<typeof fixture>> {
+async function hostFixture(required: { admitted?: boolean } = {}): Promise<ReturnType<typeof fixture>> {
   const f = fixture();
   const d = f.dependencies;
   const inputSchema = { type: "object", required: ["params"], additionalProperties: false, properties: {
@@ -24,7 +25,7 @@ async function hostFixture(): Promise<ReturnType<typeof fixture>> {
   const toolName = higgsfieldToolName({ connectionId: verifiedBinding.connectionId, name: "generate_image" });
   const descriptor: FederatedToolDescriptor = { name: toolName, connectionId: verifiedBinding.connectionId, fingerprint, inputSchema,
     capability: { capabilityId: "image-generation.v1", version: 1, pluginId: "higgsfield-media", pluginDigest: verifiedBinding.pluginDigest,
-      schemaFingerprint: fingerprint, admitted: true, effects: ["write", "generation"] } };
+      schemaFingerprint: fingerprint, admitted: required.admitted ?? true, effects: ["write", "generation"] } };
   const credentials = createMemoryFederationCredential({ entries: [{ connectionId: verifiedBinding.connectionId, credentialReference: "broker-reference" }] });
   const approvals = createMemoryExternalMcpToolApprovalRepo({});
   const gate = createMemoryFederatedDispatchGate({});
@@ -63,3 +64,18 @@ async function hostFixture(): Promise<ReturnType<typeof fixture>> {
 
 federationSuite({ name: "federation port double", create: async () => fixture() });
 federationSuite({ name: "actual federation host adapter", create: hostFixture });
+
+it("actual federation host denies unadmitted generation without transport calls", async () => {
+  const f = await hostFixture({ admitted: false });
+  const d = f.dependencies;
+  const args = { params: { model: d.intent.model, prompt: d.intent.prompt, count: 1 } };
+  const argumentsDigest = value({ outcome: d.digest.digest({ arguments: args }) });
+  const result = await d.federation.invoke({ context: d.context, call: {
+    operationId: d.intent.operationId, connectionId: d.binding.connectionId,
+    toolName: higgsfieldToolName({ connectionId: d.binding.connectionId, name: "generate_image" }),
+    arguments: args, argumentsDigest, pluginDigest: d.binding.pluginDigest,
+    schemaFingerprint: d.binding.generationSchemaFingerprint,
+  } });
+  expect(result).toMatchObject({ ok: false, error: { code: "forbidden", retryable: false } });
+  expect(f.calls).toHaveLength(0);
+});

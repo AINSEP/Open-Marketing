@@ -106,3 +106,33 @@ One lane typecheck is permitted; its result is recorded in HANDOFF.md.
 After integrator dependency/composition work, run the namespace package's test,
 build and typecheck scripts, then the repository's required gates. Current vendor
 acceptance must use approved non-spending evidence before enabling admission.
+
+## H1R1 handoff — 2026-10-24
+
+Distinct failed/cancelled/expired reasons now reach sanitized Jini error codes;
+charges remain independent of terminal status. No refund is inferred.
+These payload spellings and explicit charge fields remain synthetic contracts.
+The fixture regressions cover restart without another submission, owned-handle
+read-only reconciliation, missing/unowned handle refusal, immutable unknown rows,
+schema drift, the documented conversion, grant reuse and allowance exhaustion.
+
+Checked [Higgsfield's October 2 guide](https://higgsfield.ai/blog/automate-ai-video-n8n-make):
+MCP conversion is USD 1 per 20 credits; it describes non-generating `get_cost`
+and `jobs_wait`. Combine a reviewed exact-request credit bound with 100 cents/20
+credits, rounding upward, through existing PricingEvidence/quote APIs. The rate
+alone cannot supply a request bound. Missing, stale or mismatched evidence stays
+unknown; estimated costs do not establish actual charges.
+[MCP billing](https://higgsfield.ai/creator-hub/help-center/integrations/what-is-higgsfield-mcp)
+uses plan credits; [REST estimates](https://docs.higgsfield.ai/docs/concepts/billing-and-retention)
+apply to separate API billing. Do not substitute REST or Unlimited/free prices.
+The public MCP endpoint returned 401; no authenticated tools/list was available.
+[Vendor instructions](https://github.com/higgsfield-ai/cursor-plugin/blob/develop/commands/higgs.md)
+require current tool schemas. Existing job_status bindings and admitted:false stay
+unchanged; live evidence production/get_cost/jobs_wait mapping remains deferred.
+
+H1 shared completion owns server composition {creative,index,workers,addon-federation,
+migrations}.ts, om-tool-types.ts, installed-plugin public loading, durable operation
+and canonical-media storage (reserved v21), and verified late-result creative ingestion.
+Recover before polling; retain original per-operation bindings and immutable Jini
+terminal rows. DS2 owns status/reason/asset links; T1 runs the written suites.
+The single H1R1 lane typecheck exited 2 (TS2353, restart fixture httpClient argument); corrected to Jini's optional argument, not rerun. Tests/builds/gates were not run.

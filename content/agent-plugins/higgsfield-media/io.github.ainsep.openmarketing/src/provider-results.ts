@@ -10,7 +10,7 @@ export type PendingJob = { readonly jobId: string; readonly retryAfterMs: number
 /** Terminal failure is separate from unknown transport outcomes; neither implies no charge. */
 export type ProviderStatus =
   | { readonly kind: "pending"; readonly jobId: string; readonly retryAfterMs: number; readonly credits: number | null; readonly chargeEvidenceId: string | null }
-  | { readonly kind: "failed"; readonly jobId: string; readonly credits: number | null; readonly chargeEvidenceId: string | null }
+  | { readonly kind: "failed"; readonly reason: "failed" | "cancelled" | "expired"; readonly jobId: string; readonly credits: number | null; readonly chargeEvidenceId: string | null }
   | { readonly kind: "complete"; readonly reference: ImportReference; readonly credits: number | null; readonly chargeEvidenceId: string | null };
 
 /** Bounded JSON parser used for federation text content. Never retries or echoes malformed payloads.
@@ -67,7 +67,7 @@ export function validateImportUrl(required: { url: string }): Outcome<string> {
 /** Validate a job-bound status and produce a media import reference, never an agent-facing CDN link.
  * A completed status MUST include one image link; another job's result is rejected.
  * @example parseVendorStatus({ input, jobId: "job", operationId: "op" })
- * @returns Pending/failure/reference or protocol refusal; retains credit evidence on failures.
+ * @returns Pending/terminal reason/reference or protocol refusal; terminal status never implies a refund.
  * @complexity O(b), one bounded 16-item metadata scan.
  */
 export function parseVendorStatus(required: { input: unknown; jobId: string; operationId: string }): Outcome<ProviderStatus> {
@@ -84,8 +84,8 @@ export function parseVendorStatus(required: { input: unknown; jobId: string; ope
   switch (status) {
     case "pending": case "in_progress":
       return { ok: true, value: { kind: "pending", jobId: required.jobId, retryAfterMs: pollDelay({ seconds: data?.poll_after_seconds }), credits, chargeEvidenceId } };
-    case "failed": case "cancelled":
-      return { ok: true, value: { kind: "failed", jobId: required.jobId, credits, chargeEvidenceId } };
+    case "failed": case "cancelled": case "expired":
+      return { ok: true, value: { kind: "failed", reason: status, jobId: required.jobId, credits, chargeEvidenceId } };
     case "completed": return completedReference({ ...required, payload: parsed.value, credits, chargeEvidenceId });
     case undefined: return failure({ code: "protocol_mismatch", message: "Higgsfield job status is missing" });
     default: { const impossible: never = status; throw new Error("Unsupported status: " + impossible); }

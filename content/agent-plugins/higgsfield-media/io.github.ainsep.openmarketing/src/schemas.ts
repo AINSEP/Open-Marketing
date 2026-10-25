@@ -29,14 +29,14 @@ const resourceLink = z.object({
   mimeType: z.enum(["image/png", "image/jpeg", "image/webp", "image/avif"]),
 });
 const textContent = z.object({ type: z.literal("text"), text: z.string().max(65536) });
-/** Supported historical MCP shape; unknown metadata is discarded, not persisted or logged. */
+/** Synthetic/historical MCP contract, pending authenticated schema acceptance; unknown metadata is discarded. */
 export const mcpPayloadSchema = z.object({
   isError: z.boolean().optional(),
   content: z.array(z.union([textContent, resourceLink])).max(16).optional(),
   structuredContent: z.object({
     results: z.array(z.object({ id: idSchema, type: z.literal("image"), status: z.enum(["pending", "in_progress"]) })).max(4).optional(),
     jobId: idSchema.optional(),
-    status: z.enum(["pending", "in_progress", "completed", "failed", "cancelled"]).optional(),
+    status: z.enum(["pending", "in_progress", "completed", "failed", "cancelled", "expired"]).optional(),
     poll_after_seconds: z.number().finite().min(0).max(3600).optional(),
     resources: z.array(resourceLink).max(4).optional(),
     cost: z.object({ credits_exact: z.number().finite().nonnegative().max(1_000_000) }).optional(),
