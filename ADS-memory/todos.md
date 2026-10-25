@@ -21,7 +21,15 @@ The full plan is in `ADS-memory/reports/2026-10-24-om-roadmap-phases.md`. The de
     - No v1 compatibility: launch v2 replaces v1.
     - **NEXT:** P0-1 contracts.
 - [x] **Owner decision:** reporting goes in `measure` (2026-10-25; the vote was 3–0 in round 3).
-- [ ] **P0 Contracts.** Freeze these before the new plugins are wired:
+- [x] **P0 DONE 2026-10-25** (typechecks green; most tests not yet run):
+  - P0-1 contracts 5f9c781 + launch v2 b15fa55;
+  - P0-2a dispatchDecision aa2f790;
+  - P0-2b approver identity 4baff3d (+3c20f0e);
+  - P0-2c consent barrier + subject lane 5c2b8c8;
+  - P0-2d jobs availableAt 124d607.
+
+  Still open: the Jini user-management permission-catalog injection ask (P0-3), and an `availableAt` ask for the Jini outbox.
+- [ ] (original P0 item) **P0 Contracts.** Freeze these before the new plugins are wired:
   - approver/actor contract;
   - `report.metrics.v1` (per-campaign, per-day);
   - capability IDs;
@@ -90,7 +98,7 @@ Read their code and list what they do that OM doesn't. License rules: MIT/Apache
   - reporting trust (freshness, lag, restatements);
   - the owner's target cost per lead plus "insufficient data" outcomes;
   - connection-to-launch readiness states.
-- [ ] **TIME-BOUND, CONFIRMED by Apple:** Campaign Management API v5 sunsets **2027-01-26** (Apple Ads Platform API Preview Release Notes p.4, https://ads.apple.com/adsdam/app-store/us/en_us/documents/api-preview-guide.pdf#page=4). Migrating needs endpoint shapes, `adAccountId` context and response envelopes (pp.6–7). Migrate or explicitly defer apple-search-ads. Migrate OM's apple-search-ads plugin to Ads Platform API v1 before then.
+- [x] **Apple v1 migration BUILT and committed 2026-10-25** (reporting stays not_implemented until Apple's semantics are confirmed; plugin still disabled pending integration). Original item: **TIME-BOUND, CONFIRMED by Apple:** Campaign Management API v5 sunsets **2027-01-26** (Apple Ads Platform API Preview Release Notes p.4, https://ads.apple.com/adsdam/app-store/us/en_us/documents/api-preview-guide.pdf#page=4). Migrating needs endpoint shapes, `adAccountId` context and response envelopes (pp.6–7). Migrate or explicitly defer apple-search-ads. Migrate OM's apple-search-ads plugin to Ads Platform API v1 before then.
 - [ ] Owner: trademark search for "Open Marketing" before a public launch (OOSA clash).
 
 ## HIGH PRIORITY — swap OM infrastructure to Jini (owner, 2026-10-24: "it should use Jini's stuff")
