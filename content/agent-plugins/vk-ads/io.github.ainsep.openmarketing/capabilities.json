@@ -1,6 +1,11 @@
 {
   "version": 1,
   "admitted": false,
-  "capabilities": [],
-  "tools": []
+  "capabilities": [
+    {"capabilityId": "campaign.read.v1", "version": 1, "pluginId": "vk-ads", "schemaFingerprint": "05f75326eb105935dcd98a0eb5f8917b95597c54db91e6685b1a85968a30c16a", "admitted": false, "effects": ["read"]}
+  ],
+  "tools": [
+    {"name": "list_accounts", "effects": ["read"], "capabilityId": "campaign.read.v1"},
+    {"name": "list_campaigns", "effects": ["read"], "capabilityId": "campaign.read.v1"}
+  ]
 }

@@ -2,4 +2,4 @@
 export { createVkAdsAdapter } from "./transport.js";
 export { commandSchema, vkAdsTools } from "./commands.js";
 export type { VkCommand } from "./commands.js";
-export type { VkAccount, VkAdsAdapter, VkConfiguration, VkCredentials, VkDependencies, VkInvocation, VkPage, VkResult } from "./ports.js";
+export type { VkAccount, VkAdsAdapter, VkConfiguration, VkCredential, VkCredentials, VkDependencies, VkInvocation, VkPage, VkReport, VkResult, VkToken } from "./ports.js";
