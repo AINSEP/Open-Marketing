@@ -28,7 +28,7 @@ import type { KeyringConfiguration, OAuthClientPort, CredentialBrokerPort } from
 import { createPendingAuthorizationStore, type OAuthHttpPorts } from '@jini-ai/oauth';
 import { metaOAuthChallengeRules, oauthCallbackPath, oauthMetadataSchema, type IntegrationOAuthProvider } from '../integration-oauth-contracts.js';
 import { createVendorOAuthBindings } from '../integration-oauth-vendors.js';
-import { createIntegrations, type Integrations } from '../integrations.js';
+import { createIntegrations, type Integrations, type IntegrationDependencies } from '../integrations.js';
 import { handleIntegrationRequest, handleOAuthBrowserCallback } from '../inbound/integrations.js';
 import { bindForms, seedSandboxForm } from './forms.js';
 import { bindIdentity, createVisitTokens, localKey } from './identity.js';
@@ -93,6 +93,17 @@ function observeBoot(required: { observer: ObserverPort; context: CallContext; o
     catch { /* Observer failure cannot change committed work or readiness. */ }
 }
 
+/** Recovery is best effort: retain pending evidence and let the bounded worker retry after readiness.
+ * @complexity One recovery call; failed projection never closes otherwise healthy server resources.
+ */
+async function recoverBootCreative(required: { creative: OmFeatureServices['creative']; context: CallContext; observer: ObserverPort }): Promise<void> {
+    if (!required.creative) return;
+    try {
+        const recovered = await required.creative.service.recover({ context: required.context });
+        if (!recovered.ok) observeBoot({ ...required, operation: 'server.boot.creative', outcome: recovered.error.code });
+    } catch { observeBoot({ ...required, operation: 'server.boot.creative', outcome: 'unavailable' }); }
+}
+
 /** Cleanup continues after an explicit/throwing port failure; no acquired service is skipped. */
 async function stopService(required: { service?: Pick<LifecyclePort, 'stop'>; message: string }): Promise<Outcome<void>> {
     try { return required.service ? await required.service.stop({}) : { ok: true, value: undefined }; }
@@ -133,7 +144,7 @@ function stopResources(required: { resources: BootResources }): Promise<Outcome<
 
 type BootRequestInput = {
     request: HttpRequest; auth: ReturnType<typeof createLocalAuth>; listener: NodeHttpListener;
-    fs: LocalFilesystem; studioRoot: string; context: CallContext; services: OwnerServices; integrations: Integrations; ids: IdPort; agent: ReturnType<typeof createLocalAgent>; clock: ClockPort; observer: ObserverPort; model: { credentials: ModelCredentials; upstream: ModelUpstream }; publicServices: Omit<Parameters<typeof handlePublicRequest>[0], 'request' | 'context'>;
+    fs: LocalFilesystem; studioRoot: string; context: CallContext; services: OwnerServices; integrations: Integrations; ids: IdPort; agent: ReturnType<typeof createLocalAgent>; clock: ClockPort; observer: ObserverPort; model: { credentials: ModelCredentials; upstream: ModelUpstream; usage?: Parameters<typeof handleModelRequest>[0]['usage'] }; publicServices: Omit<Parameters<typeof handlePublicRequest>[0], 'request' | 'context'>;
 };
 /** Authenticate before bodies and derive owner scope locally. Studio configuration is supplied
  * in same-origin HTML; the owner cookie stays HttpOnly. Public ingress never uses owner auth.
@@ -252,6 +263,8 @@ export async function bootServer(required: {
             observer: required.observer, io: required.io, stateRoot: config.value.stateRoot, masterHex: required.env.OM_CREDENTIAL_KEY,
             providers: await loadOAuthProviders({ io: required.io }),
             agentPluginState: async input => resources.addons?.agentPluginState(input) ?? null,
+            readCredentialCards: async input => resources.addons?.readCredentialCards(input) ?? localFailure({ message: 'Connection cards unavailable' }),
+            readCredentialAsset: async input => resources.addons?.readCredentialAsset(input) ?? localFailure({ message: 'Connection asset unavailable' }),
             redirectUri: () => { const origin = listener.origin({}); return origin ? origin + oauthCallbackPath : null; } });
         const services: OwnerServices & OmFeatureServices = {
             campaigns: createSqlCampaignRepo({ db: campaignDb }, { observer: required.observer }),
@@ -276,10 +289,11 @@ export async function bootServer(required: {
             links: createSqlTrackedLink({ database: measureDb, ids: required.ids, baseUrl: 'https://sandbox.example.test/l/', allowedOrigins: ['https://sandbox.example.test'] }, { observer: required.observer }) };
         services.formSubjects = forms.subjects;
         const audit = bindCatalogAudit({ unit: database.unit, clock: required.clock, ids: required.ids, observer: required.observer });
+        const media = bindCatalogMedia({ db: campaignDb, context, clock: required.clock, ids: required.ids, observer: required.observer, audit,
+            effects: createCatalogMediaEffects({ stateRoot: config.value.stateRoot, clock: required.clock }) });
         Object.assign(services, bindCatalogScope({ database, safetyDb, clock: required.clock, ids: required.ids, observer: required.observer, timezone: config.value.timezone }), {
-            media: bindCatalogMedia({ db: campaignDb, context, clock: required.clock, ids: required.ids, observer: required.observer, audit,
-                effects: createCatalogMediaEffects({ stateRoot: config.value.stateRoot, clock: required.clock }) }),
-            creative: bindSandboxCreative({ unit: database.unit, safetyRepo: services.safety, confirmations: resources.confirmations, clock: required.clock, ids: required.ids, observer: required.observer, audit }),
+            media,
+            creative: bindSandboxCreative({ unit: database.unit, media, safetyRepo: services.safety, confirmations: resources.confirmations, clock: required.clock, ids: required.ids, observer: required.observer, audit }),
             campaignWorkflow: bindSandboxCampaigns({ unit: database.unit, repo: services.campaigns, safety: services.safety, clock: required.clock, ids: required.ids, observer: required.observer, audit }),
             audit, contacts: identity.contacts, forms: forms.forms, webEvents: identity.webEvents, privacy: resources.privacy.privacy,
             measure: bindCatalogMeasure({ repo: measure, links: publicServices.links, reports: sandboxPlatformReports(required), clock: required.clock, ids: required.ids, observer: required.observer, audit }),
@@ -294,7 +308,7 @@ export async function bootServer(required: {
         const interrupted = await persistence.initialize({ context });
         if (!interrupted.ok) throw new Error('Assistant recovery unavailable');
         services.conversations = conversations;
-        const model = { credentials: bindModelCredentials({ integrations, persistence }), upstream: required.io.modelUpstream ?? createModelUpstream({ fetch }) };
+        const model = { usage: { db: campaignDb, ids: required.ids }, credentials: bindModelCredentials({ integrations, persistence }), upstream: required.io.modelUpstream ?? createModelUpstream({ fetch }) };
         resources.frontend = createFrontendSessions({ clock: required.clock, ids: required.ids, schedule: required.io.schedule, randomToken: required.io.randomToken,
             authorize: input => input.context.principal.kind === 'owner' ? scopedOwnerAuthority({ context: input.context, expected: context! })
                 : resources.agent?.authorize(input) ?? localFailure({ message: 'Agent authority unavailable' }),
@@ -355,6 +369,8 @@ export async function bootServer(required: {
         phase = 'add-ons';
         const addonsStarted = await startBootAddons({ resources });
         if (!addonsStarted.ok) { await stopResources({ resources }); return addonsStarted; }
+        phase = 'creative recovery';
+        await recoverBootCreative({ creative: services.creative, context, observer: required.observer });
         const workersStarted = resources.workers.start({});
         if (!workersStarted.ok) { await stopResources({ resources }); return workersStarted; }
         phase = 'readiness';
@@ -405,6 +421,7 @@ export function bindServerIntegrations(required: {
     db: CampaignSqlPort; clock: ClockPort; ids: IdPort; observer: ObserverPort; io: ServerBootIo; stateRoot: string; masterHex?: string;
     providers?: ReadonlyMap<string, IntegrationOAuthProvider>; redirectUri?: () => string | null;
     agentPluginState?: NonNullable<ReturnType<typeof bindBootAddons>>['agentPluginState'];
+    readCredentialCards?: IntegrationDependencies['readCredentialCards']; readCredentialAsset?: IntegrationDependencies['readCredentialAsset'];
 }): Integrations {
     const configuration: KeyringConfiguration = { hkdfSalt: 'io.github.ainsep.openmarketing.credentials.v1',
         envVarName: 'OM_CREDENTIAL_KEY', keyFilePath: join(required.stateRoot, 'credentials.key') };
@@ -451,7 +468,8 @@ export function bindServerIntegrations(required: {
             },
             async complete(input, options) { return oauth ? oauth.complete(input, options) : localFailure({ code: 'expired', message: 'Sign-in expired' }); },
         } });
-    return createIntegrations({ repo, sealer, locks, audit, broker, service, db: required.db, observer: required.observer, redirectUri: required.redirectUri });
+    return createIntegrations({ repo, sealer, locks, audit, broker, service, db: required.db, observer: required.observer, redirectUri: required.redirectUri,
+        readCredentialCards: required.readCredentialCards, readCredentialAsset: required.readCredentialAsset });
 }
 
 /** Parse plugin metadata; client configuration comes only from sealed storage at use time.
@@ -473,18 +491,18 @@ export async function loadOAuthProviders(required: { io: ServerBootIo }): Promis
  * @example bindModelCredentials({ integrations, persistence });
  * @complexity One scoped context read plus one fresh credential access; no credential cache.
  */
-export function bindModelCredentials(required: { integrations: Integrations; persistence: AssistantRuns }): ModelCredentials {
+export function bindModelCredentials(required: { integrations: Pick<Integrations, 'access'>; persistence: AssistantRuns }): ModelCredentials {
  return { async resolveProviderKey({ grant, signal }) {
   const current = await required.persistence.context({ grant });
   if (!current.ok) return current;
   if (!('settings' in current.value) || current.value.settings.mode !== 'model') return localFailure({ code: 'forbidden', message: 'Model configuration unavailable' });
   const settings = current.value.settings;
   const context: CallContext = { scope: grant.scope, principal: { kind: 'service', serviceId: 'om-model-broker' }, runId: grant.runId, correlationId: grant.grantId, traceId: grant.grantId };
-  const secret = settings.connectionId === null
-   ? await required.integrations.resolveProviderKey({ context, provider: 'anthropic' }, { signal })
-   : await required.integrations.access({ context, pluginId: 'anthropic', connectionId: settings.connectionId }, { signal });
+  if (!settings.connectionId) return localFailure({ code: 'forbidden', message: 'Run credential was not frozen' });
+  const provider = settings.provider ?? 'anthropic';
+  const secret = await required.integrations.access({ context, pluginId: provider, connectionId: settings.connectionId }, { signal });
   if (!secret.ok) return secret;
-  return { ok: true, value: { apiKey: typeof secret.value === 'string' ? secret.value : secret.value.accessToken, model: settings.model } };
+  return { ok: true, value: { apiKey: secret.value.accessToken, model: settings.model, provider, effort: settings.effort } };
  } };
 }
 /** Host-only provider I/O. Broker fixes the URL and rechecks run authority before every request. */

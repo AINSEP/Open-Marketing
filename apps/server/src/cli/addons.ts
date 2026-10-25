@@ -15,7 +15,7 @@ const options = { json: { type: 'boolean' }, help: { type: 'boolean' }, kind: { 
   cursor: { type: 'string' }, plugin: { type: 'string' }, connection: { type: 'string' }, 'token-stdin': { type: 'boolean' },
   transaction: { type: 'string' }, 'response-stdin': { type: 'boolean' } } as const;
 const help = 'om addons list [--kind plugin|agent-plugin|skill] [--limit 1..100] [--cursor C]\nom addons install <folder|ZIP> [--kind plugin|agent-plugin|skill]\nom addons enable|disable|uninstall <id> --kind plugin|agent-plugin|skill\nom integrations list [--limit 1..100] [--cursor C]\nom integrations connect --plugin <id> [--connection <id>] --token-stdin\nom integrations disconnect <connection-id>\nAll commands: --json, --help\n';
-const oauthHelp = 'om integrations oauth client set --plugin ID (stdin JSON: clientId, optional clientSecret)\nom integrations oauth client clear --plugin ID\nom integrations oauth start --plugin ID\nom integrations oauth callback --response-stdin (JSON state + code or error)\nom integrations oauth status --transaction ID\n';
+const oauthHelp = 'om integrations oauth client set --plugin ID (stdin JSON: clientId, optional clientSecret)\nom integrations oauth client clear --plugin ID\nom integrations oauth start --plugin ID\nom integrations oauth callback --response-stdin (JSON state + code or error)\nom integrations oauth status --transaction ID | --plugin ID\n';
 /** Narrow documented native parseArgs ABI; config stays fixed at this input boundary. */
 function nativeArgs(required: { argv: readonly string[] }) {
   return parseArgs({ args: [...required.argv], options, tokens: true, strict: true, allowPositionals: true });
@@ -182,7 +182,7 @@ export async function runAddonCli(required: { argv: readonly string[]; runtime: 
   return result.ok ? { ok: true, value: undefined } : result;
 }
 
-const oauthFlags: Record<string, string[]> = { client: ['plugin'], start: ['plugin'], callback: ['response-stdin'], status: ['transaction'] };
+const oauthFlags: Record<string, string[]> = { client: ['plugin'], start: ['plugin'], callback: ['response-stdin'], status: ['transaction', 'plugin'] };
 /** Owner-only Google compatibility secret; bounded UTF-8 stdin, no argv secret or echo. */
 async function developerToken(required: { args: Args; runtime: CliRuntime; session: HttpSession }): Promise<Outcome<unknown>> {
   const query = developerTokenQuerySchema.safeParse({ pluginId: required.args.values.plugin });
@@ -217,8 +217,8 @@ async function oauth(required: { args: Args; runtime: CliRuntime; session: HttpS
       return answered.ok ? requestOm({ session: required.session, route: { ...routes.toolOperation, schema: oauthOperationSchema }, id: result.value.operationId }) : answered;
     }
     case 'status': {
-      const query = oauthStatusQuerySchema.safeParse({ transactionId: values.transaction });
-      return query.success ? requestOm({ session: required.session, route: routes.integrationOAuthStatus, query: query.data }) : failure({ code: 'invalid_input', message: 'Specify --transaction ID' });
+      const query = oauthStatusQuerySchema.safeParse(Object.fromEntries(Object.entries({ transactionId: values.transaction, pluginId: values.plugin }).filter(([, value]) => value !== undefined)));
+      return query.success ? requestOm({ session: required.session, route: routes.integrationOAuthStatus, query: query.data }) : failure({ code: 'invalid_input', message: 'Specify exactly one of --transaction ID or --plugin ID' });
     }
     case 'callback': {
       return oauthCallback(required);

@@ -1,0 +1,29 @@
+{
+  "checkedAt": "2026-10-24",
+  "auth": {
+    "sourceUrl": "https://developers.google.com/google-ads/api/docs/oauth/overview",
+    "form": "Member OAuth plus sealed app configuration",
+    "probe": "None: safe checks need vendor-specific headers or account context; status makes no vendor calls."
+  },
+  "brand": {
+    "sourceUrl": "https://developers.google.com/identity/branding-guidelines",
+    "terms": "Google permits supplied sign-in treatments under its branding guidelines, including the standard color G, prescribed text, spacing and button boundary. Other brand uses require prior written consent.",
+    "fallbackReason": "Standalone card-icon use is not authorized by the sign-in guidelines. Official ZIP download failed (DNS unavailable); no vendor artwork was copied. Plain connection specimen pending official sign-in artwork retrieval."
+  },
+  "files": [
+    {
+      "path": "icon.svg",
+      "source": "Original OM neutral monogram; not vendor artwork",
+      "sourceUrl": "https://developers.google.com/identity/branding-guidelines",
+      "retrievedAt": "2026-10-24",
+      "license": "Apache-2.0 for original OM artwork only; vendor trademarks excluded"
+    },
+    {
+      "path": "button.html",
+      "source": "Original OM static specimen",
+      "sourceUrl": "https://developers.google.com/identity/branding-guidelines",
+      "retrievedAt": "2026-10-24",
+      "license": "Apache-2.0 for OM markup/CSS only; no vendor artwork embedded"
+    }
+  ]
+}

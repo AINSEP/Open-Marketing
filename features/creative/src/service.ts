@@ -4,7 +4,7 @@ import type { CreativeService, GenerationPollRequest, GenerationStatus } from ".
 import type { CreativeDependencies } from "./lifecycle.js";
 import type { CreativeObserverPort } from "./ports.js";
 import { dispatchGeneration, recordOutcome, requestGeneration } from "./lifecycle.js";
-import { reconcilePage, refreshJob } from "./reconciliation.js";
+import { ingestVerifiedCompletion, reconcilePage, refreshJob } from "./reconciliation.js";
 import { failure, pollRequestSchema, success, validContext } from "./rules.js";
 
 /** Inert factory. Injects every effect; a server worker calls dispatchGeneration/pollDue/recover.
@@ -16,6 +16,12 @@ import { failure, pollRequestSchema, success, validContext } from "./rules.js";
 export function createCreativeService(required: Omit<CreativeDependencies, "observer">, optional?: { observer?: CreativeObserverPort }): CreativeService {
   const deps: CreativeDependencies = { ...required, observer: optional?.observer };
   return {
+    async ingestVerifiedCompletion(input, options) {
+      if (!validContext({ context: input.context }) || input.context.principal.kind !== "service") return failure({ code: "forbidden", message: "Late completion requires a server worker" });
+      if (options?.signal?.aborted) return failure({ code: "cancelled", message: "Completion ingestion cancelled" });
+      const outcome = await ingestVerifiedCompletion({ deps, ...input }, options);
+      return report({ deps, ...input, operationId: input.generationId, operation: "creative.ingestVerifiedCompletion", outcome }, options);
+    },
     async requestGeneration(input, options) {
       const outcome = await requestGeneration({ deps, ...input }, options);
       return report({ deps, ...input, operationId: input.request.operationId, operation: "creative.requestGeneration", outcome }, options);

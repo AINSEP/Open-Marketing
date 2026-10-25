@@ -43,6 +43,8 @@ export type GenerationStatus = {
   readonly quote: GenerationCostQuote;
   readonly actualCost: Money | null;
   readonly costs: readonly GenerationCostObservation[];
+  /** Independently verified late output; the terminal Jini row remains untouched. */
+  readonly verifiedCompletion?: GenerationCompletion;
 };
 
 /** Append-only observations. Corrections name an existing observation; identities deduplicate retries. */
@@ -72,11 +74,22 @@ export type GenerationProvenance = {
 export type GenerationOutput = { readonly kind: "bytes"; readonly result: AsyncOperationResult }
   | { readonly kind: "url"; readonly sourceUrl: string; readonly expectedDigest: string };
 
+/** Supplied only by a server worker after a read-only, admitted provider verification. */
+export type GenerationCompletion = {
+  readonly asyncOperationId: string;
+  readonly providerJobId: string;
+  readonly output: GenerationOutput;
+};
+
 /** One tick is capped at 100 operations with a 1–60 second lease. */
 export type GenerationPollRequest = { readonly leaseOwner: string; readonly leaseMs: number; readonly limit: number; readonly cursor?: string };
 
 /** Server/job-worker lifecycle; construction performs no effects and no agent session is needed. */
 export interface CreativeService {
+  /** Persist verified late output before replayable import, without resubmitting or rewriting Jini history.
+   * @example service.ingestVerifiedCompletion({ context, generationId, completion })
+   */
+  ingestVerifiedCompletion(required: { context: CallContext; generationId: string; completion: GenerationCompletion }, optional?: CallOptions): Promise<Outcome<GenerationStatus>>;
   requestGeneration(required: { context: CallContext; request: GenerationRequest }, optional?: CallOptions): Promise<Outcome<GenerationReceipt>>;
   dispatchGeneration(required: { context: CallContext; generationId: string }, optional?: CallOptions): Promise<Outcome<GenerationReceipt>>;
   refreshJob(required: { context: CallContext; generationId: string }, optional?: CallOptions): Promise<Outcome<GenerationStatus>>;

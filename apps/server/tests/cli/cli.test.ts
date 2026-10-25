@@ -419,3 +419,11 @@ describe("transport failures and configuration", () => {
     expect(f.stdout.join("")).not.toContain("agent-only");
   });
 });
+
+it('prints authoritative estimated usage after a completed ask', async () => {
+ const usage = { kind: 'usage', inputTokens: 10, outputTokens: 5, durationMs: 8000, costUsd: .07, totalCostUsd: .58, complete: true, costBasis: 'estimated' };
+ const event = { protocolVersion: 1, eventId: 'done', runId: 'run-8', sequence: 1, correlationId: 'correlation-7', traceId: 'trace-9', kind: 'ended', payload: {} };
+ const f = fixture({ responses: [success({ value: { runId: 'run-8', status: 'pending' } }), success({ value: { runId: 'run-8', status: 'completed', events: [event], usage } })] });
+ expect((await runOmCli({ argv: ['ask', 'fixture'], runtime: f.runtime })).ok).toBe(true);
+ expect(f.stdout.join('')).toContain('[Usage estimate] ' + JSON.stringify(usage));
+});

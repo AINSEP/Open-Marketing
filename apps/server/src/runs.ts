@@ -52,7 +52,9 @@ async function page(required: { deps: Dependencies; row: RunRow; after: number }
  // A terminal DB row may still have multiple cursor pages waiting to be read.
  const tail = events.at(-1);
  const status = tail && tail.kind !== 'ended' && tail.kind !== 'cancelled' && tail.kind !== 'error' ? 'running' : required.row.status;
- return { ok: true, value: { runId: required.row.run_id, status, events } };
+ const usage = await runUsage({ deps: required.deps, context: callContextSchema.parse(JSON.parse(required.row.context_json)), row: required.row });
+ if (!usage.ok) return usage;
+ return { ok: true, value: { runId: required.row.run_id, status, events, ...(usage.value ? { usage: usage.value } : {}) } };
 }
 
 /** No recovery engine is enabled: old authority is interrupted, saved work remains readable.
@@ -185,13 +187,17 @@ async function projectMessage(required: { deps: Dependencies; context: CallConte
  if (!saved) throw new Error('Missing accepted assistant turn');
  const content = saved.message.content + deltaText({ event: required.event });
  if (content.length > 65536) throw new Error('Assistant message bound exceeded');
+ const usage = await runUsage(required);
+ if (!usage.ok) throw new Error('Model usage storage unavailable');
+ const durationMs = Math.max(0, required.deps.clock.now({}) - (saved.message.startedAt ?? saved.message.createdAt ?? required.deps.clock.now({})));
+ const events = [...(saved.message.events ?? []).filter(event => event.kind !== 'usage'), ...(usage.value ? [{ ...usage.value, durationMs }] : [])];
  const ref = { conversationId: required.row.conversation_id, messageId: required.row.message_id, runId: required.row.run_id };
  if (required.status !== 'running') {
-  await required.deps.ledger.settle({ ...ref, content, events: [], status: required.status === 'completed' ? 'succeeded' : required.status === 'cancelled' ? 'canceled' : 'failed', endedAt: required.deps.clock.now({}) });
+  await required.deps.ledger.settle({ ...ref, content, events, status: required.status === 'completed' ? 'succeeded' : required.status === 'cancelled' ? 'canceled' : 'failed', endedAt: required.deps.clock.now({}) });
   return;
  }
  await required.deps.ledger.unlessSettled({ run: ref, write: async () => {
-  await store.appendMessage({ conversationId: ref.conversationId, message: { ...saved.message, content, runStatus: 'running' } });
+  await store.appendMessage({ conversationId: ref.conversationId, message: { ...saved.message, content, events, runStatus: 'running' } });
  } });
 }
 /** Only delta events extend the saved assistant text; other payloads contribute nothing. */
@@ -206,4 +212,11 @@ async function interruptRun(required: { deps: Dependencies; context: CallContext
  const result = await persistEvent({ ...required, event: { protocolVersion: 1, eventId: required.deps.ids.next({}), runId: required.row.run_id,
   sequence: (last?.sequence ?? 0) + 1, correlationId: required.context.correlationId, traceId: required.context.traceId, kind: 'error', payload: { code: 'unavailable' } } });
  if (!result.ok) throw new Error('Interrupted run persistence failed');
+}
+
+/** Sandbox turns carry no model charge. Model summaries come only from the server evidence. */
+async function runUsage(required: { deps: Dependencies; context: CallContext; row: RunRow }) {
+ const settings = assistantContextSchema.parse(JSON.parse(required.row.settings_json)).settings;
+ if (settings.mode === 'sandbox') return { ok: true as const, value: undefined };
+ return required.deps.conversations.usage({ context: required.context, runId: required.row.run_id });
 }

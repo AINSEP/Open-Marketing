@@ -42,7 +42,7 @@ function requestMetadata(required: { incoming: IncomingMessage; signal: AbortSig
 /** Upload JSON allows base64 overhead; existing model/ordinary route bounds stay unchanged. */
 function bodyLimit(required: { path: string }): number {
     if (required.path === '/api/addons/v1/install') return 50331648;
-    return required.path === '/api/agent/v1/model/anthropic/v1/messages' ? 262144 : 131072;
+    return ['/api/agent/v1/model/anthropic/v1/messages', '/api/agent/v1/model/openai/chat/completions', '/api/agent/v1/model/google/v1beta/models/gemini-2.5-flash:streamGenerateContent'].includes(required.path) ? 262144 : 131072;
 }
 
 /** Lazy JSON/form edge; handlers call only after authentication.

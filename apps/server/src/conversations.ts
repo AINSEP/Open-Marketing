@@ -1,13 +1,16 @@
 /** Owner-scoped Jini history; OM settings contain identifiers, never provider credentials. */
 import type { ChatStore, ChatStoreFactory, ChatConversation } from '@jini-ai/chat/store';
 import { assistantContextSchema, assistantSettingsSchema, conversationListSchema, conversationSchema, parseBoundary } from '@open-marketing/contracts';
-import type { AssistantContext, AssistantSettings, AssistantSettingsStatus, CallContext, Conversation, ConversationList, ConversationSummary, IdPort, ObserverPort, Outcome, PageQuery } from '@open-marketing/contracts';
+import type { AssistantUsage, AssistantContext, AssistantSettings, AssistantSettingsStatus, CallContext, Conversation, ConversationList, ConversationSummary, IdPort, ObserverPort, Outcome, PageQuery } from '@open-marketing/contracts';
 import type { CampaignSqlPort } from '@open-marketing/campaigns';
 import type { Integrations } from './integrations.js';
+import { modelChoices, selectedModel, providerNames } from './models.js';
+import { readUsage } from './model-usage.js';
 import { localFailure } from './composition/local-auth.js';
 
 /** History/settings are owner HTTP capabilities, not recursive agent tools. */
 export interface Conversations {
+ usage(required: { context: CallContext; runId: string }): Promise<Outcome<AssistantUsage>>;
  store(required: { context: CallContext }): ChatStore;
  create(required: { context: CallContext }): Promise<Outcome<ConversationSummary>>;
  list(required: { context: CallContext; query: PageQuery }): Promise<Outcome<ConversationList>>;
@@ -17,7 +20,7 @@ export interface Conversations {
  modelContext(required: { context: CallContext; conversationId: string; settings: AssistantSettings }): Promise<Outcome<AssistantContext>>;
 }
 interface Dependencies { stores: ChatStoreFactory; db: CampaignSqlPort; ids: IdPort; observer: ObserverPort; integrations: Pick<Integrations, 'list'> }
-const models = [{ id: 'claude-sonnet-5-5', label: 'Sonnet 5.5' }, { id: 'claude-opus-5-5', label: 'Opus 5.5' }];
+const models = modelChoices({ provider: 'anthropic' });
 const defaults: AssistantSettings = { mode: 'sandbox', model: models[0].id, connectionId: null };
 function summary(required: { conversation: ChatConversation }): ConversationSummary {
  const c = required.conversation;
@@ -50,6 +53,7 @@ export function createConversations(required: Dependencies): Conversations {
   } });
  }
  return { store, settings,
+  usage: input => boundary({ ...input, operation: 'assistant.usage.read', work: async () => ({ ok: true, value: await readUsage({ db: required.db, runId: input.runId, ...input.context.scope }) }) }),
   create: input => boundary({ ...input, operation: 'assistant.conversations.create', work: async () => {
    const conversation = await store(input).create({ id: required.ids.next({}), title: 'New chat' });
    return { ok: true, value: summary({ conversation }) };
@@ -63,12 +67,13 @@ export function createConversations(required: Dependencies): Conversations {
    if (!conversation) return localFailure({ code: 'forbidden', message: 'Conversation unavailable in owner scope' });
    const page = await owned.pageMessages({ conversationId: input.conversationId }, input.query);
    return parseBoundary({ schema: conversationSchema, input: { conversation: summary({ conversation }),
-    messages: page.items.map(message => ({ id: message.id, role: message.role, text: message.content })), cursor: page.nextCursor ?? null } });
+    messages: await Promise.all(page.items.map(async message => ({ id: message.id, role: message.role, text: message.content, createdAt: message.createdAt, startedAt: message.startedAt, endedAt: message.endedAt,
+     ...(message.role === 'assistant' && message.runId && message.events?.some(event => event.kind === 'usage') ? { usage: await readUsage({ db: required.db, runId: message.runId, ...input.context.scope }) } : {}) }))), cursor: page.nextCursor ?? null } });
   } }),
   setSettings: input => boundary({ ...input, operation: 'assistant.settings.write', work: async () => {
    const parsed = parseBoundary({ schema: assistantSettingsSchema, input: input.settings });
    if (!parsed.ok) return parsed;
-   if (!models.some(model => model.id === parsed.value.model)) return localFailure({ code: 'invalid_input', message: 'Unknown assistant model' });
+   if (!selectedModel({ settings: parsed.value })) return localFailure({ code: 'invalid_input', message: 'Unknown assistant model' });
    await required.db.query({ text: 'INSERT INTO om_assistant_settings(owner_id,workspace_id,settings_json) VALUES ($1,$2,$3) ON CONFLICT(owner_id,workspace_id) DO UPDATE SET settings_json=excluded.settings_json',
     values: [input.context.scope.ownerId, input.context.scope.workspaceId, JSON.stringify(parsed.value)] });
    return settings(input);
@@ -87,12 +92,23 @@ export function createConversations(required: Dependencies): Conversations {
 }
 /** Every status carries the same configured choices. Readiness uses metadata; dispatch decrypts. */
 async function readiness(required: { context: CallContext; settings: AssistantSettings; integrations: Pick<Integrations, 'list'> }): Promise<Outcome<AssistantSettingsStatus>> {
- const configured = { settings: required.settings, models };
- if (required.settings.mode === 'sandbox') return { ok: true, value: { ...configured, ready: true, status: 'sandbox' } };
+ const provider = required.settings.provider ?? 'anthropic';
  const listed = await required.integrations.list({ context: required.context, query: { limit: 100 } });
- if (!listed.ok) return { ok: true, value: { ...configured, ready: false, status: 'unavailable' } };
- const candidates = listed.value.items.filter(item => item.pluginId === 'anthropic' && (required.settings.connectionId === null || item.connectionId === required.settings.connectionId));
+ const items = listed.ok ? listed.value.items : [];
+ const runtimes = (Object.keys(providerNames) as (keyof typeof providerNames)[]).map(id => {
+  const available = items.some(item => item.pluginId === id && item.status === 'saved');
+  const models = modelChoices({ provider: id });
+  return { id, name: providerNames[id], available, authStatus: available ? 'ok' as const : 'missing' as const, models,
+   reasoningOptions: models[0].reasoning, ...(available ? {} : { diagnostic: 'Connect in Integrations' }) };
+ });
+ const configured = { settings: required.settings, models: modelChoices({ provider }), runtimes };
+ if (required.settings.mode === 'sandbox') return { ok: true, value: { ...configured, ready: true, status: 'sandbox' } };
+ if (!selectedModel(required)) return localFailure({ code: 'invalid_input', message: 'Unknown model or effort' });
+ if (!listed.ok || listed.value.cursor !== null) return { ok: true, value: { ...configured, ready: false, status: 'unavailable' } };
+ const candidates = items.filter(item => item.pluginId === provider && (required.settings.connectionId === null ? item.status === 'saved' : item.connectionId === required.settings.connectionId));
  const connection = candidates.length === 1 ? candidates[0] : undefined;
  const status = connection?.status === 'saved' ? 'ready' : connection?.status === 'reconnect_required' ? 'reconnect_required' : 'disconnected';
- return { ok: true, value: { ...configured, ready: status === 'ready', status } };
+ // Resolve the default once before acceptance; subsequent requests cannot follow a different key.
+ const frozen = status === 'ready' ? { ...required.settings, provider, connectionId: connection!.connectionId } : required.settings;
+ return { ok: true, value: { ...configured, settings: frozen, ready: status === 'ready', status } };
 }

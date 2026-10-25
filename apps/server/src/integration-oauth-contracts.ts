@@ -2,10 +2,11 @@
 import { z } from 'zod';
 import { epochSchema, idSchema, integrationSummarySchema, toolResultSchema, toolOperationSchema } from '@open-marketing/contracts';
 import type { JiniOAuthProvider, OAuthChallengeRules } from '@open-marketing/credentials';
+import { credentialPluginStatusSchema } from './integration-credential-cards.js';
 export const oauthCallbackPath = '/api/addons/v1/integrations/oauth/callback';
 export const oauthStartSchema = z.strictObject({ pluginId: idSchema });
 export const oauthClientQuerySchema = z.strictObject({ pluginId: z.enum(['google-ads', 'linkedin-ads', 'meta-ads']) });
-export const oauthStatusQuerySchema = z.union([z.strictObject({ transactionId: idSchema }), oauthClientQuerySchema, z.strictObject({ pluginId: z.literal('tiktok-ads') })]);
+export const oauthStatusQuerySchema = z.union([z.strictObject({ transactionId: idSchema }), z.strictObject({ pluginId: idSchema })]);
 const callbackFields = { state: z.string().min(1).max(512) };
 // Provider-added display fields are discarded. Both/neither result and duplicate query keys deny.
 export const oauthCallbackSchema = z.union([
@@ -14,7 +15,7 @@ export const oauthCallbackSchema = z.union([
 ]);
 export const oauthChallengeSchema = z.strictObject({ transactionId: idSchema, authorizationUrl: z.url().max(4096), expiresAt: epochSchema });
 export const oauthClientStatusSchema = z.union([z.strictObject({ configured: z.literal(false), guidance: z.string().max(512).optional() }), z.strictObject({ configured: z.literal(true), clientId: z.string().min(1).max(2048), guidance: z.string().max(512).optional() })]);
-export const oauthStatusSchema = z.union([z.strictObject({ status: z.enum(['pending', 'complete', 'expired']), connection: integrationSummarySchema.optional() }), oauthClientStatusSchema]);
+export const oauthStatusSchema = z.union([z.strictObject({ status: z.enum(['pending', 'complete', 'expired']), connection: integrationSummarySchema.optional() }), oauthClientStatusSchema, credentialPluginStatusSchema]);
 // Start returns the existing policy receipt; completed output contains the browser challenge.
 export const oauthStartResultSchema = toolResultSchema.refine(value => value.status !== 'completed' || oauthChallengeSchema.safeParse(value.output).success);
 export const oauthOperationSchema = toolOperationSchema.refine(value => value.status !== 'completed' || oauthChallengeSchema.safeParse(value.output).success);

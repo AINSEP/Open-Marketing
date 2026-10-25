@@ -1,0 +1,29 @@
+{
+  "checkedAt": "2026-10-24",
+  "auth": {
+    "sourceUrl": "https://higgsfield.ai/creator-hub/help-center/integrations/what-is-the-higgsfield-api",
+    "form": "Hosted MCP OAuth (unavailable)",
+    "probe": "None: safe checks need vendor-specific headers or account context; status makes no vendor calls."
+  },
+  "brand": {
+    "sourceUrl": "https://higgsfield.ai/terms-of-use-agreement",
+    "terms": "Terms of Use section 11.8 requires attribution to follow supplied branding guidelines and prohibits implied endorsement without written approval. Section 4.1 retains service marks and logos. No redistributable brand kit was verified.",
+    "fallbackReason": "No verified artwork permission; original neutral monogram. Host MCP OAuth discovery and connection are not implemented."
+  },
+  "files": [
+    {
+      "path": "icon.svg",
+      "source": "Original OM neutral monogram; not vendor artwork",
+      "sourceUrl": "https://higgsfield.ai/terms-of-use-agreement",
+      "retrievedAt": "2026-10-24",
+      "license": "Apache-2.0 for original OM artwork only; vendor trademarks excluded"
+    },
+    {
+      "path": "button.html",
+      "source": "Original OM static specimen",
+      "sourceUrl": "https://higgsfield.ai/terms-of-use-agreement",
+      "retrievedAt": "2026-10-24",
+      "license": "Apache-2.0 for OM markup/CSS only; no vendor artwork embedded"
+    }
+  ]
+}

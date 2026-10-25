@@ -1,0 +1,30 @@
+{
+  "checkedAt": "2026-10-24",
+  "auth": {
+    "sourceUrl": "https://developers.facebook.com/docs/facebook-login/facebook-login-for-business/",
+    "form": "Member OAuth plus sealed app configuration",
+    "probe": "None: safe checks need vendor-specific headers or account context; status makes no vendor calls.",
+    "localEvidence": "ADS-memory/.local-artifacts/codex-runs/2026-10-24-oauth-meta-tiktok/evidence-chrome.md"
+  },
+  "brand": {
+    "sourceUrl": "https://about.meta.com/brand/resources/meta/company-brand/",
+    "terms": "The official Meta brand resource redirected to a login requirement during verification. Applicable logo redistribution and Business Login button terms could not be verified; no permission is asserted.",
+    "fallbackReason": "No verified applicable brand permission; use an original neutral monogram and plain connection button."
+  },
+  "files": [
+    {
+      "path": "icon.svg",
+      "source": "Original OM neutral monogram; not vendor artwork",
+      "sourceUrl": "https://about.meta.com/brand/resources/meta/company-brand/",
+      "retrievedAt": "2026-10-24",
+      "license": "Apache-2.0 for original OM artwork only; vendor trademarks excluded"
+    },
+    {
+      "path": "button.html",
+      "source": "Original OM static specimen",
+      "sourceUrl": "https://about.meta.com/brand/resources/meta/company-brand/",
+      "retrievedAt": "2026-10-24",
+      "license": "Apache-2.0 for OM markup/CSS only; no vendor artwork embedded"
+    }
+  ]
+}

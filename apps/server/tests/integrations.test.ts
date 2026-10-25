@@ -19,12 +19,74 @@ import { handleOAuthBrowserCallback } from '../src/inbound/integrations.js';
 import { oauthCallbackPath } from '../src/integration-oauth-contracts.js';
 import { createNodeBootIo, createOAuthHttp, loadCredentialMaster } from '../src/composition/serve.js';
 import type { HttpRequest } from '../src/ports.js';
+import { createHash } from 'node:crypto';
+import { parseCredentialCardManifest } from '../src/integration-credential-cards.js';
 
 const owner: CallContext = { scope: { ownerId: 'owner', workspaceId: 'workspace' }, principal: { kind: 'owner', ownerId: 'owner' }, correlationId: 'fixture-correlation', traceId: 'fixture-trace', runId: 'fixture-run' };
 const host: CallContext = { ...owner, principal: { kind: 'service', serviceId: 'model-broker' } };
 const request = { connectionId: 'anthropic-fixture', pluginId: 'anthropic', plaintext: 'fixture-provider-token-never-live' };
 const configuration: KeyringConfiguration = { hkdfSalt: 'fixture-integration-salt-v1', envVarName: 'OM_CREDENTIAL_KEY', keyFilePath: '/fixture/key' };
 const clock = { now: () => 1000 };
+
+it.each(['key', 'apiKey'])('rejects credential-bearing card URLs using %s before status output and redacts diagnostics', async key => {
+    const f = fixture({}); const pluginId = 'fixture-vendor';
+    const readCredentialCards = async (input: { pluginId: string }) => parseCredentialCardManifest({ pluginId: input.pluginId, raw: JSON.stringify({ name: pluginId,
+        extensions: { 'io.github.ainsep.openmarketing': { credentialCards: [{ target: pluginId, title: 'Fixture', label: 'Save token', category: 'Advertising',
+            intro: 'Saved credentials are unverified.', usedFor: [], helpUrl: 'https://fixture.example/help?' + key + '=fixture-query-secret', helpLabel: 'Help',
+            baseUrl: 'https://fixture.example', saveKind: 'api-key', secretFields: [{ name: 'token', label: 'Token', required: true }] }] } } }) });
+    const integrations = createIntegrations({ ...f.dependencies, readCredentialCards });
+    try {
+        const response = await handleIntegrationRequest({ context: owner, integrations, request: { method: 'GET', path: '/api/addons/v1/integrations/oauth/status', query: { pluginId } } });
+        expect(response).toEqual({ status: 400, body: { ok: false, error: { code: 'invalid_input', message: 'Invalid credential card or asset', retryable: false } }, headers: { 'cache-control': 'no-store' } });
+        expect(JSON.stringify([response, f.events, f.dependencies.audit.entries({})])).not.toContain('fixture-query-secret');
+    } finally { f.dispose(); }
+});
+
+it('serves installed card/status metadata and icons without secrets; corrupt icons leave cards usable', async () => {
+    const f = fixture({}); const pluginId = 'fixture-vendor';
+    const path = 'io.github.ainsep.openmarketing/assets/icon.svg'; const bytes = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>');
+    const digest = createHash('sha256').update(bytes).digest('hex'); let corrupt = false;
+    const readCredentialCards = async (input: { pluginId: string }) => parseCredentialCardManifest({ pluginId: input.pluginId, raw: JSON.stringify({ name: pluginId,
+        extensions: { 'io.github.ainsep.openmarketing': { credentialAssets: { [path]: digest }, credentialCards: [{ target: pluginId, title: 'Fixture', label: 'Save token',
+            category: 'Advertising', intro: 'Saved credentials are unverified.', usedFor: ['Read campaigns'], helpUrl: 'https://fixture.example/help', helpLabel: 'Help', baseUrl: 'https://fixture.example',
+            saveKind: 'api-key', secretFields: [{ name: 'token', label: 'Token', required: true }], icon: path }] } } }) });
+    const integrations = createIntegrations({ ...f.dependencies, readCredentialCards, readCredentialAsset: async () => ({ ok: true, value: corrupt ? Buffer.from('corrupt') : bytes }) });
+    try {
+        unwrap({ result: await integrations.connect({ context: owner, request: { ...request, pluginId } }) });
+        const status = await integrations.oauthStatus({ context: owner, pluginId });
+        expect(status).toMatchObject({ ok: true, value: { configured: false, credentialCards: [{ pluginId, iconDigest: digest }], connections: [{ pluginId, status: 'saved' }], connectionsCursor: null } });
+        expect(JSON.stringify([status, f.events])).not.toContain(request.plaintext);
+        const http: HttpRequest = { method: 'GET', path: '/api/addons/v1/integrations/credential-asset', query: { pluginId, digest } };
+        expect(await handleIntegrationRequest({ request: http, context: owner, integrations })).toMatchObject({ status: 200, body: bytes, contentType: 'image/svg+xml', headers: { 'x-content-type-options': 'nosniff' } });
+        expect(await handleIntegrationRequest({ request: http, context: host, integrations })).toMatchObject({ status: 403 });
+        expect(await integrations.credentialAsset({ context: host, pluginId, digest })).toMatchObject({ ok: false, error: { code: 'forbidden' } });
+        expect(await integrations.credentialAsset({ context: owner, pluginId: 'foreign', digest })).toMatchObject({ ok: false });
+        expect(await integrations.credentialAsset({ context: owner, pluginId, digest: '0'.repeat(64) })).toMatchObject({ ok: false });
+        corrupt = true;
+        const degraded = unwrap({ result: await integrations.oauthStatus({ context: owner, pluginId }) });
+        expect(degraded).toMatchObject({ credentialCards: [{ pluginId, actionSupported: true }], connections: [{ status: 'saved' }] });
+        expect('credentialCards' in degraded && degraded.credentialCards[0]).not.toHaveProperty('icon');
+        expect(await integrations.credentialAsset({ context: owner, pluginId, digest })).toMatchObject({ ok: false });
+        unwrap({ result: await f.dependencies.repo.requireReconnect({ context: host, connectionId: request.connectionId }) });
+        expect(await integrations.oauthStatus({ context: owner, pluginId })).toMatchObject({ value: { connections: [{ status: 'reconnect_required' }] } });
+        unwrap({ result: await integrations.disconnect({ context: owner, request: { connectionId: request.connectionId } }) });
+        expect(await integrations.oauthStatus({ context: owner, pluginId })).toMatchObject({ value: { connections: [{ status: 'disconnected' }] } });
+    } finally { f.dispose(); }
+});
+
+it('preserves exact structured credential JSON and integer expiry through existing sealed token ingress', async () => {
+    const f = fixture({}); const pluginId = 'fixture-bundle';
+    const bundle = { clientId: 'fixture-client', accessToken: 'fixture-secret-token', expiresAt: 9999999, region: 'eu' };
+    try {
+        const plaintext = JSON.stringify(bundle);
+        const saved = await f.http({ method: 'POST', path: '/api/addons/v1/integrations/token', body: { pluginId, connectionId: pluginId, plaintext } });
+        expect(saved).toMatchObject({ status: 200, body: { value: { pluginId, status: 'saved' } } });
+        const accessed = unwrap({ result: await f.integrations.access({ context: host, pluginId, connectionId: pluginId }) });
+        expect(accessed.accessToken).toBe(plaintext); expect(JSON.parse(accessed.accessToken)).toEqual(bundle);
+        expect(await f.integrations.access({ context: host, pluginId: 'foreign', connectionId: pluginId })).toMatchObject({ ok: false, error: { code: 'forbidden' } });
+        expect(JSON.stringify([saved, f.events])).not.toContain(bundle.accessToken);
+    } finally { f.dispose(); }
+});
 
 function unwrap<T>(required: { result: Outcome<T> }): T {
     if (!required.result.ok) throw new Error(required.result.error.code);

@@ -8,6 +8,7 @@ import type { HttpRequest, HttpResponse } from '../ports.js';
 import type { OmTools } from '../om-tools.js';
 import { oauthCallbackPath, oauthStartSchema, oauthStatusQuerySchema } from '../integration-oauth-contracts.js';
 import { developerTokenQuerySchema } from '../integration-oauth-contracts.js';
+import { credentialDigestSchema } from '../integration-credential-cards.js';
 
 /** Owner integration management. Trusted boot supplies authenticated scope; never take it from JSON.
  * Rechecks the principal before any body read, including direct/test callers.
@@ -21,6 +22,7 @@ export async function handleIntegrationRequest(required: {
     if (!context.success) return denied({ code: 'invalid_input' });
     if (context.data.principal.kind !== 'owner' || context.data.principal.ownerId !== context.data.scope.ownerId) return denied({ code: 'forbidden' });
     switch (required.request.method + ' ' + required.request.path) {
+        case 'GET /api/addons/v1/integrations/credential-asset': return credentialAsset(required);
         case 'POST /api/addons/v1/integrations/developer-token': {
             return setDeveloperToken(required);
         }
@@ -46,6 +48,16 @@ export async function handleIntegrationRequest(required: {
 }
 
 type IntegrationInput = Parameters<typeof handleIntegrationRequest>[0];
+
+/** Binary icon delivery only; specimens are never executed. CSP also confines direct SVG views. */
+async function credentialAsset(required: IntegrationInput): Promise<HttpResponse> {
+    const query = parseBoundary({ schema: z.strictObject({ pluginId: idSchema, digest: credentialDigestSchema }), input: required.request.query ?? {} });
+    if (!query.ok) return respond({ outcome: query });
+    const result = await required.integrations.credentialAsset({ context: required.context, ...query.value }, { signal: required.request.signal });
+    if (!result.ok) return respond({ outcome: result });
+    return { status: 200, body: Buffer.from(result.value.bytes), contentType: result.value.contentType,
+        headers: { 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox; frame-ancestors 'none'" } };
+}
 
 /** Owner authentication precedes this lazy secret body read; service validates and seals it. */
 async function setDeveloperToken(required: IntegrationInput): Promise<HttpResponse> {

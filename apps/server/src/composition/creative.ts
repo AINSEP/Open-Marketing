@@ -1,9 +1,10 @@
-/** Durable creative lifecycle with explicitly zero-cost local quote/status fixtures. No vendor I/O. */
+/** Sandbox generation with durable creative intent and canonical, guarded media imports. */
 import { createHash } from 'node:crypto';
 import { generationCostQuoteSchema } from '@open-marketing/contracts';
 import type { CallContext, ClockPort, GenerationCostQuote, IdPort, ObserverPort, Outcome, SqlSession, UnitOfWork } from '@open-marketing/contracts';
-import { createCreativeService, createSqlCreativeRepo, createTransactionalCreativeJob, createMemoryGenerationCapability, createMemoryCreativeAsset, digestGenerationRequest } from '@open-marketing/creative';
-import type { CreativeSqlDatabase, CreativeSqlSession, GenerationRequest, CreativeSpendPort } from '@open-marketing/creative';
+import { createCreativeService, createSqlCreativeRepo, createTransactionalCreativeJob, createMemoryGenerationCapability, digestGenerationRequest } from '@open-marketing/creative';
+import type { CreativeAssetPort, CreativeSqlDatabase, CreativeSqlSession, GenerationRequest, GenerationProvenance, CreativeSpendPort } from '@open-marketing/creative';
+import type { AssetProvenance, MediaLibrary } from '@open-marketing/media-library';
 import { createSafetyService, createMemoryAccountDispatchLock, digestArguments } from '@open-marketing/safety';
 import type { EffectRequest, SafetyRepoPort, ConfirmationExchangePort, VerifiedEffectResolverPort } from '@open-marketing/safety';
 import type { AuditService } from '@open-marketing/audit';
@@ -88,10 +89,11 @@ function fixtureResolver(required: { clock: ClockPort }): VerifiedEffectResolver
         return { ok: true, value: undefined };
     }, async verifyHaltStop() { return localFailure({ code: 'forbidden', message: 'Typed remote stop is not bound' }); } };
 }
-/** Real service/repo/outbox with inert fixture backend. requestGeneration queues durable intent;
- * status/cancel work before dispatch. Vendor generation/worker admission remains I-2.
- * @complexity O(1) construction; bounded owning service operations, no vendor requests. */
-export function bindSandboxCreative(required: { unit: UnitOfWork; safetyRepo: SafetyRepoPort; confirmations: ConfirmationExchangePort; clock: ClockPort; ids: IdPort; observer: ObserverPort; audit: AuditService }): CreativeToolBinding {
+/** Real service/repo/outbox with inert generation backend and injected canonical media.
+ * Vendor runtime admission awaits verified schemas; byte imports fail explicitly until supported.
+ * @example bindSandboxCreative({ unit, media, safetyRepo, confirmations, clock, ids, observer, audit })
+ * @complexity O(1) construction; media owns guarded URL/byte-storage effects at invocation. */
+export function bindSandboxCreative(required: { unit: UnitOfWork; media: MediaLibrary; safetyRepo: SafetyRepoPort; confirmations: ConfirmationExchangePort; clock: ClockPort; ids: IdPort; observer: ObserverPort; audit: AuditService }): CreativeToolBinding {
     const repo = createSqlCreativeRepo({ database: creativeDatabase(required) });
     const audit = catalogAuditPort(required);
     const safety = createSafetyService({ repo: required.safetyRepo, confirmations: required.confirmations, clock: required.clock, ids: required.ids, audit,
@@ -125,7 +127,36 @@ export function bindSandboxCreative(required: { unit: UnitOfWork; safetyRepo: Sa
             return result.ok ? { ok: true, value: { jobId: result.value.jobId } } : result;
         },
     }) }) });
-    const service = createCreativeService({ repo, generation, jobs, safety: spend, assets: createMemoryCreativeAsset({}), clock: required.clock, ids: required.ids, audit }, { observer: required.observer });
+    // Canonical media owns storage/digest dedupe; each URL attempt rechecks recorded authority.
+    const assets: CreativeAssetPort = {
+        async import(input, options) {
+            if (input.output.kind !== 'url') return localFailure({ code: 'not_implemented', message: 'NEEDS: public canonical media byte import' });
+            const current = await repo.get({ context: input.context, generationId: input.generationId }, options);
+            if (!current.ok) return current;
+            const request = current.value.request;
+            if (!request.approvalId || request.operationId !== input.operationId) return localFailure({ code: 'forbidden', message: 'Asset import lacks original generation authority' });
+            const effect = effectFor({ input: creativeInput(request), operationId: request.operationId });
+            if (!effect.ok) return effect;
+            // Verification reads current revocation/expiry; it never reserves or submits generation again.
+            const authority = await required.confirmations.verify({ context: input.context,
+                request: { ...effect.value, approvalId: request.approvalId, policyRevision: 0 },
+                classification: current.value.approval.kind === 'normal_write' ? 'generation' : 'spend' }, options);
+            if (!authority.ok) return authority;
+            const imported = await required.media.importAsset({ context: input.context, request: {
+                sourceUrl: input.output.sourceUrl, operationId: input.operationId, expectedDigest: input.output.expectedDigest,
+                provenance: mediaProvenance({ provenance: input.provenance }) } }, options);
+            return imported.ok ? { ok: true, value: { assetId: imported.value.record.id } } : imported;
+        },
+        recordProvenance(input, options) {
+            return required.media.recordProvenance({ context: input.context, link: { provenance: mediaProvenance(input),
+                ...(input.provenance.assetId === undefined ? {} : { assetId: input.provenance.assetId }) } }, options);
+        },
+        recordCost(input, options) {
+            const { generationId: _generationId, ...cost } = input.cost;
+            return required.media.recordCost({ context: input.context, cost }, options);
+        },
+    };
+    const service = createCreativeService({ repo, generation, jobs, safety: spend, assets, clock: required.clock, ids: required.ids, audit }, { observer: required.observer });
     return { service, safety, async dispatchQueued(input) {
         const current = await repo.get(input);
         if (!current.ok) return current;
@@ -141,6 +172,16 @@ export function bindSandboxCreative(required: { unit: UnitOfWork; safetyRepo: Sa
         const request = requestFor({ input, operationId: authorization.envelope.operationId, approvalId: authorization.approvalId });
         return request.ok ? service.requestGeneration({ context, request: request.value }) : request;
     } };
+}
+/** Preserve referenced rights without inventing a license, terms URL or observed monetary charge.
+ * Long prompts remain verbatim in the immutable creative request, linked by generation/quote IDs;
+ * media's smaller nullable prompt field stays null rather than storing truncated evidence.
+ * @complexity O(1) mapping; media validates its own bounded evidence contract. */
+function mediaProvenance(required: { provenance: GenerationProvenance }): AssetProvenance {
+    const p = required.provenance;
+    return { operationId: p.operationId, generationId: p.generationId, quoteId: p.quoteId, source: 'creative-generation',
+        prompt: p.prompt.length <= 16000 ? p.prompt : null, model: p.model, seed: p.seed, cost: null, vendorTerms: null,
+        rights: { evidenceId: p.rightsEvidenceId, license: 'rights-evidence-reference', permittedUses: [] } };
 }
 /** Select only original reviewed fields when reconstructing the financial tool envelope. */
 function creativeInput(required: GenerationRequest): CreativeToolInput {

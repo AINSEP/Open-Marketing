@@ -18,7 +18,7 @@ import { assistantSettingsStatusSchema } from '@open-marketing/contracts';
 import { createConversations } from '../src/conversations.js';
 import { createAssistantRuns, type AssistantDatabase } from '../src/runs.js';
 import { bindServerDatabase } from '../src/composition/database.js';
-import { bootServer } from '../src/composition/index.js';
+import { bindModelCredentials, bootServer } from '../src/composition/index.js';
 import { createNodeBootIo } from '../src/composition/serve.js';
 import { readLocalOwner } from '../src/composition/local-auth.js';
 import type { ModelUpstream } from '../src/inbound/model.js';
@@ -63,14 +63,16 @@ function memoryStores(required: { now(): number }): ChatStoreFactory {
 async function fixture(required: { adapter?: 'memory' | 'sqlite'; integrations?: Parameters<typeof createConversations>[0]['integrations'] } = {}) {
  const native = new Database(':memory:'); native.pragma('foreign_keys = ON');
  native.exec(await readFile(join(projectRoot, 'apps/server/migrations/0001_assistant.sql'), 'utf8'));
- const clock = { now: () => 1000 }; let id = 0; const ids = { next: () => 'id-' + ++id }; const observer = { observe() {} };
+ native.exec(await readFile(join(projectRoot, 'apps/server/migrations/0005_chat_backend.sql'), 'utf8'));
+ let now = 1000; const clock = { now: () => now }; let id = 0; const ids = { next: () => 'id-' + ++id }; const observer = { observe() {} };
  const db = bindServerDatabase({ native, context, observer });
+ const sql: Parameters<typeof createConversations>[0]['db'] = { query: input => db.unit.transaction({ work: ({ session }) => session.query(input) }) };
  const kernel = db.kernel as unknown as StorageKernel<AssistantDatabase>;
  const conversations = createConversations({ stores: required.adapter === 'memory' ? memoryStores({ now: () => 1000 }) : ({ scope }) => createSqliteChatStore({ kernel, scope }, { clock: { nowMs: () => 1000 } }),
   db: { query: input => db.unit.transaction({ work: ({ session }) => session.query(input) }) }, ids, observer,
   integrations: required.integrations ?? { async list() { return { ok: true, value: { items: [], cursor: null } }; } } });
  const runs = createAssistantRuns({ kernel, conversations, clock, ids, observer, durable: createDurableRunStore({ kernel, isDaemonRunId: () => true }), ledger: createChatRunLedger({ kernel, isDaemonRunId: () => true }) });
- return { conversations, runs, kernel, native, close() { native.close(); } };
+ return { conversations, runs, kernel, native, sql, advance() { now += 8000; }, close() { native.close(); } };
 }
 
 for (const adapter of ['memory', 'sqlite'] as const) describe('owner transcript / ' + adapter, () => {
@@ -81,7 +83,7 @@ for (const adapter of ['memory', 'sqlite'] as const) describe('owner transcript 
    const store = f.conversations.store({ context });
    await store.appendMessage({ conversationId: chat.conversationId, message: { id: 'question', role: 'user', content: 'original' } });
    await store.appendMessage({ conversationId: chat.conversationId, message: { id: 'question', role: 'user', content: 'updated' } });
-   expect(value({ result: await f.conversations.read({ context, conversationId: chat.conversationId, query: { limit: 100 } }) }).messages).toEqual([{ id: 'question', role: 'user', text: 'updated' }]);
+   expect(value({ result: await f.conversations.read({ context, conversationId: chat.conversationId, query: { limit: 100 } }) }).messages).toMatchObject([{ id: 'question', role: 'user', text: 'updated' }]);
    const foreign = { ...context, scope: { ...context.scope, workspaceId: 'other' } };
    expect(value({ result: await f.conversations.list({ context: foreign, query: { limit: 100 } }) }).items).toEqual([]);
    expect(await f.conversations.read({ context: foreign, conversationId: chat.conversationId, query: { limit: 100 } })).toMatchObject({ ok: false, error: { code: 'forbidden' } });
@@ -109,7 +111,7 @@ it.each(['sandbox', 'ready', 'reconnect_required', 'disconnected', 'unavailable'
   const mode = status === 'sandbox' ? 'sandbox' : 'model'; const connectionId = status === 'disconnected' ? 'missing' : 'fixture';
   const current = value({ result: await f.conversations.setSettings({ context, settings: { mode, model: 'claude-opus-5-5', connectionId } }) });
   expect(current.status).toBe(status);
-  expect(current.models).toEqual([{ id: 'claude-sonnet-5-5', label: 'Sonnet 5.5' }, { id: 'claude-opus-5-5', label: 'Opus 5.5' }]);
+  expect(current.models?.map(({ id, label }) => ({ id, label }))).toEqual([{ id: 'claude-sonnet-5-5', label: 'Sonnet 5.5' }, { id: 'claude-opus-5-5', label: 'Opus 5.5' }]);
   for (const model of current.models!) expect((await f.conversations.setSettings({ context, settings: { ...current.settings, model: model.id } })).ok).toBe(true);
   expect(await f.conversations.setSettings({ context, settings: { ...current.settings, model: 'unknown' } })).toMatchObject({ ok: false, error: { code: 'invalid_input' } });
   const saved = value({ result: await f.conversations.settings({ context }) });
@@ -232,4 +234,64 @@ it('composes an agent Jini turn through the REAL server broker and a fixture ups
   expect(reloaded.value.messages.map((message: { text: string }) => message.text)).toEqual(['fixture prompt', 'Composed fixture answer.', 'Continue saved chat', 'Composed fixture answer.']);
   expect(JSON.stringify(reloaded)).not.toContain('sealed-fixture-key');
  } finally { if (boot.ok) await boot.value.stop({}); await removeStateRoot({ path: directory }); }
+});
+
+it('freezes one provider connection at acceptance, persists usage, and excludes later turns from old totals', async () => {
+ let connectionId = 'first';
+ const f = await fixture({ integrations: { async list() { return { ok: true, value: { items: [{ pluginId: 'openai', connectionId, status: 'saved' }], cursor: null } }; } } });
+ try {
+  const status = value({ result: await f.conversations.setSettings({ context, settings: { mode: 'model', provider: 'openai', model: 'gpt-5.2', effort: 'high', connectionId: null } }) });
+  expect(status.settings.connectionId).toBe('first'); expect(status.runtimes?.map(item => item.id)).toEqual(['anthropic', 'openai', 'google']);
+  expect(status.runtimes?.find(item => item.id === 'google')).toMatchObject({ available: false, diagnostic: 'Connect in Integrations' });
+  const first = await accepted({ f }); connectionId = 'second';
+  const grant: RunGrantMetadata = { protocolVersion: 1, grantId: 'g', agentInstanceId: 'a', runId: first.runId, conversationId: first.conversationId!, scope: context.scope, capabilities: ['model'], expiresAt: 99999, revoked: false, authenticationEpoch: 1 };
+  expect(value({ result: await f.runs.context({ grant }) })).toMatchObject({ settings: { connectionId: 'first', provider: 'openai', effort: 'high' } });
+  const accesses: unknown[] = [];
+  const credentials = bindModelCredentials({ persistence: f.runs, integrations: { async access(input) { accesses.push(input); return { ok: true, value: { accessToken: 'sealed-first' } }; } } });
+  expect(value({ result: await credentials.resolveProviderKey({ grant, signal: new AbortController().signal }) })).toMatchObject({ apiKey: 'sealed-first', provider: 'openai', model: 'gpt-5.2', effort: 'high' });
+  expect(accesses[0]).toMatchObject({ pluginId: 'openai', connectionId: 'first' });
+  const { appendUsage, emptyUsage } = await import('../src/model-usage.js');
+  const sql = f.sql;
+  // Real SQL adapter: insert evidence directly, retaining duplicate-key enforcement.
+  for (const requestId of ['r1', 'r2']) {
+   const base = { db: sql, grant, requestId, provider: 'openai' as const, model: 'gpt-5.2', now: 1000 };
+   await appendUsage({ ...base, kind: 'intent' });
+   await appendUsage({ ...base, kind: 'completion', usage: { ...emptyUsage(), input: 10, output: 5, stopped: true } });
+  }
+  await expect(appendUsage({ db: sql, grant, requestId: 'r1', provider: 'openai', model: 'gpt-5.2', kind: 'completion', now: 1000, usage: { ...emptyUsage(), input: 10, output: 5, stopped: true } })).rejects.toThrow();
+  f.advance();
+  value({ result: await f.runs.record({ context, event: { ...event({ runId: first.runId, sequence: 1, kind: 'ended' }), payload: { costUsd: 999 } } }) });
+  const saved = (await f.conversations.store({ context }).messages({ conversationId: first.conversationId! })).at(-1)!;
+  expect(saved.events?.filter(item => item.kind === 'usage')).toHaveLength(1);
+  const usage = value({ result: await f.runs.events({ context, runId: first.runId, after: 0 }) }).usage!;
+  expect(usage).toMatchObject({ inputTokens: 20, outputTokens: 10, complete: true, costBasis: 'estimated', durationMs: 8000 });
+  expect(usage.costUsd).toBeCloseTo((20 * 1.75 + 10 * 14) / 1e6);
+  const second = value({ result: await f.runs.start({ context, prompt: 'next', conversationId: first.conversationId, async launch(input) { return { ok: true, value: { ...input, status: 'pending' as const } }; } }) });
+  const later = value({ result: await f.conversations.usage({ context, runId: second.runId }) });
+  expect(later.complete).toBe(false); expect(later.totalCostUsd).toBeUndefined();
+  expect(value({ result: await f.conversations.usage({ context, runId: first.runId }) }).totalCostUsd).toBe(usage.totalCostUsd);
+  const history = value({ result: await f.conversations.read({ context, conversationId: first.conversationId!, query: { limit: 1 } }) });
+  expect(history.messages.length).toBe(1);
+  const next = value({ result: await f.conversations.read({ context, conversationId: first.conversationId!, query: { limit: 1, cursor: history.cursor! } }) });
+  expect(next.messages[0].usage?.totalCostUsd).toBe(usage.totalCostUsd);
+  const secondGrant = { ...grant, runId: second.runId };
+  await appendUsage({ db: sql, grant: secondGrant, requestId: 'interrupted', kind: 'intent', provider: 'openai', model: 'gpt-5.2', now: 9000 });
+  value({ result: await f.runs.record({ context, event: event({ runId: second.runId, sequence: 1, kind: 'error' }) }) });
+  expect(value({ result: await f.conversations.usage({ context, runId: second.runId }) }).costUsd).toBeUndefined();
+  expect(value({ result: await f.conversations.usage({ context: { ...context, scope: { ...context.scope, ownerId: 'foreign' } }, runId: first.runId }) }).totalCostUsd).toBeUndefined();
+ } finally { f.close(); }
+});
+
+it('caps durable request intents at 25 and leaves interrupted outcomes unavailable', async () => {
+ const f = await fixture({ integrations: { async list() { return { ok: true, value: { items: [{ pluginId: 'anthropic', connectionId: 'key', status: 'saved' }], cursor: null } }; } } });
+ try {
+  value({ result: await f.conversations.setSettings({ context, settings: { mode: 'model', model: 'claude-sonnet-5-5', connectionId: 'key' } }) });
+  const acceptedRun = await accepted({ f });
+  const grant: RunGrantMetadata = { protocolVersion: 1, grantId: 'g', agentInstanceId: 'a', runId: acceptedRun.runId, conversationId: acceptedRun.conversationId!, scope: context.scope, capabilities: ['model'], expiresAt: 99999, revoked: false, authenticationEpoch: 1 };
+  const { appendUsage } = await import('../src/model-usage.js');
+  const base = { db: f.sql, grant, provider: 'anthropic' as const, model: 'claude-sonnet-5-5', kind: 'intent' as const, now: 1000 };
+  for (let n = 0; n < 25; n++) await appendUsage({ ...base, requestId: String(n) });
+  await expect(appendUsage({ ...base, requestId: '26' })).rejects.toThrow('Model request limit reached');
+  expect(value({ result: await f.conversations.usage({ context, runId: acceptedRun.runId }) })).toMatchObject({ complete: false, costBasis: 'unavailable' });
+ } finally { f.close(); }
 });

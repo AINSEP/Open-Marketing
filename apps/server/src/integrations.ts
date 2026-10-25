@@ -9,6 +9,8 @@ import { developerTokenQuerySchema, developerTokenSetSchema } from './integratio
 import { oauthClientSetSchema, oauthClientStatusSchema, oauthCallbackSchema, oauthChallengeSchema, oauthStartSchema, oauthStatusQuerySchema, oauthStatusSchema } from './integration-oauth-contracts.js';
 import type { ConnectionSummary, CredentialAuditPort, CredentialBrokerPort, CredentialLockPort,
     CredentialRepoPort, CredentialService, CredentialSqlPort, SecretSealerPort } from '@open-marketing/credentials';
+import { credentialDigestSchema, credentialIcon, credentialPluginStatusSchema } from './integration-credential-cards.js';
+import type { CredentialCard, CredentialCardManifest } from './integration-credential-cards.js';
 
 /** Concrete ports are supplied once by server composition; no vendor parsing or I/O construction here. */
 export interface IntegrationDependencies {
@@ -21,9 +23,12 @@ export interface IntegrationDependencies {
     readonly redirectUri?: () => string | null;
     readonly db: CredentialSqlPort;
     readonly observer: ObserverPort;
+    readonly readCredentialCards?: (required: { context: CallContext; pluginId: string }) => Promise<Outcome<CredentialCardManifest>>;
+    readonly readCredentialAsset?: (required: { context: CallContext; pluginId: string; path: string }) => Promise<Outcome<Uint8Array>>;
 }
 /** Owner management returns secret-free contracts. access/resolveProviderKey stay server-only. */
 export interface Integrations {
+    credentialAsset(required: { context: CallContext; pluginId: string; digest: string }, optional?: CallOptions): Promise<Outcome<{ bytes: Uint8Array; contentType: 'image/svg+xml' | 'image/png' }>>;
     /** Owner-only paste/clear and secret-free status; resolve is a Google transport-only host seam. */
     setDeveloperToken(required: { context: CallContext; request: unknown }, optional?: CallOptions): Promise<Outcome<{ configured: boolean }>>;
     developerTokenStatus(required: { context: CallContext; pluginId: string }, optional?: CallOptions): Promise<Outcome<{ configured: boolean }>>;
@@ -45,6 +50,8 @@ export interface Integrations {
  */
 export function createIntegrations(required: IntegrationDependencies): Integrations {
     return {
+        credentialAsset: (input, options) => integrationBoundary({ dependencies: required, context: input.context, operation: 'integrations.credential-asset',
+            run: () => readCredentialIcon({ ...input, dependencies: required }) }, options),
         setDeveloperToken: (input, options) => integrationBoundary({ dependencies: required, context: input.context, operation: 'integrations.developer-token.set', run: async () => {
             const parsed = parseBoundary({ schema: developerTokenSetSchema, input: input.request });
             if (!parsed.ok) return parsed;
@@ -129,15 +136,64 @@ function publicSummary(required: { summary: ConnectionSummary }): Outcome<Integr
     return parseBoundary({ schema: integrationSummarySchema, input: summaryDto(required) });
 }
 
-/** Owner-only configuration guidance; TikTok remains paste-token without reading OAuth secrets.
- * @complexity Fixed audited credential lookup, bounded client bytes; no vendor I/O.
+/** Owner-only installed cards plus scoped saved summaries. Configuration never implies verification.
+ * @complexity <=32 icons (256 KiB each) and <=100 summaries; one client lookup, no vendor I/O.
  */
-async function oauthPluginStatus(required: { dependencies: IntegrationDependencies; context: CallContext; pluginId: string }, optional?: CallOptions): Promise<Outcome<z.infer<typeof oauthClientStatusSchema>>> {
+async function oauthPluginStatus(required: { dependencies: IntegrationDependencies; context: CallContext; pluginId: string }, optional?: CallOptions): Promise<Outcome<z.infer<typeof oauthClientStatusSchema> | z.infer<typeof credentialPluginStatusSchema>>> {
     const { context, pluginId } = required;
     if (context.principal.kind !== 'owner' || context.principal.ownerId !== context.scope.ownerId) return integrationFailure({ code: 'forbidden' });
-    if (pluginId === 'tiktok-ads') return { ok: true, value: { configured: false, guidance: 'TikTok uses paste-token. Connect a Marketing API advertiser access token with integrations connect --token-stdin.' } };
+    const status = await configuredClientStatus(required, optional);
+    if (!status.ok || !required.dependencies.readCredentialCards) return status;
+    const manifest = await required.dependencies.readCredentialCards({ context, pluginId });
+    if (!manifest.ok) return manifest;
+    const page = await listCredentialConnections({ context, db: required.dependencies.db, query: { pluginId, limit: 100 } }, optional);
+    if (!page.ok) return page;
+    const credentialCards: CredentialCard[] = [];
+    for (const card of manifest.value.credentialCards) credentialCards.push(await cardWithIcon({ ...required, card, manifest: manifest.value }));
+    return parseBoundary({ schema: credentialPluginStatusSchema, input: { ...status.value, credentialCards,
+        connections: page.value.items.map(summary => summaryDto({ summary })), connectionsCursor: page.value.cursor } });
+}
+
+/** Generic installed packages never enter the supported OAuth-client secret decoder. No vendor I/O. */
+async function configuredClientStatus(required: { dependencies: IntegrationDependencies; context: CallContext; pluginId: string }, optional?: CallOptions): Promise<Outcome<z.infer<typeof oauthClientStatusSchema>>> {
+    const { context, pluginId } = required;
+    if (pluginId === 'tiktok-ads') return { ok: true, value: { configured: false, guidance: 'TikTok uses paste-token. Connect a Marketing API advertiser access token with integrations connect --token-stdin. Saved tokens are unverified.' } };
+    if (!['google-ads', 'linkedin-ads', 'meta-ads'].includes(pluginId)) return { ok: true, value: { configured: false } };
     const client = await readCredentialOAuthClient({ ...required.dependencies, pluginId, context: { ...context, principal: { kind: 'service', serviceId: 'oauth-client' } } }, optional);
     return client.ok ? oauthClientSummary({ client: client.value, pluginId }) : client;
+}
+
+/** Broken icons are omitted without hiding usable cards or affecting existing credential operations.
+ * @complexity <=32 bounded icon reads/status; no vendor effects or retained cache.
+ */
+async function cardWithIcon(required: { dependencies: IntegrationDependencies; context: CallContext; pluginId: string; card: CredentialCard; manifest: CredentialCardManifest }): Promise<CredentialCard> {
+    const { icon, iconDigest: _iconDigest, ...card } = required.card;
+    const readAsset = required.dependencies.readCredentialAsset;
+    if (!icon || !readAsset) return card;
+    const result = await integrationBoundary({ ...required, operation: 'integrations.credential-icon', run: async () => {
+        const bytes = await readAsset({ context: required.context, pluginId: required.pluginId, path: icon });
+        return bytes.ok ? credentialIcon({ path: icon, digest: required.manifest.credentialAssets[icon], bytes: bytes.value }) : bytes;
+    } });
+    return result.ok ? required.card : card;
+}
+
+/** Owner-only contained icon lookup. Request data never selects arbitrary files; errors are redacted.
+ * @complexity One installed manifest and one <=256 KiB binary read; O(b) hashing/space.
+ */
+async function readCredentialIcon(required: { dependencies: IntegrationDependencies; context: CallContext; pluginId: string; digest: string }): Promise<Outcome<{ bytes: Uint8Array; contentType: 'image/svg+xml' | 'image/png' }>> {
+    const { dependencies, context, pluginId, digest } = required;
+    const input = z.strictObject({ context: callContextSchema, pluginId: idSchema, digest: credentialDigestSchema }).safeParse({ context, pluginId, digest });
+    if (!input.success) return integrationFailure({ code: 'invalid_input' });
+    if (context.principal.kind !== 'owner' || context.principal.ownerId !== context.scope.ownerId) return integrationFailure({ code: 'forbidden' });
+    if (!dependencies.readCredentialCards || !dependencies.readCredentialAsset) return integrationFailure({ code: 'unavailable' });
+    try {
+        const manifest = await dependencies.readCredentialCards({ context, pluginId });
+        if (!manifest.ok) return manifest;
+        const path = manifest.value.credentialCards.map(card => card.icon).find(path => path && manifest.value.credentialAssets[path] === digest);
+        if (!path) return integrationFailure({ code: 'invalid_input' });
+        const bytes = await dependencies.readCredentialAsset({ context, pluginId, path });
+        return bytes.ok ? credentialIcon({ path, digest, bytes: bytes.value }) : bytes;
+    } catch { return integrationFailure({ code: 'unavailable' }); }
 }
 
 /** Secret-free client status includes Meta callback/configuration guidance. @complexity O(1). */

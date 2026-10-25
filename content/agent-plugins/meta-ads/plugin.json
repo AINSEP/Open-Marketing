@@ -1,11 +1,20 @@
 {
-  "$schema": "https://agent-plugins.org/schemas/1.1.0/plugin.schema.json",
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "meta-ads",
   "version": "0.1.0",
   "description": "Meta campaign codecs, server-only CAPI and organic Instagram publishing; disabled until host admission.",
   "license": "Apache-2.0",
   "extensions": {
     "io.github.ainsep.openmarketing": {
+      "credentialCards": [
+        {"target": "meta-ads", "title": "Meta Ads and Instagram", "label": "Connect Meta Ads", "category": "Advertising", "intro": "Use Meta Business Login with a user-token configuration. Exact callback eligibility must be checked in the App Dashboard; numeric loopback may be rejected.", "usedFor": ["Read and manage Meta advertising campaigns and performance", "Publish Instagram posts and read account insights", "Deliver consented conversions through server measurement jobs"], "helpUrl": "https://developers.facebook.com/docs/facebook-login/facebook-login-for-business/", "helpLabel": "Authentication and setup", "baseUrl": "https://graph.facebook.com", "saveKind": "oauth", "saveTarget": "meta-ads", "icon": "io.github.ainsep.openmarketing/assets/icon.svg", "permissions": ["Advertising reads and management (ads_read, ads_management)", "Business assets (business_management)", "Page discovery (pages_show_list, pages_read_engagement)", "Instagram accounts and publishing (instagram_basic, instagram_content_publish)", "Instagram insights (instagram_manage_insights)"]},
+        {"target": "meta-ads-client", "title": "Meta Business Login app", "label": "Save app configuration", "category": "Advertising", "intro": "Set client ID, client secret and the Business Login user-token config ID. This saves app setup only; restart sign-in after token expiry.", "usedFor": ["Configure the server-owned Meta Business Login flow"], "helpUrl": "https://developers.facebook.com/docs/facebook-login/facebook-login-for-business/", "helpLabel": "Authentication and setup", "baseUrl": "https://graph.facebook.com", "saveKind": "oauth-client", "saveTarget": "meta-ads", "icon": "io.github.ainsep.openmarketing/assets/icon.svg", "fields": [{"name": "clientId", "label": "App ID", "required": true}, {"name": "configId", "label": "Business Login config ID", "required": true, "hint": "User-token configuration with all required permissions; digits only."}], "secretFields": [{"name": "clientSecret", "label": "App secret", "required": true}]}
+      ],
+      "credentialAssets": {
+        "io.github.ainsep.openmarketing/assets/icon.svg": "dcc6605289a21e854e1918775d2e8cd5746186a209a52affbb56284ed2a91f16",
+        "io.github.ainsep.openmarketing/assets/button.html": "65f30549b1e5a4bfaba7719c29b00db8de581657830650ecd8caf336417de9a9",
+        "io.github.ainsep.openmarketing/assets/evidence.json": "55967fdacd8e28c6c5a582b61c2161de0c0c5de0217ee55dba26695315bdec0c"
+      },
       "version": 1,
       "enabled": false,
       "admitted": false,

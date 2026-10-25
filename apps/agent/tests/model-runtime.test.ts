@@ -351,3 +351,20 @@ it('does not evict terminal runs whose final publication is still unsettled', as
         expect(await f.runtime.startRun(run({ id: 'overflow' }))).toMatchObject({ ok: false, error: { code: 'limit_exceeded' } });
     } finally { held.resolve({ ok: true, value: undefined }); await f.dispose(); }
 });
+
+it.each(['openai', 'google'] as const)('selects Jini %s with an OM-only broker base', async provider => {
+ const f = await fixture({ transport: 'memory' });
+ const seen: { apiKey: string; baseUrl?: string }[] = [];
+ const adapters: ProviderTurnAdapters = { ...f.adapters,
+  async openai(input, options) { seen.push({ apiKey: input.apiKey, baseUrl: options?.baseUrl }); input.onEvent({ type: 'end', reason: 'stop' }); return { finishReason: 'stop', toolTurns: 0 }; },
+  async google(input, options) { seen.push({ apiKey: input.apiKey, baseUrl: options?.baseUrl }); input.onEvent({ type: 'end', reason: 'stop' }); return { finishReason: 'STOP', toolTurns: 0 }; },
+ };
+ const runtime = createModelRuntime({ clock: { now: () => 1000 }, ids: { next: () => 'provider-event' }, adapters,
+  client: { ...f.client, async load() { return { ok: true, value: { settings: { mode: 'model', provider, model: provider === 'openai' ? 'gpt-5.2' : 'gemini-2.5-flash', connectionId: 'own-key', effort: 'high' }, messages: [] } }; } } });
+ try {
+  expect((await runtime.startRun(run({}))).ok).toBe(true);
+  await vi.waitFor(async () => expect(value({ result: await runtime.events({ runId: 'run', after: 0, limit: 100 }) }).at(-1)?.kind).toBe('ended'));
+  expect(seen).toEqual([{ apiKey: bearer, baseUrl: f.client.brokerBaseUrl.replace(/\/anthropic$/, '') + '/' + provider }]);
+  expect(f.upstreamRequests).toHaveLength(0);
+ } finally { await runtime.dispose({}); await f.dispose(); }
+});

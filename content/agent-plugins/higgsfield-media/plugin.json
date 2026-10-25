@@ -1,5 +1,5 @@
 {
-  "$schema": "https://agent-plugins.org/schemas/1.1.0/plugin.schema.json",
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "higgsfield-media",
   "version": "0.1.0",
   "description": "Server-hosted Higgsfield image generation, async status and reviewed cost provenance. Disabled pending host admission and non-spending vendor acceptance.",
@@ -14,6 +14,14 @@
   ],
   "extensions": {
     "io.github.ainsep.openmarketing": {
+      "credentialCards": [
+        {"target": "higgsfield-media", "title": "Higgsfield hosted MCP", "label": "Hosted MCP sign-in unavailable", "category": "Media generation", "intro": "This plugin uses hosted MCP account authorization. OM has not wired its sign-in flow yet. REST API keys and the separate dollar-balance API cannot replace MCP sign-in.", "usedFor": ["Discover image-generation models", "Generate images using your Higgsfield account credits", "Read generation progress"], "helpUrl": "https://higgsfield.ai/creator-hub/help-center/integrations/what-is-the-higgsfield-api", "helpLabel": "Authentication and setup", "baseUrl": "https://mcp.higgsfield.ai", "saveKind": "oauth", "saveTarget": "higgsfield-media", "icon": "io.github.ainsep.openmarketing/assets/icon.svg", "keyHint": "Host MCP sign-in support is required. Do not paste a REST API key here.", "permissions": ["Hosted MCP grants remain unverified; model access and account credits apply"]}
+      ],
+      "credentialAssets": {
+        "io.github.ainsep.openmarketing/assets/icon.svg": "ba2d481566666800ee51c4deed34ef41be8d6f2e559a7731f2c6a7ce1d0db8c5",
+        "io.github.ainsep.openmarketing/assets/button.html": "5ca17c013a16c45c3a59f6986b51864b78f65fc7d990ca18ba1009152246cd33",
+        "io.github.ainsep.openmarketing/assets/evidence.json": "9b8ba9242e5ad9512a9edc86fa3eb973e75c250aa371163a43ec00e6c923fc35"
+      },
       "version": 1,
       "enabled": false,
       "admitted": false,

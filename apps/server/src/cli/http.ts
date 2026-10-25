@@ -3,7 +3,7 @@ import { addonListSchema, addonSummarySchema, addonUninstallReceiptSchema, chart
 import { z } from "zod";
 import { developerTokenStatusSchema, oauthClientStatusSchema, oauthStartResultSchema, oauthStatusSchema } from '../integration-oauth-contracts.js';
 import {
-  assistantSettingsStatusSchema, conversationListSchema, conversationSchema, appErrorSchema, chatMessageSchema, confirmationCardSchema, epochSchema, idSchema, moneySchema, navigationTargetSchema, parseBoundary, runEventSchema,
+  assistantUsageSchema, assistantSettingsStatusSchema, conversationListSchema, conversationSchema, appErrorSchema, chatMessageSchema, confirmationCardSchema, epochSchema, idSchema, moneySchema, navigationTargetSchema, parseBoundary, runEventSchema,
   toolDescriptorSchema, toolOperationSchema, toolResultSchema,
 } from "@open-marketing/contracts";
 import type { AppError, Outcome } from "@open-marketing/contracts";
@@ -61,7 +61,7 @@ export const routes = {
   createConversation: { method: "POST", path: "/api/conversations", schema: conversationSchema.shape.conversation },
   assistantSettings: { method: "GET", path: "/api/assistant/settings", schema: assistantSettingsStatusSchema },
   setAssistantSettings: { method: "POST", path: "/api/assistant/settings", schema: assistantSettingsStatusSchema },
-  runEvents: { method: "GET", path: "/api/runs/:id/events", schema: z.strictObject({ runId: idSchema, status: z.enum(['running', 'completed', 'cancelled', 'interrupted']), events: z.array(runEventSchema).max(128) }) },
+  runEvents: { method: "GET", path: "/api/runs/:id/events", schema: z.strictObject({ runId: idSchema, status: z.enum(['running', 'completed', 'cancelled', 'interrupted']), events: z.array(runEventSchema).max(128), usage: assistantUsageSchema.optional() }) },
   cancelRun: { method: "POST", path: "/api/runs/:id/cancel", schema: z.strictObject({ runId: idSchema, status: z.enum(['requested', 'cancelled']) }) },
 } as const;
 

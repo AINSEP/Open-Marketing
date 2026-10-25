@@ -274,6 +274,7 @@ async function observeRunPage(required: { runtime: CliRuntime; session: HttpSess
   const checked = checkedPage({ ...required, page: result.value });
   if (!checked.ok) return checked;
   for (const event of result.value.events) printRunEvent({ runtime: required.runtime, event });
+  if (result.value.status !== 'running' && result.value.usage) required.runtime.stdout.write({ text: '[Usage estimate] ' + JSON.stringify(result.value.usage) + '\n' });
   if (result.value.status === 'cancelled') return failure({ code: 'cancelled', message: 'Run cancelled' });
   if (result.value.status === 'interrupted') return failure({ code: 'unavailable', message: 'Run interrupted' });
   return { ok: true, value: { after: checked.value, completed: result.value.status === 'completed' } };

@@ -1,11 +1,20 @@
 {
-  "$schema": "https://agent-plugins.org/schemas/1.1.0/plugin.schema.json",
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "linkedin-ads",
   "version": "0.1.0",
   "description": "LinkedIn DRAFT/PAUSED campaigns, analytics, conversion setup and server-only digest conversions; disabled until host admission.",
   "license": "Apache-2.0",
   "extensions": {
     "io.github.ainsep.openmarketing": {
+      "credentialCards": [
+        {"target": "linkedin-ads", "title": "LinkedIn Ads", "label": "Connect LinkedIn Ads", "category": "Advertising", "intro": "Authorize a LinkedIn member with advertising access. Your LinkedIn application must have native PKCE enabled before this host sign-in can work.", "usedFor": ["Read ad accounts, campaigns and performance", "Create draft or paused campaigns and manage approved campaigns", "Read lead forms and configured conversion rules"], "helpUrl": "https://learn.microsoft.com/en-us/linkedin/shared/authentication/authentication", "helpLabel": "Authentication and setup", "baseUrl": "https://api.linkedin.com", "saveKind": "oauth", "saveTarget": "linkedin-ads", "icon": "io.github.ainsep.openmarketing/assets/icon.svg", "permissions": ["Manage advertising (rw_ads)", "Read advertising reports (r_ads_reporting)"], "keyHint": "The configured grants do not promise additional conversion permissions."},
+        {"target": "linkedin-ads-client", "title": "LinkedIn OAuth app", "label": "Save app configuration", "category": "Advertising", "intro": "Configure the advertising app with native PKCE enabled. Consumer OpenID sign-in grants do not authorize Marketing APIs.", "usedFor": ["Configure the server-owned LinkedIn member authorization flow"], "helpUrl": "https://learn.microsoft.com/en-us/linkedin/shared/authentication/authentication", "helpLabel": "Authentication and setup", "baseUrl": "https://api.linkedin.com", "saveKind": "oauth-client", "saveTarget": "linkedin-ads", "icon": "io.github.ainsep.openmarketing/assets/icon.svg", "fields": [{"name": "clientId", "label": "Client ID", "required": true}], "secretFields": [{"name": "clientSecret", "label": "Client secret", "required": false, "hint": "Supply when required by your LinkedIn application."}]}
+      ],
+      "credentialAssets": {
+        "io.github.ainsep.openmarketing/assets/icon.svg": "a0e0c8f5530678f09a63a39e1e7412e9ce6b41da62171e0711499633d9e81288",
+        "io.github.ainsep.openmarketing/assets/button.html": "75c2451f0faaa375860bba0a5569feb657bcc77d48ca20c518b399e70d35fbe0",
+        "io.github.ainsep.openmarketing/assets/evidence.json": "02a6bbbcfdd752bf92bf666718bc50d7433c441437390cde629a7142f7153101"
+      },
       "version": 1,
       "enabled": false,
       "admitted": false,

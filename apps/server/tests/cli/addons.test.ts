@@ -146,6 +146,7 @@ it('maps OAuth start/status and stdin-only callback without printing callback co
   for (const input of [
     { argv: ['integrations', 'oauth', 'start', '--plugin', 'google-ads', '--json'], value: { status: 'completed', output: challenge }, path: '/oauth/start' },
     { argv: ['integrations', 'oauth', 'status', '--transaction', 'sign-in', '--json'], value: { status: 'complete', connection }, path: '/oauth/status?transactionId=sign-in' },
+    { argv: ['integrations', 'oauth', 'status', '--plugin', 'fixture-vendor', '--json'], value: { configured: false, credentialCards: [], connections: [], connectionsCursor: null }, path: '/oauth/status?pluginId=fixture-vendor' },
     { argv: ['integrations', 'oauth', 'callback', '--response-stdin', '--json'], value: connection, path: '/oauth/callback' },
   ]) {
     const f = fixture({ value: input.value });
@@ -164,6 +165,8 @@ it.each([
   ['integrations', 'oauth', 'start', '--plugin', 'google-ads', '--response-stdin'],
   ['integrations', 'oauth', 'callback', '--response-stdin', 'fixture-code-secret'],
   ['integrations', 'oauth', 'status', '--transaction', 'one', '--transaction', 'two'],
+  ['integrations', 'oauth', 'status', '--transaction', 'one', '--plugin', 'google-ads'],
+  ['integrations', 'oauth', 'status'],
 ])('rejects invalid OAuth argv before I/O: %s', async (...argv) => {
   const f = fixture({});
   expect((await runOmCli({ argv, runtime: f.runtime })).ok).toBe(false);

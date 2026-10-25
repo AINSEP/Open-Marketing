@@ -1,11 +1,21 @@
 {
-  "$schema": "https://agent-plugins.org/schemas/1.1.0/plugin.schema.json",
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "google-ads",
   "version": "0.1.0",
   "description": "Atomic PAUSED Google Search creation/readback, reports and typed server-only stop/conversion bindings. Disabled pending host admission.",
   "license": "Apache-2.0",
   "extensions": {
     "io.github.ainsep.openmarketing": {
+      "credentialCards": [
+        {"target": "google-ads", "title": "Google Ads", "label": "Connect Google Ads", "category": "Advertising", "intro": "Sign in using your configured Google Cloud app. Enable the Google Ads API in that project; no developer token is needed.", "usedFor": ["Read accounts, budgets and campaign performance", "Create paused Search campaigns and manage approved campaigns", "Deliver consented conversions through server measurement jobs"], "helpUrl": "https://developers.google.com/google-ads/api/docs/oauth/overview", "helpLabel": "Authentication and setup", "baseUrl": "https://googleads.googleapis.com", "saveKind": "oauth", "saveTarget": "google-ads", "icon": "io.github.ainsep.openmarketing/assets/icon.svg", "permissions": ["Google Ads access (adwords)", "Data Manager conversion access (datamanager)"], "additionalHosts": ["https://datamanager.googleapis.com"]},
+        {"target": "google-ads-client", "title": "Google OAuth app", "label": "Save app configuration", "category": "Advertising", "intro": "Configure the Google Cloud OAuth app before signing in. Client configuration alone does not connect an ad account.", "usedFor": ["Configure the server-owned Google sign-in flow"], "helpUrl": "https://developers.google.com/google-ads/api/docs/oauth/overview", "helpLabel": "Authentication and setup", "baseUrl": "https://googleads.googleapis.com", "saveKind": "oauth-client", "saveTarget": "google-ads", "icon": "io.github.ainsep.openmarketing/assets/icon.svg", "fields": [{"name": "clientId", "label": "Client ID", "required": true}], "secretFields": [{"name": "clientSecret", "label": "Client secret", "required": true}]},
+        {"target": "google-ads-developer-token", "title": "Legacy Google developer token (optional)", "label": "Save optional token", "category": "Advertising", "intro": "Compatibility only: developer tokens were sunset September 9, 2026. The API ignores this optional header; it is never a sign-in prerequisite.", "usedFor": ["Retain optional legacy transport configuration"], "helpUrl": "https://developers.google.com/google-ads/api/docs/api-policy/developer-token", "helpLabel": "Authentication and setup", "baseUrl": "https://googleads.googleapis.com", "saveKind": "developer-token", "saveTarget": "google-ads", "icon": "io.github.ainsep.openmarketing/assets/icon.svg", "secretFields": [{"name": "token", "label": "Legacy developer token", "required": true, "hint": "22 alphanumeric characters; optional compatibility configuration."}]}
+      ],
+      "credentialAssets": {
+        "io.github.ainsep.openmarketing/assets/icon.svg": "eb41c88fcedcc3ff7d616cd5695f4c656e8f7b10b64b9dfcb34d10c5fce47c41",
+        "io.github.ainsep.openmarketing/assets/button.html": "da5d5ef98f123e312ba420da27b695f6d2b28d0de91b577dfc4e2c05cd70f6e3",
+        "io.github.ainsep.openmarketing/assets/evidence.json": "d01e48cf8525d7d7ed3bd6d9bb45b2d0caa2f4bec07b760b2ebc6039d56e4216"
+      },
       "version": 1,
       "enabled": false,
       "admitted": false,

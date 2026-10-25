@@ -27,6 +27,7 @@ import type { ExternalMcpSessions } from '../external-mcp.js';
 import { createChartAssets, handleChartAssetRequest } from '../inbound/chart-assets.js';
 import type { HttpRequest } from '../ports.js';
 import type { AgentPluginState } from './agent-plugin-backends.js';
+import { parseCredentialCardManifest } from '../integration-credential-cards.js';
 
 /** Native effects are created ONLY here; tests inject temporary roots/readers/clock/ids.
  * YAML and executable module loading are supplied by composition; no new dependency is installed.
@@ -115,6 +116,22 @@ export function bindServerAddons(required: { context: CallContext; db: Credentia
         remove: async (input: Parameters<typeof repo.remove>[0]) => { assertScope(input); await repo.remove(input); } };
     const addons = createAddons({ repo: scopedRepo, packages, archiveReader: required.effects.archiveReader, observer: required.observer });
     return { addons, externalMcp, registry, charts,
+        /** Installed data includes disabled/uploaded packages; no contribution admission or imports. */
+        readCredentialCards: (input: { context: CallContext; pluginId: string }) => addonBoundary({ ...input, dependencies: required, operation: 'addons.credential-cards', run: async () => {
+            assertScope(input);
+            const plugin = await credentialPackage(input);
+            const raw = Buffer.from(await credentialFile({ plugin, path: 'plugin.json', maxBytes: 65536 })).toString('utf8');
+            return parseCredentialCardManifest({ raw, pluginId: input.pluginId });
+        } }),
+        /** Binary reader preserves PNG bytes. The installed file list and containment own paths. */
+        readCredentialAsset: (input: { context: CallContext; pluginId: string; path: string }) => addonBoundary({ ...input, dependencies: required, operation: 'addons.credential-asset', run: async () => {
+            assertScope(input);
+            const plugin = await credentialPackage(input);
+            const raw = Buffer.from(await credentialFile({ plugin, path: 'plugin.json', maxBytes: 65536 })).toString('utf8');
+            const manifest = checked({ result: parseCredentialCardManifest({ raw, pluginId: input.pluginId }) });
+            if (!manifest.credentialAssets[input.path]) return addonFailure({ code: 'invalid_input' });
+            return { ok: true, value: await credentialFile({ plugin, path: input.path, maxBytes: 262144 }) };
+        } }),
         /** Server-only bundled backend state. Uploaded executable agent packages remain a later binding.
          * Disabled plugins are skipped before metadata reads. Admission requires both manifest and
          * capability metadata; failures are isolated by each catalog source's boundary. */
@@ -185,6 +202,27 @@ export function bindServerAddons(required: { context: CallContext; db: Credentia
         const found = installed.find(plugin => plugin.pluginId === input.id);
         if (!found) throw new Error('Agent plugin missing');
         return found;
+    }
+
+    /** Resolve the catalog's current revision, including uploads. Old digest directories cannot win.
+     * @complexity Two bounded catalog reads, <=1000 rows; no activation or module loading.
+     */
+    async function credentialPackage(input: { pluginId: string }): Promise<InstalledAgentPlugin> {
+        const row = (await repo.list({ context: required.context })).find(row => row.kind === 'agent-plugin' && row.id === input.pluginId);
+        if (!row) throw new Error('Credential package unavailable');
+        const uploadDigest = createHash('sha256').update(Buffer.from(row.revision, 'hex')).digest('hex');
+        const installed = await lifecycle.listInstalledPlugins({ workspaceRoot: world.root });
+        const plugin = installed.find(plugin => plugin.pluginId === input.pluginId && [row.revision, uploadDigest].includes(plugin.archiveDigest));
+        if (!plugin) throw new Error('Credential package unavailable');
+        return plugin;
+    }
+
+    /** No-follow bounded binary filesystem effect; no absolute or symlink paths leave the package. */
+    async function credentialFile(input: { plugin: InstalledAgentPlugin; path: string; maxBytes: number }): Promise<Uint8Array> {
+        if (!input.plugin.files.includes(input.path)) throw new Error('Credential file unavailable');
+        const path = await lifecycle.assertContainedOnDisk({ packageRoot: input.plugin.packageRoot, entryPath: input.path });
+        if (await required.effects.filesystem.realpath(path) !== join(input.plugin.packageRoot, input.path)) throw new Error('Credential file link refused');
+        return required.effects.skillFilesystem.readFile({ path, maxBytes: input.maxBytes });
     }
 
     async function provisionInstalled(input: { installed: InstalledAgentPlugin }): Promise<void> {
@@ -349,6 +387,10 @@ async function readBundledPackage(required: { effects: AddonEffects; sourceDir: 
         { identityNamespace: 'io.github.ainsep.openmarketing' });
     if (!manifest.ok) throw new Error('Invalid bundled plugin manifest');
     const paths = new Set(entries.filter(entry => ['plugin.json', 'mcp.json', 'skills', 'LICENSE', 'NOTICE'].includes(entry.name)).map(entry => entry.name));
+    const cards = parseCredentialCardManifest({ raw: Buffer.from(bytes).toString('utf8'), pluginId: manifest.manifest.name });
+    const assets = await bundledSourceEntries({ effects: required.effects, path: join(sourceDir, 'io.github.ainsep.openmarketing/assets') });
+    const cardPaths = Object.keys(cards.ok ? cards.value.credentialAssets : {});
+    for (const path of cardPaths.filter(path => assets.some(entry => path === 'io.github.ainsep.openmarketing/assets/' + entry.name))) paths.add(path);
     const metadata = await bundledSourceEntries({ effects: required.effects, path: join(sourceDir, 'io.github.ainsep.openmarketing') });
     if (metadata.some(entry => entry.name === 'capabilities.json')) paths.add('io.github.ainsep.openmarketing/capabilities.json');
     for (const path of bundledBindings({ value: manifest.manifest.extensions?.['io.github.ainsep.openmarketing'] })) paths.add(path);

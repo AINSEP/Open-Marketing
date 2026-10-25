@@ -1,0 +1,30 @@
+{
+  "checkedAt": "2026-10-24",
+  "auth": {
+    "sourceUrl": "https://business-api.tiktok.com/gateway/docs/index?doc_id=1738373141733378",
+    "form": "Marketing advertiser token paste",
+    "probe": "None: safe checks need vendor-specific headers or account context; status makes no vendor calls.",
+    "localEvidence": "ADS-memory/.local-artifacts/codex-runs/2026-10-24-oauth-meta-tiktok/evidence-chrome.md"
+  },
+  "brand": {
+    "sourceUrl": "https://developers.tiktok.com/docs/en/getting-started-design-guidelines",
+    "terms": "TikTok design guidelines prohibit use of TikTok logos, icons, symbols or designs without prior written permission. A downloadable asset pack does not remove that requirement.",
+    "fallbackReason": "No written permission supplied. Original neutral monogram; advertiser-token paste is not consumer Login Kit."
+  },
+  "files": [
+    {
+      "path": "icon.svg",
+      "source": "Original OM neutral monogram; not vendor artwork",
+      "sourceUrl": "https://developers.tiktok.com/docs/en/getting-started-design-guidelines",
+      "retrievedAt": "2026-10-24",
+      "license": "Apache-2.0 for original OM artwork only; vendor trademarks excluded"
+    },
+    {
+      "path": "button.html",
+      "source": "Original OM static specimen",
+      "sourceUrl": "https://developers.tiktok.com/docs/en/getting-started-design-guidelines",
+      "retrievedAt": "2026-10-24",
+      "license": "Apache-2.0 for OM markup/CSS only; no vendor artwork embedded"
+    }
+  ]
+}

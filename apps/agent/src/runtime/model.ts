@@ -53,7 +53,7 @@ function brokerConfigured(required: { client: ModelClient }): boolean {
     try {
         const url = new URL(required.client.brokerBaseUrl);
         return url.protocol === 'http:' && url.hostname === '127.0.0.1' && !url.username && !url.password
-            && url.pathname === '/api/agent/v1/model/anthropic' && !url.search && !url.hash;
+            && /^\/api\/agent\/v1\/model(?:\/anthropic)?$/.test(url.pathname) && !url.search && !url.hash;
     } catch { return false; }
 }
 
@@ -197,13 +197,13 @@ async function performTurn(required: { state: ModelRun; deps: ModelDependencies 
     if (!discovery.ok || !active(required)) throw new Error('Model discovery unavailable');
     const tools = toolDescriptorSchema.array().max(100).parse(discovery.value);
     state.tools = tools;
-    const result = await runProviderToolTurn({ protocol: 'anthropic', adapters: deps.adapters, apiKey: state.request.runBearer!,
+    const result = await runProviderToolTurn({ protocol: parsed.value.settings.provider ?? 'anthropic', adapters: deps.adapters, apiKey: state.request.runBearer!,
         model: parsed.value.settings.model, system: deps.client.system,
         messages: [...parsed.value.messages.slice(-39).map(message => ({ role: message.role, content: message.text })),
             { role: 'user', content: state.request.prompt }],
         tools: tools.map(tool => ({ id: tool.name, description: tool.description, inputSchema: tool.inputSchema })),
         executeTool: call => executeTool({ call, ...required }), onEvent: event => providerEvent({ event, ...required }),
-    }, { baseUrl: deps.client.brokerBaseUrl, maxTokens: 4096, maxToolTurns: 24, signal: state.signal });
+    }, { baseUrl: deps.client.brokerBaseUrl.replace(/\/anthropic$/, '') + '/' + (parsed.value.settings.provider ?? 'anthropic'), maxTokens: 4096, maxToolTurns: 24, signal: state.signal });
     if (!active(required)) throw new Error('Model run interrupted');
     if (result.stopReason !== 'stop') throw new Error('Model turn interrupted');
     await state.publications;

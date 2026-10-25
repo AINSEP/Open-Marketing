@@ -23,6 +23,9 @@ export const costSchema = z.strictObject({ observationId: idSchema, generationId
 const resultSchema = z.strictObject({ bytesBase64: z.string().max(22_369_624).regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/), providerNote: z.string().max(4096), suggestedExt: z.string().max(16).optional() });
 /** Media boundary validates bounded payload shape; guarded URL fetching remains media-owned. */
 export const generationOutputSchema = z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("bytes"), result: resultSchema }), z.strictObject({ kind: z.literal("url"), sourceUrl: z.url().max(4096), expectedDigest: digestSchema })]);
+/** Late verification must name the exact durable operation and known provider handle. */
+export const generationCompletionSchema = z.strictObject({ asyncOperationId: idSchema, providerJobId: idSchema, output: generationOutputSchema })
+  .refine(value => value.output.kind !== "bytes" || value.output.result.bytesBase64.length > 0);
 /** Original generation/rights evidence is retained independently of an imported asset. */
 export const provenanceSchema = z.strictObject({ operationId: idSchema, generationId: idSchema, prompt: z.string().min(1).max(32_768), model: idSchema, seed: z.number().int().min(0).max(4_294_967_295).nullable(), quoteId: idSchema, vendorTermsDigest: digestSchema.nullable(), rightsEvidenceId: idSchema, assetId: idSchema.optional() });
 /** Validates tainted Jini rows before they can become provenance or assets. Credentials are not a row field. */
@@ -43,6 +46,7 @@ export const statusSchema = z.strictObject({
   asyncOperationId: idSchema.nullable(), revision: epochSchema, operation: operationSchema.nullable(),
   providerJobId: idSchema.nullable(), assetIds: z.array(idSchema).max(16), quote: generationCostQuoteSchema,
   actualCost: moneySchema.nullable(), costs: z.array(costSchema).max(100),
+  verifiedCompletion: generationCompletionSchema.optional(),
 });
 
 /** Stable explicit failure, without tainted payloads. @complexity O(1). */

@@ -1,21 +1,29 @@
 /** Written-only A4b regressions: real in-memory SQLite and public feature services, no vendor I/O. */
 import Database from 'better-sqlite3';
 import { readFileSync } from 'node:fs';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createHash, randomUUID } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
-import type { CallContext, ClockPort, IdPort, Outcome, ToolCall, ToolResult } from '@open-marketing/contracts';
+import { describe, expect, it, vi } from 'vitest';
+import type { CallContext, ClockPort, IdPort, ObserverEvent, Outcome, ToolCall, ToolResult } from '@open-marketing/contracts';
 import { createMemoryConfirmationExchange, createSqlSafetyRepo, digestArguments } from '@open-marketing/safety';
 import { createSqlCampaignRepo, createMemoryCampaignJob } from '@open-marketing/campaigns';
 import { createSqlMeasureRepo, createSqlTrackedLink } from '@open-marketing/measure';
 import type { MeasureSqlDatabase } from '@open-marketing/measure';
+import type { GenerationPollRequest, GenerationStatus } from '@open-marketing/creative';
 import { bindServerDatabase, provisionWorkspace } from '../src/composition/database.js';
 import { migrationManifest } from '../src/composition/migrations.js';
 import { bindIdentity, createVisitTokens } from '../src/composition/identity.js';
 import { bindForms, seedSandboxForm } from '../src/composition/forms.js';
 import { bindPrivacy } from '../src/composition/privacy.js';
-import { bindCatalogAudit, bindCatalogScope, bindCatalogMeasure, sandboxPlatformReports } from '../src/composition/catalog.js';
+import { bindCatalogAudit, bindCatalogScope, bindCatalogMeasure, bindCatalogMedia, createCatalogMediaEffects, sandboxPlatformReports } from '../src/composition/catalog.js';
 import { bindSandboxCampaigns, bindCampaignJobs } from '../src/composition/campaigns.js';
 import { bindSandboxCreative } from '../src/composition/creative.js';
+import * as creativeComposition from '../src/composition/creative.js';
+import { bootServer, type BootedServer } from '../src/composition/index.js';
+import { createNodeBootIo } from '../src/composition/serve.js';
 import { createFormWorkers } from '../src/composition/workers.js';
 import { buildOmToolDefinitions, createOmTools } from '../src/om-tools.js';
 import type { OmFeatureServices } from '../src/om-tools.js';
@@ -23,6 +31,8 @@ import type { OwnerServices } from '../src/inbound/owner.js';
 import { generateOmToolCoverage } from '../src/om-tool-coverage.js';
 
 function value<T>(required: { result: Outcome<T> }): T { if (!required.result.ok) throw new Error('Fixture precondition: ' + required.result.error.message); return required.result.value; }
+const imageBytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aQx8AAAAASUVORK5CYII=', 'base64');
+const imageUrl = 'https://fixture.invalid/generated.png';
 async function fixture() {
     const native = new Database(':memory:'); native.pragma('foreign_keys = ON');
     for (const entry of migrationManifest) native.exec(readFileSync(new URL('../../../' + entry.path, import.meta.url), 'utf8'));
@@ -45,13 +55,27 @@ async function fixture() {
     const links = createSqlTrackedLink({ database: measureDb, ids, baseUrl: 'https://sandbox.example.test/l/', allowedOrigins: ['https://sandbox.example.test'] });
     const privacy = bindPrivacy({ unit: database.unit, identity, subjects: forms.subjects, measure: measureRepo, clock, ids, observer });
     const audit = bindCatalogAudit({ unit: database.unit, clock, ids, observer });
-    const creative = bindSandboxCreative({ unit: database.unit, safetyRepo: safety, confirmations, clock, ids, observer, audit });
+    const stateRoot = await mkdtemp(join(tmpdir(), 'om-creative-media-'));
+    const fetched: string[] = [];
+    let rejectImport = false;
+    const mediaEffects = { ...createCatalogMediaEffects({ stateRoot, clock }),
+        outboundGuard: { async send(input: { request: { url: string } }) {
+            if (input.request.url !== imageUrl) throw new Error('Unconfigured fixture URL');
+            fetched.push(input.request.url);
+            if (rejectImport) throw new Error('Fixture import unavailable');
+            return { status: 200, headers: {}, bodyText: '', bodyBytes: imageBytes, bodyBytesTruncated: false, finalUrl: imageUrl };
+        } }, async decode() { return { width: 1, height: 1, frames: 1 }; } };
+    const media = bindCatalogMedia({ db: campaignDb, context: owner, clock, ids, observer, audit, effects: mediaEffects });
+    const creative = bindSandboxCreative({ unit: database.unit, media, safetyRepo: safety, confirmations, clock, ids, observer, audit });
     const services: OwnerServices & OmFeatureServices = { campaigns, safety, confirmations, contacts: identity.contacts, forms: forms.forms, webEvents: identity.webEvents,
-        privacy: privacy.privacy, audit, creative, ...bindCatalogScope({ database, safetyDb, clock, ids, observer, timezone: 'UTC' }),
+        privacy: privacy.privacy, audit, creative, media, ...bindCatalogScope({ database, safetyDb, clock, ids, observer, timezone: 'UTC' }),
         campaignWorkflow: bindSandboxCampaigns({ unit: database.unit, repo: campaigns, safety, clock, ids, observer, audit }),
         measure: bindCatalogMeasure({ repo: measureRepo, links, reports: sandboxPlatformReports({ clock, ids }), clock, ids, observer, audit }) };
     const tools = createOmTools({ clock, observer, confirmations, authorize: () => ({ ok: true, value: undefined }), definitions: input => buildOmToolDefinitions({ ...input, services }) });
-    const workers = createFormWorkers({ unit: database.unit, forms, creative, clock, ids, observer, context: owner, schedule: () => () => {} });
+    let scheduled: (() => void) | undefined;
+    let settled: (() => void) | undefined;
+    const workers = createFormWorkers({ unit: database.unit, forms, creative, clock, ids, observer, context: owner,
+        schedule(input) { scheduled = input.callback; settled?.(); settled = undefined; return () => { scheduled = undefined; }; } });
     async function call(input: { name: string; input: unknown; operationId?: string; choice?: 'allow' | 'always_allow' }): Promise<ToolResult> {
         const call: ToolCall = { name: input.name, input: input.input as ToolCall['input'], operationId: input.operationId ?? ids.next({}) };
         const initial = value({ result: await tools.dispatch({ context: agent, call }) });
@@ -63,8 +87,157 @@ async function fixture() {
         if (result.status !== 'completed') throw new Error('Catalog call failed: ' + JSON.stringify(result));
         return { status: 'completed', output: result.output };
     }
-    return { native, database, ids, observer, owner, agent, services, tools, call, visits, identity, workers, forms, clock, async close() { tools.dispose({}); await workers.stop({}); privacy.participants.dispose({}); native.close(); } };
+    return { native, database, ids, observer, owner, agent, services, tools, call, visits, identity, workers, forms, clock, fetched,
+        failImport(input: { reject: boolean }) { rejectImport = input.reject; },
+        reopenMedia: () => bindCatalogMedia({ db: campaignDb, context: owner, clock, ids, observer, audit, effects: mediaEffects }),
+        readMediaBlob: (input: { storageKey: string }) => createCatalogMediaEffects({ stateRoot, clock }).blobStore.get(input),
+        async tick() { const done = new Promise<void>(resolve => { settled = resolve; }); scheduled!(); await done; },
+        async close() { tools.dispose({}); await workers.stop({}); privacy.participants.dispose({}); native.close(); await rm(stateRoot, { recursive: true, force: true }); } };
 }
+
+/** Synthetic persisted provider observation; no tools/list or vendor acceptance is implied. */
+async function unknownCreative(required: { fixture: Awaited<ReturnType<typeof fixture>>; generationId: string; prompt?: string }): Promise<GenerationStatus> {
+    const f = required.fixture;
+    await f.call({ name: 'om_creative_generate', operationId: required.generationId,
+        input: { prompt: required.prompt ?? 'Fixture image', surface: 'image', model: 'sandbox', rightsEvidenceId: 'fixture-rights', deadlineAt: f.clock.now({}) + 60000 } });
+    await f.workers.processOne();
+    const row = f.native.prepare('SELECT status_json FROM creative_generation_request WHERE generation_id=?').get(required.generationId) as { status_json: string };
+    const original = JSON.parse(row.status_json) as GenerationStatus;
+    const status: GenerationStatus = { ...original, state: 'unknown', providerJobId: 'fixture-job',
+        operation: { schemaVersion: 1, id: original.asyncOperationId!, providerId: 'fixture', routeKey: 'fixture',
+            ownerRef: JSON.stringify([f.owner.scope.ownerId, f.owner.scope.workspaceId, original.generationId]), status: 'unknown',
+            attempts: 1, maxAttempts: 1, deadlineAt: original.request.deadlineAt, nextPollAt: f.clock.now({}), leaseOwner: null, leaseExpiresAt: null,
+            state: { jobId: 'fixture-job' }, result: null, error: { code: 'DEADLINE_EXPIRED', message: 'Synthetic unknown outcome' }, createdAt: f.clock.now({}), updatedAt: f.clock.now({}) } };
+    f.native.prepare('UPDATE creative_generation_request SET status_json=? WHERE generation_id=?').run(JSON.stringify(status), required.generationId);
+    return status;
+}
+
+describe('shared generation completion', () => {
+    for (const mode of ['outcome', 'throw'] as const) it('reaches boot readiness after creative recovery ' + mode, async () => {
+        const directory = await mkdtemp(join(tmpdir(), 'om-recovery-'));
+        const studioRoot = join(directory, 'studio');
+        const events: ObserverEvent[] = [];
+        let server: BootedServer | undefined;
+        const bind = creativeComposition.bindSandboxCreative;
+        const spy = vi.spyOn(creativeComposition, 'bindSandboxCreative').mockImplementation(input => {
+            const binding = bind(input);
+            binding.service.recover = async () => {
+                if (mode === 'throw') throw new Error('Opaque recovery failure');
+                return { ok: false, error: { code: 'unavailable', message: 'Recovery unavailable', retryable: true } };
+            };
+            return binding;
+        });
+        try {
+            await mkdir(studioRoot); await writeFile(join(studioRoot, 'index.html'), '<!doctype html><title>Fixture</title>');
+            const ids = { next: () => randomUUID() };
+            const io = createNodeBootIo({ projectRoot: fileURLToPath(new URL('../../../', import.meta.url)), studioRoot, ready() {} });
+            const booted = await bootServer({ env: { OM_STATE_ROOT: join(directory, 'state'), OM_PORT: '0' }, ids,
+                clock: { now: () => 1792000000123 }, observer: { observe(event) { events.push(event); } }, io: { ...io, schedule: () => () => {},
+                    agentEffects: { runtime: { ids, env: {}, async fetch(url) {
+                        if (new URL(String(url)).pathname !== '/internal/v1/health') throw new Error('Unexpected fixture agent request');
+                        return Response.json({ ok: true, value: { protocolVersion: 1, ready: true, runtime: 'available' } });
+                    },
+                        deadline: { create: () => ({ signal: new AbortController().signal, dispose() {} }) } },
+                        async launch() { return { ok: true, value: { origin: 'http://127.0.0.1:9999', pid: 1, async stop() { return { ok: true, value: undefined }; } } }; } } } });
+            server = value({ result: booted });
+            expect(events).toContainEqual(expect.objectContaining({ operation: 'server.boot', outcome: 'ready' }));
+            expect(events).toContainEqual(expect.objectContaining({ operation: 'server.boot.creative', outcome: 'unavailable' }));
+        } finally { spy.mockRestore(); await server?.stop({}); await rm(directory, { recursive: true, force: true }); }
+    });
+    for (const authority of ['revoked', 'expired'] as const) it('does not fetch a verified URL again when authority is ' + authority, async () => {
+        const f = await fixture();
+        try {
+            const unknown = await unknownCreative({ fixture: f, generationId: 'url-authority' });
+            const input = { context: { ...f.owner, principal: { kind: 'service' as const, serviceId: 'fixture-verifier' } }, generationId: unknown.generationId,
+                completion: { asyncOperationId: unknown.asyncOperationId!, providerJobId: 'fixture-job',
+                    output: { kind: 'url' as const, sourceUrl: imageUrl, expectedDigest: createHash('sha256').update(imageBytes).digest('hex') } } };
+            f.failImport({ reject: true });
+            expect(await f.services.creative!.service.ingestVerifiedCompletion(input)).toMatchObject({ ok: false });
+            expect(f.fetched).toEqual([imageUrl]);
+            f.failImport({ reject: false });
+            if (authority === 'revoked') value({ result: await f.services.confirmations!.revoke({ context: f.owner, cardId: unknown.request.approvalId! }) });
+            else { const now = f.clock.now({}); f.clock.now = () => now + 300001; }
+            expect(await f.services.creative!.service.refreshJob(input)).toMatchObject({ ok: false, error: { code: authority === 'revoked' ? 'forbidden' : 'expired' } });
+            expect(f.fetched).toEqual([imageUrl]);
+            const row = f.native.prepare('SELECT status_json FROM creative_generation_request WHERE generation_id=?').get(unknown.generationId) as { status_json: string };
+            expect(JSON.parse(row.status_json)).toMatchObject({ verifiedCompletion: input.completion, assetIds: [], operation: { status: 'unknown' } });
+            expect(f.native.prepare("SELECT COUNT(*) AS count FROM job WHERE operation='creative.generate'").get()).toEqual({ count: 1 });
+        } finally { await f.close(); }
+    });
+    for (const length of [16000, 16001, 32768]) it('preserves prompt evidence and imports at prompt length ' + length, async () => {
+        const f = await fixture();
+        try {
+            const prompt = 'p'.repeat(length);
+            const unknown = await unknownCreative({ fixture: f, generationId: 'long-prompt', prompt });
+            const input = { context: { ...f.owner, principal: { kind: 'service' as const, serviceId: 'fixture-verifier' } }, generationId: unknown.generationId,
+                completion: { asyncOperationId: unknown.asyncOperationId!, providerJobId: 'fixture-job',
+                    output: { kind: 'url' as const, sourceUrl: imageUrl, expectedDigest: createHash('sha256').update(imageBytes).digest('hex') } } };
+            const completed = value({ result: await f.services.creative!.service.ingestVerifiedCompletion(input) });
+            expect(completed.request.prompt).toBe(prompt);
+            expect(completed.assetIds).toHaveLength(1);
+            const evidence = f.native.prepare("SELECT payload FROM om_media_evidence WHERE kind='provenance' AND operation_id=?").all(unknown.request.operationId) as { payload: string }[];
+            expect(evidence.length).toBeGreaterThan(0);
+            for (const row of evidence) expect(JSON.parse(row.payload)).toMatchObject({ generationId: unknown.generationId, quoteId: unknown.quote.quoteId,
+                prompt: length <= 16000 ? prompt : null });
+            expect(value({ result: await f.services.creative!.service.refreshJob(input) }).request.prompt).toBe(prompt);
+            expect(f.fetched).toEqual([imageUrl]);
+        } finally { await f.close(); }
+    });
+    it('polls a bounded creative page on empty outbox ticks and carries its cursor to the next tick', async () => {
+        const f = await fixture();
+        try {
+            const requests: GenerationPollRequest[] = [];
+            const creative = f.services.creative!;
+            creative.service = { ...creative.service, async pollDue(input) {
+                requests.push(input.request);
+                return { ok: true, value: { claimed: 0, completed: 0, failed: 0, pending: 0, unknown: 0, reconcileCursor: requests.length === 1 ? 'next-generation' : null } };
+            } };
+            value({ result: f.workers.start({}) });
+            await f.tick(); await f.tick(); await f.tick();
+            expect(requests).toHaveLength(3);
+            expect(requests[0]).toMatchObject({ limit: 1, leaseMs: 60000 });
+            expect(requests[0].cursor).toBeUndefined();
+            expect(requests[1].cursor).toBe('next-generation');
+            expect(requests[2].cursor).toBeUndefined();
+            expect(f.native.prepare('SELECT COUNT(*) AS count FROM job').get()).toEqual({ count: 0 });
+        } finally { await f.close(); }
+    });
+    it('imports a verified URL into canonical SQL/file media and preserves asset identity across retry and rebind', async () => {
+        const f = await fixture();
+        try {
+            const unknown = await unknownCreative({ fixture: f, generationId: 'late-url' });
+            const worker = { ...f.owner, principal: { kind: 'service' as const, serviceId: 'fixture-verifier' } };
+            const input = { context: worker, generationId: unknown.generationId,
+                completion: { asyncOperationId: unknown.asyncOperationId!, providerJobId: 'fixture-job',
+                    output: { kind: 'url' as const, sourceUrl: imageUrl, expectedDigest: createHash('sha256').update(imageBytes).digest('hex') } } };
+            const first = value({ result: await f.services.creative!.service.ingestVerifiedCompletion(input) });
+            const duplicate = value({ result: await f.services.creative!.service.ingestVerifiedCompletion(input) });
+            expect(duplicate.assetIds).toEqual(first.assetIds);
+            expect(first.assetIds).toHaveLength(1);
+            expect(duplicate.operation).toEqual(unknown.operation);
+            const assets = value({ result: await f.reopenMedia().list({ context: f.owner, query: { limit: 100 } }) });
+            expect(assets.items.map(asset => asset.record.id)).toEqual(first.assetIds);
+            expect(Buffer.from(await f.readMediaBlob({ storageKey: assets.items[0].blob.storageKey }))).toEqual(imageBytes);
+            const status = value({ result: await f.services.creative!.service.refreshJob({ context: f.owner, generationId: unknown.generationId }) });
+            expect(status.assetIds).toEqual(first.assetIds);
+            expect(f.native.prepare("SELECT COUNT(*) AS count FROM job WHERE operation='creative.generate'").get()).toEqual({ count: 1 });
+        } finally { await f.close(); }
+    });
+    it('retains verified byte output and returns an explicit unsupported boundary without inventing an asset', async () => {
+        const f = await fixture();
+        try {
+            const unknown = await unknownCreative({ fixture: f, generationId: 'late-bytes' });
+            const input = { context: { ...f.owner, principal: { kind: 'service' as const, serviceId: 'fixture-verifier' } }, generationId: unknown.generationId,
+                completion: { asyncOperationId: unknown.asyncOperationId!, providerJobId: 'fixture-job',
+                    output: { kind: 'bytes' as const, result: { bytesBase64: imageBytes.toString('base64'), providerNote: 'fixture' } } } };
+            expect(await f.services.creative!.service.ingestVerifiedCompletion(input)).toMatchObject({ ok: false, error: { code: 'not_implemented' } });
+            expect(await f.services.creative!.service.refreshJob(input)).toMatchObject({ ok: false, error: { code: 'not_implemented' } });
+            const row = f.native.prepare('SELECT status_json FROM creative_generation_request WHERE generation_id=?').get(unknown.generationId) as { status_json: string };
+            expect(JSON.parse(row.status_json)).toMatchObject({ verifiedCompletion: input.completion, assetIds: [], operation: { status: 'unknown' } });
+            expect(f.native.prepare("SELECT COUNT(*) AS count FROM job WHERE operation='creative.generate'").get()).toEqual({ count: 1 });
+        } finally { await f.close(); }
+    });
+});
 
 describe('real feature catalog composition', () => {
     it('saves and retrieves a multi-destination neutral draft locally without remote creation or outbox intent', async () => {

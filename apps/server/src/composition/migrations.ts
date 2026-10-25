@@ -24,6 +24,7 @@ export const migrationManifest = [
     { version: 19, feature: 'safety', local: 2, path: 'features/safety/migrations/0002_confirmations.sql' },
     { version: 20, feature: 'server', local: 3, path: 'apps/server/migrations/0003_tool_operations.sql' },
     { version: 21, feature: 'server', local: 4, path: 'apps/server/migrations/0004_media.sql' },
+    { version: 22, feature: 'server', local: 5, path: 'apps/server/migrations/0005_chat_backend.sql' },
 ] as const;
 
 /** Load trusted scripts through injected filesystem access; validate the full batch before execution.

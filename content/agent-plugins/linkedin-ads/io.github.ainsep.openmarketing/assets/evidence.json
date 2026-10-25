@@ -1,0 +1,30 @@
+{
+  "checkedAt": "2026-10-24",
+  "auth": {
+    "sourceUrl": "https://learn.microsoft.com/en-us/linkedin/shared/authentication/authentication",
+    "form": "Member OAuth plus sealed app configuration",
+    "probe": "None: safe checks need vendor-specific headers or account context; status makes no vendor calls."
+  },
+  "brand": {
+    "sourceUrl": "https://brand.linkedin.com/linkedin-logo",
+    "terms": "LinkedIn requires an existing relationship and Brand or Trademark License for its wordmark. The in-logo page permits specific profile/share/follow uses; those do not establish this connection-card use.",
+    "fallbackReason": "No applicable trademark license supplied; use an original neutral monogram and plain connection button.",
+    "additionalTermsUrl": "https://brand.linkedin.com/in-logo"
+  },
+  "files": [
+    {
+      "path": "icon.svg",
+      "source": "Original OM neutral monogram; not vendor artwork",
+      "sourceUrl": "https://brand.linkedin.com/linkedin-logo",
+      "retrievedAt": "2026-10-24",
+      "license": "Apache-2.0 for original OM artwork only; vendor trademarks excluded"
+    },
+    {
+      "path": "button.html",
+      "source": "Original OM static specimen",
+      "sourceUrl": "https://brand.linkedin.com/linkedin-logo",
+      "retrievedAt": "2026-10-24",
+      "license": "Apache-2.0 for OM markup/CSS only; no vendor artwork embedded"
+    }
+  ]
+}

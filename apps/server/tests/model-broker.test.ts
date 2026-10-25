@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import { describe, expect, it, vi } from 'vitest';
 import type { Outcome, RunGrantMetadata } from '@open-marketing/contracts';
 import { createNodeHttpListener } from '../src/inbound/http.js';
-import { handleModelRequest, type ModelUpstream } from '../src/inbound/model.js';
+import { handleModelRequest, type ModelCredentials, type ModelUpstream } from '../src/inbound/model.js';
 import type { HttpResponse } from '../src/ports.js';
 
 const path = '/api/agent/v1/model/anthropic/v1/messages';
@@ -35,7 +35,7 @@ function webResponse(required: { response: HttpResponse }): Response {
 }
 
 /** Both request transports reach the same real broker, with a controllable upstream fixture. */
-async function fixture(required: { transport: 'memory' | 'http' }) {
+async function fixture(required: { transport: 'memory' | 'http'; usage?: Parameters<typeof handleModelRequest>[0]['usage'] }) {
     const grant: RunGrantMetadata = { protocolVersion: 1, grantId: 'grant', agentInstanceId: 'agent', runId: 'run', conversationId: 'conversation',
         scope: { ownerId: 'owner', workspaceId: 'workspace' }, capabilities: ['model'], expiresAt: 10000, revoked: false, authenticationEpoch: 1000 };
     let now = 1000;
@@ -43,7 +43,7 @@ async function fixture(required: { transport: 'memory' | 'http' }) {
     const upstreamRequests: Parameters<ModelUpstream['send']>[0][] = [];
     const deadlines: number[] = [];
     let disposedDeadlines = 0;
-    const credentials = vi.fn(async () => ({ ok: true as const, value: { apiKey: secret, model: 'claude-sonnet-5-5' } }));
+    const credentials = vi.fn<ModelCredentials['resolveProviderKey']>(async () => ({ ok: true as const, value: { apiKey: secret, model: 'claude-sonnet-5-5' } }));
     const send = vi.fn<ModelUpstream['send']>(async input => {
         upstreamRequests.push(input);
         return new Response(stopped, { headers: { 'content-type': 'text/event-stream', 'set-cookie': 'secret=' + secret, 'x-vendor-key': secret } });
@@ -56,7 +56,7 @@ async function fixture(required: { transport: 'memory' | 'http' }) {
             const body = await request.readBody!({});
             return { status: body.ok ? 200 : 400, body };
         }
-        return handleModelRequest({ request, clock, upstream,
+        return handleModelRequest({ request, clock, upstream, usage: required.usage,
             observer: { observe(event) { observed.push(event); } },
             credentials: { resolveProviderKey: credentials }, grants: { async verify({ authorization }) {
                 if (authorization !== 'Bearer ' + token) return { ok: false, error: { code: 'forbidden', message: 'Fixture run token denied', retryable: false } };
@@ -123,6 +123,31 @@ for (const transport of ['memory', 'http'] as const) describe('model broker / ' 
         } finally { await f.dispose(); }
     });
 
+    it.each(['anthropic', 'openai', 'google'] as const)('routes %s with matching auth, effort and durable usage before final delivery', async provider => {
+        const evidence: unknown[][] = [];
+        const db: NonNullable<Parameters<typeof handleModelRequest>[0]['usage']>['db'] = { async query(input) { evidence.push(input.values!); return { rows: [], rowCount: 1 }; } };
+        let id = 0;
+        const f = await fixture({ transport, usage: { db, ids: { next: () => 'request-' + ++id } } });
+        const models = { anthropic: message.model, openai: 'gpt-5.2', google: 'gemini-2.5-flash' };
+        const paths = { anthropic: path, openai: '/api/agent/v1/model/openai/chat/completions', google: '/api/agent/v1/model/google/v1beta/models/gemini-2.5-flash:streamGenerateContent' };
+        const payloads = { anthropic: message, openai: { model: models.openai, stream: true, stream_options: { include_usage: true }, max_completion_tokens: 4096, messages: message.messages }, google: { contents: [{ role: 'user', parts: [{ text: 'fixture' }] }], generationConfig: { maxOutputTokens: 4096 } } };
+        const frames = { anthropic: 'data: {"type":"message_start","message":{"usage":{"input_tokens":10,"cache_read_input_tokens":5}}}\n\ndata: {"type":"message_delta","usage":{"output_tokens":3}}\n\n' + stopped,
+            openai: 'data: {"choices":[{"finish_reason":"stop"}]}\n\ndata: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":3}}\n\ndata: [DONE]\n\n',
+            google: 'data: {"candidates":[{"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":3,"thoughtsTokenCount":2}}\n\n' };
+        f.credentials.mockResolvedValue({ ok: true, value: { apiKey: secret, model: models[provider], provider, effort: 'high' } });
+        f.send.mockImplementation(async input => { f.upstreamRequests.push(input); return new Response(frames[provider], { headers: { 'content-type': 'text/event-stream' } }); });
+        try {
+            const response = await f.request({ path: paths[provider], body: payloads[provider], headers: { authorization: 'Bearer ' + token, 'x-goog-api-key': token } });
+            expect(response.status).toBe(200); await response.text();
+            expect(evidence.map(row => row[1])).toEqual(['intent', 'completion']); expect(evidence[1][8]).toBeGreaterThan(0);
+            const native = f.upstreamRequests[0]; const body = JSON.parse(native.body);
+            if (provider === 'anthropic') { expect(native.url).toBe('https://api.anthropic.com/v1/messages'); expect(body.output_config).toEqual({ effort: 'high' }); }
+            if (provider === 'openai') { expect(native.url).toBe('https://api.openai.com/v1/chat/completions'); expect(native.headers.authorization).toBe('Bearer ' + secret); expect(body.reasoning_effort).toBe('high'); expect(body.stream_options.include_usage).toBe(true); }
+            if (provider === 'google') { expect(native.url).toContain('https://generativelanguage.googleapis.com/'); expect(native.headers['x-goog-api-key']).toBe(secret); expect(body.generationConfig.thinkingConfig).toEqual({ thinkingBudget: 3072 }); }
+            expect(native.body).not.toContain(secret); expect(native.body).not.toContain(token);
+        } finally { await f.dispose(); }
+    });
+
     it('denies non-run, missing-capability, expired and revoked authority before key lookup', async () => {
         const f = await fixture({ transport });
         try {
@@ -164,7 +189,7 @@ for (const transport of ['memory', 'http'] as const) describe('model broker / ' 
                 expect((await f.request({ body })).status).toBe(400);
             }
             expect((await f.request({ body: { ...message, messages: [{ role: 'user', content: 'x'.repeat(270000) }] } })).status).toBe(413);
-            expect((await f.request({ body: { ...message, model: 'caller-selected-other-model' } })).status).toBe(503);
+            expect((await f.request({ body: { ...message, model: 'caller-selected-other-model' } })).status).toBe(400);
             expect(f.send).not.toHaveBeenCalled();
         } finally { await f.dispose(); }
     });
@@ -238,4 +263,15 @@ it('revocation during streaming fails without a second dispatch', async () => {
         await expect(response.text()).rejects.toThrow(); expect(f.send).toHaveBeenCalledTimes(1);
         expect(f.upstreamRequests[0].signal.aborted).toBe(true);
     } finally { await f.dispose(); }
+});
+
+it('replaces cumulative snapshots and never charges reasoning/cache tokens twice', async () => {
+ const { captureUsage, emptyUsage, requestEstimate } = await import('../src/model-usage.js');
+ const usage = emptyUsage();
+ for (const output of [3, 7, 7]) captureUsage({ provider: 'openai', usage, data: JSON.stringify({ usage: { prompt_tokens: 100, completion_tokens: output, prompt_tokens_details: { cached_tokens: 20 }, completion_tokens_details: { reasoning_tokens: 4 } } }) });
+ expect(usage.output).toBe(7);
+ expect(requestEstimate({ provider: 'openai', model: 'gpt-5.2', usage })).toBeCloseTo((80 * 1.75 + 20 * .175 + 7 * 14) / 1e6);
+ const unknown = emptyUsage();
+ expect(requestEstimate({ provider: 'google', model: 'gemini-2.5-flash', usage: unknown })).toBeUndefined();
+ expect(() => captureUsage({ provider: 'openai', usage, data: '{"usage":{"prompt_tokens":-1,"completion_tokens":7}}' })).toThrow();
 });

@@ -56,7 +56,7 @@ function observe(required: { observer: ObserverPort; context: CallContext; outco
  * @complexity One job per 250ms tick; one active attempt, no buffer or parallel root transactions. Unknown outcomes reconcile. */
 export function createFormWorkers(required: {
     unit: UnitOfWork; clock: ClockPort; ids: IdPort; observer: ObserverPort; context: CallContext;
-    creative?: Pick<CreativeToolBinding, 'dispatchQueued'>;
+    creative?: Pick<CreativeToolBinding, 'dispatchQueued' | 'service'>;
     halt?: Pick<ReturnType<typeof bindAgentPluginHaltJobs>, 'dispatch'>;
     forms: Pick<ReturnType<typeof bindForms>, 'accept'>; schedule: HttpEffects['schedule'];
 }) {
@@ -113,9 +113,19 @@ export function createFormWorkers(required: {
     let running = false;
     let cancel: (() => void) | undefined;
     let active: Promise<unknown> | undefined;
+    let creativeCursor: string | undefined;
+    /** One due operation and one projection per tick; keep pagination across ticks, including empty outbox ticks.
+     * @complexity O(1) bounded service calls; no second queue or concurrent worker. */
+    async function pollCreative(): Promise<void> {
+        if (!required.creative) return;
+        const result = await required.creative.service.pollDue({ context: required.context,
+            request: { leaseOwner: 'creative:' + required.context.traceId, leaseMs: 60000, limit: 1, ...(creativeCursor ? { cursor: creativeCursor } : {}) } });
+        if (!result.ok) { observe({ ...required, outcome: 'creative_poll_' + result.error.code }); return; }
+        creativeCursor = result.value.reconcileCursor ?? undefined;
+    }
     /** Reschedule only after the previous attempt settles; typed busy failures wait for another tick. */
     async function tick(): Promise<void> {
-        try { await outbox.processOne(); }
+        try { await outbox.processOne(); await pollCreative(); }
         catch { observe({ ...required, outcome: 'unavailable' }); }
         finally { if (running) cancel = required.schedule({ delayMs: 250, callback: onTick }); }
     }

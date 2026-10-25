@@ -1,11 +1,19 @@
 {
-  "$schema": "https://agent-plugins.org/schemas/1.1.0/plugin.schema.json",
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "tiktok-ads",
   "version": "0.1.0",
   "description": "TikTok advertiser reads, disabled creation/status readback, exact activation, reporting and typed server Events delivery. Disabled pending host admission.",
   "license": "Apache-2.0",
   "extensions": {
     "io.github.ainsep.openmarketing": {
+      "credentialCards": [
+        {"target": "tiktok-ads", "title": "TikTok Ads", "label": "Save access token", "category": "Advertising", "intro": "Paste a Marketing API advertiser access token from your approved TikTok for Business app. Consumer Login Kit tokens are not suitable. Saving does not verify the token.", "usedFor": ["Read advertiser accounts, campaigns and performance", "Create paused campaigns, ad groups and ads", "Manage exact approved activation and consented server Events delivery"], "helpUrl": "https://business-api.tiktok.com/gateway/docs/index?doc_id=1738373141733378", "helpLabel": "Authentication and setup", "baseUrl": "https://business-api.tiktok.com", "saveKind": "api-key", "saveTarget": "tiktok-ads", "icon": "io.github.ainsep.openmarketing/assets/icon.svg", "keyHint": "Long-term advertiser tokens do not expire by default; optional short-term tokens last 24 hours. Reauthorize expired tokens.", "secretFields": [{"name": "token", "label": "Advertiser access token", "required": true}], "permissions": ["Approved Marketing API permission IDs and advertiser account roles; no consumer Login Kit scopes"]}
+      ],
+      "credentialAssets": {
+        "io.github.ainsep.openmarketing/assets/icon.svg": "ed2fef6f362da71cb47fb51b41962c643635c192fb87831524e90f6e088e0630",
+        "io.github.ainsep.openmarketing/assets/button.html": "c1fac96624946e63b63b53d7c876d0c8f77f521310a0465ea4186953be87bbad",
+        "io.github.ainsep.openmarketing/assets/evidence.json": "042fab467210b0a2afc97a9cdcfd8655a80228cc1508f77fa03bfbda8ecd60ca"
+      },
       "version": 1,
       "enabled": false,
       "admitted": false,

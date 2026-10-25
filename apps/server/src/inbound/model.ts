@@ -1,21 +1,19 @@
-/** Anthropic wire proxy. Run tokens enter; only the server-held provider key leaves. */
+/** Fixed native model proxies. Run tokens enter; only the server-held provider key leaves. */
 import { z } from 'zod';
 import { parseBoundary } from '@open-marketing/contracts';
-import type { ClockPort, ObserverPort, Outcome, RunGrantMetadata } from '@open-marketing/contracts';
+import type { AppError, ClockPort, ObserverPort, Outcome, RunGrantMetadata } from '@open-marketing/contracts';
 import type { HttpRequest, HttpResponse } from '../ports.js';
 import type { RunGrantVerifierPort } from './om.js';
 
-const modelPath = '/api/agent/v1/model/anthropic/v1/messages';
-const messageSchema = z.strictObject({ role: z.enum(['user', 'assistant']), content: z.union([z.string(), z.array(z.record(z.string(), z.json())).max(100)]) });
-const requestSchema = z.strictObject({
-    model: z.string().min(1).max(256), stream: z.literal(true), max_tokens: z.number().int().min(1).max(4096),
-    messages: z.array(messageSchema).min(1).max(90), system: z.string().max(131072).optional(),
-    tools: z.array(z.strictObject({ name: z.string().min(1).max(256), description: z.string().max(4096).optional(), input_schema: z.record(z.string(), z.json()), strict: z.boolean().optional() })).max(100).optional(),
-});
+import { decodeSseFrames } from '@jini-ai/core/primitives';
+import type { AssistantProvider, AssistantSettings, IdPort } from '@open-marketing/contracts';
+import type { CampaignSqlPort } from '@open-marketing/campaigns';
+import { modelRoutes, modelRequestSchemas, providerRequest, selectedModel } from '../models.js';
+import { appendUsage, captureUsage, emptyUsage } from '../model-usage.js';
 
 /** Addons/composition owns sealed storage and the selected model. Keys never enter OM DTOs. */
 export interface ModelCredentials {
-    resolveProviderKey(required: { grant: RunGrantMetadata; signal: AbortSignal }): Promise<Outcome<{ apiKey: string; model: string }>>;
+    resolveProviderKey(required: { grant: RunGrantMetadata; signal: AbortSignal }): Promise<Outcome<{ apiKey: string; model: string; provider?: AssistantProvider; effort?: string }>>;
 }
 
 /** Composition supplies transport and a cancellable deadline. No retries or caller-selected URL.
@@ -28,7 +26,7 @@ export interface ModelUpstream {
 
 interface BrokerInput {
     request: HttpRequest; grants: RunGrantVerifierPort; credentials: ModelCredentials;
-    upstream: ModelUpstream; clock: ClockPort; observer: ObserverPort;
+    upstream: ModelUpstream; clock: ClockPort; observer: ObserverPort; usage?: { db: CampaignSqlPort; ids: IdPort };
 }
 
 function traceIdentifiers(required: { input: BrokerInput; grant: RunGrantMetadata }) {
@@ -61,14 +59,15 @@ async function verifyModelGrant(required: { input: BrokerInput; authorization: s
  * Tool-result messages may extend the 40-message initial context across 24 tool turns.
  * @complexity O(b) time/space, b <=256 KiB; malformed/cyclic inputs return typed failures.
  */
-async function modelBody(required: { request: HttpRequest }): Promise<Outcome<z.infer<typeof requestSchema>>> {
+async function modelBody(required: { request: HttpRequest; provider: AssistantProvider }): Promise<Outcome<Record<string, unknown>>> {
     const body = required.request.readBody ? await required.request.readBody({}) : { ok: true as const, value: required.request.body };
     if (!body.ok) return body;
     try {
         if (Buffer.byteLength(JSON.stringify(body.value), 'utf8') > 262144) {
             return { ok: false, error: { code: 'limit_exceeded', message: 'Model request exceeds 256 KiB', retryable: false } };
         }
-        return parseBoundary({ schema: requestSchema, input: body.value });
+        const schema: z.ZodType<Record<string, unknown>> = modelRequestSchemas[required.provider];
+        return parseBoundary({ schema, input: body.value });
     } catch { return { ok: false, error: { code: 'invalid_input', message: 'Invalid model request', retryable: false } }; }
 }
 
@@ -80,6 +79,13 @@ function observe(required: { input: BrokerInput; grant: RunGrantMetadata; outcom
     } catch { /* Telemetry cannot authorize or repeat a billed request. */ }
 }
 
+/** Translate native authentication headers to the same run token; never accept a vendor key. */
+function brokerToken(required: { request: HttpRequest; provider: AssistantProvider }): string | undefined {
+    if (required.provider === 'openai') return required.request.headers?.authorization?.replace(/^Bearer /, '');
+    return required.request.headers?.[required.provider === 'google' ? 'x-goog-api-key' : 'x-api-key'];
+}
+function selectionStatus(required: { code: AppError['code'] }): number { return required.code === 'invalid_input' ? 400 : 503; }
+
 /** Single authenticated model request, without automatic retry. Exact route and grant precede
  * body/key access; authority is rechecked after key resolution, immediately before egress.
  * @example await handleModelRequest({ request, grants, credentials, upstream, clock, observer });
@@ -87,24 +93,38 @@ function observe(required: { input: BrokerInput; grant: RunGrantMetadata; outcom
  * @complexity O(b) request parsing and O(s) streaming, <=256 KiB request and <=2 MiB response.
  */
 export async function handleModelRequest(required: BrokerInput): Promise<HttpResponse> {
-    if (required.request.path !== modelPath || required.request.method !== 'POST') return rejected({ status: 403, code: 'forbidden' });
-    const token = required.request.headers?.['x-api-key'];
+    const provider = (Object.keys(modelRoutes) as AssistantProvider[]).find(id => modelRoutes[id] === required.request.path);
+    if (!provider || required.request.method !== 'POST') return rejected({ status: 403, code: 'forbidden' });
+    const token = brokerToken({ request: required.request, provider });
     if (!token || !/^[^\s]{32,8192}$/.test(token)) return rejected({ status: 401, code: 'forbidden' });
     const authorization = 'Bearer ' + token;
     try {
         const grant = await verifyModelGrant({ input: required, authorization });
         if (!grant.ok) return { status: 403, body: grant };
-        const body = await modelBody({ request: required.request });
+        const body = await modelBody({ request: required.request, provider });
         if (!body.ok) return { status: body.error.code === 'limit_exceeded' ? 413 : 400, body };
-        return await openModelStream({ input: required, grant: grant.value, authorization, token, body: body.value });
+        return await openModelStream({ input: required, grant: grant.value, authorization, token, provider, body: body.value });
     } catch { return rejected({ status: 503, code: 'unavailable' }); }
+}
+
+/** Resolve only the accepted provider/model; all authentication stays inside the broker. */
+async function modelSelection(required: { input: BrokerInput; grant: RunGrantMetadata; signal: AbortSignal; provider: AssistantProvider; body: Record<string, unknown> }): Promise<Outcome<{ settings: AssistantSettings; apiKey: string }>> {
+    const credentials = await required.input.credentials.resolveProviderKey(required);
+    if (!credentials.ok) return credentials;
+    const { apiKey, model, provider = 'anthropic', effort } = credentials.value;
+    const settings: AssistantSettings = { mode: 'model', connectionId: null, model, provider, effort };
+    const wireModel = required.provider === 'google' ? 'gemini-2.5-flash' : required.body.model;
+    if (!/^[^\s]{1,8192}$/.test(apiKey) || provider !== required.provider || settings.model !== wireModel || !selectedModel({ settings })) {
+        return { ok: false, error: { code: 'invalid_input', message: 'Model selection differs from accepted run', retryable: false } };
+    }
+    return { ok: true, value: { settings, apiKey } };
 }
 
 /** Own the upstream reader/deadline until the listener cancels or finishes. All caller auth,
  * cookies, routing and beta headers are discarded; only fixed provider headers are constructed.
  * @complexity O(b) serialization, one upstream request and one active reader.
  */
-async function openModelStream(required: { input: BrokerInput; grant: RunGrantMetadata; authorization: string; token: string; body: z.infer<typeof requestSchema> }): Promise<HttpResponse> {
+async function openModelStream(required: { input: BrokerInput; grant: RunGrantMetadata; authorization: string; token: string; provider: AssistantProvider; body: Record<string, unknown> }): Promise<HttpResponse> {
     const { input, grant } = required;
     const admitted = await verifyModelGrant({ input, authorization: required.authorization });
     if (!admitted.ok) return { status: 403, body: admitted };
@@ -124,19 +144,20 @@ async function openModelStream(required: { input: BrokerInput; grant: RunGrantMe
     function interrupted() { void cancel(); }
     signal.addEventListener('abort', interrupted, { once: true });
     try {
-        const credentials = await input.credentials.resolveProviderKey({ grant, signal });
-        if (!credentials.ok || !/^[^\s]{1,8192}$/.test(credentials.value.apiKey) || credentials.value.model !== required.body.model) {
-            await cancel(); return rejected({ status: 503, code: 'unavailable' });
-        }
+        const selection = await modelSelection({ ...required, signal });
+        if (!selection.ok) { await cancel(); return { status: selectionStatus({ code: selection.error.code }), body: selection }; }
+        const { settings, apiKey } = selection.value;
         const current = await verifyModelGrant({ input, authorization: required.authorization });
         if (!current.ok || current.value.grantId !== grant.grantId || signal.aborted) {
             await cancel(); return rejected({ status: 403, code: 'forbidden' });
         }
         const trace = traceIdentifiers({ input, grant });
-        const response = await input.upstream.send({ url: 'https://api.anthropic.com/v1/messages',
-            headers: { 'content-type': 'application/json', 'anthropic-version': '2023-06-01', 'x-api-key': credentials.value.apiKey,
-                'x-correlation-id': trace.correlationId, 'x-trace-id': trace.traceId, 'x-om-run-id': grant.runId },
-            body: JSON.stringify(required.body), signal, redirect: 'error' });
+        const requestId = input.usage?.ids.next({});
+        if (input.usage) await appendUsage({ db: input.usage.db, grant, requestId: requestId!, kind: 'intent', provider: required.provider, model: settings.model, now: input.clock.now({}) });
+        const wire = providerRequest({ settings, body: required.body, apiKey });
+        const response = await input.upstream.send({ ...wire,
+            headers: { 'content-type': 'application/json', ...wire.headers, 'x-correlation-id': trace.correlationId, 'x-trace-id': trace.traceId, 'x-om-run-id': grant.runId },
+            signal, redirect: 'error' });
         reader = response.body?.getReader();
         if (signal.aborted) { await reader?.cancel(); throw new Error('Model stream interrupted'); }
         if (!response.ok || !reader || response.headers.get('content-type')?.split(';')[0].trim() !== 'text/event-stream') {
@@ -145,7 +166,7 @@ async function openModelStream(required: { input: BrokerInput; grant: RunGrantMe
         }
         observe({ input, grant, outcome: 'streaming' });
         return { status: 200, body: null, contentType: 'text/event-stream; charset=utf-8',
-            stream: { chunks: cleanStream({ reader, signal, input, grant, authorization: required.authorization, secrets: [credentials.value.apiKey, required.token] }), cancel } };
+            stream: { chunks: cleanStream({ reader, signal, input, grant, authorization: required.authorization, provider: required.provider, model: settings.model, requestId, secrets: [apiKey, required.token] }), cancel } };
     } catch {
         observe({ input, grant, outcome: 'interrupted' });
         await cancel(); return rejected({ status: 503, code: 'unavailable' });
@@ -156,52 +177,45 @@ async function openModelStream(required: { input: BrokerInput; grant: RunGrantMe
  * Invalid UTF-8, an oversized line/stream, interruption or revoked authority aborts the socket.
  * @complexity O(s) time, <=64 KiB pending line and <=2 MiB total incoming data. No replay.
  */
-async function* cleanStream(required: { reader: ReadableStreamDefaultReader<Uint8Array>; signal: AbortSignal; input: BrokerInput; grant: RunGrantMetadata; authorization: string; secrets: readonly string[] }): AsyncIterable<Uint8Array> {
-    const decoder = new TextDecoder('utf-8', { fatal: true });
+async function* cleanStream(required: { reader: ReadableStreamDefaultReader<Uint8Array>; signal: AbortSignal; input: BrokerInput; grant: RunGrantMetadata; authorization: string; provider: AssistantProvider; model: string; requestId?: string; secrets: readonly string[] }): AsyncIterable<Uint8Array> {
+    const usage = emptyUsage();
     const encoder = new TextEncoder();
-    let pending = ''; let bytes = 0; let stopped = false;
+    const pending: Uint8Array[] = [];
     try {
-        while (true) {
-            required.signal.throwIfAborted();
-            const chunk = await required.reader.read();
-            required.signal.throwIfAborted();
-            const current = await verifyModelGrant({ input: required.input, authorization: required.authorization });
-            if (!current.ok || current.value.grantId !== required.grant.grantId) throw new Error('Model stream authority lost');
-            if (chunk.done) break;
-            bytes += chunk.value.byteLength;
-            if (bytes > 2097152) throw new Error('Model stream limit reached');
-            pending += decoder.decode(chunk.value, { stream: true });
-            const lines = boundedLines({ text: pending });
-            pending = lines.pending;
-            stopped ||= messageStopped({ text: lines.complete });
-            yield encoder.encode(redact({ text: lines.complete, secrets: required.secrets }));
+        for await (const frame of decodeSseFrames({ source: boundedSource(required) }, { maxBufferChars: 65536 })) {
+            captureUsage({ provider: required.provider, data: frame.data, usage });
+            const text = [...(frame.event === null ? [] : ['event: ' + frame.event]), ...frame.dataLines.map(line => 'data: ' + line)].join('\n') + '\n\n';
+            const bytes = encoder.encode(redact({ text, secrets: required.secrets }));
+            if (usage.stopped) pending.push(bytes);
+            else yield bytes;
         }
-        pending += decoder.decode();
-        if (!stopped) throw new Error('Model stream ended before message_stop');
-        if (pending) yield encoder.encode(redact({ text: pending, secrets: required.secrets }));
+        if (!usage.stopped) throw new Error('Model stream ended before completion');
+        if (required.input.usage) await appendUsage({ db: required.input.usage.db, grant: required.grant, requestId: required.requestId!, kind: 'completion', provider: required.provider, model: required.model, usage, now: required.input.clock.now({}) });
+        // Persist before releasing the final frame: OpenAI consumers stop reading at [DONE].
+        for (const bytes of pending) yield bytes;
         observe({ ...required, outcome: 'completed' });
     } catch {
         observe({ ...required, outcome: 'interrupted' });
         throw new Error('Model stream interrupted');
     }
 }
-
-/** Bound each UTF-8 SSE line before forwarding, including a trailing partial line. */
-function boundedLines(required: { text: string }): { complete: string; pending: string } {
-    if (required.text.split('\n').some(line => Buffer.byteLength(line, 'utf8') > 65536)) throw new Error('Model line limit reached');
-    const boundary = required.text.lastIndexOf('\n') + 1;
-    return { complete: required.text.slice(0, boundary), pending: required.text.slice(boundary) };
-}
-
-/** A clean socket EOF alone does not prove the billed provider turn completed. Jini owns all
- * other provider parsing; this check distinguishes a truncated upstream from message_stop.
- */
-function messageStopped(required: { text: string }): boolean {
-    return required.text.split('\n').some(line => {
-        if (!line.startsWith('data:')) return false;
-        try { return z.object({ type: z.literal('message_stop') }).safeParse(JSON.parse(line.slice(5))).success; }
-        catch { return false; }
-    });
+/** Validate UTF-8 and current authority before each bounded source chunk. O(s), <=2 MiB. */
+async function* boundedSource(required: { reader: ReadableStreamDefaultReader<Uint8Array>; signal: AbortSignal; input: BrokerInput; grant: RunGrantMetadata; authorization: string }): AsyncIterable<string> {
+    const decoder = new TextDecoder('utf-8', { fatal: true });
+    let bytes = 0;
+    while (true) {
+        required.signal.throwIfAborted();
+        const chunk = await required.reader.read();
+        required.signal.throwIfAborted();
+        const current = await verifyModelGrant({ input: required.input, authorization: required.authorization });
+        if (!current.ok || current.value.grantId !== required.grant.grantId) throw new Error('Model stream authority lost');
+        if (chunk.done) break;
+        bytes += chunk.value.byteLength;
+        if (bytes > 2097152) throw new Error('Model stream limit reached');
+        const text = decoder.decode(chunk.value, { stream: true });
+        for (let offset = 0; offset < text.length; offset += 8192) yield text.slice(offset, offset + 8192);
+    }
+    yield decoder.decode();
 }
 
 function redact(required: { text: string; secrets: readonly string[] }): string {

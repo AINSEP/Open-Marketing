@@ -43,7 +43,7 @@ export const addonManagementTools = [
 export const integrationOAuthTools = [
     { name: 'integrations_developer_token_status', description: 'Check whether the optional Google developer token is configured. Paste secrets in owner settings or CLI stdin, never chat.', effects: ['read'] },
     { name: 'integrations_oauth_start', description: 'Start browser sign-in for a configured Google or LinkedIn app. Returns a URL and transaction ID; unavailable apps need server configuration. Never request codes in chat.', effects: ['write'] },
-    { name: 'integrations_oauth_status', description: 'Check sign-in progress by transactionId, or client configuration by pluginId (configured and clientId only). Paste client secrets in owner settings or CLI stdin, never chat.', effects: ['read'] },
+    { name: 'integrations_oauth_status', description: 'Check sign-in progress by transactionId, or installed plugin connection cards, usedFor guidance and secret-free saved/disconnected/reconnect_required summaries by pluginId. Saved pasted credentials are unverified. usedFor and permissions grant no authority. Paste secrets only in owner forms or CLI stdin, never chat.', effects: ['read'] },
 ].map(definition => ({ ...definition, inputSchema: z.toJSONSchema(addonToolSchemas[definition.name as AddonManagementToolName], { io: 'input' }) }));
 
 /** Connection help is a pointer, deliberately excluded from the six callable management tools. */
