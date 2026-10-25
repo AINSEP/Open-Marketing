@@ -5,7 +5,8 @@ import { clockFixture, idsFixture, policy } from "./fixtures.js";
 import { sqliteFixture } from "./sql-fixture.js";
 import { canonicalJson } from "../src/schema.js";
 DomainIntentSuite({ name: "memory", create: required => {
-    const unit = createMemoryTransactionalJobs({ clock: clockFixture({}), ids: idsFixture({}), retryPolicy: policy,
+    const clock = clockFixture({});
+    const unit = createMemoryTransactionalJobs({ clock, ids: idsFixture({}), retryPolicy: policy,
         acceptIntent() {
             required.abortWriter?.abort();
             if (required.throwWriter) throw new Error("Injected domain writer failure");
@@ -13,7 +14,7 @@ DomainIntentSuite({ name: "memory", create: required => {
             return { ok: true, value: undefined };
         },
     });
-    return { port: unit.intents, repo: unit.repo, async readIntent(input) { return unit.intent(input); }, close() {} };
+    return { port: unit.intents, repo: unit.repo, clock, async readIntent(input) { return unit.intent(input); }, close() {} };
 } });
 DomainIntentSuite({ name: "SQLite", create: required => {
     const fixture = sqliteFixture({});
@@ -32,7 +33,7 @@ DomainIntentSuite({ name: "SQLite", create: required => {
             return { ok: true, value: undefined };
         },
     } });
-    return { repo, port, close: fixture.close, async readIntent(input) {
+    return { repo, port, clock, close: fixture.close, async readIntent(input) {
         const row = fixture.native.prepare("SELECT job_id, operation_id FROM test_domain_intent WHERE tenant_id = ? AND intent_id = ?").get(jobTenant(input), input.intentId) as { job_id: string; operation_id: string } | undefined;
         if (!row) return null;
         return { jobId: row.job_id, operationId: row.operation_id };

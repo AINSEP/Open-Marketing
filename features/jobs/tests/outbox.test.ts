@@ -8,7 +8,7 @@ const request = { tenantId: "tenant-a", idempotencyKey: "key", requestDigest: "d
 function setup({ idempotent = false }: {
     idempotent?: boolean;
 }) {
-    const clock = createFakeClock({ initial: 0 });
+    const clock = { ...createFakeClock({ initial: 0 }) };
     const store = new MemoryStore();
     let id = 0;
     const authorize = vi.fn(async (_job: OutboxJob) => true);
@@ -38,6 +38,52 @@ describe("idempotency", () => {
         expect((await outbox.enqueue({ ...request, requestDigest: "other" })).kind).toBe("conflict");
         expect((await outbox.enqueue({ ...request, payload: "different" })).kind).toBe("conflict");
         expect(store.snapshot()[0]?.payload).toBe(request.payload);
+    });
+});
+describe("enqueue timing", () => {
+    it("keeps future work unclaimed until exact due time without authorizing or dispatching early", async () => {
+        const { outbox, clock, store, authorize, dispatch } = setup({});
+        clock.advance({ milliseconds: 10 });
+        const result = await outbox.enqueue({ ...request, availableAt: 100 });
+        expect(result).toMatchObject({ kind: "inserted", job: { createdAt: 10, availableAt: 100 } });
+        expect(await outbox.processOne()).toEqual({ kind: "idle" });
+        clock.advance({ milliseconds: 89 });
+        expect(await outbox.processOne()).toEqual({ kind: "idle" });
+        expect(store.snapshot()[0]).toMatchObject({ state: "pending", attempts: 0, leaseToken: null });
+        expect(authorize).not.toHaveBeenCalled(); expect(dispatch).not.toHaveBeenCalled();
+        clock.advance({ milliseconds: 1 });
+        expect(await outbox.processOne()).toMatchObject({ kind: "completed", state: "succeeded" });
+        expect(await outbox.processOne()).toEqual({ kind: "idle" });
+        expect(authorize).toHaveBeenCalledTimes(1); expect(dispatch).toHaveBeenCalledTimes(1);
+    });
+    it.each([undefined, 0, 99, 100])("makes omitted/current/past timing %s immediately eligible", async availableAt => {
+        const { outbox, clock, dispatch } = setup({});
+        clock.advance({ milliseconds: 100 });
+        const now = vi.spyOn(clock, "now");
+        expect(await outbox.enqueue({ ...request, availableAt })).toMatchObject({ job: { createdAt: 100, availableAt: availableAt ?? 100 } });
+        expect(now).toHaveBeenCalledTimes(1);
+        expect(await outbox.processOne()).toMatchObject({ state: "succeeded" });
+        expect(dispatch).toHaveBeenCalledTimes(1);
+    });
+    it("accepts the maximum safe epoch without claiming it early", async () => {
+        const { outbox, store } = setup({});
+        await outbox.enqueue({ ...request, availableAt: Number.MAX_SAFE_INTEGER });
+        expect(store.snapshot()[0]?.availableAt).toBe(Number.MAX_SAFE_INTEGER);
+        expect(await outbox.processOne()).toEqual({ kind: "idle" });
+    });
+    it.each([-1, 0.5, Number.MAX_SAFE_INTEGER + 1, NaN, Infinity, -Infinity, "100", null])("rejects invalid timing %s before persistence", async availableAt => {
+        const { outbox, store } = setup({});
+        await expect(outbox.enqueue({ ...request, availableAt: availableAt as number })).rejects.toMatchObject({ name: "JobStoreError", code: "invalid_input" });
+        expect(store.snapshot()).toEqual([]);
+    });
+    it.each([undefined, 100])("keeps the first schedule %s on duplicates and still rejects malformed timing", async availableAt => {
+        const { outbox, store, clock } = setup({});
+        const first = await outbox.enqueue({ ...request, availableAt });
+        if (first.kind !== "inserted") throw new Error("Expected inserted job");
+        clock.advance({ milliseconds: 10 });
+        expect(await outbox.enqueue({ ...request, availableAt: 200 })).toEqual({ kind: "existing", job: first.job });
+        await expect(outbox.enqueue({ ...request, availableAt: null as unknown as number })).rejects.toMatchObject({ code: "invalid_input" });
+        expect(store.snapshot()).toEqual([first.job]);
     });
 });
 describe("dispatch leases", () => {

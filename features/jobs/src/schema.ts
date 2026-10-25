@@ -3,6 +3,8 @@ import { callContextSchema, digestSchema, epochSchema, idSchema } from "@open-ma
 import type { CallContext, Outcome } from "@open-marketing/contracts";
 import type { JobRequest, OutboxJob, TransportResult } from "./types.js";
 import { jobFailure } from "./errors.js";
+/** Optional earliest eligibility in safe-integer UTC milliseconds; omission uses the injected clock. */
+export const enqueueTimingSchema = z.strictObject({ availableAt: epochSchema.optional() });
 /** Transport classifications are a boundary value, never inferred from an arbitrary retryable flag. */
 export const transportResultSchema = z.discriminatedUnion("kind", [
     z.strictObject({ kind: z.literal("success") }),

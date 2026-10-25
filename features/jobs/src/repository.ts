@@ -1,9 +1,10 @@
 import type { CallContext, ClockPort, IdPort, Outcome } from "@open-marketing/contracts";
 import { callContextSchema } from "@open-marketing/contracts";
+import type { z } from "zod";
 import type { JobRepoPort, ClaimedJob } from "./ports.js";
 import type { EnqueueRequest, JobRequest, JobReceipt, OutboxJob, RetryPolicy } from "./types.js";
 import type { ManagedOutboxStore } from "./store.js";
-import { canonicalJson, decodeJob, jobRequestSchema, workerSchema } from "./schema.js";
+import { canonicalJson, decodeJob, enqueueTimingSchema, jobRequestSchema, workerSchema } from "./schema.js";
 import { jobFailure, JobStoreError } from "./errors.js";
 import { validateRetryPolicy } from "./retry.js";
 import { validateTime } from "./store.js";
@@ -12,9 +13,12 @@ export function jobTenant(required: { context: CallContext }): string {
     return JSON.stringify([required.context.scope.ownerId, required.context.scope.workspaceId]);
 }
 /** Parse and detach a domain request before persisting; digest ownership remains with its domain caller.
- * @complexity O(n log k), JSON nodes <=10000 and encoded bytes <=256KiB.
+ * Optional timing stays outside payload bytes; omission uses the same clock read as createdAt.
+ * @throws ZodError for invalid timing/context/job, before persistence; the repository maps it to invalid_input.
+ * @complexity O(n log k) time, O(n) space; JSON nodes <=10000 and encoded bytes <=256KiB.
  */
-export function prepareJob(required: { context: CallContext; job: JobRequest; clock: ClockPort; ids: IdPort }): OutboxJob {
+export function prepareJob(required: { context: CallContext; job: JobRequest; clock: ClockPort; ids: IdPort } & z.infer<typeof enqueueTimingSchema>): OutboxJob {
+    const { availableAt } = enqueueTimingSchema.parse({ availableAt: required.availableAt });
     const context = callContextSchema.parse(required.context);
     const payload = canonicalJson({ value: required.job });
     const job = jobRequestSchema.parse(JSON.parse(payload));
@@ -23,7 +27,7 @@ export function prepareJob(required: { context: CallContext; job: JobRequest; cl
     return {
         id: required.ids.next({}), tenantId: jobTenant({ context }), context,
         idempotencyKey: job.idempotencyKey, requestDigest: job.argumentsDigest, operation: job.handler,
-        payload, state: "pending", attempts: 0, availableAt: now, createdAt: now,
+        payload, state: "pending", attempts: 0, availableAt: availableAt ?? now, createdAt: now,
         leaseToken: null, leaseExpiresAt: null,
     };
 }

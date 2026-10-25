@@ -1,6 +1,8 @@
 import type { CallContext, CallOptions, ObserverPort, Outcome } from "@open-marketing/contracts";
 import type { JobRequest, JobReceipt, WorkerIdentity, OutboxJob, ProcessResult } from "./types.js";
 import type { ManagedOutboxStore } from "./store.js";
+import type { z } from "zod";
+import type { enqueueTimingSchema } from "./schema.js";
 /** A claim retains the immutable context and complete fence; callers never dispatch a bare request. */
 export interface ClaimedJob {
     readonly context: CallContext;
@@ -10,7 +12,8 @@ export interface ClaimedJob {
 /** One repository owns the single outbox. Durable implementations expose the same fenced store to the worker. */
 export interface JobRepoPort {
     readonly outbox: ManagedOutboxStore;
-    enqueue(required: { context: CallContext; job: JobRequest }, optional?: CallOptions): Promise<Outcome<JobReceipt>>;
+    /** Timing is earliest eligibility, validated before storage; duplicates preserve the original schedule. */
+    enqueue(required: { context: CallContext; job: JobRequest } & z.infer<typeof enqueueTimingSchema>, optional?: CallOptions): Promise<Outcome<JobReceipt>>;
     claim(required: { worker: WorkerIdentity }, optional?: CallOptions): Promise<Outcome<ClaimedJob | null>>;
 }
 /** Dispatch performs one attempt only. A returned retry means known transient failure; reconcile means uncertain effect.

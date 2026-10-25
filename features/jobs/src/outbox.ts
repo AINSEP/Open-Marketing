@@ -1,6 +1,7 @@
 import { assertEpochMilliseconds } from "@open-marketing/om-clock";
 import { failureCompletion, validateRetryPolicy } from "./retry.js";
-import { parseTransportResult } from "./schema.js";
+import { enqueueTimingSchema, parseTransportResult } from "./schema.js";
+import { JobStoreError } from "./errors.js";
 import type { AbortSignalPort, Completion, EnqueueRequest, EnqueueResult, OutboxEvent, OutboxJob, OutboxPorts, ProcessResult, RetryPolicy, TransportResult } from "./types.js";
 /** Construct a timer-free outbox service. Call processOne from a host-owned scheduler.
  * Store failures propagate: never repeat an external operation merely because its ack failed.
@@ -81,17 +82,20 @@ export function createOutbox({ ports, inputPolicy }: {
     }
     return Object.freeze({
         /** Persist one opaque request. Caller computes its canonical digest; adapters validate untrusted input.
-         * Duplicate tenant/key returns the prior job, or conflict for different content. No payload logging.
+         * Duplicate tenant/key retains its first schedule, or conflicts for different content. No payload logging.
+         * @throws JobStoreError for invalid timing, before storage; omitted timing uses one injected clock read.
          * @complexity O(1) local work plus input length validation/storage.
          */
         async enqueue(input: EnqueueRequest): Promise<EnqueueResult> {
             if (![input.tenantId, input.idempotencyKey, input.requestDigest, input.operation].every(value => typeof value === "string" && value.trim().length > 0 && value.length <= 256) || typeof input.payload !== "string" || input.payload.length > 262144)
                 throw new TypeError("Invalid or oversized outbox request");
+            const timing = enqueueTimingSchema.safeParse({ availableAt: input.availableAt });
+            if (!timing.success) throw new JobStoreError({ code: "invalid_input", message: "Invalid job timing" });
             const time = now();
             const id = ports.generateId();
             if (!id.trim())
                 throw new TypeError("Empty outbox ID");
-            const result = await ports.store.enqueue({ ...input, id, createdAt: time, availableAt: time, state: "pending", attempts: 0, leaseToken: null, leaseExpiresAt: null });
+            const result = await ports.store.enqueue({ ...input, id, createdAt: time, availableAt: timing.data.availableAt ?? time, state: "pending", attempts: 0, leaseToken: null, leaseExpiresAt: null });
             observe({ operation: "enqueue", outcome: result.kind });
             return result;
         },

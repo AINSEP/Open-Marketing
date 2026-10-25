@@ -27,11 +27,74 @@ export function JobServiceSuite(required: { name: string; create: (required: { c
             expect(fixture.observer.snapshot({})).toContainEqual({ operation: "jobs.dispatch", outcome: "success", correlationId: context.correlationId, traceId: context.traceId, runId: context.runId });
             expect(JSON.stringify(fixture.observer.snapshot({}))).not.toContain(job.argumentsDigest);
         });
-        it("rechecks current authority after enqueue and denies without dispatch", async () => {
+        it("keeps future work pending until exact due time, then authorizes and dispatches once", async () => {
             const fixture = setup({});
-            await fixture.service.enqueue({ context, job });
+            fixture.clock.advance({ milliseconds: 10 });
+            const receipt = await fixture.service.enqueue({ context, job, availableAt: 100 });
+            if (!receipt.ok) throw new Error("Expected scheduled receipt");
+            expect(await fixture.service.processOne({ worker: { workerId: "a" } })).toEqual({ ok: true, value: { kind: "idle" } });
+            fixture.clock.advance({ milliseconds: 89 });
+            expect(await fixture.service.processOne({ worker: { workerId: "a" } })).toEqual({ ok: true, value: { kind: "idle" } });
+            expect(await fixture.repo.outbox.get({ tenantId: jobTenant({ context }), id: receipt.value.jobId })).toMatchObject({ state: "pending", attempts: 0, leaseToken: null, createdAt: 10, availableAt: 100 });
+            expect(fixture.authorize).not.toHaveBeenCalled(); expect(fixture.dispatch).not.toHaveBeenCalled();
+            fixture.clock.advance({ milliseconds: 1 });
+            expect(await fixture.service.processOne({ worker: { workerId: "a" } })).toMatchObject({ ok: true, value: { state: "succeeded", jobId: receipt.value.jobId } });
+            expect(await fixture.service.processOne({ worker: { workerId: "a" } })).toEqual({ ok: true, value: { kind: "idle" } });
+            expect(fixture.authorize).toHaveBeenCalledTimes(1); expect(fixture.dispatch).toHaveBeenCalledTimes(1);
+            expect(fixture.dispatch.mock.calls[0][0]).toEqual({ context, job });
+        });
+        it.each([undefined, 0, 99, 100])("preserves immediate eligibility for timing %s using one clock read", async availableAt => {
+            const fixture = setup({});
+            fixture.clock.advance({ milliseconds: 100 });
+            const now = vi.spyOn(fixture.clock, "now");
+            const receipt = await fixture.service.enqueue({ context, job, availableAt });
+            expect(now).toHaveBeenCalledTimes(1);
+            if (!receipt.ok) throw new Error("Expected receipt");
+            expect(await fixture.repo.outbox.get({ tenantId: jobTenant({ context }), id: receipt.value.jobId })).toMatchObject({ createdAt: 100, availableAt: availableAt ?? 100 });
+            expect(await fixture.service.processOne({ worker: { workerId: "a" } })).toMatchObject({ ok: true, value: { state: "succeeded" } });
+            expect(fixture.dispatch).toHaveBeenCalledTimes(1);
+        });
+        it("future work does not block an immediately eligible job enqueued behind it", async () => {
+            const fixture = setup({});
+            await fixture.service.enqueue({ context, job, availableAt: 100 });
+            const immediate = { ...job, operationId: "immediate", idempotencyKey: "immediate" };
+            const receipt = await fixture.service.enqueue({ context, job: immediate });
+            fixture.dispatch.mockResolvedValue({ ok: true, value: { kind: "completed", state: "succeeded", jobId: immediate.operationId } });
+            if (!receipt.ok) throw new Error("Expected receipt");
+            expect(await fixture.service.processOne({ worker: { workerId: "a" } })).toMatchObject({ ok: true, value: { state: "succeeded", jobId: receipt.value.jobId } });
+            expect(fixture.dispatch).toHaveBeenCalledTimes(1);
+            expect(fixture.dispatch.mock.calls[0][0]).toEqual({ context, job: immediate });
+            expect(await fixture.service.processOne({ worker: { workerId: "a" } })).toEqual({ ok: true, value: { kind: "idle" } });
+            expect(fixture.authorize).toHaveBeenCalledTimes(1);
+        });
+        it.each([undefined, 100, Number.MAX_SAFE_INTEGER])("retains first schedule %s on duplicate enqueue without changing payload/digest", async availableAt => {
+            const fixture = setup({});
+            const first = await fixture.service.enqueue({ context, job, availableAt });
+            if (!first.ok) throw new Error("Expected receipt");
+            const input = { tenantId: jobTenant({ context }), id: first.value.jobId };
+            const original = await fixture.repo.outbox.get(input);
+            expect(original?.availableAt).toBe(availableAt ?? 0);
+            fixture.clock.advance({ milliseconds: 10 });
+            expect(await fixture.service.enqueue({ context, job, availableAt: 200 })).toEqual({ ok: true, value: { ...first.value, status: "existing" } });
+            expect(await fixture.service.enqueue({ context, job, availableAt: null as unknown as number })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+            expect(await fixture.repo.outbox.get(input)).toEqual(original);
+        });
+        it.each([-1, 0.5, Number.MAX_SAFE_INTEGER + 1, NaN, Infinity, -Infinity, "100", null])("rejects invalid timing %s without persisting a job", async availableAt => {
+            const fixture = setup({});
+            expect(await fixture.service.enqueue({ context, job, availableAt: availableAt as number })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+            // Invalid input must leave the same key available for a valid first enqueue.
+            expect(await fixture.service.enqueue({ context, job })).toMatchObject({ ok: true, value: { status: "enqueued" } });
+            expect(fixture.authorize).not.toHaveBeenCalled(); expect(fixture.dispatch).not.toHaveBeenCalled();
+        });
+        it("rechecks authority withdrawn while waiting and denies without dispatch", async () => {
+            const fixture = setup({});
+            await fixture.service.enqueue({ context, job, availableAt: 100 });
+            expect(await fixture.service.processOne({ worker: { workerId: "a" } })).toEqual({ ok: true, value: { kind: "idle" } });
+            expect(fixture.authorize).not.toHaveBeenCalled();
             fixture.authorize.mockResolvedValue({ ok: true, value: { allowed: false } });
+            fixture.clock.advance({ milliseconds: 100 });
             expect(await fixture.service.processOne({ worker: { workerId: "a" } })).toMatchObject({ ok: true, value: { kind: "completed", state: "denied" } });
+            expect(fixture.authorize).toHaveBeenCalledTimes(1);
             expect(fixture.dispatch).not.toHaveBeenCalled();
         });
         it("authorization unavailability fails closed and retries only the pre-effect attempt", async () => {

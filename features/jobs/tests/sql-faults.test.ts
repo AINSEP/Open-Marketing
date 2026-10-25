@@ -96,4 +96,23 @@ describe("SQLite fault injection", () => {
             expect(await reopened.outbox.get({ tenantId: jobTenant({ context }), id: cancelled.value.jobId })).toMatchObject({ state: "cancelled" });
         } finally { fixture.close(); rmSync(directory, { recursive: true, force: true }); }
     });
+    it("reopening a file-backed database preserves a future due time and exact claim eligibility", async () => {
+        const directory = mkdtempSync(join(tmpdir(), "om-jobs-due-"));
+        const path = join(directory, "jobs.sqlite");
+        let fixture = sqliteFixture({ path });
+        try {
+            const clock = clockFixture({});
+            const repo = createSqlJobRepo({ database: fixture.database, clock, ids: idsFixture({}), retryPolicy: policy });
+            const receipt = await repo.enqueue({ context, job, availableAt: 100 });
+            if (!receipt.ok) throw new Error("Expected scheduled receipt");
+            fixture.close(); fixture = sqliteFixture({ path });
+            const reopened = createSqlJobRepo({ database: fixture.database, clock, ids: idsFixture({ prefix: "restart" }), retryPolicy: policy });
+            expect(await reopened.outbox.get({ tenantId: jobTenant({ context }), id: receipt.value.jobId })).toMatchObject({ state: "pending", attempts: 0, createdAt: 0, availableAt: 100 });
+            clock.advance({ milliseconds: 99 });
+            expect(await reopened.claim({ worker: { workerId: "restart" } })).toEqual({ ok: true, value: null });
+            clock.advance({ milliseconds: 1 });
+            expect(await reopened.claim({ worker: { workerId: "restart" } })).toMatchObject({ ok: true, value: { job, lease: { id: receipt.value.jobId, availableAt: 100 } } });
+            expect(await reopened.claim({ worker: { workerId: "restart" } })).toEqual({ ok: true, value: null });
+        } finally { fixture.close(); rmSync(directory, { recursive: true, force: true }); }
+    });
 });

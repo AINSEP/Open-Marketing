@@ -20,6 +20,25 @@ const receipt = await jobs.enqueue({ context, job: {
 const attempt = await jobs.processOne({ worker: { workerId: "server-worker" } });
 ```
 
+To delay eligibility, pass `availableAt` alongside `context` and `job`:
+`await jobs.enqueue({ context, job, availableAt: 1_800_000_000_000 })`.
+The same input is supported by repository enqueue, transactional enqueue and
+domain-intent commit, and by the low-level outbox enqueue request. It must be an
+integer UTC millisecond timestamp from `0` through `Number.MAX_SAFE_INTEGER`,
+without coercion; explicit `null`, strings, fractions and nonfinite values fail
+validation before persistence. Omitted/`undefined` uses one injected clock read
+for both `createdAt` and `availableAt`; zero and valid past times remain intact
+and are immediately eligible. Domain APIs return `invalid_input` for invalid
+timing; low-level enqueue rejects with `JobStoreError`.
+
+Due time is earliest eligibility: the existing serial worker claims on its next
+poll at or after that time, without blocking other due jobs. Authorization is
+rechecked at dispatch. Timing stays outside payload bytes and digest; a valid
+duplicate retains the first schedule, including an originally immediate job.
+Malformed duplicate timing still fails. Enqueue cannot reschedule existing work;
+retries retain their existing backoff policy. No scheduler, timers, recurrence,
+concurrency groups or migration are added.
+
 The domain caller computes the stable digest. Tenant/key duplicates require the
 same digest AND exact canonical operation/payload; changing content never
 silently overwrites an earlier request. The first enqueue's context survives
@@ -67,6 +86,13 @@ Characterization tests reuse the same memory store as the memory/SQL contract
 suite. JSON traversal, queue capacity, recovery batches, retries, handler count
 and active effects are bounded. Observers are best-effort and contain no payload,
 digest, provider response or raw exception.
+
+Retain OM's outbox until a published Jini replacement meets scheduling and
+fencing requirements. The upstream ask is additive optional `availableAt` on
+enqueue, persisted and respected by claiming, with omission staying immediate.
+The installed `@jini-ai/cms@0.6.12` outbox declaration has no due-time input;
+0.6.15 publication/API compatibility remains unverified. A later cutover must
+preserve these regressions and pass `fencedOutboxConformance`.
 
 This continuation passed the one authorized package typecheck, including test
 sources. Tests are **written, not run**. Tests, builds and `om:check` remain for

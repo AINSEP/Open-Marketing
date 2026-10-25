@@ -1,9 +1,11 @@
 import type { Outcome, CallContext, CallOptions, ClockPort, IdPort, ObserverPort, Scope, Page, PageQuery, ConfirmationCard, EffectEnvelope, GenerationAllowanceSettings, GenerationCostQuote, GenerationApprovalRequirement, HaltStopRequest, HaltStopPermit, ServiceContext, MeasurementGrant, CapabilityEnvelope } from "@open-marketing/contracts";
 import type { Clock } from "@open-marketing/om-clock";
+import type { z } from "zod";
+import type { enqueueTimingSchema } from "./schema.js";
 export type JobState = "pending" | "leased" | "dispatching" | "retry" | "succeeded" | "denied" | "failed" | "reconcile" | "cancelled";
 export type FailureKind = "permanent" | "transient" | "unknown";
-/** Payload is opaque serialized data. Digest must cover operation and payload exactly. */
-export interface EnqueueRequest {
+/** Payload is opaque serialized data. Digest covers operation/payload; optional timing is earliest eligibility, first enqueue wins. */
+export interface EnqueueRequest extends Readonly<z.infer<typeof enqueueTimingSchema>> {
     readonly tenantId: string;
     readonly idempotencyKey: string;
     readonly requestDigest: string;
@@ -123,26 +125,27 @@ export type JobReceipt = {
 export type WorkerIdentity = {
     readonly workerId: string;
 };
-/** TransactionalEnqueue domain value; validation belongs at the boundary. */
+/** Enqueue in the caller's transaction; optional timing is validated before persistence. */
 export type TransactionalEnqueue = {
     enqueue(required: {
         context: CallContext;
         job: JobRequest;
-    }, optional?: CallOptions): Promise<Outcome<JobReceipt>>;
+    } & z.infer<typeof enqueueTimingSchema>, optional?: CallOptions): Promise<Outcome<JobReceipt>>;
 };
-/** DomainIntentTransactionPort domain value; validation belongs at the boundary. */
+/** Commit intent and job atomically; optional timing never changes the domain payload/digest. */
 export type DomainIntentTransactionPort = {
     commit(required: {
         context: CallContext;
         intentId: string;
         job: JobRequest;
-    }, optional?: CallOptions): Promise<Outcome<JobReceipt>>;
+    } & z.infer<typeof enqueueTimingSchema>, optional?: CallOptions): Promise<Outcome<JobReceipt>>;
 };
 export interface JobService {
+    /** Omitted timing is immediate; duplicates retain the first schedule and invalid timing returns invalid_input. */
     enqueue(required: {
         context: CallContext;
         job: JobRequest;
-    }, optional?: CallOptions): Promise<Outcome<JobReceipt>>;
+    } & z.infer<typeof enqueueTimingSchema>, optional?: CallOptions): Promise<Outcome<JobReceipt>>;
     processOne(required: {
         worker: WorkerIdentity;
     }, optional?: CallOptions): Promise<Outcome<ProcessResult>>;
