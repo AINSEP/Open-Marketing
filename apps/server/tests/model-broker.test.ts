@@ -167,6 +167,28 @@ for (const transport of ['memory', 'http'] as const) describe('model broker / ' 
         } finally { await f.dispose(); }
     });
 
+    it('rechecks revocation after a deferred intent write and sends nothing', async () => {
+        const writing = Promise.withResolvers<void>();
+        const release = Promise.withResolvers<void>();
+        const evidence: unknown[][] = [];
+        const db: NonNullable<Parameters<typeof handleModelRequest>[0]['usage']>['db'] = { async query(input) {
+            writing.resolve(); await release.promise; evidence.push(input.values!);
+            return { rows: [], rowCount: 1 };
+        } };
+        const f = await fixture({ transport, usage: { db, ids: { next: () => 'deferred-intent' } } });
+        try {
+            const response = f.request({});
+            await writing.promise;
+            expect(f.send).not.toHaveBeenCalled();
+            f.grant.revoked = true;
+            release.resolve();
+            expect((await response).status).toBe(403);
+            expect(evidence.map(row => row[1])).toEqual(['intent']);
+            expect(f.send).not.toHaveBeenCalled();
+            expect(f.disposedDeadlines()).toBe(1);
+        } finally { release.resolve(); await f.dispose(); }
+    });
+
     it('redacts key/token fragments split across byte chunks without breaking UTF-8 SSE', async () => {
         const f = await fixture({ transport });
         try {
@@ -249,6 +271,40 @@ it('the HTTP body increase applies only to the exact model route', async () => {
         const ordinary = await f.request({ body, path: '/ordinary' }); expect(ordinary.status).toBe(400);
         expect(await ordinary.json()).toMatchObject({ ok: false, error: { code: 'limit_exceeded' } });
     } finally { await f.dispose(); }
+});
+
+it.each(['anthropic', 'openai', 'google'] as const)('holds %s terminal frames until the completion receipt is persisted', async provider => {
+    const writing = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const evidence: unknown[][] = [];
+    const db: NonNullable<Parameters<typeof handleModelRequest>[0]['usage']>['db'] = { async query(input) {
+        if (input.values![1] === 'completion') { writing.resolve(); await release.promise; }
+        evidence.push(input.values!); return { rows: [], rowCount: 1 };
+    } };
+    const f = await fixture({ transport: 'memory', usage: { db, ids: { next: () => 'held-completion' } } });
+    const models = { anthropic: message.model, openai: 'gpt-5.2', google: 'gemini-2.5-flash' };
+    const paths = { anthropic: path, openai: '/api/agent/v1/model/openai/chat/completions', google: '/api/agent/v1/model/google/v1beta/models/gemini-2.5-flash:streamGenerateContent' };
+    const bodies = { anthropic: message, openai: { model: models.openai, stream: true, stream_options: { include_usage: true }, max_completion_tokens: 4096, messages: message.messages }, google: { contents: [{ role: 'user', parts: [{ text: 'fixture' }] }], generationConfig: { maxOutputTokens: 4096 } } };
+    const frames = { anthropic: stopped, openai: 'data: {"choices":[{"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n', google: 'data: {"candidates":[{"finishReason":"STOP"}]}\n\n' };
+    const terminal = { anthropic: 'message_stop', openai: '[DONE]', google: '"finishReason":"STOP"' };
+    let delivered = '';
+    f.credentials.mockResolvedValue({ ok: true, value: { apiKey: secret, model: models[provider], provider } });
+    f.send.mockResolvedValue(new Response(frames[provider], { headers: { 'content-type': 'text/event-stream' } }));
+    try {
+        // Consume the broker iterator directly to exclude HTTP/web-stream prefetch from the ordering assertion.
+        const response = await f.handle({ method: 'POST', path: paths[provider], body: bodies[provider], headers: { 'x-api-key': token, authorization: 'Bearer ' + token, 'x-goog-api-key': token } });
+        expect(response.status).toBe(200);
+        const consumption = (async () => {
+            for await (const bytes of response.stream!.chunks) delivered += new TextDecoder().decode(bytes);
+        })();
+        await writing.promise;
+        expect(evidence.map(row => row[1])).toEqual(['intent']);
+        expect(delivered).not.toContain(terminal[provider]);
+        release.resolve(); await consumption;
+        expect(evidence.map(row => row[1])).toEqual(['intent', 'completion']);
+        expect(delivered).toContain(terminal[provider]);
+        await response.stream!.cancel({});
+    } finally { release.resolve(); await f.dispose(); }
 });
 
 it('revocation during streaming fails without a second dispatch', async () => {

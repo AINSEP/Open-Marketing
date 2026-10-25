@@ -87,7 +87,8 @@ function brokerToken(required: { request: HttpRequest; provider: AssistantProvid
 function selectionStatus(required: { code: AppError['code'] }): number { return required.code === 'invalid_input' ? 400 : 503; }
 
 /** Single authenticated model request, without automatic retry. Exact route and grant precede
- * body/key access; authority is rechecked after key resolution, immediately before egress.
+ * body/key access; authority is rechecked after key resolution and intent persistence,
+ * immediately before egress.
  * @example await handleModelRequest({ request, grants, credentials, upstream, clock, observer });
  * @returns Bounded SSE bytes or an opaque typed error; composition must mount this route explicitly.
  * @complexity O(b) request parsing and O(s) streaming, <=256 KiB request and <=2 MiB response.
@@ -147,14 +148,14 @@ async function openModelStream(required: { input: BrokerInput; grant: RunGrantMe
         const selection = await modelSelection({ ...required, signal });
         if (!selection.ok) { await cancel(); return { status: selectionStatus({ code: selection.error.code }), body: selection }; }
         const { settings, apiKey } = selection.value;
-        const current = await verifyModelGrant({ input, authorization: required.authorization });
-        if (!current.ok || current.value.grantId !== grant.grantId || signal.aborted) {
-            await cancel(); return rejected({ status: 403, code: 'forbidden' });
-        }
         const trace = traceIdentifiers({ input, grant });
         const requestId = input.usage?.ids.next({});
         if (input.usage) await appendUsage({ db: input.usage.db, grant, requestId: requestId!, kind: 'intent', provider: required.provider, model: settings.model, now: input.clock.now({}) });
         const wire = providerRequest({ settings, body: required.body, apiKey });
+        const current = await verifyModelGrant({ input, authorization: required.authorization });
+        if (!current.ok || current.value.grantId !== grant.grantId || signal.aborted) {
+            await cancel(); return rejected({ status: 403, code: 'forbidden' });
+        }
         const response = await input.upstream.send({ ...wire,
             headers: { 'content-type': 'application/json', ...wire.headers, 'x-correlation-id': trace.correlationId, 'x-trace-id': trace.traceId, 'x-om-run-id': grant.runId },
             signal, redirect: 'error' });

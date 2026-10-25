@@ -352,19 +352,56 @@ it('does not evict terminal runs whose final publication is still unsettled', as
     } finally { held.resolve({ ok: true, value: undefined }); await f.dispose(); }
 });
 
-it.each(['openai', 'google'] as const)('selects Jini %s with an OM-only broker base', async provider => {
- const f = await fixture({ transport: 'memory' });
- const seen: { apiKey: string; baseUrl?: string }[] = [];
- const adapters: ProviderTurnAdapters = { ...f.adapters,
-  async openai(input, options) { seen.push({ apiKey: input.apiKey, baseUrl: options?.baseUrl }); input.onEvent({ type: 'end', reason: 'stop' }); return { finishReason: 'stop', toolTurns: 0 }; },
-  async google(input, options) { seen.push({ apiKey: input.apiKey, baseUrl: options?.baseUrl }); input.onEvent({ type: 'end', reason: 'stop' }); return { finishReason: 'STOP', toolTurns: 0 }; },
- };
- const runtime = createModelRuntime({ clock: { now: () => 1000 }, ids: { next: () => 'provider-event' }, adapters,
-  client: { ...f.client, async load() { return { ok: true, value: { settings: { mode: 'model', provider, model: provider === 'openai' ? 'gpt-5.2' : 'gemini-2.5-flash', connectionId: 'own-key', effort: 'high' }, messages: [] } }; } } });
- try {
-  expect((await runtime.startRun(run({}))).ok).toBe(true);
-  await vi.waitFor(async () => expect(value({ result: await runtime.events({ runId: 'run', after: 0, limit: 100 }) }).at(-1)?.kind).toBe('ended'));
-  expect(seen).toEqual([{ apiKey: bearer, baseUrl: f.client.brokerBaseUrl.replace(/\/anthropic$/, '') + '/' + provider }]);
-  expect(f.upstreamRequests).toHaveLength(0);
- } finally { await runtime.dispose({}); await f.dispose(); }
+/** Native wire responses exercise the published parsers and their tool-result continuation. */
+function nativeResponseText(required: { provider: 'openai' | 'google'; tool: boolean }): string {
+    const text = required.tool ? 'Checking. ' : 'Campaign is paused.';
+    if (required.provider === 'google') return 'data: ' + JSON.stringify({ candidates: [{ content: { role: 'model', parts: [
+        { text }, ...(required.tool ? [{ functionCall: { id: 'provider-call', name: 'om_campaigns_get', args: { campaignId: 'campaign' } } }] : []),
+    ] }, finishReason: 'STOP' }], usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 3 } }) + '\n\n';
+    return 'data: ' + JSON.stringify({ choices: [{ index: 0, delta: { content: text,
+        ...(required.tool ? { tool_calls: [{ index: 0, id: 'provider-call', type: 'function', function: { name: 'om_campaigns_get', arguments: '{"campaignId":"campaign"}' } }] } : {}),
+    }, finish_reason: required.tool ? 'tool_calls' : 'stop' }] }) + '\n\ndata: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":3}}\n\ndata: [DONE]\n\n';
+}
+
+it.each(['openai', 'google'] as const)('runs the real Jini %s adapter through fixture transport and feeds back the tool result', async provider => {
+    const f = await fixture({ transport: 'memory' });
+    const seen: { url: string; headers: Headers; body: string }[] = [];
+    // Both foreign adapter callbacks delegate only transport; provider parsing and looping stay real.
+    function respond(required: { url: string; init: RequestInit }) {
+        seen.push({ url: required.url, headers: new Headers(required.init.headers), body: String(required.init.body) });
+        return pinned({ response: new Response(nativeResponseText({ provider, tool: seen.length === 1 }), { headers: { 'content-type': 'text/event-stream' } }) });
+    }
+    const adapters: ProviderTurnAdapters = { ...f.adapters,
+        openai: (input, options) => providerTurnAdapters.openai(input, { ...options, fetchImpl: async input => respond(input) }),
+        google: (input, options) => providerTurnAdapters.google(input, { ...options, fetchImpl: async input => respond(input) }),
+    };
+    let id = 0;
+    const runtime = createModelRuntime({ clock: { now: () => 1000 }, ids: { next: () => 'native-event-' + ++id }, adapters,
+        client: { ...f.client, async load() { return { ok: true, value: { settings: { mode: 'model', provider, model: provider === 'openai' ? 'gpt-5.2' : 'gemini-2.5-flash', connectionId: 'own-key', effort: 'high' }, messages: [] } }; } } });
+    try {
+        expect((await runtime.startRun(run({}))).ok).toBe(true);
+        await vi.waitFor(async () => expect(value({ result: await runtime.events({ runId: 'run', after: 0, limit: 100 }) }).at(-1)?.kind).toBe('ended'));
+        expect(seen).toHaveLength(2);
+        const broker = f.client.brokerBaseUrl.replace(/\/anthropic$/, '') + '/' + provider;
+        const suffix = provider === 'openai' ? '/chat/completions' : '/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse';
+        expect(seen.map(request => request.url)).toEqual([broker + suffix, broker + suffix]);
+        const authentication = provider === 'openai' ? 'authorization' : 'x-goog-api-key';
+        expect(seen.map(request => request.headers.get(authentication))).toEqual(Array(2).fill(provider === 'openai' ? 'Bearer ' + bearer : bearer));
+        const first = JSON.parse(seen[0].body); const second = JSON.parse(seen[1].body);
+        if (provider === 'openai') {
+            expect(first).toMatchObject({ model: 'gpt-5.2', max_completion_tokens: 4096, stream: true, stream_options: { include_usage: true } });
+            expect(second.messages.at(-1)).toEqual({ role: 'tool', tool_call_id: 'provider-call', content: '{"campaignId":"campaign","state":"paused"}' });
+        }
+        if (provider === 'google') {
+            expect(first.generationConfig).toEqual({ maxOutputTokens: 4096 });
+            expect(second.contents.at(-1)).toEqual({ role: 'user', parts: [{ functionResponse: { id: 'provider-call', name: 'om_campaigns_get', response: { content: '{"campaignId":"campaign","state":"paused"}', isError: false } } }] });
+        }
+        expect(f.executions).toHaveLength(1);
+        expect(f.published.map(event => event.kind)).toEqual(['started', 'delta', 'tool_requested', 'tool_result', 'delta', 'ended']);
+        expect(JSON.stringify(f.published)).toContain('Campaign is paused.');
+        expect(JSON.stringify(f.published)).not.toContain(bearer);
+        expect(seen.map(request => request.body).join('')).not.toContain(bearer);
+        expect(seen.map(request => request.body).join('')).not.toContain(providerKey);
+        expect(f.upstreamRequests).toHaveLength(0);
+    } finally { await runtime.dispose({}); await f.dispose(); }
 });
