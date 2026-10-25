@@ -1,12 +1,13 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.1.0/plugin.schema.json",
   "name": "yandex-direct", "version": "0.1.0", "license": "Apache-2.0",
-  "description": "Yandex Direct account/campaign reads and bounded online reports; server-only paste-token auth, disabled until host admission.",
+  "description": "Yandex Direct reads, reports and grouped DRAFT deployment backend; disabled until host integration and admission.",
   "extensions": { "io.github.ainsep.openmarketing": {
     "version": 1, "enabled": false, "admitted": false,
     "capabilities": [
-      { "capabilityId": "campaign.read.v1", "version": 1, "pluginId": "yandex-direct", "schemaFingerprint": "4ace2afaeb5de195a68946174519f6d144f7d75eb0ba6a4d159e72f812e7c10b", "admitted": false, "effects": ["read"] },
-      { "capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "yandex-direct", "schemaFingerprint": "42f6bbacbf586413061dc714d7dedaac5ee71e8f93a301234c95b0302bba932e", "admitted": false, "effects": ["read"] }
+      {"capabilityId": "campaign.read.v1", "version": 1, "pluginId": "yandex-direct", "schemaFingerprint": "4ace2afaeb5de195a68946174519f6d144f7d75eb0ba6a4d159e72f812e7c10b", "admitted": false, "effects": ["read"]},
+      {"capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "yandex-direct", "schemaFingerprint": "42f6bbacbf586413061dc714d7dedaac5ee71e8f93a301234c95b0302bba932e", "admitted": false, "effects": ["read"]},
+      {"capabilityId": "campaign.create-draft.v1", "version": 1, "pluginId": "yandex-direct", "schemaFingerprint": "29f17a9ffeb24fbe333d814c319655c83b76769c571f6057c5defb92dc341812", "admitted": false, "effects": ["write"]}
     ]
   } }
 }

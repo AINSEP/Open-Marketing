@@ -1,4 +1,4 @@
-# Yandex Direct — R1 reads/auth
+# Yandex Direct — reads/auth and grouped DRAFT backend
 
 Server-loaded Agent Plugins 1.1.0 package. After separate host integration, an owner can ask OM's assistant to list connected/agency accounts, inspect campaigns, or report account/campaign impressions, clicks and cost. Ships disabled and unadmitted. No distribution has been generated; this folder is outside workspace globs.
 
@@ -36,13 +36,40 @@ JSON services use lowercase `/json/v501/{service}`. Reports force `processingMod
 
 ## Deferred and integration handoff
 
-R1 advertises only reads. R2 owns draft translation/deployment and is blocked from production exposure pending weekly-budget support and account/login, region, creative, currency and schedule resolution. No write, spend, activation, moderation, upload, keyword mutation, halt backend or conversion capability exists here. Metrica conversion upload is documented but explicitly deferred pending owner ratification; absence of a conversion capability is intentional. No runtime.json, registry, scheduler, vendor SDK, Jini dependency, shared-file edit or migration.
+Tools remain read-only; the separate R2 grouped backend declares `campaign.create-draft.v1` with the existing write effect. Production exposure is blocked pending weekly-budget support and account/login, region, creative, currency and schedule resolution. No spend, activation, moderation, upload, keyword mutation, halt backend or conversion capability exists here. Metrica delivery remains explicitly deferred pending owner ratification. No runtime.json, registry, scheduler, vendor SDK, Jini dependency, shared-file edit or migration.
 
 NEEDS integrator: add catalog/factory/schema exports and accountless discovery to `apps/server/src/composition/agent-plugin-backends.ts`; bind paste-token credentials/current admission/gateway/guarded fetch, verified account/login/currency and host rate limiting; add root `om:build-plugins`, dependency/lock wiring and `om-tool-coverage.ts`; instantiate `tests/contract/dispatch-suite.ts` against server bindings and extend server tests. DS2 owns existing connection/report presentation; HTTP/studio/CLI/assistant exposure is not delivered by this folder. Reuse exact pins in package.json; no install was performed. Coordinator must verify pending npm metadata for TypeScript/Vitest/Node types before dependency wiring.
 
 Research is documentation evidence, not live vendor acceptance. See `io.github.ainsep.openmarketing/evidence/primary-sources.json` for quotes, consumed fields and blocked pages. The API's documentation is reachable, but repeat reads of Clients/AgencyClients timed out; official indexed responses supplied their schemas.
 
 Validation: tests are written, not run by dispatch rule. Only one final package typecheck is authorized. Coordinator owns fixture execution, builds, lint and om:check. Runtime self-validation and coverage measurement are not run under this restriction.
+
+## R2 integration contract and continuation
+
+`translateCampaign({campaign, target, resolved})` accepts traffic, one creative, explicit `target.weeklyBudget` and country-to-region metadata. Daily budgets, search terms, other timezones, partial Moscow days, templates and excess copy are unsupported. Minor units convert exactly to safe integer micros; no daily ×7 conversion. `campaignDeploymentPlanSchema` closes the full identity/currency-bound hierarchy for the existing grouped card.
+
+`deployCampaignPaused({context, operationId, plan, dependencies, checkpoint}, {signal})` uses the read adapter dependencies except `gateway`; inject the host's guarded fetch. It verifies ClientId/Login/Currency, creates campaign → group → responsive ad, and persists dispatch intent/returned IDs with the existing jobs checkpoint ABI. The host must atomically reject duplicate step intents across restart, recheck card/connection/scope/login/halt after every credential lookup, and hold its authority fence through each fetch. No second policy, card or outbox is added.
+
+The plan explicitly requests DRAFT. Yandex's add schemas have no writable Status: documented creation stays DRAFT until moderation. No moderation/resume/suspend call is sent. Campaign/ad reads must show DRAFT and OFF; parent IDs, strategy, exact weekly budget/dates/timezone, regions, retargeting and responsive content must match. Search is WB_MAXIMUM_CLICKS; Network is explicitly SERVING_OFF. Every parent is read before its child; final reads verify the entire hierarchy. At most ten calls (three creates, seven reads), individually capped at 15 seconds/1 MiB; zero retries.
+
+`readCampaignDeployment({...input, references})` reads saved IDs only using POST bodies with `method:"get"`. It never retries creates, matches names or resumes a partial sequence. Unknown receipts retain IDs even when a checkpoint fails or AddResults includes errors. A later read cannot supply a missing ID. Checkpoint evidence is authoritative; observer events contain only operation/correlation/trace/run metadata.
+
+Schedule caveat: [Campaigns.add](https://yandex.com/dev/direct/doc/en/campaigns/add) says EndDate ends at 00:00 UTC+3, while the [UI help](https://yandex.com/support/direct/en/campaigns/campaign-dates) says 23:59 on the end date. Fixtures follow the API reference: both bounds are exact UTC+3 midnights, EndDate equals the exclusive neutral end date. This discrepancy needs vendor/browser acceptance before production exposure; no live acceptance is claimed.
+
+NEEDS integrator: weekly neutral input and matching exposure currency, production metadata resolution, grouped-card/outbox/guarded-fetch binding and draft projection; shared composition/build/dependency/coverage wiring stays separately owned. DS2: weekly cadence and DRAFT presentation on existing surfaces. Conversions and browser OAuth remain deferred. Next: Coordinator runs written fixtures and real host shared dispatch acceptance, lint/build/om:check after shared work settles.
+
+R2 manual architecture audit: PASS for lane/import/ownership/injected-I/O rules; integration/runtime evidence remains pending. Scope: only approved plugin files; no existing tests weakened. Public schemas/functions/types are documented; trivial private date/receipt helpers inherit their callers' contracts. Reuse: OM contracts/Zod/Node; LinkedIn checkpoint/readback style, separate Yandex codecs because JSON services, identity and responsive fields differ. No shared implementation owner was replaced.
+
+| Assessment units | Disposition | Evidence / local correction |
+| --- | --- | --- |
+| Translation/schema/checkBinding/date/copy rules | INCONCLUSIVE | Literal wire expectations; unsupported cadence/timezone, exact money, duplicated regions and creative mismatch fixtures. Runtime/coverage unmeasured. |
+| Deployment/checkInput/createStep/checkpoint/payload/receipt | INCONCLUSIVE | Snapshot, scope/admission, all dispatch/ack failures, retained IDs and repeated-intent fixtures. Separated credential checks and retained IDs before error interpretation. |
+| Read/reconcile/readStep/verifyAccount | INCONCLUSIVE | Parent/status/budget/date/content drift; known-ID recovery only. Host binding and schedule semantics need acceptance. |
+| send/checkCredential/decodeResponse/observe | INCONCLUSIVE | Revocation/expiry/cancellation, malformed/oversized responses, injected fetch/body deadlines and redaction fixtures. Host audit remains authoritative. |
+
+Manual second pass checked variable meanings, parent ordering, reference retention, integer conversion, scope binding and secret redaction. No unresolved High/Critical semantic finding identified; lint/runtime/coverage evidence is unavailable under this run's restrictions. No certified spec hash or suite was supplied; these are new fixture tests, not certified acceptance evidence. No test/build/install/om:check or live vendor effect was run.
+
+R2 final lane typecheck: `corepack pnpm run typecheck` from this package directory passed (exit 0), run exactly once. Tests remain written, not run. Remaining edits after that command record its result only.
 
 Final R1 typecheck: `corepack pnpm run typecheck` from this package directory — PASS, exit 0, run exactly once on 2026-10-24 (source and fixtures included). No tests, builds, installs, om:check, indexing, live vendor calls, commits or pushes performed. Remaining edits after that check only recorded this result in documentation.
 
