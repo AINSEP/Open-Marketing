@@ -34,5 +34,34 @@
     }
   ],
   "unverified": ["sunset policy", "rate limits", "remote idempotency", "loopback redirects", "conversion delivery", "R2 complete creation contract", "statistics campaign mapping, monetary units/currency and timezone remain unavailable", "users/summary response envelope (items[].total.base)"],
-  "notEvidence": "Community mirrors and synthetic fixtures establish no vendor behavior."
+  "notEvidence": "Community mirrors and synthetic fixtures establish no vendor behavior.",
+  "r2": {
+    "status": "held_missing_operation_evidence",
+    "decision": "review.md: hold the affected run when evidence is unavailable; do not implement guessed endpoints or advertise deployment",
+    "capture": "ADS-memory/.local-artifacts/codex-runs/2026-10-24-plugin-vk-ads/evidence-chrome.md, facts 19-26; binding verified facts remain valid",
+    "verified": [
+      {"url": "https://ads.vk.ru/en/doc/api/resource/AdPlans", "quote": "If the status is not provided, the active status is set.", "fact": "Explicit blocked creation is documented for campaigns; never omit status."},
+      {"url": "https://ads.vk.ru/en/doc/api/object/AdPlan", "quote": "ad_groups list of AdGroup readable writable required Groups", "fact": "ad_groups is required; empty-list acceptance is not established by the capture."},
+      {"url": "https://ads.vk.ru/en/doc/api/info/Add%20banners", "quote": "The ad structure must match banner patterns, defined in package ad groups", "fact": "Existing link/media IDs must satisfy the selected package's pattern."}
+    ],
+    "unverified": [
+      "One complete website-traffic package: objective, required settings, targeting and banner-pattern roles/constraints",
+      "Budget currency units, currency-specific budget_limit_step values and schedule timezone/end-date semantics",
+      "Banner status accepted at creation (explicitly unverified in the binding capture)",
+      "Empty ad_groups acceptance for campaign-first sequential creation and parent readback before children",
+      "Complete acknowledgement/readback examples for the selected format, including non-serving state, parents, budgets, schedule and creative identity"
+    ],
+    "blockedPages": [
+      "https://ads.vk.ru/en/doc/api/info/Quick%20start",
+      "https://ads.vk.ru/en/doc/api/object/AdGroup",
+      "https://ads.vk.ru/en/doc/api/object/Banner",
+      "https://ads.vk.ru/en/doc/api/resource/AdPlans",
+      "https://ads.vk.com/en/doc/api/info/Quick%20start",
+      "https://target.my.com/doc/api/en/info/Quick%20start",
+      "https://ads.vk.ru/en/doc/api/object/Package",
+      "https://ads.vk.ru/en/doc/api/resource/Currencies"
+    ],
+    "retrieval": "2026-10-24 R2F: Quick start, Banner, AdGroup and AdPlans direct web retrieval failed; official searches returned no results. Browser navigation rejected: approval required, approval policy never. Prior blocked pages retained; Package/Currencies URLs remain probes, not verified contracts.",
+    "implementation": "R1 read-only boundary unchanged. Public translation/deploy/readback functions return non-retryable unavailable without I/O; deployment admission/cancellation take precedence. The plan schema rejects all payloads; no successful plan/receipt, guessed fields, checkpoint calls, create/readback transport or advertised write capability. Unknown adapter commands remain invalid_input. Guard tests are not lifecycle acceptance."
+  }
 }

@@ -34,3 +34,22 @@ Official evidence is recorded in `io.github.ainsep.openmarketing/evidence/primar
 Fixtures are synthetic; no vendor acceptance or live calls are claimed. R2 creation,
 activation, budget edits, uploads, conversions and agency clients remain deferred.
 Coordinator owns tests/build/om:check; this run writes tests and typechecks once.
+
+R2 remains held for operation-specific evidence. The Chrome capture verifies explicit
+`status: "blocked"` for campaign/group creation, parent IDs and existing banner assets.
+One complete traffic package still needs objective/settings, targeting, banner-pattern
+roles, currency budget steps and schedule timezone/end-date evidence. Banner status at
+creation is unverified. Campaign creation requires `ad_groups`; empty-list acceptance
+needs verification for parent readback before children. Nested creation alone does not
+satisfy that ordering. No write capability is advertised.
+
+To unblock R2, capture official creation/acknowledgement/readback examples for that
+format. R2F web retrieval failed; browser navigation required unavailable approval.
+See the evidence file's `r2` record. Idempotency remains unknown: no create retries.
+Conversions, integrator-owned grouped approval/outbox/guarded egress and DS2 UI remain deferred.
+
+The public `translateCampaign`, `deployCampaignPaused` and `readCampaignDeployment`
+boundaries return non-retryable `unavailable` without I/O. Deployment checks admission
+first (`forbidden`), then cancellation (`cancelled`). `campaignDeploymentPlanSchema`
+rejects every payload; inputs remain unchanged and no success receipt exists. Guards
+do not establish translation, approval, paused creation, partial-ID retention or recovery acceptance.
