@@ -48,11 +48,13 @@ it('closing the dock preserves the Jini draft; New chat resets it', async () => 
     await user.click(screen.getByRole('button', { name: 'Close assistant' }));
     await user.click(screen.getByRole('button', { name: 'Assistant' }));
     expect(screen.getByDisplayValue('Keep this draft')).toBeDefined();
+    await user.click(screen.getByRole('button', { name: 'Chat history' }));
     await user.click(screen.getByRole('button', { name: 'New chat' }));
     expect(screen.queryByDisplayValue('Keep this draft')).toBeNull();
     expect(host.props.session.getSnapshot().conversationId).toBeNull();
-    expect(screen.getByRole<HTMLInputElement>('radio', { name: 'Default' }).disabled).toBe(true);
-    expect(screen.getByText(/Image attachments, vendor\/effort selection and cost totals coming soon/)).toBeDefined();
+    expect(screen.getByRole('button', { name: 'Reasoning: Default' })).toBeDefined();
+    expect(screen.getByRole('button', { name: 'Model: Opus 5.5' })).toBeDefined();
+    expect(screen.queryByText(/coming soon/i)).toBeNull();
   } finally { host.dispose(); }
 });
 
@@ -69,14 +71,15 @@ it('loads the chosen server conversation into Jini and uses server model choices
     await screen.findByText('A little clarity.', { exact: false });
     await act(() => host.props.session.refresh());
     await user.click(screen.getByRole('button', { name: 'Assistant' }));
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Recent chats' }), 'saved');
+    await user.click(screen.getByRole('button', { name: 'Chat history' }));
+    await user.click(screen.getByRole('button', { name: 'Saved chat' }));
     expect(await screen.findByText('Saved answer from the server')).toBeDefined();
-    const hook = renderHook(() => useOMChatPane({ ...host.props, sample: true, available: true, open: true, toggle() {} }));
-    expect(hook.result.current.pane.byokRuntime?.models).toContainEqual(models[0]);
-    await act(async () => { hook.result.current.pane.onByokModelChange?.('fixture-model'); });
-    expect(writes).toEqual([{ mode: 'model', model: 'fixture-model', connectionId: 'connection' }]);
-    expect(hook.result.current.pane.byokRuntime?.iconId).toBe('claude');
-    await act(async () => { hook.result.current.pane.onByokModelChange?.('unadvertised-model'); });
+    const hook = renderHook(() => useOMChatPane({ ...host.props, sample: false, available: true, open: true, toggle() {} }));
+    expect(hook.result.current.pane.agents?.[0].models).toContainEqual(models[0]);
+    await act(async () => { hook.result.current.pane.onSelectionChange?.({ agentId: 'claude', model: 'fixture-model' }); });
+    expect(writes).toEqual([{ mode: 'model', provider: 'anthropic', model: 'fixture-model', connectionId: 'connection' }]);
+    expect(hook.result.current.pane.selection?.agentId).toBe('claude');
+    await act(async () => { hook.result.current.pane.onSelectionChange?.({ agentId: 'claude', model: 'unadvertised-model' }); });
     expect(writes).toHaveLength(1); hook.unmount();
   } finally { host.dispose(); }
 });

@@ -1,11 +1,92 @@
-/* Layout only: TH1 owns theme tokens, including portaled Jini menus. */
-.om-jini-chat { min-width: 0; min-height: 0; overflow: hidden; }
-.om-jini-chat .jini-chat-pane { flex: 1; min-height: 0; width: 100%; }
-.om-chat-header { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; padding: .75rem; border-bottom: 1px solid var(--jini-chat-border); }
-.om-chat-header strong { flex: 1; }
-.om-chat-header label { display: flex; align-items: center; gap: .5rem; width: 100%; }
-.om-chat-header select { flex: 1; min-width: 0; }
-.om-chat-header small { width: 100%; color: var(--jini-chat-muted); }
-.om-chat-status { padding: .5rem .75rem; font-size: .75rem; color: var(--jini-chat-muted); }
-.om-chat-status small { display: block; margin-top: .25rem; }
-.om-chat-plugins { display: flex; flex-wrap: wrap; gap: .375rem; }
+/* DS2 reserves the third column. Override its old <=1100px bottom-panel fallback. */
+.shell.shell[data-chat-open=true] { --jini-dock-width:380px; }
+.om-jini-chat.chat-panel {
+  grid-column:3; grid-row:1; position:sticky; top:0; height:100dvh;
+  display:flex; flex-direction:column; min-width:0; min-height:0;
+  overflow:hidden; isolation:isolate; backdrop-filter:none;
+  border-left:var(--jini-border-width) solid var(--jini-panel-border);
+  background:var(--jini-panel-bg); box-shadow:var(--jini-panel-shadow);
+}
+.om-jini-chat.chat-panel[hidden], .chat-fab[hidden] { display:none; }
+.om-jini-chat.chat-panel::before {
+  content:""; position:absolute; inset:0; z-index:-1; pointer-events:none;
+  backdrop-filter:var(--jini-panel-backdrop);
+}
+.om-jini-chat .jini-chat-pane {
+  flex:1; min-height:0; min-width:0; width:100%;
+  --jini-chat-bg:var(--jini-panel-bg);
+  --jini-chat-panel:var(--jini-panel-bg);
+  --jini-chat-subtle:var(--jini-surface);
+  --jini-chat-text:var(--jini-text);
+  --jini-chat-text-strong:var(--jini-text);
+  --jini-chat-muted:var(--jini-muted);
+  --jini-chat-faint:var(--jini-text-faint);
+  --jini-chat-border:var(--jini-panel-border);
+  --jini-chat-border-soft:var(--jini-border);
+  --jini-chat-border-strong:var(--jini-control-border);
+  --jini-chat-accent:var(--jini-accent);
+  --jini-chat-accent-soft:var(--jini-accent-soft);
+  --jini-chat-danger:var(--jini-danger);
+  --jini-chat-font-body:var(--jini-font-body);
+  --jini-chat-font-mono:var(--jini-font-mono);
+  --jini-chat-radius:var(--jini-radius);
+  --jini-chat-radius-lg:var(--jini-radius-lg);
+}
+.om-jini-chat .om-chat-header {
+  display:flex; flex-wrap:nowrap; align-items:center; gap:var(--jini-space-2);
+  padding:var(--jini-space-3) var(--jini-space-4); min-height:0;
+  border-bottom:var(--jini-border-width) solid var(--jini-panel-border);
+}
+.om-chat-header .jini-chat-pane__heading { flex:1; min-width:0; }
+.om-chat-header .jini-chat-pane__title {
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin:0;
+  font-size:var(--jini-font-size-base); font-weight:var(--jini-font-weight-heading);
+}
+.om-chat-header .om-chat-icon {
+  display:grid; place-items:center; flex-shrink:0; padding:var(--jini-space-2);
+  min-width:0; min-height:0; border:var(--jini-border-width) solid transparent;
+  border-radius:var(--jini-radius-sm); background:transparent; box-shadow:none;
+  color:var(--jini-muted);
+}
+.om-chat-header .om-chat-icon:hover:enabled { background:var(--jini-surface); color:var(--jini-text); }
+.om-chat-history { position:relative; }
+.om-chat-history-menu {
+  position:absolute; right:0; top:100%; z-index:2;
+  width:var(--jini-sidebar-width); max-height:50dvh; overflow:auto;
+  padding:var(--jini-space-2); border:var(--jini-border-width) solid var(--jini-panel-border);
+  border-radius:var(--jini-radius); background:var(--jini-panel-bg); box-shadow:var(--jini-shadow-lg);
+}
+.om-chat-history-menu .jini-popover__item {
+  display:flex; width:100%; text-align:left; gap:var(--jini-space-2);
+  padding:var(--jini-space-2); border:0; background:transparent; box-shadow:none;
+}
+.om-chat-history-menu .jini-popover__item.is-selected { background:var(--jini-accent-soft); }
+.om-chat-history-menu .jini-popover__body { min-width:0; overflow:hidden; text-overflow:ellipsis; }
+.om-chat-status { padding:var(--jini-space-2) var(--jini-space-4); font-size:var(--jini-font-size-xs); color:var(--jini-muted); }
+.om-chat-status:empty { display:none; }
+.om-chat-status p { margin:0; }
+.om-chat-plugins { display:flex; flex-wrap:wrap; align-items:center; gap:var(--jini-space-2); color:var(--jini-muted); }
+.om-chat-plugins button { border-radius:var(--jini-radius-pill); padding:var(--jini-space-1) var(--jini-space-2); min-height:0; font-weight:normal; }
+.om-chat-approval { border:var(--jini-border-width) solid var(--jini-panel-border); border-radius:var(--jini-radius); padding:var(--jini-space-3); }
+.om-chat-approval summary { cursor:pointer; overflow-wrap:anywhere; }
+.om-chat-approval>header p { margin-block:var(--jini-space-2); }
+.om-usage-evidence { color:var(--jini-muted); font-size:var(--jini-font-size-xs); }
+.om-chat-approval .approval-card { margin-top:var(--jini-space-3); box-shadow:none; padding:var(--jini-space-3); }
+/* The shared card owns all controls; its exact JSON is presented in the collapsed details above. */
+.om-chat-approval .approval-card>header, .om-chat-approval .approval-card>.muted, .om-chat-approval .approval-card>pre { display:none; }
+.om-chat-approval pre { white-space:pre-wrap; overflow-wrap:anywhere; }
+/* Removable Jini 0.6.12 adapter: inventory mode supplies the model/effort bar, but OM
+   has one server transport. Its local/API mode switches would advertise nonexistent paths. */
+body:has(.om-jini-chat) .jini-runtime-mode { display:none; }
+body:has(.om-jini-chat) .jini-runtime-popover,
+body:has(.om-jini-chat) .jini-runtime-dropup {
+  --jini-chat-panel:var(--jini-panel-bg); --jini-chat-subtle:var(--jini-surface);
+  --jini-chat-text:var(--jini-text); --jini-chat-text-strong:var(--jini-text);
+  --jini-chat-muted:var(--jini-muted); --jini-chat-faint:var(--jini-text-faint);
+  --jini-chat-border:var(--jini-panel-border); --jini-chat-border-soft:var(--jini-border);
+}
+@media(max-width:900px) {
+  .shell.shell[data-chat-open=true] { --jini-dock-width:0px; }
+  .om-jini-chat.chat-panel { position:fixed; inset:0; height:100dvh; width:100%; z-index:4; border:0; }
+  .om-chat-header .om-chat-icon { min-width:var(--jini-space-8); min-height:var(--jini-space-8); }
+}

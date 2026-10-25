@@ -1,11 +1,14 @@
 import { z } from "zod";
 import type { AgentEvent, ChatTransport, RunHandlers, ChatRunStatus } from "@jini-ai/chat";
 import type { A2uiSurfacePayload } from '@open-marketing/contracts';
-import { a2uiSurfacePayloadSchema, confirmationCardSchema, assistantSettingsStatusSchema, conversationListSchema, conversationSchema, chatMessageSchema, idSchema, epochSchema, parseBoundary } from "@open-marketing/contracts";
+import { a2uiSurfacePayloadSchema, confirmationCardSchema, assistantSettingsStatusSchema, assistantUsageSchema, conversationListSchema, conversationSchema, chatMessageSchema, idSchema, epochSchema, parseBoundary } from "@open-marketing/contracts";
 import type { AssistantSettingsStatus, ConversationSummary, ChatMessage, ConfirmationCard, NavigationAction, NavigationResult, Outcome } from "@open-marketing/contracts";
 import type { StudioApiPort, StudioPayload, StudioRun } from "../../../shared/api/index.js";
 import { parseStudioEvent, parseStudioSnapshot, isSafeUiValue } from "../../../shared/api/index.js";
 import type { StudioRuntime } from "../../../shared/api/index.js";
+import { usageEvents, sampleReplyUsage } from './usage.js';
+import { runtimeSettings } from './runtime-selection.js';
+import type { AssistantProvider } from '@open-marketing/contracts';
 
 export interface ChatState {
   /** Changes only on history/reset/hydration, never on run acceptance or stream updates. */
@@ -19,6 +22,7 @@ export interface ChatState {
   readonly conversationId: string | null;
   readonly conversations: readonly ConversationSummary[];
   readonly settings: AssistantSettingsStatus | null;
+  readonly settingsPending: boolean;
   readonly mode: 'sandbox' | 'model' | null;
   readonly tools: readonly { operationId: string; name: string; status: 'running' | 'completed' | 'pending' | 'cancelled' }[];
 }
@@ -37,6 +41,7 @@ export interface ChatSession {
   selectConversation(required: { conversationId: string }): Promise<void>;
   newConversation(): Promise<void>;
   selectModel(required: { model: string }): Promise<void>;
+  selectRuntime(required: { provider: AssistantProvider; model: string; effort?: string }): Promise<void>;
   send(required: { text: string }): Promise<void>;
   cancel(): Promise<void>;
   dispose(): void;
@@ -57,7 +62,7 @@ function mergeMessage(required: { messages: readonly ChatMessage[]; message: Cha
  * @complexity O(messages + cards) per update, bounded to 200/50; 8,192 unique events/2 MiB per run.
  */
 export function createChatSession(required: Dependencies): ChatSession {
-  let state: ChatState = { transcriptVersion: 0, surfaces: [], messages: [], cards: [], status: "idle", notice: "Agent runtime is not connected.", navigation: null, conversationId: null, conversations: [], settings: null, mode: null, tools: [] };
+  let state: ChatState = { transcriptVersion: 0, surfaces: [], messages: [], cards: [], status: "idle", notice: "Agent runtime is not connected.", navigation: null, conversationId: null, conversations: [], settings: null, settingsPending: false, mode: null, tools: [] };
   let active: ActiveRun | null = null;
   let lastRun: ActiveRun | null = null;
   let displayEvents: AgentEvent[] = [];
@@ -92,6 +97,7 @@ export function createChatSession(required: Dependencies): ChatSession {
   let pendingController: AbortController | null = null;
   let pendingTimer: unknown = null;
   let disposed = false;
+  let sample = false;
   let historyController: AbortController | null = null;
   const listeners = new Set<() => void>();
   const update = (patch: Partial<ChatState>): void => {
@@ -186,20 +192,24 @@ export function createChatSession(required: Dependencies): ChatSession {
     }
     await settleObservation({ run });
   };
-  /** Server timing is an optional presentation read; it cannot establish spend authority. */
-  async function readTiming(input: { run: ActiveRun }): Promise<void> {
-    if (!['complete', 'cancelled'].includes(state.status) || !required.api.runStatus) return;
+  /** Optional server usage (or explicit sample fixtures); never establishes spend authority. */
+  async function readUsage(input: { run: ActiveRun }): Promise<void> {
+    if (!['complete', 'cancelled'].includes(state.status)) return;
     const run = input.run;
-    const result = await required.api.runStatus({ runId: run.receipt.runId, after: Math.max(0, run.sequence - 1), signal: run.controller.signal });
+    const result = sample ? { ok: true as const, value: { usage: sampleReplyUsage } }
+      : await required.api.runStatus?.({ runId: run.receipt.runId, after: Math.max(0, run.sequence - 1), signal: run.controller.signal });
     if (active !== run) return;
-    if (result.ok && result.value.usage) emit({ kind: 'usage', durationMs: result.value.usage.durationMs, inputTokens: result.value.usage.inputTokens, outputTokens: result.value.usage.outputTokens });
+    const usage = assistantUsageSchema.safeParse(result?.ok ? result.value.usage : undefined);
+    if (!usage.success) return;
+    for (const event of usageEvents({ usage: usage.data, sample })) emit(event);
+    update({ messages: state.messages.map(message => message.id === run.receipt.runId + '-reply' ? { ...message, usage: usage.data } : message) });
   }
   async function settleObservation(input: { run: ActiveRun }): Promise<void> {
     const run = input.run;
     if (active !== run) return;
     if (state.status === 'running') update({ status: 'unavailable', notice: 'Stream ended without a completion event. Outcomes are unconfirmed.' });
     if (state.status !== 'complete') update({ cards: state.cards.filter(card => !run.cardIds.has(card.cardId)) });
-    await readTiming({ run });
+    await readUsage({ run });
     if (active !== run) return;
     finishDisplay(); clearRun(); await refresh();
   }
@@ -216,7 +226,7 @@ export function createChatSession(required: Dependencies): ChatSession {
   }
   /** Acceptance ends at the receipt; the existing consumer owns the sole subscription. */
   async function start(input: { text: string }): Promise<ActiveRun | null> {
-      if (disposed || isActive({ status: state.status })) return null;
+      if (disposed || state.settingsPending || isActive({ status: state.status })) return null;
       const message = prepareMessage({ text: input.text, id: required.runtime.ids.next({}) });
       if (!message.ok) { update({ notice: message.error.message }); return null; }
       display?.release(); extensionIds.clear(); extensions(); displayEvents = []; lastRun = null;
@@ -264,7 +274,7 @@ export function createChatSession(required: Dependencies): ChatSession {
   }
   const transport: ChatTransport = {
     async startRun(input, handlers) {
-      if (input.attachments?.length) throw new Error('Image attachments coming soon.');
+      if (input.attachments?.length) throw new Error('This server does not accept image attachments. Your message was not sent.');
       const message = input.history.findLast(item => item.role === 'user');
       const plugins = z.array(z.string().max(400)).max(100).safeParse(input.context?.pluginInstructions ?? []);
       if (!plugins.success) throw new Error('Invalid add-on selection.');
@@ -352,7 +362,7 @@ export function createChatSession(required: Dependencies): ChatSession {
       update({ transcriptVersion: state.transcriptVersion + 1, conversationId: null, surfaces: [], messages: [], cards: [], tools: [], status: 'idle', mode: null, notice: 'New conversation.' });
     },
     async selectModel(input) {
-      if (disposed || isActive({ status: state.status }) || !required.api.setSettings) return;
+      if (disposed || state.settingsPending || isActive({ status: state.status }) || !required.api.setSettings) return;
       if (input.model !== 'sandbox' && !state.settings?.models?.some(model => model.id === input.model)) return;
       const settings = { ...state.settings?.settings, mode: input.model === 'sandbox' ? 'sandbox' as const : 'model' as const,
         model: input.model === 'sandbox' ? state.settings?.settings.model ?? '' : input.model,
@@ -363,10 +373,24 @@ export function createChatSession(required: Dependencies): ChatSession {
       if (!parsed.ok) { update({ notice: 'Assistant settings could not be saved.' }); return; }
       update({ settings: parsed.value, notice: parsed.value.ready ? 'Assistant settings saved.' : 'Connect the selected provider in Add-ons / Integrations, or choose Sandbox.' });
     },
+    /** Save only advertised selections; pending writes block another selection and run acceptance. */
+    async selectRuntime(input) {
+      if (disposed || state.settingsPending || isActive({ status: state.status }) || !required.api.setSettings || !state.settings) return;
+      const settings = runtimeSettings({ status: state.settings, ...input });
+      if (!settings) return;
+      historyController?.abort();
+      update({ settingsPending: true });
+      const result = await required.api.setSettings({ settings });
+      if (disposed) return;
+      const parsed = result.ok ? parseBoundary({ schema: assistantSettingsStatusSchema, input: result.value }) : result;
+      if (!parsed.ok) { update({ settingsPending: false, notice: 'Assistant selection could not be saved.' }); return; }
+      update({ settingsPending: false, settings: parsed.value, notice: parsed.value.ready ? 'Assistant selection saved.' : 'Connect this vendor in Integrations.' });
+    },
     subscribe(input) { listeners.add(input.listener); return () => { listeners.delete(input.listener); }; },
     hydrate(input) {
       const parsed = parseStudioSnapshot(input);
       if (!parsed.ok) { update({ notice: "Studio snapshot rejected.", status: "unavailable" }); return; }
+      sample = parsed.value.mode === 'sample';
       update({ transcriptVersion: state.transcriptVersion + 1, messages: parsed.value.messages, cards: parsed.value.cards, notice: parsed.value.mode === "sample" ? "Sample conversation · agent runtime is not connected." : "Ready" });
     },
     async send(input) { const run = await start(input); if (run) await consumeSafely({ run }); },

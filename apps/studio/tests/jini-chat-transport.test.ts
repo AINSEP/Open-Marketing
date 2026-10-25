@@ -57,7 +57,7 @@ function fixture({ kind, terminal = 'ended' }: { kind: 'memory' | 'http'; termin
 }
 
 describe.each(['memory', 'http'] as const)('%s session-backed Jini transport', kind => {
-  it('returns acceptance before completion, displays each delta once, and retains server timing without invented costs', async () => {
+  it('returns acceptance before completion and retains reported usage with explicit estimate provenance', async () => {
     const f = fixture({ kind }), r = recorder();
     try {
       expect(await f.session.transport.startRun(f.input, r.handlers)).toEqual({ runId: 'run' }); await f.entered;
@@ -65,8 +65,8 @@ describe.each(['memory', 'http'] as const)('%s session-backed Jini transport', k
       expect(r.events).toEqual([{ kind: 'text', text: 'Hello' }]);
       f.release(); await r.done;
       expect(r.completions()).toBe(1); expect(r.statuses.at(-1)).toBe('succeeded'); expect(r.errors).toEqual([]);
-      expect(r.events).toContainEqual({ kind: 'usage', durationMs: 8000, inputTokens: undefined, outputTokens: undefined });
-      expect(r.events.some(item => item.kind === 'usage' && item.costUsd !== undefined)).toBe(false);
+      expect(r.events).toContainEqual({ kind: 'usage', durationMs: 8000, inputTokens: undefined, outputTokens: undefined, costUsd: .07 });
+      expect(r.events).toContainEqual({ kind: 'ext', name: 'om.usage-evidence', data: {} });
       expect(f.starts()).toBe(1); expect(f.host.pending()).toBe(0);
     } finally { f.release(); f.session.dispose(); }
   });
