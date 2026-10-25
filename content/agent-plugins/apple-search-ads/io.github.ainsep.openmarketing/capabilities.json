@@ -1,0 +1,13 @@
+{
+  "version": 1, "admitted": false,
+  "capabilities": [
+    {"capabilityId": "campaign.read.v1", "version": 1, "pluginId": "apple-search-ads", "schemaFingerprint": "6cea91330c02cca56ab1369e7a2f1ea44ca58dc3bcdcacfedf2d776e5a9e205a", "admitted": false, "effects": ["read"]},
+    {"capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "apple-search-ads", "schemaFingerprint": "6cea91330c02cca56ab1369e7a2f1ea44ca58dc3bcdcacfedf2d776e5a9e205a", "admitted": false, "effects": ["read"]}
+  ],
+  "tools": [
+    {"name": "list_accounts", "effects": ["read"], "capabilityId": "campaign.read.v1"},
+    {"name": "list_campaigns", "effects": ["read"], "capabilityId": "campaign.read.v1"},
+    {"name": "report", "effects": ["read"], "capabilityId": "report.account-spend.v1"}
+  ],
+  "fingerprintBasis": "SHA-256 of concatenated src/commands.ts + src/reporting.ts + src/transport.ts bytes in that order; compatibility metadata only, never plugin trust or an allowlist."
+}

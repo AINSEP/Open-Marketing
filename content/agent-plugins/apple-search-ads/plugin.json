@@ -1,0 +1,11 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.1.0/plugin.schema.json",
+  "name": "apple-search-ads",
+  "version": "0.1.0",
+  "description": "Apple organization discovery, campaign pages and daily reports; disabled until server admission.",
+  "license": "Apache-2.0",
+  "extensions": { "io.github.ainsep.openmarketing": { "version": 1, "enabled": false, "admitted": false, "capabilities": [
+    {"capabilityId": "campaign.read.v1", "version": 1, "pluginId": "apple-search-ads", "schemaFingerprint": "6cea91330c02cca56ab1369e7a2f1ea44ca58dc3bcdcacfedf2d776e5a9e205a", "admitted": false, "effects": ["read"]},
+    {"capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "apple-search-ads", "schemaFingerprint": "6cea91330c02cca56ab1369e7a2f1ea44ca58dc3bcdcacfedf2d776e5a9e205a", "admitted": false, "effects": ["read"]}
+  ] } }
+}

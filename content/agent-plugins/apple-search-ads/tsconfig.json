@@ -1,0 +1,5 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": { "noEmit": true },
+  "include": ["io.github.ainsep.openmarketing/src/**/*.ts", "io.github.ainsep.openmarketing/tests/**/*.ts"]
+}
