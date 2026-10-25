@@ -1,0 +1,18 @@
+{
+  "checkedAt": "2026-10-24", "apiVersion": "v26.0", "currentVersionVerified": false,
+  "sources": [
+    { "url": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json", "finding": "Portable manifest supports reverse-domain extensions." },
+    { "url": "https://raw.githubusercontent.com/facebook/openapi/main/business-messaging-api_v23.0.yaml", "finding": "Meta v23 reference documents WABA status, phone_numbers and message_templates reads and status fields. v26 compatibility is unverified." },
+    { "url": "https://www.postman.com/meta/whatsapp-business-platform/collection/wlk6lh4/whatsapp-cloud-api", "finding": "Meta Cloud API uses business portfolio, WABA and phone assets; user/system-user tokens, WhatsApp management/messaging permissions. Reuse existing OM Meta connection when granted assets/scopes suffice." },
+    { "url": "https://developers.facebook.com/docs/graph-api/changelog/", "finding": "Fetch returned 429; latest version unverified. v26.0 pin follows plan and O2; verify before admission." },
+    { "url": "https://developers.facebook.com/documentation/mcp/whatsapp-business-tools-mcp", "finding": "Official Meta page located but inaccessible; auth, transport and tools unverified. Not declared." },
+    { "url": "https://raw.githubusercontent.com/twilio-labs/mcp/main/packages/mcp/package.json", "finding": "Source package @twilio-alpha/mcp version 0.7.0, MIT. Latest npm version unverified; not installed or declared." },
+    { "url": "https://raw.githubusercontent.com/twilio-labs/mcp/main/packages/mcp/src/main.ts", "finding": "stdio transport; Account SID, API key and secret. This is a Twilio account surface, not direct Meta Cloud API." },
+    { "url": "https://raw.githubusercontent.com/twilio-labs/mcp/main/README.md", "finding": "OpenAPI-derived tools, service/tag filtering and Account SID/API-key/secret credentials; includes mutations, no universal fixed tool catalog." },
+    { "url": "https://www.twilio.com/docs/ai/mcp", "finding": "Hosted HTTPS documentation-only twilio__search and twilio__retrieve; no authentication or account API execution. Omitted." },
+    { "url": "https://whatsappbusiness.com/policy/", "finding": "Opt-in and opt-out rules; approved templates outside the 24-hour service window. OM additionally requires explicit WhatsApp consent and current marketing_sms consent." },
+    { "url": "https://whatsappbusiness.com/products/platform-pricing/", "finding": "Delivered-message pricing depends on market/category: marketing, utility, authentication and service. Rate amounts unverified; estimator deferred." }
+  ],
+  "unresolved": ["Current Graph field compatibility", "Account-specific permissions/assets and phone/WABA binding", "Current rate cards", "Reliable contact-block notification", "Meta MCP endpoint/auth/catalog"],
+  "admission": "Disabled/unadmitted until host integration and vendor compatibility verification. No live account requests made."
+}

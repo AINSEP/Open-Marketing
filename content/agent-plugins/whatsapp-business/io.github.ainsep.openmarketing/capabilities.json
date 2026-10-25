@@ -1,0 +1,12 @@
+{
+  "version": 1, "admitted": false,
+  "capabilities": [
+    {"capabilityId": "whatsapp.read.v1", "version": 1, "pluginId": "whatsapp-business", "schemaFingerprint": "ef54963c2f44f17b0056d6d4e0f8689068afef112e00e9e880db8584c3d619ea", "admitted": false, "effects": ["read"]}
+  ],
+  "tools": [
+    {"name": "get_account_status", "effects": ["read"], "capabilityId": "whatsapp.read.v1"},
+    {"name": "list_senders", "effects": ["read"], "capabilityId": "whatsapp.read.v1"},
+    {"name": "list_templates", "effects": ["read"], "capabilityId": "whatsapp.read.v1"}
+  ],
+  "fingerprintBasis": "SHA-256 of src/commands.ts; source compatibility metadata, not plugin trust or an allowlist."
+}

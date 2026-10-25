@@ -1,0 +1,5 @@
+Open Marketing — WhatsApp Business agent plugin
+Copyright Open Marketing contributors. Apache-2.0.
+Packaging and injected adapter patterns adapted from OM's LinkedIn Ads plugin.
+WhatsApp and Meta are their respective owners' trademarks. This project is independent of Meta.
+No vendor SDK, Twilio, Jini or Tovu source is distributed in this package.
