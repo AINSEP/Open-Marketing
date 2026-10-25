@@ -162,7 +162,8 @@ describe("Snapchat portable metadata", () => {
     const caps = JSON.parse(readFileSync(new URL("io.github.ainsep.openmarketing/capabilities.json", root), "utf8"));
     expect(manifest.extensions["io.github.ainsep.openmarketing"]).toMatchObject({ enabled: false, admitted: false, capabilities: caps.capabilities });
     expect(caps.tools.map((value: { name: string; effects: string[] }) => [value.name, value.effects])).toEqual(snapchatAdsTools.map(value => [value.name, [value.effect]]));
-    for (const cap of caps.capabilities) expect(cap.schemaFingerprint).toBe(createHash("sha256").update(readFileSync(new URL("io.github.ainsep.openmarketing/src/" + (cap.capabilityId.startsWith("report.") ? "reporting.ts" : "commands.ts"), root))).digest("hex"));
+    const source: Record<string, string> = { "report.account-spend.v1": "reporting.ts", "campaign.create-paused.v1": "campaign-translation.ts", "conversion.deliver.v1": "capi.ts" };
+    for (const cap of caps.capabilities) expect(cap.schemaFingerprint).toBe(createHash("sha256").update(readFileSync(new URL("io.github.ainsep.openmarketing/src/" + (source[cap.capabilityId] ?? "commands.ts"), root))).digest("hex"));
     const pkg = JSON.parse(readFileSync(new URL("package.json", root), "utf8")); expect(Object.keys(pkg.exports)).toEqual(["."]); expect(pkg.sideEffects).toBe(false); expect(pkg.dependencies).toEqual({ "@open-marketing/contracts": "workspace:*", zod: "4.1.13" });
   });
 });

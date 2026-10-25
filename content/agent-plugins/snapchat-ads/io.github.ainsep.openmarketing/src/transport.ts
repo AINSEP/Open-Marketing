@@ -5,7 +5,8 @@ import type { CallOptions, Outcome } from "@open-marketing/contracts";
 import { commandSchema, decodeList, encodeCommand, failure, vendorId } from "./commands.js";
 import { decodeReport, reportWindowValid } from "./reporting.js";
 import type { SnapchatAdsAdapter, SnapchatConfiguration, SnapchatDependencies, SnapchatInvocation, SnapchatResult, SnapchatWireRequest } from "./ports.js";
-const configurationSchema = z.strictObject({ scope: scopeSchema, connectionId: idSchema, accountId: vendorId.nullable(), currency: z.string().regex(/^[A-Z]{3}$/),
+/** Shared internal binding parser; the sole public module does not expose wire helpers. */
+export const configurationSchema = z.strictObject({ scope: scopeSchema, connectionId: idSchema, accountId: vendorId.nullable(), currency: z.string().regex(/^[A-Z]{3}$/),
   timezone: z.string().min(1).max(100), apiVersion: z.literal("v1"), pluginDigest: digestSchema });
 const invocationSchema = z.strictObject({ context: callContextSchema, operationId: idSchema, command: commandSchema });
 const credentialSchema = z.strictObject({ accessToken: z.string().min(1).max(4096).regex(/^[\x21-\x7e]+$/), expiresAt: epochSchema.optional() });
@@ -54,7 +55,8 @@ function validateBinding(required: { invocation: SnapchatInvocation; configurati
   if (command.kind === "report" && !reportWindowValid({ command, timezone: bound.timezone })) return failure({ code: "invalid_input" });
   return { ok: true, value: undefined };
 }
-function boundInput(required: { input: unknown }): Outcome<unknown> {
+/** Copy JSON before awaiting host callbacks; cycles/oversize inputs return typed failures. O(b<=64KiB). */
+export function boundInput(required: { input: unknown }): Outcome<unknown> {
   try {
     const text = JSON.stringify(required.input);
     if (text === undefined || Buffer.byteLength(text) > 65536) return failure({ code: "limit_exceeded" });
@@ -86,13 +88,15 @@ async function dispatch(required: { dependencies: SnapchatDependencies; prepared
   observe({ dependencies, prepared, result });
   return result;
 }
-async function resolveCredential(required: { dependencies: SnapchatDependencies; configuration: SnapchatConfiguration }, optional: CallOptions): Promise<Outcome<Credential>> {
+/** Per-call broker lookup with schema validation; callers redact thrown broker faults. O(1) I/O. */
+export async function resolveCredential(required: { dependencies: Pick<SnapchatDependencies, "credentials">; configuration: SnapchatConfiguration }, optional: CallOptions): Promise<Outcome<Credential>> {
   if (optional.signal?.aborted) return failure({ code: "cancelled" });
   const result = await required.dependencies.credentials.access({ connectionId: required.configuration.connectionId, accountId: required.configuration.accountId }, optional);
   if (!result.ok) return failure({ code: result.error.code });
   return parseBoundary({ schema: credentialSchema, input: result.value });
 }
-function beforeEgress(required: { dependencies: SnapchatDependencies; credential: Credential }, optional: CallOptions): Outcome<void> {
+/** Local admission/cancellation/expiry checks; guarded fetch owns current server authority. O(1). */
+export function beforeEgress(required: { dependencies: Pick<SnapchatDependencies, "admitted" | "clock">; credential: Credential }, optional: CallOptions): Outcome<void> {
   if (!required.dependencies.admitted) return failure({ code: "forbidden" });
   if (optional.signal?.aborted) return failure({ code: "cancelled" });
   const now = required.dependencies.clock.now({});
@@ -154,4 +158,25 @@ function observe(required: { dependencies: SnapchatDependencies; prepared: Prepa
   try { required.dependencies.observer.observe({ operation: "snapchat-ads." + required.prepared.invocation.command.kind,
     outcome: required.result.ok ? "succeeded" : required.result.error.code, correlationId: context.correlationId, traceId: context.traceId, runId: context.runId }); }
   catch { /* Existing host audit remains authoritative. */ }
+}
+
+/** Private shared deployment/CAPI transport. Fixed callers supply URLs/body; query auth is CAPI-only.
+ * @returns Bounded status/body or sanitized failure; writes treat every failure as uncertain.
+ * @complexity O(b) time/space, b<=1MiB response, <=64KiB request; one <=15s fetch, no retry.
+ */
+export async function requestSnapchat(required: { fetch: typeof fetch; credential: Credential;
+  request: { url: string; method: "GET" | "POST"; body?: string; authentication?: "query" } }, optional: CallOptions = {}): Promise<Outcome<{ status: number; body: unknown }>> {
+  if (optional.signal?.aborted) return failure({ code: "cancelled" });
+  if (Buffer.byteLength(required.request.body ?? "") > 65536) return failure({ code: "limit_exceeded" });
+  const deadline = AbortSignal.timeout(15000);
+  const signal = optional.signal ? AbortSignal.any([deadline, optional.signal]) : deadline;
+  const url = new URL(required.request.url);
+  const headers: Record<string, string> = { Accept: "application/json", "Content-Type": "application/json" };
+  if (required.request.authentication === "query") url.searchParams.set("access_token", required.credential.accessToken);
+  else headers.Authorization = "Bearer " + required.credential.accessToken;
+  try {
+    const response = await required.fetch(url.href, { method: required.request.method, body: required.request.body, headers, signal, redirect: "error" });
+    const body = await readBody({ response });
+    return body.ok ? { ok: true, value: { status: response.status, body: body.value } } : body;
+  } catch { return failure({ code: optional.signal?.aborted ? "cancelled" : "unavailable" }); }
 }
