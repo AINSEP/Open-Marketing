@@ -30,6 +30,18 @@ never authorizes egress: dispatch must refresh consent and current authority.
 Sendability supplies no MVP messaging surface. Spendability does not reserve
 money or create a reusable budget authority; safety binds the exact operation.
 
+`dispatchDecision({ subject, policy, lineage, action, now })` accepts conversion
+sharing or messaging with current merged policy and complete erasure lineage
+(1–100 unique subjects in the same owner/workspace, including the requested subject;
+at most 100,000 combined consent/suppression records, with overflow rejected).
+Denial precedence is `invalid_input`, `erased`, `erasure_pending`, durable
+`om.processing` suppression regardless of its window, then the existing action
+gate; ordinary channel suppression keeps its interval semantics. Only safety and
+measure may import this gate. The dispatch owner must load complete fresh evidence
+under the shared subject lane, deny failed lookups (incomplete erasure is pending),
+and hold serialization through the bounded provider attempt. Allowed is evidence,
+not an execution permit. Lead receipt remains independent of sharing consent.
+
 Every evidence kind requires its exact payload (`consent`, `suppression` or
 `target`). Ingress supplies a stable evidence ID and authenticated source ID.
 Retries with identical canonical content return the existing row; changed content

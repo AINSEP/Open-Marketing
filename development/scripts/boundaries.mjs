@@ -24,7 +24,7 @@ function bindingNames({ node }) {
  if (!bindings?.elements || node.importClause?.name) return ['*'];
  return Array.from(bindings.elements).map(element => (element.propertyName ?? element.name).text);
 }
-const purePolicyExports = new Set(['sendability','shareability','spendability','TimeWindow','Consent','Suppression','FrequencyCap','SubjectPolicy','ShareDestination','MessageChannel','Money','BudgetAuthorization','AdAccountPolicy','DenialReason','GateDecision']);
+const purePolicyExports = new Set(['sendability','shareability','spendability','TimeWindow','Consent','Suppression','FrequencyCap','SubjectPolicy','ShareDestination','MessageChannel','Money','BudgetAuthorization','AdAccountPolicy','DenialReason','GateDecision','dispatchDecision','DispatchInput']);
 /** Package ownership is discovered, never inferred from a second feature folder list. */
 function ownerOf({ file, packages }) { return Array.from(packages).find(pkg => file === pkg.path || file.startsWith(pkg.path + '/')); }
 /** Resolve TS and workspace public entries, preserving original spelling separately. */

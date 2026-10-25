@@ -8,4 +8,6 @@ export type { PolicySqlPool, PolicySqlClient, SqlPolicyOptions } from "./src/sql
 export type { IdentifierBinding } from "./src/types.js";
 export { PolicyConfigurationError } from "./src/validation.js";
 export { sendability, shareability, spendability } from "./src/gates.js";
+export { dispatchDecision } from "./src/dispatch.js";
+export type { DispatchInput } from "./src/dispatch.js";
 export type { Outcome, CallContext, CallOptions, ClockPort, IdPort, Scope, ConfirmationCard, HaltStopRequest, HaltStopPermit, GenerationAllowanceSettings, GenerationCostQuote, GenerationApprovalRequirement, MeasurementGrant } from "@open-marketing/contracts";
