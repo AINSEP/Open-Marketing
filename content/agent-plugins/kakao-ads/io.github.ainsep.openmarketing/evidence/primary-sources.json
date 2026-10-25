@@ -11,6 +11,19 @@
     {"url": "https://developers.kakao.com/docs/en/kakaomoment/error-code", "quote": "exceeded the allowed quota limit", "fact": "Quota errors include HTTP 429 and HTTP 400 code -10. Permission errors use 403. Provider payloads are discarded after bounded parsing; failures remain redacted and non-retryable."}
   ],
   "unverified": ["Business Authentication loopback eligibility and O1 compatibility: OAuth absent", "Fixed token lifetime/refresh contract: no refresh implementation", "General version sunset notice guarantee: selected documented v4 reads only", "Creation-time non-serving campaign/group/creative hierarchy and schedules: deployment absent", "Mutation idempotency and server conversion ingestion: no writes or conversions"],
+  "r2": {
+    "checkedAt": "2026-10-24",
+    "status": "blocked; zero implementation LOC approved by review.md; evidence-chrome.md absent",
+    "sources": [
+      {"url": "https://developers.kakao.com/docs/en/kakaomoment/campaign", "quote": "\"config\": \"ON\"", "fact": "Create campaign request fields omit initial config; its response example is ON. Explicit OFF creation is not established; no create-then-pause workaround."},
+      {"url": "https://developers.kakao.com/docs/en/kakaomoment/ad-group", "quote": "You cannot set the start time and end time.", "fact": "Display delivery period selects dates, not arbitrary start/end times. Exact OM schedule/timezone mapping and complete non-serving hierarchy creation remain unverified."},
+      {"url": "https://developers.kakao.com/docs/en/kakaomoment/creatives-display", "quote": "Review status.", "fact": "Creative config and reviewStatus are separate response fields; review waiting does not establish explicit OFF creation."}
+    ],
+    "hostBlocker": "prepareDestination in apps/server/src/composition/agent-plugin-backends.ts requires sandbox campaignFixture metadata; production scoped account/creative/declaration resolution remains integrator work.",
+    "resumeNeeds": "Official explicit non-serving creation and exact schedule evidence, amended R2 approval, then existing grouped exact card/policy/outbox integration. Preserve refs on partial failure; reconcile unknown outcomes read-only without resending creates. Conversions unapproved.",
+    "blockedPages": [],
+    "limits": "Official documentation only; no live vendor API calls or app/account acceptance. No SDK/spec fallback needed: pages loaded, evidence gaps remain."
+  },
   "blockedPages": [],
   "omBounds": {"inputBytes": 65536, "responseBytes": 1048576, "timeoutMs": 15000, "accountPageSize": 10, "campaignRows": 1000, "reportRows": 31, "retries": 0},
   "limits": "Documentation and support evidence only; no live app/account acceptance or provider requests. No OpenAPI/official Moment SDK identified in the approved research."

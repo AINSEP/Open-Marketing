@@ -19,6 +19,18 @@ Official [accounts](https://developers.kakao.com/docs/en/kakaomoment/ad-account)
 
 One fixed GET per call, no redirects/retries/automatic pagination; input <=64KiB, streamed response <=1MiB and a host-created 15s vendor deadline. 429 and documented 400/-10 become non-retryable limit_exceeded. The server owns admission, revocation, audit and token custody. Fetch must honor AbortSignal for pending fetch and body reads. Caller cancellation returns cancelled; deadline failure returns unavailable; neither retries. Factories perform no I/O or deadline creation.
 Deployment remains blocked: create-time non-serving status for the complete hierarchy/schedules is unverified. OAuth loopback/refresh, conversion ingestion, idempotency and general sunset guarantees remain unverified; no capabilities depend on them.
+
+## R2 deployment evidence and blockers — 2026-10-24
+
+The approved review permits zero R2 implementation LOC and at most 60 evidence/docs LOC. No `evidence-chrome.md` override was present. R2 remains deferred; the public API and capabilities expose only R1 reads.
+
+- Safe state: [Create campaign](https://developers.kakao.com/docs/en/kakaomoment/campaign) documents no initial `config` request field and illustrates `"config": "ON"` in its create response. This does not establish creation-time OFF support; never create then pause or infer safety from a future schedule/review state.
+- Schedule: [Display ad group](https://developers.kakao.com/docs/en/kakaomoment/ad-group) says “You cannot set the start time and end time.” An exact mapping of OM schedule boundaries/timezone to vendor delivery dates remains unverified; R1 report KST evidence does not establish deployment semantics.
+- Hierarchy: [Display creative](https://developers.kakao.com/docs/en/kakaomoment/creatives-display) distinguishes “Creative's status.” from “Review status.” Review waiting is not evidence of explicit OFF creation. Complete campaign/group/creative non-serving creation guarantees remain unverified.
+- Host: `apps/server/src/composition/agent-plugin-backends.ts`, `prepareDestination`, currently requires sandbox mode and scoped `campaignFixture` metadata. Real account/creative/declaration metadata resolution is an integrator NEEDS, independent of vendor evidence. Server catalog/build wiring and DS2 UI remain separate handoffs.
+- Resume only after official safe-state/schedule evidence and an amended implementation approval. Reuse the one grouped exact card, existing policy and jobs outbox. Checkpoint every known reference; read back account/parents/budget/schedule/OFF before children; stop on partial failure. Unknown create outcomes reconcile with read-only GETs only and are never resent; create idempotency is unverified.
+- Conversions remain deferred: the review approves no ingestion capability. No new tests or runtime code accompany this evidence-only change. All three official pages above loaded; no blocked documentation page or live vendor API call in this R2 check.
+
 Reuse: server integrations.access owns secrets/current connection; guardedFetch owns egress authority/audit. Public OM contracts supply context, clock, observer and outcomes; Zod validates Kakao projections. LinkedIn supplies package conventions only. No sibling plugin imports, runtime.json, SDK, charts, registry, scheduler or outbox.
 Architecture audit: lane-only vendor adapter; public index exports; injected I/O/time; read-only effects; typed/redacted failures; no shared contract changes or migrations. Runtime/coverage evidence is pending because this dispatch forbids test/build runs.
 
