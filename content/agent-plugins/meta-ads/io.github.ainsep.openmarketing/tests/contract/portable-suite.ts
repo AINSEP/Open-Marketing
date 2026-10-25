@@ -25,7 +25,7 @@ export function portableValidationSuite(required: { inspector: PortableInspector
       if (result.ok) expect(result.value.extension.capabilities.every(capability => !capability.admitted)).toBe(true);
     });
     it("isolates unknown OM transport fields as an invalid server entry", () => {
-      const unsafe = { $schema: "https://agent-plugins.org/schemas/1.1.0/mcp.schema.json", mcpServers: { meta: { type: "streamable-http", url: "https://mcp.facebook.com/ads", authMode: "oauth", riskHints: ["read"] } } };
+      const unsafe = { $schema: "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json", mcpServers: { meta: { type: "streamable-http", url: "https://mcp.facebook.com/ads", authMode: "oauth", riskHints: ["read"] } } };
       const modified = entries.map(entry => entry.path === "mcp.json" ? { ...entry, content: JSON.stringify(unsafe) } : entry);
       const result = required.inspector.inspect({ package: { entries: modified }, digest: pluginDigest });
       expect(result.ok).toBe(true);

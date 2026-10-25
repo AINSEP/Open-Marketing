@@ -1,5 +1,5 @@
 {
-  "$schema": "https://agent-plugins.org/schemas/1.1.0/plugin.schema.json",
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "kakao-ads",
   "version": "0.1.0",
   "description": "Kakao Moment account/campaign reads and daily BASIC reports; paste Business token only; disabled until host admission.",

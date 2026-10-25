@@ -9,7 +9,7 @@ export const plugin: InstalledPlugin = { pluginId: "demo", version: "1.2.3", dig
 
 /** Portable fixture is valid without OM extension or MCP; no production provider calls. */
 export function packageFixture(_required: Record<string, never>, optional: { manifest?: Record<string, unknown>; mcp?: unknown; skills?: boolean } = {}): PluginPackage {
-  const entries: PluginPackage["entries"][number][] = [{ path: "plugin.json", kind: "file", content: JSON.stringify({ $schema: "https://agent-plugins.org/schemas/1.1.0/plugin.schema.json", name: "demo", version: "1.2.3", ...optional.manifest }) }];
+  const entries: PluginPackage["entries"][number][] = [{ path: "plugin.json", kind: "file", content: JSON.stringify({ $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json", name: "demo", version: "1.2.3", ...optional.manifest }) }];
   if (optional.mcp !== undefined) entries.push({ path: "mcp.json", kind: "file", content: JSON.stringify(optional.mcp) });
   if (optional.skills) entries.push({ path: "skills/demo/SKILL.md", kind: "file", content: "---\nname: demo\ndescription: Demonstrate plugin instructions.\n---\nUse the OM tools and honor server approvals." });
   return { entries };

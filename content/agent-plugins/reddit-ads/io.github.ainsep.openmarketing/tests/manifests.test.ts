@@ -11,7 +11,7 @@ describe("Reddit portable manifests", () => {
   it("ships disabled/unadmitted with only implemented read capabilities and an empty MCP map", () => {
     const manifest = readJson({ path: "plugin.json" }), extension = manifest.extensions["io.github.ainsep.openmarketing"];
     const metadata = readJson({ path: "io.github.ainsep.openmarketing/capabilities.json" });
-    expect(manifest).toMatchObject({ $schema: "https://agent-plugins.org/schemas/1.1.0/plugin.schema.json", name: "reddit-ads", version: "0.1.0", license: "Apache-2.0" });
+    expect(manifest).toMatchObject({ $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json", name: "reddit-ads", version: "0.1.0", license: "Apache-2.0" });
     expect(extension).toMatchObject({ version: 1, enabled: false, admitted: false }); expect(metadata.admitted).toBe(false);
     expect(metadata.capabilities).toEqual(extension.capabilities);
     expect(extension.capabilities.map((cap: unknown) => capabilityEnvelopeSchema.omit({ pluginDigest: true }).parse(cap).capabilityId)).toEqual(["reddit_ads.list_businesses.v1", "report.account-spend.v1"]);
@@ -22,7 +22,7 @@ describe("Reddit portable manifests", () => {
     }
     expect(metadata.tools.map((tool: { name: string; effects: string[] }) => [tool.name, tool.effects])).toEqual(redditAdsTools.map(tool => [tool.name, [tool.effect]]));
     expect(metadata.tools.filter((tool: { available?: boolean }) => tool.available === false).map((tool: { name: string }) => tool.name)).toEqual(["list_accounts", "list_campaigns"]);
-    expect(readJson({ path: "mcp.json" })).toEqual({ $schema: "https://agent-plugins.org/schemas/1.1.0/mcp.schema.json", mcpServers: {} });
+    expect(readJson({ path: "mcp.json" })).toEqual({ $schema: "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json", mcpServers: {} });
   });
   it("retains exact existing pins, one public entry and dated official evidence", () => {
     const pkg = readJson({ path: "package.json" });

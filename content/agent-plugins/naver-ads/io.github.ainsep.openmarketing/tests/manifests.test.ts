@@ -11,7 +11,7 @@ const cap = capabilityEnvelopeSchema.omit({ pluginDigest: true });
 const declarationSchema = z.object({ admitted: z.literal(false), capabilities: z.array(cap).length(2), tools: z.array(z.object({ name: z.string(), effects: z.array(z.literal("read")), capabilityId: z.string() })).length(3) });
 describe("Naver portable package", () => {
   it("declares only implemented reads, with all admission flags off", () => {
-    const manifest = z.object({ $schema: z.literal("https://agent-plugins.org/schemas/1.1.0/plugin.schema.json"), name: z.literal("naver-ads"), license: z.literal("Apache-2.0"), extensions: z.strictObject({ "io.github.ainsep.openmarketing": z.object({ enabled: z.literal(false), admitted: z.literal(false), capabilities: z.array(cap) }) }) }).parse(read({ path: "plugin.json" }));
+    const manifest = z.object({ $schema: z.literal("https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"), name: z.literal("naver-ads"), license: z.literal("Apache-2.0"), extensions: z.strictObject({ "io.github.ainsep.openmarketing": z.object({ enabled: z.literal(false), admitted: z.literal(false), capabilities: z.array(cap) }) }) }).parse(read({ path: "plugin.json" }));
     const declaration = declarationSchema.parse(read({ path: "io.github.ainsep.openmarketing/capabilities.json" }));
     expect(declaration.capabilities).toEqual(manifest.extensions["io.github.ainsep.openmarketing"].capabilities);
     expect(declaration.tools.map(tool => [tool.name, tool.effects])).toEqual(naverAdsTools.map(tool => [tool.name, [tool.effect]]));
@@ -21,7 +21,7 @@ describe("Naver portable package", () => {
       expect(capability.schemaFingerprint).toBe(createHash("sha256").update(readFileSync(new URL("io.github.ainsep.openmarketing/src/" + source, root))).digest("hex"));
     }
     expect(declaration.tools.every(tool => declaration.capabilities.some(item => item.capabilityId === tool.capabilityId))).toBe(true);
-    expect(read({ path: "mcp.json" })).toEqual({ $schema: "https://agent-plugins.org/schemas/1.1.0/mcp.schema.json", mcpServers: {} });
+    expect(read({ path: "mcp.json" })).toEqual({ $schema: "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json", mcpServers: {} });
   });
   it("mirrors existing pins and one public entry, with dated official evidence", () => {
     const pkg = z.object({ sideEffects: z.literal(false), exports: z.record(z.string(), z.unknown()), dependencies: z.record(z.string(), z.string()), devDependencies: z.record(z.string(), z.string()) }).parse(read({ path: "package.json" }));

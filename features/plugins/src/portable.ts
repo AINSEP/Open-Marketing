@@ -2,8 +2,8 @@ import { z } from "zod";
 import type { PluginServer } from "./package-types.js";
 
 /** Locally supported schema IDs; runtime loading never downloads schemas. */
-export const PLUGIN_SCHEMA = "https://agent-plugins.org/schemas/1.1.0/plugin.schema.json";
-export const MCP_SCHEMA = "https://agent-plugins.org/schemas/1.1.0/mcp.schema.json";
+export const PLUGIN_SCHEMA = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json";
+export const MCP_SCHEMA = "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json";
 export const OM_NAMESPACE = "io.github.ainsep.openmarketing";
 const text = z.string().max(65536);
 /** Portable name allows mixed separators but excludes doubled same separators. */

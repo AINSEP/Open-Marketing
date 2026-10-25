@@ -1,5 +1,5 @@
 {
-  "$schema": "https://agent-plugins.org/schemas/1.1.0/plugin.schema.json",
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "amazon-ses",
   "version": "0.1.0",
   "description": "Read-only SES account quota and domain/DKIM status; disabled until host admission.",

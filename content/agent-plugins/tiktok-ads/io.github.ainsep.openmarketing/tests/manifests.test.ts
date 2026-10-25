@@ -7,7 +7,7 @@ import { campaignDeploymentPlanSchema, tiktokDeploymentSchemaFingerprint, tiktok
 const root = new URL("../../", import.meta.url);
 const capabilitySchema = capabilityEnvelopeSchema.omit({ pluginDigest: true });
 const extensionSchema = z.strictObject({ version: z.literal(1), enabled: z.literal(false), admitted: z.literal(false), capabilities: z.array(capabilitySchema).length(13) });
-const manifestSchema = z.strictObject({ $schema: z.literal("https://agent-plugins.org/schemas/1.1.0/plugin.schema.json"), name: z.literal("tiktok-ads"), version: z.literal("0.1.0"), description: z.string(), license: z.literal("Apache-2.0"), extensions: z.strictObject({ "io.github.ainsep.openmarketing": extensionSchema }) });
+const manifestSchema = z.strictObject({ $schema: z.literal("https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"), name: z.literal("tiktok-ads"), version: z.literal("0.1.0"), description: z.string(), license: z.literal("Apache-2.0"), extensions: z.strictObject({ "io.github.ainsep.openmarketing": extensionSchema }) });
 
 function readJson(required: { path: string }): unknown {
   return JSON.parse(readFileSync(new URL(required.path, root), "utf8")) as unknown;
@@ -17,7 +17,7 @@ describe("packaged TikTok metadata", () => {
   it("uses Meta's portable v1.1 namespace and an empty server-loaded MCP configuration", () => {
     const manifest = manifestSchema.parse(readJson({ path: "plugin.json" }));
     expect(manifest.extensions["io.github.ainsep.openmarketing"]).toMatchObject({ version: 1, enabled: false, admitted: false });
-    expect(readJson({ path: "mcp.json" })).toEqual({ $schema: "https://agent-plugins.org/schemas/1.1.0/mcp.schema.json", mcpServers: {} });
+    expect(readJson({ path: "mcp.json" })).toEqual({ $schema: "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json", mcpServers: {} });
   });
   it("declares ten tools and three backend capabilities, unadmitted, with actual schema fingerprints", () => {
     const manifest = manifestSchema.parse(readJson({ path: "plugin.json" }));

@@ -20,7 +20,7 @@ it("keeps portable metadata disabled, read-only and consistent with the public t
     expect(capability.schemaFingerprint).toBe(createHash("sha256").update(read({ path: "io.github.ainsep.openmarketing/src/" + source })).digest("hex"));
   }
   expect(declared.tools.every(tool => declared.capabilities.some(capability => capability.capabilityId === tool.capabilityId))).toBe(true);
-  expect(json({ path: "mcp.json" })).toEqual({ $schema: "https://agent-plugins.org/schemas/1.1.0/mcp.schema.json", mcpServers: {} });
+  expect(json({ path: "mcp.json" })).toEqual({ $schema: "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json", mcpServers: {} });
   expect(json({ path: "package.json" })).toMatchObject({ sideEffects: false, dependencies: { "@open-marketing/contracts": "workspace:*", zod: "4.1.13" }, exports: { ".": { types: "./io.github.ainsep.openmarketing/src/index.ts", import: "./io.github.ainsep.openmarketing/dist/index.mjs" } } });
   const evidence = z.object({ checkedAt: z.literal("2026-10-24"), sources: z.array(z.object({ url: z.url(), quote: z.string().min(1), fact: z.string() })).min(6), unverified: z.array(z.string()).min(4), blockedPages: z.array(z.string()) }).parse(json({ path: "io.github.ainsep.openmarketing/evidence/primary-sources.json" }));
   expect(evidence.sources.every(source => ["developers.kakao.com", "devtalk.kakao.com"].includes(new URL(source.url).hostname))).toBe(true);

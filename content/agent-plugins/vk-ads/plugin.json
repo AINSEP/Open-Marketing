@@ -1,5 +1,5 @@
 {
-  "$schema": "https://agent-plugins.org/schemas/1.1.0/plugin.schema.json",
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "vk-ads",
   "version": "0.1.0",
   "description": "VK token-account and campaign reads; statistics unavailable; disabled until server admission.",

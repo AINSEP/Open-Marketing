@@ -1,5 +1,5 @@
 {
-  "$schema": "https://agent-plugins.org/schemas/1.1.0/plugin.schema.json",
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "reddit-ads",
   "version": "0.1.0",
   "description": "Reddit v3 business discovery and provider reports; account/campaign lists blocked pending evidence; disabled until host admission.",

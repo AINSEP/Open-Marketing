@@ -1,5 +1,5 @@
 {
-  "$schema": "https://agent-plugins.org/schemas/1.1.0/plugin.schema.json",
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "naver-ads",
   "version": "0.1.0",
   "description": "Read-only Naver Search Ads accounts, campaigns, stats and saved paused-reference verification; launches unavailable.",

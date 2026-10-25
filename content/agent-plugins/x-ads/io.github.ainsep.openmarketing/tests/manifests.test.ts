@@ -12,7 +12,7 @@ describe("X portable package", () => {
   it("defaults off, has no agent vendor MCP, and keeps writes backend-only", () => {
     const manifest = z.object({ name: z.literal("x-ads"), extensions: z.object({ "io.github.ainsep.openmarketing": z.object({ enabled: z.literal(false), admitted: z.literal(false), capabilities: z.array(capability) }) }) }).parse(readJson({ path: "plugin.json" }));
     const declaration = z.object({ admitted: z.literal(false), capabilities: z.array(capability), tools: z.array(z.object({ name: z.string(), effects: z.array(z.literal("read")), capabilityId: z.string() })), deployment: z.object({ create: z.literal("deployCampaignPaused"), read: z.literal("readCampaignDeployment"), admitted: z.literal(false) }), backendConversion: z.object({ agentTool: z.literal(false), effects: z.tuple([z.literal("conversion")]) }) }).parse(readJson({ path: "io.github.ainsep.openmarketing/capabilities.json" }));
-    expect(readJson({ path: "mcp.json" })).toEqual({ $schema: "https://agent-plugins.org/schemas/1.1.0/mcp.schema.json", mcpServers: {} });
+    expect(readJson({ path: "mcp.json" })).toEqual({ $schema: "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json", mcpServers: {} });
     expect(declaration.capabilities).toEqual(manifest.extensions["io.github.ainsep.openmarketing"].capabilities);
     expect(declaration.tools.map(tool => [tool.name, tool.effects])).toEqual(xAdsTools.map(tool => [tool.name, [tool.effect]]));
     expect(xAdsTools.map(tool => tool.name)).toEqual(["list_accounts", "list_campaigns", "report"]);

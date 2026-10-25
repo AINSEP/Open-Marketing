@@ -1,5 +1,5 @@
 {
-  "$schema": "https://agent-plugins.org/schemas/1.1.0/plugin.schema.json",
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "om-playbook",
   "version": "0.1.0",
   "description": "How Open Marketing works: capability guidance and plugin authoring skills. Built-in help is available independently; enable this package to discover its skills.",

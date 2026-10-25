@@ -17,9 +17,9 @@ describe("actual packaged Meta manifests and evidence", () => {
     expect(manifest.extensions["io.github.ainsep.openmarketing"].capabilities.find(value => (value as { capabilityId: string }).capabilityId === declarations.deployment.capabilityId)).toMatchObject({ schemaFingerprint: actual });
   });
   it("uses portable v1.1 with no unverified MCP server configuration", () => {
-    expect(manifest.$schema).toBe("https://agent-plugins.org/schemas/1.1.0/plugin.schema.json");
+    expect(manifest.$schema).toBe("https://agent-plugins.org/schemas/1.0.0/plugin.schema.json");
     expect(manifest.name).toBe("meta-ads");
-    expect(mcp).toEqual({ $schema: "https://agent-plugins.org/schemas/1.1.0/mcp.schema.json", mcpServers: {} });
+    expect(mcp).toEqual({ $schema: "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json", mcpServers: {} });
   });
   it("keeps all proposed generic capabilities unadmitted under the exact namespace", () => {
     expect(Object.keys(manifest.extensions)).toEqual(["io.github.ainsep.openmarketing"]);

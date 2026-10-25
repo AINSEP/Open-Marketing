@@ -22,7 +22,7 @@ it("declares three read tools and internal paused/conversion capabilities, disab
   }
   expect(Object.keys(sources)).toEqual(declarations.capabilities.map(cap => cap.capabilityId));
   expect(json({ path: "io.github.ainsep.openmarketing/capabilities.json" })).toMatchObject({ deployment: { capabilityId: "campaign.create-paused.v1", admitted: false }, backendConversion: { agentTool: false, effects: ["conversion"] } });
-  expect(json({ path: "mcp.json" })).toEqual({ $schema: "https://agent-plugins.org/schemas/1.1.0/mcp.schema.json", mcpServers: {} });
+  expect(json({ path: "mcp.json" })).toEqual({ $schema: "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json", mcpServers: {} });
 });
 it("pins the existing toolchain and records official evidence plus unavailable auth", () => {
   const pkg = z.object({ dependencies: z.record(z.string(), z.string()), devDependencies: z.record(z.string(), z.string()), exports: z.record(z.string(), z.unknown()), sideEffects: z.literal(false) }).parse(json({ path: "package.json" }));

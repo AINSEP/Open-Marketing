@@ -56,9 +56,9 @@ export function upload(required: { kind: AddonKind; spend?: boolean; version?: s
 }
 
 function agentFiles(required: { spend?: boolean }): Record<string, string> {
-    return { 'plugin.json': JSON.stringify({ $schema: 'https://agent-plugins.org/schemas/1.1.0/plugin.schema.json', name: 'fixture-agent', version: '1.0.0',
+    return { 'plugin.json': JSON.stringify({ $schema: 'https://agent-plugins.org/schemas/1.0.0/plugin.schema.json', name: 'fixture-agent', version: '1.0.0',
         description: 'Fixture agent package', extensions: { 'io.github.ainsep.openmarketing': { capabilities: [{ effects: required.spend ? ['ad_spend', 'future_effect'] : ['read'] }] } } }),
-        'skills/fixture-skill/SKILL.md': markdown, 'mcp.json': JSON.stringify({ $schema: 'https://agent-plugins.org/schemas/1.1.0/mcp.schema.json', mcpServers: {} }) };
+        'skills/fixture-skill/SKILL.md': markdown, 'mcp.json': JSON.stringify({ $schema: 'https://agent-plugins.org/schemas/1.0.0/mcp.schema.json', mcpServers: {} }) };
 }
 function filesUpload(required: { files: Record<string, string> }): AddonUpload {
     return { kind: 'files', files: Object.entries(required.files).map(([path, content]) => ({ path, base64: Buffer.from(content).toString('base64') })) };

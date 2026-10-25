@@ -120,7 +120,7 @@ function parseConnection(required: { value: unknown }): ExternalMcpConnection {
         enabled: z.boolean(), credentialConnectionId: idSchema.optional(), server: boundedJsonSchema });
     const value = shape.parse(required.value);
     if (Buffer.byteLength(JSON.stringify(value)) > 65536) throw new RangeError('MCP config cap');
-    const parsed = parseAgentPluginMcpConfig({ value: { $schema: 'https://agent-plugins.org/schemas/1.1.0/mcp.schema.json', mcpServers: { connection: value.server } }, extensionNamespace: 'io.github.ainsep.openmarketing' });
+    const parsed = parseAgentPluginMcpConfig({ value: { $schema: 'https://agent-plugins.org/schemas/1.0.0/mcp.schema.json', mcpServers: { connection: value.server } }, extensionNamespace: 'io.github.ainsep.openmarketing' });
     if (!parsed.ok || !parsed.config.servers.connection) throw new Error('Invalid MCP transport');
     return { ...value, server: parsed.config.servers.connection };
 }

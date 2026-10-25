@@ -1,5 +1,5 @@
 {
-  "$schema": "https://agent-plugins.org/schemas/1.1.0/plugin.schema.json",
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "microsoft-ads", "version": "0.1.0", "license": "Apache-2.0",
   "description": "Microsoft Advertising reads/reporting, server-owned paused Search deployment and narrow offline conversions; disabled until host admission.",
   "extensions": { "io.github.ainsep.openmarketing": {

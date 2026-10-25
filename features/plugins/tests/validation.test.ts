@@ -4,7 +4,7 @@ import { exportAgentPluginInstructions, inspectPluginPackage } from "../index.js
 import type { PluginPackage } from "../index.js";
 import { capabilityFixture, descriptor, digest, packageFixture } from "./fixtures/plugin.js";
 
-const mcpSchema = "https://agent-plugins.org/schemas/1.1.0/mcp.schema.json";
+const mcpSchema = "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json";
 const namespace = descriptor.namespace;
 
 describe("portable v1.1 validation", () => {

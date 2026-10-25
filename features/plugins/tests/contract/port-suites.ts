@@ -85,7 +85,7 @@ export function AgentPluginLayoutPortSuite(required: { create(required: { packag
       expect(await invalid.port.validate({ source: invalid.source })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
     });
     it("invalid MCP siblings do not block valid portable package inspection", async () => {
-      const fixture = await required.create({ package: packageFixture({}, { mcp: { $schema: "https://agent-plugins.org/schemas/1.1.0/mcp.schema.json", mcpServers: { valid: { type: "stdio", command: "node" }, invalid: { type: "stdio", command: "../escape" } } } }) });
+      const fixture = await required.create({ package: packageFixture({}, { mcp: { $schema: "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json", mcpServers: { valid: { type: "stdio", command: "node" }, invalid: { type: "stdio", command: "../escape" } } } }) });
       expect(await fixture.port.validate({ source: fixture.source })).toEqual({ ok: true, value: descriptor });
     });
   });

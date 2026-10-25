@@ -89,7 +89,7 @@ export function bindAddonFederationSessions(required: Dependencies): Sessions {
 function parseConnection(required: { connection: ExternalMcpConnection }): ExternalMcpConnection {
   const connection = z.strictObject({ connectionId: idSchema, pluginId: idSchema.nullable(), revision: idSchema,
     enabled: z.boolean(), credentialConnectionId: idSchema.optional(), server: boundedJsonSchema }).parse(required.connection);
-  const parsed = parseAgentPluginMcpConfig({ value: { $schema: 'https://agent-plugins.org/schemas/1.1.0/mcp.schema.json', mcpServers: { connection: connection.server } }, extensionNamespace: 'io.github.ainsep.openmarketing' });
+  const parsed = parseAgentPluginMcpConfig({ value: { $schema: 'https://agent-plugins.org/schemas/1.0.0/mcp.schema.json', mcpServers: { connection: connection.server } }, extensionNamespace: 'io.github.ainsep.openmarketing' });
   if (!parsed.ok || !parsed.config.servers.connection) throw new Error('Invalid federation transport');
   return { ...connection, server: parsed.config.servers.connection };
 }

@@ -38,9 +38,9 @@ function upload(required: { kind: AddonKind; spend?: boolean }): AddonUpload {
 }
 
 function agentFiles(required: { spend?: boolean }): Record<string, string> {
-    return { 'plugin.json': JSON.stringify({ $schema: 'https://agent-plugins.org/schemas/1.1.0/plugin.schema.json', name: 'fixture-agent', version: '1.0.0',
+    return { 'plugin.json': JSON.stringify({ $schema: 'https://agent-plugins.org/schemas/1.0.0/plugin.schema.json', name: 'fixture-agent', version: '1.0.0',
         description: 'Fixture agent package', extensions: { 'io.github.ainsep.openmarketing': { capabilities: [{ effects: required.spend ? ['ad_spend', 'future_effect'] : ['read'] }] } } }),
-        'skills/fixture-skill/SKILL.md': markdown, 'mcp.json': JSON.stringify({ $schema: 'https://agent-plugins.org/schemas/1.1.0/mcp.schema.json', mcpServers: {} }) };
+        'skills/fixture-skill/SKILL.md': markdown, 'mcp.json': JSON.stringify({ $schema: 'https://agent-plugins.org/schemas/1.0.0/mcp.schema.json', mcpServers: {} }) };
 }
 function filesUpload(required: { files: Record<string, string> }): AddonUpload {
     return { kind: 'files', files: Object.entries(required.files).map(([path, content]) => ({ path, base64: Buffer.from(content).toString('base64') })) };
@@ -186,7 +186,7 @@ it('manual and plugin MCP configuration use one persistent store and isolate own
     try {
         const store = createExternalMcpStore(dependencies);
         value({ result: await store.save({ context, connection: { ...connection({ id: 'manual' }), pluginId: null } }) });
-        value({ result: await store.provision({ context, pluginId: 'fixture-plugin', revision: 'r1', configuration: { $schema: 'https://agent-plugins.org/schemas/1.1.0/mcp.schema.json', mcpServers: { fixture: { type: 'stdio', command: 'fixture-only', args: [] } } } }) });
+        value({ result: await store.provision({ context, pluginId: 'fixture-plugin', revision: 'r1', configuration: { $schema: 'https://agent-plugins.org/schemas/1.0.0/mcp.schema.json', mcpServers: { fixture: { type: 'stdio', command: 'fixture-only', args: [] } } } }) });
         const restarted = createExternalMcpStore(dependencies);
         const rows = value({ result: await restarted.list({ context }) });
         expect(rows.map(row => row.pluginId)).toEqual(['fixture-plugin', null]);
@@ -218,7 +218,7 @@ it('rejects invalid MCP transports before changing any rows', async () => {
     const f = sqlFixture({});
     const store = createExternalMcpStore({ db: f.db, observer: { observe() {} }, sessions: { async reload() {}, async close() {} } });
     try {
-        expect(await store.provision({ context, pluginId: 'fixture-plugin', revision: 'r1', configuration: { $schema: 'https://agent-plugins.org/schemas/1.1.0/mcp.schema.json', mcpServers: { bad: { type: 'unsupported' } } } })).toMatchObject({ ok: false });
+        expect(await store.provision({ context, pluginId: 'fixture-plugin', revision: 'r1', configuration: { $schema: 'https://agent-plugins.org/schemas/1.0.0/mcp.schema.json', mcpServers: { bad: { type: 'unsupported' } } } })).toMatchObject({ ok: false });
         expect(value({ result: await store.list({ context }) })).toEqual([]);
     } finally { f.native.close(); }
 });

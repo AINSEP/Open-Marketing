@@ -9,7 +9,7 @@ const root = new URL("../../", import.meta.url);
 /** Fixture reader consumes the files the plugin host actually installs. */
 function readJson(required: { path: string }): unknown { return JSON.parse(readFileSync(new URL(required.path, root), "utf8")) as unknown; }
 const capability = capabilityEnvelopeSchema.omit({ pluginDigest: true });
-const manifestSchema = z.object({ $schema: z.literal("https://agent-plugins.org/schemas/1.1.0/plugin.schema.json"), name: z.literal("linkedin-ads"), version: z.literal("0.1.0"), license: z.literal("Apache-2.0"), extensions: z.strictObject({ "io.github.ainsep.openmarketing": z.strictObject({ version: z.literal(1), enabled: z.literal(false), admitted: z.literal(false), capabilities: z.array(capability) }) }) });
+const manifestSchema = z.object({ $schema: z.literal("https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"), name: z.literal("linkedin-ads"), version: z.literal("0.1.0"), license: z.literal("Apache-2.0"), extensions: z.strictObject({ "io.github.ainsep.openmarketing": z.strictObject({ version: z.literal(1), enabled: z.literal(false), admitted: z.literal(false), capabilities: z.array(capability) }) }) });
 /** Source file whose bytes back a capability's schema fingerprint. */
 function fingerprintSource(required: { effect: string | undefined; capabilityId: string }): string {
   if (required.capabilityId === "campaign.create-draft.v1") return "campaign-deployment.ts";
@@ -20,7 +20,7 @@ function fingerprintSource(required: { effect: string | undefined; capabilityId:
 describe("LinkedIn portable package", () => {
   it("uses the Meta layout, OM namespace and empty MCP map, with admission off", () => {
     const manifest = manifestSchema.parse(readJson({ path: "plugin.json" }));
-    expect(readJson({ path: "mcp.json" })).toEqual({ $schema: "https://agent-plugins.org/schemas/1.1.0/mcp.schema.json", mcpServers: {} });
+    expect(readJson({ path: "mcp.json" })).toEqual({ $schema: "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json", mcpServers: {} });
     const capabilities = manifest.extensions["io.github.ainsep.openmarketing"].capabilities;
     expect(capabilities).toHaveLength(11);
     expect(capabilities.every(value => !value.admitted && value.pluginId === "linkedin-ads")).toBe(true);

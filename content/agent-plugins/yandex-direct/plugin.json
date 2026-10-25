@@ -1,5 +1,5 @@
 {
-  "$schema": "https://agent-plugins.org/schemas/1.1.0/plugin.schema.json",
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "yandex-direct", "version": "0.1.0", "license": "Apache-2.0",
   "description": "Yandex Direct reads, reports and grouped DRAFT deployment backend; disabled until host integration and admission.",
   "extensions": { "io.github.ainsep.openmarketing": {
