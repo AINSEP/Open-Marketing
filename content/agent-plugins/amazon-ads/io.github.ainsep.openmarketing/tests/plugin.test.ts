@@ -14,8 +14,11 @@ describe("Amazon R1", () => {
     const manifest = JSON.parse(readFileSync(new URL("../../plugin.json", import.meta.url), "utf8"));
     const capabilities = JSON.parse(readFileSync(new URL("../capabilities.json", import.meta.url), "utf8"));
     const hash = createHash("sha256").update(readFileSync(new URL("../src/commands.ts", import.meta.url))).update(readFileSync(new URL("../src/reporting.ts", import.meta.url))).digest("hex");
+    const deploymentHash = createHash("sha256").update(readFileSync(new URL("../src/campaign-translation.ts", import.meta.url))).update(readFileSync(new URL("../src/campaign-deployment.ts", import.meta.url))).digest("hex");
     expect(manifest.extensions["io.github.ainsep.openmarketing"]).toMatchObject({ enabled: false, admitted: false, capabilities: capabilities.capabilities });
-    expect(capabilities.capabilities.every((entry: { schemaFingerprint: string }) => entry.schemaFingerprint === hash)).toBe(true);
+    expect(capabilities.capabilities.every((entry: { capabilityId: string; schemaFingerprint: string }) => entry.schemaFingerprint === (entry.capabilityId === "campaign.create-draft.v1" ? deploymentHash : hash))).toBe(true);
+    expect(capabilities.deployment).toMatchObject({ create: "deployCampaignPaused", read: "readCampaignDeployment", planSchema: "campaignDeploymentPlanSchema", admitted: false });
+    expect(capabilities.deployment.unavailableReason).toContain("calendar boundaries unverified");
     expect(capabilities.tools.map((tool: { name: string; effects: string[] }) => [tool.name, tool.effects[0]])).toEqual(amazonAdsTools.map(tool => [tool.name, tool.effect]));
     expect(commandSchema.safeParse({ kind: "activate", campaignId: "456" }).success).toBe(false);
   });

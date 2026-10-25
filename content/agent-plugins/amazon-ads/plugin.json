@@ -39,6 +39,16 @@
           "effects": [
             "write"
           ]
+        },
+        {
+          "capabilityId": "campaign.create-draft.v1",
+          "version": 1,
+          "pluginId": "amazon-ads",
+          "schemaFingerprint": "5a5e3a10fec103d623fcfc1589bc865740eb65c21a64607a28c64cc4c21622df",
+          "admitted": false,
+          "effects": [
+            "write"
+          ]
         }
       ]
     }

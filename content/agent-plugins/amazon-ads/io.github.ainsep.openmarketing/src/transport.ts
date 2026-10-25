@@ -8,7 +8,7 @@ import { failure } from "./ports.js";
 import type { AmazonAdsAdapter, AmazonDependencies, AmazonInvocation, AmazonResult } from "./ports.js";
 
 const region = z.enum(["NA", "EU", "FE"]);
-const configurationSchema = z.strictObject({ scope: scopeSchema, connectionId: idSchema, accountId: vendorIdSchema.nullable(), region });
+export const configurationSchema = z.strictObject({ scope: scopeSchema, connectionId: idSchema, accountId: vendorIdSchema.nullable(), region });
 const credentialSchema = z.strictObject({ clientId: z.string().min(1).max(256).regex(/^[\x21-\x7e]+$/), accessToken: z.string().min(1).max(8192).regex(/^[\x21-\x7e]+$/), expiresAt: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), region });
 type Credential = z.infer<typeof credentialSchema>;
 const origins = { NA: "https://advertising-api.amazon.com", EU: "https://advertising-api-eu.amazon.com", FE: "https://advertising-api-fe.amazon.com" } as const;
@@ -184,3 +184,34 @@ function page(required: { parsed: { success: boolean; data?: Record<string, unkn
   return { ok: true, value: { items: required.parsed.data, nextToken: required.nextToken ?? null } };
 }
 function unknown(required: { input: AmazonInvocation }): Outcome<AmazonResult> { return { ok: true, value: { operationId: required.input.operationId, status: "unknown", observedState: "unknown", data: null } }; }
+
+/** Internal fixed SP deployment transport, using the existing credential/deadline boundary.
+ * Host fetch must fence every call with current policy/outbox authority. A failure after a
+ * create starts is uncertain, never permission to resend. @complexity One <=15s/1MiB call, O(b).
+ */
+export async function requestDeployment(required: { dependencies: AmazonDependencies; context: AmazonInvocation["context"]; resource: "campaigns" | "adGroups" | "productAds"; read: boolean; body: Record<string, unknown> }, optional?: CallOptions): Promise<Outcome<{ status: number; body: unknown }>> {
+  const { dependencies, resource } = required;
+  if (!dependencies.admitted) return failure({ code: "forbidden" });
+  if (optional?.signal?.aborted) return failure({ code: "cancelled" });
+  try {
+    const body = JSON.stringify(required.body);
+    if (Buffer.byteLength(body) > 65536) return failure({ code: "limit_exceeded" });
+    const credential = await resolveCredential({ dependencies }, optional);
+    if (!credential.ok) return credential;
+    const current = beforeEgress({ dependencies, credential: credential.value }, optional);
+    if (!current.ok) return current;
+    const media = { campaigns: "application/vnd.spCampaign.v3+json", adGroups: "application/vnd.spAdGroup.v3+json", productAds: "application/vnd.spProductAd.v3+json" }[resource];
+    const response = await dependencies.fetch(origins[dependencies.configuration.region] + "/sp/" + resource + (required.read ? "/list" : ""), {
+      method: "POST", body, redirect: "error", signal: signal({ dependencies }, optional),
+      headers: { Authorization: "Bearer " + credential.value.accessToken, "Amazon-Advertising-API-ClientId": credential.value.clientId, "Amazon-Advertising-API-Scope": dependencies.configuration.accountId!, Accept: media, "Content-Type": media },
+    });
+    const bytes = await readBytes({ response, max: 1048576 });
+    if (!bytes.ok) return bytes;
+    return { ok: true, value: { status: response.status, body: JSON.parse(bytes.value.toString("utf8")) as unknown } };
+  } catch { return failure({ code: "unavailable" }); }
+  finally {
+    const { correlationId, traceId, runId } = required.context;
+    try { dependencies.observer.observe({ operation: "amazon-ads.deployment." + resource, outcome: "attempted", correlationId, traceId, runId }); }
+    catch { /* Host durable egress audit owns the authoritative outcome. */ }
+  }
+}

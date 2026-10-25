@@ -1,4 +1,4 @@
-# Amazon Ads — R1
+# Amazon Ads — R1/R2
 
 Server-only portable plugin, disabled/unadmitted by default. After the integrator wires it,
 use OM's existing owner connection ingress to paste ONE sealed JSON value:
@@ -6,7 +6,7 @@ use OM's existing owner connection ingress to paste ONE sealed JSON value:
 `expiresAt` is epoch milliseconds calculated from the returned OAuth expiry, never a fixed lifetime.
 Choose NA/EU/FE explicitly. Tokens stay on the server. Reconnect on expiry or rejection.
 Amazon app approval and the `advertising::campaign_management` grant are prerequisites.
-HTTP loopback support remains unverified: no OAuth descriptor, client secret or refresh token here.
+Amazon requires HTTPS redirects (binding browser evidence): paste-token only, no OAuth descriptor.
 
 Accounts are Amazon profiles. Only `list_accounts` accepts a null configured profile.
 `list_campaigns` takes `adProduct: "SP" | "SB"`, `maxResults` (1–100), and optional `nextToken`;
@@ -30,8 +30,36 @@ and authority immediately before EVERY request (including storage), and claims r
 the existing outbox. This plugin adds no policy, registry, worker, store or service startup.
 No live calls were made. Fixtures are synthetic and tests were written without execution.
 Deferred: server/catalog/build/coverage wiring and acceptance tests (integrator), studio (DS2),
-SP PAUSED hierarchy (R2), SB deployment pending schemas, production product resolution, conversions.
+SB deployment pending schemas, production product resolution, conversions.
 No dependency upgrade, contract edit, migration, commit or push.
 
 Evidence and blocked references: `io.github.ainsep.openmarketing/evidence/primary-sources.json`.
 Public entry: `io.github.ainsep.openmarketing/src/index.ts`; source and tests typecheck together.
+
+R2 provides `campaignDeploymentPlanSchema` and `deployCampaignPaused` for one explicit SP automatic
+campaign → group → product ad, all explicitly PAUSED. Only seller SKU or vendor ASIN, fixed MANUAL
+bidding, exact daily budget, and ISO calendar dates are accepted. Amounts must fit profile currency
+precision; 1,000,000 per amount is an OM input bound, not a documented vendor quota or spending cap.
+The plan contains the profile country/currency/timezone. These and seller/vendor type are read back
+before dispatch. Each indexed 207 acknowledgement is checkpointed and each parent read back before
+its child. Readback uses fixed POST `/sp/{campaigns,adGroups,productAds}/list` calls filtered by ID.
+Every approved field must match; strict nested comparisons may stop on vendor-added defaults.
+Known IDs survive mixed item errors, missing/failed ACK checkpoints and subsequent failures.
+There is no automatic retry, rollback, activation, name-based discovery or create continuation.
+The host must reject repeated dispatch checkpoints for the same operation/step and retain receipts
+when a checkpoint fails. It owns the ONE grouped exact card, outbox and every live egress fence.
+
+R2 remains **partial and not admitted**. `translateCampaign` checks one marketplace/creative/digest/bid,
+then returns typed `unavailable`: profile timezone and inclusive/exclusive campaign date boundaries
+remain UNVERIFIED. No rounding or calendar mapping is inferred, including across DST changes.
+Explicit-date plans remain for integrator fixtures until the neutral mapping is evidenced.
+`readCampaignDeployment` verifies saved IDs with the documented read-only POST list endpoints,
+including profile ownership, exact fields and PAUSED state. Missing/mismatched rows stop, retaining
+all references. It never checkpoints, scans names, resends a create or continues a partial deployment.
+The R2 review resolves GET-only reconciliation to these vendor-documented query methods; the host
+must classify the exact list endpoints as reads and recheck authority on each request.
+
+Owner Chrome evidence confirms HTTPS-only redirects and reporting v3 deprecation on 2027-06-30.
+Reporting also requires `Amazon-Ads-AccountId`; its acquisition and host binding remain unresolved
+in R1 and block admission. Do not equate this header with a profile ID or guess a value.
+No server/studio/root files changed; no migration or shared contract changes.
