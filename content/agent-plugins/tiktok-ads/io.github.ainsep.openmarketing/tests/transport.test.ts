@@ -272,3 +272,10 @@ describe("account-spend reporting", () => {
     expectError({ result: decimalToMinor({ amount: "90071992547409.92", exponent: 2 }), code: "limit_exceeded" });
   });
 });
+
+it("encodes a finite UTC end without changing the standalone continuous-schedule caller", async () => {
+  const f = fixture({ kind: "fetch", body: { code: 0, data: { adgroup_id: "457" } } });
+  await f.egress.send(request({ fixture: f, command: { ...adgroup, scheduleEnd: "2026-10-15 00:00:00" } as TikTokCommand }));
+  expect(JSON.parse(String(f.fetchCalls[0].init?.body))).toMatchObject({ operation_status: "DISABLE", budget_mode: "BUDGET_MODE_DAY", schedule_type: "SCHEDULE_START_END", schedule_start_time: "2026-10-13 00:00:00", schedule_end_time: "2026-10-15 00:00:00" });
+  expect(encodeTikTokCommand({ input: adgroup, accountId: "123" })).toMatchObject({ ok: true, value: { body: { schedule_type: "SCHEDULE_FROM_NOW" } } });
+});

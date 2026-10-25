@@ -356,10 +356,12 @@ it('native bundle digests cover actual bytes, change on rebuild, and reject over
 });
 
 /** Actual plugin transports against a bounded synthetic social account, never native fetch. */
-function socialVendor(required: { failLinkedIn?: boolean; failRead?: boolean } = {}) {
+function socialVendor(required: { failLinkedIn?: boolean; failRead?: boolean; includeTikTok?: boolean; failTikTok?: boolean } = {}) {
     const rows = new Map<string, Record<string, unknown>>(); let meta = 200, linkedin = 400;
     const fetchFixture: typeof fetch = async (url, init) => {
-        const uri = new URL(String(url)); const isMeta = uri.hostname === 'graph.facebook.com';
+        const uri = new URL(String(url));
+        if (uri.hostname === 'business-api.tiktok.com') return tikTokDeploymentResponse({ uri, init, rows, fail: required.failTikTok });
+        const isMeta = uri.hostname === 'graph.facebook.com';
         const key = decodeURIComponent(uri.pathname.split('/').at(-1)!);
         if (init?.method === 'GET') {
             if (required.failRead) throw new Error('Fixture read unavailable');
@@ -382,6 +384,23 @@ function linkedInCreate(required: { key: string; body: string; rows: Map<string,
     required.rows.set(id, { ...body, id, account: 'urn:li:sponsoredAccount:123', isServing: false });
     return new Response(null, { status: 201, headers: { 'x-restli-id': id } });
 }
+/** Exact scoped TikTok fixture; ad creative fields are flat on GET. No live fetch. */
+function tikTokDeploymentResponse(required: { uri: URL; init?: RequestInit; rows: Map<string, Record<string, unknown>>; fail?: boolean }): Response {
+    const entity = required.uri.pathname.split('/').at(-3)!;
+    const ids: Record<string, string> = { campaign: '701', adgroup: '702', ad: '703' };
+    const id = ids[entity];
+    if (required.init?.method === 'GET') {
+        const filtering = JSON.parse(required.uri.searchParams.get('filtering') ?? '{}');
+        expect(filtering[entity + '_ids']).toEqual([id]);
+        return Response.json({ code: 0, data: { list: [required.rows.get(id)], page_info: { page: 1, page_size: 100, total_page: 1, total_number: 1 } } });
+    }
+    if (required.fail && entity === 'adgroup') throw new Error('Fixture uncertain TikTok create');
+    const body = JSON.parse(String(required.init?.body));
+    const fields = entity === 'ad' ? body.creatives[0] : body;
+    expect(fields.operation_status).toBe('DISABLE');
+    required.rows.set(id, { ...fields, advertiser_id: '123', campaign_id: ids.campaign, ...(entity !== 'campaign' ? { adgroup_id: ids.adgroup } : {}), ...(entity === 'ad' ? { ad_id: id } : {}) });
+    return Response.json({ code: 0, data: entity === 'ad' ? { ad_ids: [id] } : { [entity + '_id']: id } });
+}
 const socialCampaign: NeutralCampaignLaunch = { operationId: 'social-draft', name: 'Traffic', objective: 'traffic',
     schedule: { window: { start: 1791849600000, end: 1792022400000 }, timezone: 'UTC' }, audience: { countries: ['US'] }, creativeIds: ['creative'], creativeDigest: 'a'.repeat(64),
     targets: ['meta-ads', 'linkedin-ads'].map(pluginId => ({ pluginId, connectionId: 'connection', accountId: '123', dailyBudget: { currency: 'USD', minorUnits: 4321 }, expectedExposure: { currency: 'USD', minorUnits: 10000 } })) };
@@ -389,18 +408,21 @@ function socialMetadata(required: { pluginId: string }) {
     const common = { accountId: '123', currency: 'USD', currencyExponent: 2, timezone: 'UTC', creativeId: 'creative', creativeDigest: 'a'.repeat(64) };
     return { scope: context.scope, connectionId: 'connection', resolved: required.pluginId === 'meta-ads'
         ? { ...common, vendorCreativeId: '987', ageMin: 18, ageMax: 65, specialAdCategories: [] }
+        : required.pluginId === 'tiktok-ads'
+        ? { ...common, locations: [{ country: 'US', id: '6252001' }], creative: { adFormat: 'SINGLE_VIDEO', videoId: 'video', imageIds: ['cover'], identityId: 'identity', text: 'Visit us', landingPageUrl: 'https://example.test/landing' } }
         : { ...common, reference: 'urn:li:share:987', organizationId: '789', locale: { country: 'US', language: 'en' }, politicalIntent: 'NOT_POLITICAL', unitCost: { currency: 'USD', minorUnits: 237 }, locations: [{ country: 'US', id: '103644278' }] } };
 }
 /** Real grouped safety, real SQL outbox and actual plugin modules; fixture network only. */
 async function deploymentFixture(required: Parameters<typeof socialVendor>[0] = {}) {
+    const campaign = required.includeTikTok ? { ...socialCampaign, targets: [...socialCampaign.targets, { ...socialCampaign.targets[0], pluginId: 'tiktok-ads' }] } : socialCampaign;
     const vendor = socialVendor(required); const f = await fixture({ admitted: true, fetch: vendor.fetch });
-    for (const [pluginId, state] of f.states) { state.enabled = ['meta-ads', 'linkedin-ads'].includes(pluginId); state.metadata = { ...state.metadata, campaignFixture: socialMetadata({ pluginId }) }; }
+    for (const [pluginId, state] of f.states) { state.enabled = ['meta-ads', 'linkedin-ads'].includes(pluginId) || (pluginId === 'tiktok-ads' && required.includeTikTok === true); state.metadata = { ...state.metadata, campaignFixture: socialMetadata({ pluginId }) }; }
     const confirmations = createMemoryConfirmationExchange({ clock, ids: f.ids });
-    const prepared = value({ result: await f.binding.prepareCampaign({ context, campaign: socialCampaign, operationId: 'social-launch' }) });
+    const prepared = value({ result: await f.binding.prepareCampaign({ context, campaign, operationId: 'social-launch' }) });
     const safety = createSafetyService({ repo: f.safetyRepo, confirmations, clock, ids: f.ids, accountLocks: f.ports.accountLocks, policy: createMemorySpendPolicy({}), platformLimits: createMemoryPlatformLimitEvidence({}), audit: createMemorySafetyAudit({}),
         effects: { async resolve({ request }) { const known = prepared.find(call => value({ result: digestArguments({ arguments: call }) }) === value({ result: digestArguments({ arguments: request }) })); return known ? { ok: true, value: known.envelope } : { ok: false, error: { code: 'forbidden', message: 'Unverified fixture', retryable: false } }; }, async verifyGenerationQuote() { throw new Error('Not generation'); }, async verifyHaltStop() { throw new Error('Not stop'); } } });
     const binding = bindAgentPluginBackends({ ...f.ports, confirmations, safety });
-    const repo = createMemoryCampaignRepo({}); const draft = value({ result: await repo.saveNeutral({ context, campaign: socialCampaign }) });
+    const repo = createMemoryCampaignRepo({}); const draft = value({ result: await repo.saveNeutral({ context, campaign }) });
     const definition = bindPausedCampaignDeployment({ unit: f.unit, repo, clock, ids: f.ids, observer, safety, confirmations,
         prepare: binding.prepareCampaign, definitions: binding.definitions, execute: binding.executeCampaign, read: binding.readCampaign });
     const tools = createOmTools({ clock, observer, confirmations, definitions: async () => ({ ok: true, value: [definition, ...value({ result: await binding.definitions({ context }) })] }), authorize: () => ({ ok: true, value: undefined }) });
@@ -634,4 +656,32 @@ it('rejects duplicate step dispatch and foreign/oversized checkpoints in the own
         expect(await f.jobs.checkpoint({ context, jobId, event: 'later-step', evidence: { phase: 'dispatch' } })).toMatchObject({ ok: false, error: { code: 'conflict' } });
         expect(f.native.prepare("SELECT event_type FROM job_attempt WHERE event_type='campaign-step'").all()).toHaveLength(1);
     } finally { f.close(); }
+});
+
+it.each([false, true])('includes TikTok in the one grouped card/job and preserves partial outcomes (failure: %s)', async failTikTok => {
+    const f = await deploymentFixture({ includeTikTok: true, failTikTok });
+    try {
+        await f.approve();
+        expect(value({ result: await f.tools.operation({ context, operationId: 'social-launch' }) })).toMatchObject({ status: failTikTok ? 'unknown' : 'completed' });
+        const before = f.calls.length;
+        const read = value({ result: await f.binding.definitions({ context }) }).find(tool => tool.name === 'om_campaign_reconcile_deployment')!;
+        expect(await read.invoke({ context, input: { operationId: 'social-launch' } })).toMatchObject({ ok: true, value: { complete: !failTikTok, outcomes: [
+            { result: { status: 'acknowledged' } }, { result: { status: 'acknowledged' } },
+            { result: { status: failTikTok ? 'unknown' : 'acknowledged', references: failTikTok ? { campaign: '701' } : { campaign: '701', adgroup: '702', ad: '703' } } },
+        ] } });
+        expect(f.calls.slice(before).every(call => call.options?.method === 'GET')).toBe(true);
+        expect(f.calls.filter(call => call.options?.method === 'POST')).toHaveLength(failTikTok ? 8 : 9);
+        expect(f.native.prepare('SELECT id FROM job').all()).toHaveLength(1);
+        expect(f.calls.filter(call => call.url.includes('tiktok.com')).every(call => call.url.includes('/open_api/v1.3/'))).toBe(true);
+    } finally { await f.closeAll(); }
+});
+it('rechecks TikTok admission during credential lookup after the other vendors finish', async () => {
+    const f = await deploymentFixture({ includeTikTok: true });
+    f.setBeforeCredential({ async callback() { if (f.accesses.at(-1)?.pluginId === 'tiktok-ads') f.states.get('tiktok-ads')!.admitted = false; } });
+    try {
+        await f.approve();
+        expect(value({ result: await f.tools.operation({ context, operationId: 'social-launch' }) })).toMatchObject({ status: 'unknown' });
+        expect(f.calls.filter(call => call.url.includes('tiktok.com'))).toEqual([]);
+        expect(f.calls.filter(call => call.options?.method === 'POST')).toHaveLength(6);
+    } finally { await f.closeAll(); }
 });

@@ -21,8 +21,8 @@ const variants = {
   "get-ads": z.strictObject({ kind: z.literal("get-ads"), ...pagination, adIds: ids.optional() }),
   report: z.strictObject({ kind: z.literal("report"), ...pagination, startDate: z.iso.date(), endDate: z.iso.date() }).refine(validReportDates),
   "create-campaign-paused": z.strictObject({ kind: z.literal("create-campaign-paused"), name, budget }),
-  "create-adgroup-paused": z.strictObject({ kind: z.literal("create-adgroup-paused"), name, campaignId: vendorIdSchema, budget, locationIds: ids, scheduleStart: z.string().regex(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/) }),
-  "create-ad-paused": z.strictObject({ kind: z.literal("create-ad-paused"), name, adgroupId: vendorIdSchema, text: z.string().trim().min(1).max(100), videoId: mediaId, identityId: mediaId, landingPageUrl: tiktokUrlSchema }),
+  "create-adgroup-paused": z.strictObject({ kind: z.literal("create-adgroup-paused"), name, campaignId: vendorIdSchema, budget, locationIds: ids, scheduleStart: z.string().regex(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/), scheduleEnd: z.string().regex(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/).optional() }),
+  "create-ad-paused": z.strictObject({ kind: z.literal("create-ad-paused"), name, adgroupId: vendorIdSchema, text: z.string().trim().min(1).max(100), videoId: mediaId.optional(), imageIds: z.array(mediaId).length(1).optional(), adFormat: z.enum(["SINGLE_IMAGE", "SINGLE_VIDEO"]).optional(), identityType: z.enum(["AUTH_CODE", "CUSTOMIZED_USER"]).optional(), identityId: mediaId, landingPageUrl: tiktokUrlSchema }).refine(validCreative),
   "activate-entity": z.strictObject({ kind: z.literal("activate-entity"), ...entity }),
   "pause-entity": z.strictObject({ kind: z.literal("pause-entity"), ...entity }),
 };
@@ -55,6 +55,12 @@ export const tiktokTools = [
 function validReportDates(required: { startDate: string; endDate: string }): boolean {
   const days = (Date.parse(required.endDate) - Date.parse(required.startDate)) / 86400000;
   return Number.isFinite(days) && days >= 0 && days < 31;
+}
+
+/** One image or one video; customized video requires its single cover. O(1), pure. */
+function validCreative(required: { adFormat?: string; identityType?: string; videoId?: string; imageIds?: string[] }): boolean {
+  if (required.adFormat === "SINGLE_IMAGE") return required.imageIds?.length === 1 && required.videoId === undefined;
+  return required.videoId !== undefined && (required.identityType !== "CUSTOMIZED_USER" || required.imageIds?.length === 1);
 }
 
 function describeTool(required: { name: string; schema: z.ZodType; description: string; effects?: readonly EffectCategory[] }) {
@@ -96,8 +102,8 @@ function encodeWrite(required: { command: Exclude<TikTokCommand, TikTokReadComma
   const base = { advertiser_id: accountId, operation_status: tiktokStatus.disabled };
   switch (command.kind) {
     case "create-campaign-paused": return { ok: true, value: { method: "POST", path: "campaign/create/", body: { ...base, campaign_name: command.name, objective_type: "TRAFFIC", budget_mode: "BUDGET_MODE_DAY", budget: command.budget } } };
-    case "create-adgroup-paused": return { ok: true, value: { method: "POST", path: "adgroup/create/", body: { ...base, campaign_id: command.campaignId, adgroup_name: command.name, budget_mode: "BUDGET_MODE_DAY", budget: command.budget, promotion_type: "WEBSITE", placement_type: "PLACEMENT_TYPE_NORMAL", placements: ["PLACEMENT_TIKTOK"], location_ids: command.locationIds, optimization_goal: "CLICK", billing_event: "CPC", bid_type: "BID_TYPE_NO_BID", pacing: "PACING_MODE_SMOOTH", schedule_type: "SCHEDULE_FROM_NOW", schedule_start_time: command.scheduleStart } } };
-    case "create-ad-paused": return { ok: true, value: { method: "POST", path: "ad/create/", body: { advertiser_id: accountId, adgroup_id: command.adgroupId, creatives: [{ operation_status: tiktokStatus.disabled, ad_name: command.name, ad_text: command.text, ad_format: "SINGLE_VIDEO", video_id: command.videoId, identity_type: "AUTH_CODE", identity_id: command.identityId, landing_page_url: command.landingPageUrl, call_to_action: "LEARN_MORE" }] } } };
+    case "create-adgroup-paused": return { ok: true, value: { method: "POST", path: "adgroup/create/", body: { ...base, campaign_id: command.campaignId, adgroup_name: command.name, budget_mode: "BUDGET_MODE_DAY", budget: command.budget, promotion_type: "WEBSITE", placement_type: "PLACEMENT_TYPE_NORMAL", placements: ["PLACEMENT_TIKTOK"], location_ids: command.locationIds, optimization_goal: "CLICK", billing_event: "CPC", bid_type: "BID_TYPE_NO_BID", pacing: "PACING_MODE_SMOOTH", schedule_type: command.scheduleEnd ? "SCHEDULE_START_END" : "SCHEDULE_FROM_NOW", schedule_start_time: command.scheduleStart, ...(command.scheduleEnd ? { schedule_end_time: command.scheduleEnd } : {}) } } };
+    case "create-ad-paused": return { ok: true, value: { method: "POST", path: "ad/create/", body: { advertiser_id: accountId, adgroup_id: command.adgroupId, creatives: [{ operation_status: tiktokStatus.disabled, ad_name: command.name, ad_text: command.text, ad_format: command.adFormat ?? "SINGLE_VIDEO", ...(command.videoId ? { video_id: command.videoId } : {}), ...(command.imageIds ? { image_ids: command.imageIds } : {}), identity_type: command.identityType ?? "AUTH_CODE", identity_id: command.identityId, landing_page_url: command.landingPageUrl, call_to_action: "LEARN_MORE" }] } } };
     case "activate-entity": case "pause-entity": return { ok: true, value: { method: "POST", path: `${command.entityType}/status/update/`, body: { advertiser_id: accountId, [`${command.entityType}_ids`]: [command.entityId], operation_status: command.kind === "activate-entity" ? tiktokStatus.enabled : tiktokStatus.disabled } } };
     default: { const exhaustive: never = command; return exhaustive; }
   }
@@ -144,9 +150,12 @@ export const tiktokSpendSchema = z.string().regex(/^(0|[1-9][0-9]{0,15})(\.[0-9]
 /** Narrow account-total wire shape; no conversion metrics or CAC interpretation. */
 export const tiktokReportDataSchema = z.object({ list: z.array(z.object({ dimensions: z.object({ advertiser_id: vendorIdSchema }), metrics: z.object({ spend: tiktokSpendSchema }) })).max(1), page_info: tiktokPageSchema });
 const advertiserDataSchema = z.object({ list: z.array(z.object({ advertiser_id: vendorIdSchema, advertiser_name: z.string().max(256).optional(), currency: z.string().regex(/^[A-Z]{3}$/), timezone: z.string().min(1).max(100) })).length(1) });
-const campaignRow = z.object({ advertiser_id: vendorIdSchema, campaign_id: vendorIdSchema, campaign_name: z.string().max(256), operation_status: z.string().min(1).max(100) });
-const adgroupRow = z.object({ advertiser_id: vendorIdSchema, campaign_id: vendorIdSchema, adgroup_id: vendorIdSchema, adgroup_name: z.string().max(256), operation_status: z.string().min(1).max(100) });
-const adRow = z.object({ advertiser_id: vendorIdSchema, campaign_id: vendorIdSchema, adgroup_id: vendorIdSchema, ad_id: vendorIdSchema, ad_name: z.string().max(256), operation_status: z.string().min(1).max(100) });
+const campaignConfiguration = z.object({ objective_type: name, budget_mode: name, budget: z.number().nonnegative().max(1000000000), secondary_status: name }).partial().shape;
+const groupConfiguration = z.object({ budget_mode: name, budget: z.number().nonnegative().max(1000000000), promotion_type: name, placement_type: name, placements: z.array(name).max(20), location_ids: ids, optimization_goal: name, billing_event: name, bid_type: name, pacing: name, schedule_type: name, schedule_start_time: name, schedule_end_time: name, secondary_status: name }).partial().shape;
+const creativeConfiguration = z.object({ ad_format: name, identity_type: name, identity_id: mediaId, video_id: mediaId, image_ids: z.array(mediaId).max(20), ad_text: z.string().max(100), call_to_action: name, landing_page_url: tiktokUrlSchema, secondary_status: name }).partial().shape;
+const campaignRow = z.object({ advertiser_id: vendorIdSchema, campaign_id: vendorIdSchema, campaign_name: z.string().max(256), operation_status: z.string().min(1).max(100), ...campaignConfiguration });
+const adgroupRow = z.object({ advertiser_id: vendorIdSchema, campaign_id: vendorIdSchema, adgroup_id: vendorIdSchema, adgroup_name: z.string().max(256), operation_status: z.string().min(1).max(100), ...groupConfiguration });
+const adRow = z.object({ advertiser_id: vendorIdSchema, campaign_id: vendorIdSchema, adgroup_id: vendorIdSchema, ad_id: vendorIdSchema, ad_name: z.string().max(256), operation_status: z.string().min(1).max(100), ...creativeConfiguration });
 const listDataSchemas = { "get-campaigns": z.object({ list: z.array(campaignRow).max(100), page_info: tiktokPageSchema }), "get-adgroups": z.object({ list: z.array(adgroupRow).max(100), page_info: tiktokPageSchema }), "get-ads": z.object({ list: z.array(adRow).max(100), page_info: tiktokPageSchema }) };
 const envelopeSchema = z.object({ code: z.number().int(), message: z.string().max(1024).optional(), request_id: z.string().max(256).optional(), data: z.record(z.string(), z.json()).optional() });
 type PageInfo = z.infer<typeof tiktokPageSchema>;

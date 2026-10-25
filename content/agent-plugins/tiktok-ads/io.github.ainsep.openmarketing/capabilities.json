@@ -66,7 +66,7 @@
       "capabilityId": "tiktok_ads.create_adgroup_paused.v1",
       "version": 1,
       "pluginId": "tiktok-ads",
-      "schemaFingerprint": "bd4d374a2ac7aae2cc00d2ec1d37d944f038cbf9e2a95392d137657b7c959f6e",
+      "schemaFingerprint": "7c584a9b30f369dac211704bbaf0633cda1c97a5ee8715efb00de6e81e13e0e6",
       "admitted": false,
       "effects": [
         "write"
@@ -76,7 +76,7 @@
       "capabilityId": "tiktok_ads.create_ad_paused.v1",
       "version": 1,
       "pluginId": "tiktok-ads",
-      "schemaFingerprint": "0c065129d36766b525f0618501098133f69dfc616a98e55c7bc7e8dc541db05b",
+      "schemaFingerprint": "33c6be138897c2be7d918772b067daba6dde4c6481a848e45a69d98a7184cc21",
       "admitted": false,
       "effects": [
         "write"
@@ -120,6 +120,16 @@
       "admitted": false,
       "effects": [
         "conversion"
+      ]
+    },
+    {
+      "capabilityId": "campaign.create-paused.v1",
+      "version": 1,
+      "pluginId": "tiktok-ads",
+      "schemaFingerprint": "3b881747effa432ce3707516baa18fca767f0db54975202b3ecabb2d51591001",
+      "admitted": false,
+      "effects": [
+        "write"
       ]
     }
   ]

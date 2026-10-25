@@ -443,5 +443,31 @@
     ],
     "conversions": "backend measurement grant/consent recheck; not an agent tool",
     "admission": "All capabilities remain admitted:false, enabled:false; no extra UNVERIFIED code-level availability gate."
+  },
+  "pausedDeploymentReview": {
+    "inspectedAt": "2026-10-24",
+    "apiVersion": "v1.3",
+    "basis": "Coordinator-supplied evidence-chrome.md (official docs read in Chrome) plus evidence.md; web fetch of the portal remained unreadable during implementation.",
+    "sources": [
+      "https://business-api.tiktok.com/gateway/docs/index?doc_id=1739318962329602&language=ENGLISH",
+      "https://business-api.tiktok.com/gateway/docs/index?doc_id=1739499616346114&language=ENGLISH",
+      "https://business-api.tiktok.com/gateway/docs/index?doc_id=1739953377508354&language=ENGLISH",
+      "https://business-api.tiktok.com/gateway/docs/index?doc_id=1739314558673922&language=ENGLISH",
+      "https://business-api.tiktok.com/gateway/docs/index?doc_id=1735735588640770&language=ENGLISH",
+      "https://github.com/tiktok/tiktok-business-api-sdk/blob/main/js_sdk/docs/AdcreateCreatives.md"
+    ],
+    "verified": [
+      "Campaign/group/ad creation accepts explicit operation_status DISABLE; ad status is inside each creatives item (SDK nesting plus required GET confirmation).",
+      "Non-CBO website TRAFFIC group: WEBSITE, CLICK, CPC, BID_TYPE_NO_BID, PACING_MODE_SMOOTH, explicit TikTok placement and locations.",
+      "BUDGET_MODE_DAY allows SCHEDULE_START_END with budget and schedule_end_time. Lifetime/total and dynamic daily are not mapped.",
+      "Schedule start/end use UTC+0 YYYY-MM-DD HH:MM:SS; retain exact seconds and finite end.",
+      "SINGLE_IMAGE requires one image_id through image_ids; SINGLE_VIDEO uses video_id plus one cover image for the supported CUSTOMIZED_USER identity.",
+      "Website ads always carry landing_page_url, text and LEARN_MORE call_to_action.",
+      "adgroup/get and ad/get accept saved-ID filters and expose configuration; creative fields are flat. DISABLE alone proves the requested flag; FROZEN means terminated and is never accepted as paused."
+    ],
+    "unverified": [
+      "v2.0 equivalence for each creation/GET endpoint; retain v1.3 without inferring unsupported endpoints from incremental-documentation omissions.",
+      "Live acceptance, account eligibility and effective hierarchy serving; admission remains false."
+    ]
   }
 }

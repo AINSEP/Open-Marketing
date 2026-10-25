@@ -111,7 +111,7 @@ function canonicalDigest(required: { value: unknown }): string { const result = 
 
 /** Reuse each plugin's closed plan parser, never a host-owned vendor schema. */
 function deploymentContribution(required: { pluginId: string; module: Namespace }): Contribution[] {
-    if (!['google-ads', 'meta-ads', 'linkedin-ads'].includes(required.pluginId)) return [];
+    if (!['google-ads', 'meta-ads', 'linkedin-ads', 'tiktok-ads'].includes(required.pluginId)) return [];
     const google = required.pluginId === 'google-ads';
     const schema = required.module.campaignDeploymentPlanSchema as z.ZodType;
     const plan = google ? required.module.planSchema as Record<string, unknown> : z.toJSONSchema(schema, { io: 'input' });
@@ -599,6 +599,8 @@ async function deployment(required: Execution): Promise<Outcome<unknown>> {
     if (required.pluginId === 'google-ads') return googleDeployment(required);
     const dependencies = required.pluginId === 'meta-ads'
         ? { admitted: true, dispatch: exported<Factory<unknown>>({ module: required.module, name: 'createMetaInstagramFetchDispatch' })({ fetch: guardedFetch(required), credentials: credentials(required) }) }
+        : required.pluginId === 'tiktok-ads'
+        ? { admitted: true, egress: exported<Factory<unknown>>({ module: required.module, name: 'createTikTokFetchEgress' })({ fetch: guardedFetch(required), credentials: credentials(required), observer: required.dependencies.observer }) }
         : { admitted: true, clock: required.dependencies.clock, observer: required.dependencies.observer, fetch: guardedFetch(required), credentials: credentials(required),
             configuration: { scope: required.context.scope, connectionId: required.input.connectionId, accountId: required.input.accountId, pluginDigest: required.state.revision, currency: required.input.currency, apiVersion: '202610', bindingId: 'campaign.create-draft.v1' } };
     const read = required.evidence !== undefined;
