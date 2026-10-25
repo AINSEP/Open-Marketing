@@ -3,7 +3,6 @@ import { createResendEmailAdapter } from "../src/index.js";
 import type { ResendEmailDependencies, ResendEmailGatewayPort, ResendEmailInvocation } from "../src/index.js";
 
 /** Synthetic fixture values; real host adapters must run the same dispatch suite. */
-export const now = 1792800000000;
 export const domainId = "d91cd9bd-1176-453e-8fc1-35364d380206";
 export const domain = { id: domainId, name: "example.com", status: "verified", open_tracking: false, click_tracking: false, capabilities: { sending: "enabled" }, records: [{ record: "DKIM", name: "resend._domainkey", type: "TXT", value: "fixture", status: "verified", ttl: "Auto" }] };
 export function invocation(required: { command?: ResendEmailInvocation["command"] } = {}): ResendEmailInvocation {
@@ -28,7 +27,7 @@ export function fixture(required: FixtureOptions = {}) {
     credentials: { async access() { state.credentialCalls++; required.credentialHook?.(); return { ok: true, value: (required.credential ?? { accessToken: "synthetic-secret" }) as { accessToken: string } }; } },
     fetch: async (url, init) => { calls.push({ url: String(url), init: init ?? {} }); return required.response ? required.response({ signal: init!.signal! }) : Response.json({ data: [domain], has_more: false }); },
     deadline: required.deadline ?? (() => new AbortController().signal),
-    clock: { now: () => now }, observer: { observe(event) { observations.push(event); } },
+    observer: { observe(event) { observations.push(event); } },
   };
   return { adapter: createResendEmailAdapter(dependencies), dependencies, calls, effects, state, observations };
 }

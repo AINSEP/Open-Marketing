@@ -6,7 +6,7 @@ import type { AppError, CallContext, CallOptions, Outcome } from "@open-marketin
 import { customerIdSchema } from "./commands.js";
 import { campaignDeploymentPlanSchema, pausedLaunchUnavailableReason } from "./campaign-translation.js";
 import type { NaverPausedPlan } from "./campaign-translation.js";
-import type { NaverDependencies } from "./transport.js";
+import { readBody, type NaverDependencies } from "./transport.js";
 
 export { campaignDeploymentPlanSchema } from "./campaign-translation.js";
 const slotSchema = z.string().regex(/^(campaign|adgroup|ad|keyword_([0-9]|1[0-9]))$/);
@@ -128,7 +128,7 @@ async function sendGet(required: { input: Checked; path: string }, optional?: Ca
   catch { result = failure({ code: "unavailable" }); }
   try { dependencies.observer.observe({ operation: "naver-ads.deployment.readback", outcome: result.ok ? "received" : result.error.code, correlationId: input.context.correlationId, traceId: input.context.traceId, runId: input.context.runId }); }
   catch { /* Telemetry cannot erase a validated read or change saved references. */ }
-  return result;
+  return result.ok ? result : failure({ code: result.error.code });
 }
 
 /** Recheck the frozen binding after credential access; vendor/broker messages never leave this boundary. */
@@ -155,24 +155,6 @@ async function authenticatedGet(required: { input: Checked; path: string }, opti
   return body;
 }
 
-/** Stream before JSON parsing; reject oversized, missing, invalid UTF-8 or malformed bodies. O(b), <=1MiB. */
-async function readBody(required: { response: Response }): Promise<Outcome<unknown>> {
-  if (!required.response.body) return failure({ code: "protocol_mismatch" });
-  const reader = required.response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let bytes = 0;
-  try {
-    while (true) {
-      const chunk = await reader.read();
-      if (chunk.done) break;
-      bytes += chunk.value.byteLength;
-      if (bytes > 1048576) { await reader.cancel(); return failure({ code: "limit_exceeded" }); }
-      chunks.push(chunk.value);
-    }
-    return { ok: true, value: JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks))) as unknown };
-  } catch { return failure({ code: "protocol_mismatch" }); }
-  finally { reader.releaseLock(); }
-}
 function receipt(required: { references: References; hierarchy: unknown[]; status?: NaverDeploymentResult["status"] }): Outcome<NaverDeploymentResult> {
   return { ok: true, value: { ...required, status: required.status ?? "unknown", references: { ...required.references }, entityIds: Object.values(required.references) } };
 }

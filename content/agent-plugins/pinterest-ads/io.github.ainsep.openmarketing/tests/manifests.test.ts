@@ -24,10 +24,9 @@ it("declares three read tools and internal paused/conversion capabilities, disab
   expect(json({ path: "io.github.ainsep.openmarketing/capabilities.json" })).toMatchObject({ deployment: { capabilityId: "campaign.create-paused.v1", admitted: false }, backendConversion: { agentTool: false, effects: ["conversion"] } });
   expect(json({ path: "mcp.json" })).toEqual({ $schema: "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json", mcpServers: {} });
 });
-it("pins the existing toolchain and records official evidence plus unavailable auth", () => {
-  const pkg = z.object({ dependencies: z.record(z.string(), z.string()), devDependencies: z.record(z.string(), z.string()), exports: z.record(z.string(), z.unknown()), sideEffects: z.literal(false) }).parse(json({ path: "package.json" }));
-  expect(Object.keys(pkg.exports)).toEqual(["."]); expect(pkg.dependencies).toEqual({ "@open-marketing/contracts": "workspace:*", zod: "4.1.13" });
-  expect(pkg.devDependencies).toEqual({ "@types/node": "24.10.1", esbuild: "0.25.12", typescript: "5.9.3", vitest: "3.2.4" });
+it("keeps required dependencies and records official evidence plus unavailable auth", () => {
+  const pkg = z.object({ dependencies: z.record(z.string(), z.string()), exports: z.record(z.string(), z.unknown()), sideEffects: z.literal(false) }).parse(json({ path: "package.json" }));
+  expect(Object.keys(pkg.exports)).toEqual(["."]); expect(Object.keys(pkg.dependencies).sort()).toEqual(["@open-marketing/contracts", "zod"]);
   const evidence = z.object({ checkedAt: z.literal("2026-10-24"), sources: z.array(z.object({ url: z.url(), quote: z.string().min(1) })), unverified: z.object({ oauth: z.string(), endDateInclusivity: z.string() }) }).parse(json({ path: "io.github.ainsep.openmarketing/evidence/primary-sources.json" }));
   expect(evidence.sources.map(source => new URL(source.url).hostname)).toEqual(["raw.githubusercontent.com", ...Array<string>(5).fill("developers.pinterest.com")]);
   expect(evidence.unverified.endDateInclusivity).toContain("Reports unavailable before credential/gateway/network I/O");

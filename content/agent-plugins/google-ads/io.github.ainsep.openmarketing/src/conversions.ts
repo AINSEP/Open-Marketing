@@ -145,8 +145,7 @@ async function ingest(required: MappedRequest): Promise<DeliveryOutcome> {
   const requestId = parse<string>({ schema: id, input: receipt.requestId });
   if (!requestId.ok) return success({ value: { status: "unknown" } });
   // Preserve the valid receipt even if warnings/other fields need owner inspection.
-  const saved = await required.dependencies.journal.append({ record: { ...required.record, requestId: requestId.value } });
-  if (!saved.ok) return success({ value: { status: "unknown" } });
+  await required.dependencies.journal.append({ record: { ...required.record, requestId: requestId.value } });
   return success({ value: { status: "unknown" } });
 }
 /** Closed schemas plus trusted scope, consent, grant and value checks before I/O.

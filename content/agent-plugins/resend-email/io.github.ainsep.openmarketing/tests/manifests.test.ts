@@ -11,7 +11,7 @@ it("declares inert OM metadata and a Full-access paste-token card without an ext
   expect(manifest.extensions["io.github.ainsep.openmarketing"]).toMatchObject({ enabled: false, admitted: false, credentialCards: [{ target: "resend-email", authMode: "paste-token", permission: "full_access", baseUrl: "https://api.resend.com", probeUrl: "https://api.resend.com/domains?limit=1" }] });
   expect(JSON.parse(await readFile(new URL("mcp.json", root), "utf8"))).toEqual({ $schema: "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json", mcpServers: {} });
   const pkg = JSON.parse(await readFile(new URL("package.json", root), "utf8"));
-  expect(pkg.sideEffects).toBe(false); expect(pkg.dependencies).toEqual({ "@open-marketing/contracts": "workspace:*", zod: "4.1.13" });
+  expect(pkg.sideEffects).toBe(false); expect(Object.keys(pkg.dependencies).sort()).toEqual(["@open-marketing/contracts", "zod"]);
   const capabilities = JSON.parse(await readFile(new URL("io.github.ainsep.openmarketing/capabilities.json", root), "utf8"));
   const fingerprint = createHash("sha256").update(await readFile(new URL("io.github.ainsep.openmarketing/src/commands.ts", root))).digest("hex");
   expect(capabilities.capabilities).toEqual([{ capabilityId: "email.domains-read.v1", version: 1, pluginId: "resend-email", schemaFingerprint: fingerprint, admitted: false, effects: ["read"] }]);

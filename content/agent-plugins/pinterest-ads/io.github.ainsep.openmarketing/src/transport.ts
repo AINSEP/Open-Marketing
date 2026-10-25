@@ -37,9 +37,9 @@ export function createPinterestAdsAdapter(required: PinterestDependencies): Pint
 function prepare(required: { dependencies: PinterestDependencies; input: PinterestInvocation }, options?: CallOptions): Outcome<Prepared> {
   if (!required.dependencies.admitted) return failure({ code: "forbidden" });
   if (options?.signal?.aborted) return failure({ code: "cancelled" });
-  const serialized = JSON.stringify(required.input);
-  if (serialized === undefined || Buffer.byteLength(serialized) > 65536) return failure({ code: "limit_exceeded" });
-  const invocation = parseBoundary({ schema: invocationSchema, input: JSON.parse(serialized) as unknown });
+  const bounded = boundInput({ input: required.input });
+  if (!bounded.ok) return bounded;
+  const invocation = parseBoundary({ schema: invocationSchema, input: bounded.value });
   if (!invocation.ok) return invocation;
   const configuration = parseBoundary({ schema: configurationSchema, input: required.dependencies.configuration });
   if (!configuration.ok) return configuration;

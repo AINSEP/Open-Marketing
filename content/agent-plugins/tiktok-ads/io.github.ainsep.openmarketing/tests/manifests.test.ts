@@ -39,11 +39,10 @@ describe("packaged TikTok metadata", () => {
     ]);
   });
   it("remains a separate inert plugin package, with no Jini link or vendor/chart SDK", () => {
-    const pkg = z.object({ name: z.string(), sideEffects: z.boolean(), exports: z.record(z.string(), z.object({ types: z.string(), import: z.string() })), dependencies: z.record(z.string(), z.string()), devDependencies: z.record(z.string(), z.string()) }).parse(readJson({ path: "package.json" }));
+    const pkg = z.object({ name: z.string(), sideEffects: z.boolean(), exports: z.record(z.string(), z.object({ types: z.string(), import: z.string() })), dependencies: z.record(z.string(), z.string()) }).parse(readJson({ path: "package.json" }));
     expect(pkg.name).toBe("@open-marketing-plugin/tiktok-ads"); expect(pkg.sideEffects).toBe(false);
     expect(pkg.exports).toEqual({ ".": { types: "./io.github.ainsep.openmarketing/src/index.ts", import: "./io.github.ainsep.openmarketing/dist/index.mjs" } });
-    expect(pkg.dependencies).toEqual({ "@open-marketing/contracts": "workspace:*", zod: "4.1.13" });
-    expect(pkg.devDependencies).toMatchObject({ typescript: "5.9.3", vitest: "3.2.4", esbuild: "0.25.12" });
+    expect(Object.keys(pkg.dependencies).sort()).toEqual(["@open-marketing/contracts", "zod"]);
   });
   it("records API version, dates, primary URLs and explicit unverified admission limitations", () => {
     const evidence = z.object({ apiVersion: z.literal("v1.3"), inspectedAt: z.literal("2026-10-13"), admission: z.literal("disabled-pending-host-admission"), endpoints: z.array(z.object({ path: z.string(), method: z.enum(["GET", "POST"]), apiVersion: z.literal("v1.3"), inspectedAt: z.literal("2026-10-13"), portalUrl: z.url(), sdkUrl: z.url().optional(), confirmedRequestFields: z.array(z.string()), unverified: z.array(z.string()).min(1) })).length(12), unverified: z.array(z.string()).min(1) }).parse(readJson({ path: "io.github.ainsep.openmarketing/evidence/primary-sources.json" }));

@@ -221,12 +221,8 @@ function rateLimit(required: { response: Response }): XResult["rateLimit"] {
   return { limit, remaining, resetAtSeconds };
 }
 function httpFailure(required: { status: number }): Outcome<never> {
-  switch (required.status) {
-    case 401: return failure({ code: "unauthenticated" });
-    case 403: return failure({ code: "forbidden" });
-    case 429: return failure({ code: "limit_exceeded" });
-    default: return failure({ code: "unavailable" });
-  }
+  const codes: Partial<Record<number, AppError["code"]>> = { 401: "unauthenticated", 403: "forbidden", 429: "limit_exceeded" };
+  return failure({ code: codes[required.status] ?? "unavailable" });
 }
 export function failure(required: { code: AppError["code"] }): Outcome<never> { return { ok: false, error: { code: required.code, message: "X Ads request failed (" + required.code + ")", retryable: false } }; }
 /** Telemetry is bounded and secret-free; observer failure cannot change the read outcome. @complexity O(1). */

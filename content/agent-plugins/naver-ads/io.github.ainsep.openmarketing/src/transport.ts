@@ -127,10 +127,10 @@ async function request(required: { dependencies: NaverDependencies; configuratio
   } catch { return failure({ code: "unavailable" }); }
 }
 
-/** Stream before JSON parsing; Content-Length and untrusted pagination URLs grant no authority.
+/** Stream JSON for reads/readback; reject missing, malformed or invalid UTF-8 bodies.
  * @complexity O(b) time/space, b<=1MiB; oversized streams are cancelled, never partially returned.
  */
-async function readBody(required: { response: Response }): Promise<Outcome<unknown>> {
+export async function readBody(required: { response: Response }): Promise<Outcome<unknown>> {
   if (!required.response.body) return failure({ code: "protocol_mismatch" });
   const reader = required.response.body.getReader();
   const chunks: Uint8Array[] = [];

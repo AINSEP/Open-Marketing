@@ -1,4 +1,4 @@
-import type { CallContext, CallOptions, ClockPort, EffectEnvelope, ObserverPort, Outcome, Scope } from "@open-marketing/contracts";
+import type { CallContext, CallOptions, EffectEnvelope, ObserverPort, Outcome, Scope } from "@open-marketing/contracts";
 import type { ResendCommand, ResendDomain } from "./commands.js";
 
 /** Server binding only; never assistant arguments or a credential-bearing config. */
@@ -25,7 +25,7 @@ export interface ResendEmailInvocation { readonly context: CallContext; readonly
 export interface ResendEmailAdapter { invoke(required: ResendEmailInvocation, optional?: CallOptions): Promise<Outcome<ResendEmailResult>> }
 /** Server composition supplies every effect dependency; fetch retains its foreign platform ABI. */
 export interface ResendEmailDependencies { readonly configuration: ResendEmailConfiguration; readonly gateway: ResendEmailGatewayPort;
-  readonly credentials: ResendEmailCredentialPort; readonly fetch: typeof fetch; readonly clock: ClockPort; readonly observer: ObserverPort;
+  readonly credentials: ResendEmailCredentialPort; readonly fetch: typeof fetch; readonly observer: ObserverPort;
   /** Host-owned timing: return a signal that aborts after timeoutMs, covering fetch and its body.
    * @example deadline: ({ timeoutMs }) => hostDeadline({ timeoutMs }) */
   readonly deadline: (required: { timeoutMs: number }) => AbortSignal }

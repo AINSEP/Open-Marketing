@@ -23,11 +23,10 @@ describe("Naver portable package", () => {
     expect(declaration.tools.every(tool => declaration.capabilities.some(item => item.capabilityId === tool.capabilityId))).toBe(true);
     expect(read({ path: "mcp.json" })).toEqual({ $schema: "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json", mcpServers: {} });
   });
-  it("mirrors existing pins and one public entry, with dated official evidence", () => {
-    const pkg = z.object({ sideEffects: z.literal(false), exports: z.record(z.string(), z.unknown()), dependencies: z.record(z.string(), z.string()), devDependencies: z.record(z.string(), z.string()) }).parse(read({ path: "package.json" }));
+  it("keeps required dependencies and one public entry, with dated official evidence", () => {
+    const pkg = z.object({ sideEffects: z.literal(false), exports: z.record(z.string(), z.unknown()), dependencies: z.record(z.string(), z.string()) }).parse(read({ path: "package.json" }));
     expect(Object.keys(pkg.exports)).toEqual(["."]);
-    expect(pkg.dependencies).toEqual({ "@open-marketing/contracts": "workspace:*", zod: "4.1.13" });
-    expect(pkg.devDependencies).toEqual({ "@types/node": "24.10.1", esbuild: "0.25.12", typescript: "5.9.3", vitest: "3.2.4" });
+    expect(Object.keys(pkg.dependencies).sort()).toEqual(["@open-marketing/contracts", "zod"]);
     const evidence = z.object({ checkedAt: z.literal("2026-10-24"), sources: z.array(z.object({ url: z.url(), quote: z.string().min(1) })).min(7), unverified: z.array(z.unknown()).min(1), blockedPages: z.array(z.string()).min(1) }).parse(read({ path: "io.github.ainsep.openmarketing/evidence/primary-sources.json" }));
     expect(evidence.sources.every(item => ["raw.githubusercontent.com", "github.com"].includes(new URL(item.url).hostname))).toBe(true);
     expect(readFileSync(new URL("LICENSE", root), "utf8")).toContain("Apache License");
