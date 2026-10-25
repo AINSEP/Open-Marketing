@@ -1,0 +1,10 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.1.0/plugin.schema.json",
+  "name": "vk-ads",
+  "version": "0.1.0",
+  "description": "VK read integration held pending complete official evidence; no admitted tools or vendor access.",
+  "license": "Apache-2.0",
+  "extensions": {
+    "io.github.ainsep.openmarketing": { "version": 1, "enabled": false, "admitted": false, "capabilities": [] }
+  }
+}

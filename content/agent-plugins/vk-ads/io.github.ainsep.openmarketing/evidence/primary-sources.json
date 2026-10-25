@@ -1,0 +1,39 @@
+{
+  "checkedAt": "2026-10-24",
+  "provenance": "Owner Chrome capture: ADS-memory/.local-artifacts/codex-runs/2026-10-24-plugin-vk-ads/evidence-chrome.md. Public docs, no login. This run's web retrieval still failed.",
+  "sources": [
+    {
+      "url": "https://ads.vk.ru/en/doc/api/info/Authorization",
+      "quote": "access to an account’s data is only possible with a token obtained for that account",
+      "verified": ["Authorization: Bearer access_token", "read_ads scope", "token-bound account", "default token lifetime one day", "invalid_token/expired_token/revoked_token are 401"],
+      "implementation": "Existing server sealed paste-token broker only; no token issuance, refresh or deletion."
+    },
+    {
+      "url": "https://ads.vk.ru/en/doc/api/resource/User",
+      "quote": "A resource that allows you to collect basic information about the user.",
+      "verified": ["GET /api/v3/user.json", "id", "username", "currency", "status", "advertiser token identifies one account"]
+    },
+    {
+      "url": "https://ads.vk.ru/en/doc/api/object/User",
+      "quote": "currency string readable default_field User currency.",
+      "verified": ["status: active/deleted/blocked"],
+      "unverified": ["account timezone"]
+    },
+    {
+      "url": "https://ads.vk.ru/en/doc/api/resource/AdPlans",
+      "quote": "The resource supports pagination using the limit and offset parameters.",
+      "verified": ["GET /api/v2/ad_plans.json", "response count/offset/items", "item id/name", "default limit 20"],
+      "localLimits": ["limit <=100", "offset <=1000000", "one page; zero retries"]
+    },
+    {
+      "url": "https://ads.vk.ru/en/doc/api/info/Statistics",
+      "quote": "date_to YYYY-MM-DD End date (inclusive).",
+      "verified": ["v2 statistics users/campaigns/banners day/summary paths", "spent is a decimal string", "base shows/clicks/spent"],
+      "unverified": ["spent currency/units", "statistics timezone", "statistics campaign to ad_plan/ad_group mapping"],
+      "implementation": "report returns unavailable before credentials or fetch; no report capability advertised."
+    }
+  ],
+  "unverified": ["API origin in captured relative request examples", "sunset policy", "rate limits", "remote idempotency", "loopback redirects", "conversion delivery", "R2 complete creation contract"],
+  "blockedPages": ["https://ads.vk.ru/en/doc/api/resource/User", "https://ads.vk.ru/en/doc/api/resource/AdPlans", "https://ads.vk.ru/en/doc/api/info/Authorization", "https://ads.vk.ru/en/doc/api/info/Statistics"],
+  "notEvidence": "Community mirrors and synthetic fixtures establish no vendor behavior."
+}
