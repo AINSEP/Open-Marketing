@@ -1,0 +1,16 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "resend-email", "version": "0.1.0", "license": "Apache-2.0",
+  "description": "Resend domain reads and host-brokered authentication; disabled pending OM integration.",
+  "extensions": {
+    "io.github.ainsep.openmarketing": {
+      "version": 1, "enabled": false, "admitted": false,
+      "capabilities": [
+        {"capabilityId": "email.domains-read.v1", "version": 1, "pluginId": "resend-email", "schemaFingerprint": "63e56640617d60828a05a320b8655479472c85d47a7b76e67b9dea952af27710", "admitted": false, "effects": ["read"]}
+      ],
+      "credentialCards": [
+        {"target": "resend-email", "title": "Connect Resend", "label": "Resend email", "authMode": "paste-token", "permission": "full_access", "usedFor": ["Read sending-domain status"], "keyHint": "Create a Full access API key in Resend. Paste only into the secure credential form.", "helpUrl": "https://resend.com/api-keys", "baseUrl": "https://api.resend.com", "probeUrl": "https://api.resend.com/domains?limit=1"}
+      ]
+    }
+  }
+}

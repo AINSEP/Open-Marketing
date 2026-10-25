@@ -1,0 +1,19 @@
+{
+  "checkedAt": "2026-10-24",
+  "liveAccountVerified": false,
+  "sources": [
+    {
+      "url": "https://resend.com/docs/api-reference/domains/get-domain",
+      "fact": "GET /domains/{id}: status, DNS records, sending capability and tracking flags."
+    },
+    {
+      "url": "https://resend.com/docs/api-reference/domains/list-domains",
+      "fact": "GET /domains: limit/after pagination; list alone does not establish readiness."
+    },
+    {
+      "url": "https://resend.com/docs/api-reference/api-keys/create-api-key",
+      "fact": "Full access required for resource reads; Sending access only sends."
+    }
+  ],
+  "verification": "R1F rechecked primary documentation for read endpoints, domain response fields and Full-access permission. No live account or host admission was verified. Sending and all unverified vendor behavior remain unavailable."
+}

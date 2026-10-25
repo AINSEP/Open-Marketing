@@ -1,0 +1,17 @@
+# Resend email — R1F
+
+Inert, disabled plugin for bounded domain reads and host-brokered authentication. Sending is deferred: no send schema, tool, capability or POST mapping is exposed. Batch/segment handoff and feedback remain deferred. No server, studio or CLI integration is included.
+
+Connect through the host's secure paste-token card with a Resend **Full access** key. Sending-only keys cannot read domains. The card is metadata awaiting host support; never paste credentials into chat. An admitted `GET /domains?limit=1` is the permission probe. [Permissions](https://resend.com/docs/api-reference/api-keys/create-api-key).
+
+Server consumes the package entry and injects configuration, broker, gateway, guarded fetch, deadline creation, clock and observer. The factory does no I/O. Invoke with `{context, operationId, command}`, optional `{signal}`. `commandSchema` accepts only `domain_status`; unknown fields and legacy send DTOs fail before credential access. The gateway receives the parsed command and exact request digest; it must recheck admission, scope, current connection and read authority after credential lookup and hold its dispatch barrier through execution.
+
+One vendor request per invocation: domain list has limit 1–100 and an `after` UUID cursor; detail has domain ID/DNS records. Lists, unknown statuses and missing tracking flags never establish sending readiness. Responses report provider observations only; they grant no sending authority. [Retrieve domain](https://resend.com/docs/api-reference/domains/get-domain), [list domains](https://resend.com/docs/api-reference/domains/list-domains).
+
+Input <=64KiB, streamed response <=1MiB, redirects rejected, no internal retries. The injected `deadline({timeoutMs: 10000})` returns a host-timed abort signal covering fetch and response consumption; caller cancellation is composed with it. No production timing default exists in the plugin. HTTP 401/403 returns forbidden; other non-200 statuses, transport/deadline failures and missing host services return unavailable. Invalid provider schemas return protocol_mismatch. Provider errors and credentials are never echoed. Unverified vendor behavior stays unavailable rather than being inferred.
+
+Integrator NEEDS: narrow 1.0 manifest/MCP support in `features/plugins/src/portable.ts` and inspection fixtures; credential-card parsing/sealed save/probe; root `om:build-plugins` entry and any lockfile resolution. Keep workspace globs unchanged. Server composition must supply real broker/gateway, deadline and guarded fetch bindings, with correlated egress audit. Run `tests/contract-suite.ts` against real host adapters as well as the explicitly synthetic fixture. Host authorization is not implemented by the fixture.
+
+Sending needs a separately authorized run and host/safety ownership of exact approval, contacts/consent/suppression/erasure, the one jobs outbox, durable idempotency/receipts and working HTTPS unsubscribe/webhook endpoints. Live account behavior, delivered headers/DKIM and deployment configuration remain unverified. No production email capability is claimed.
+
+R1F tests are written, intentionally not run: read-only boundaries, malformed legacy unsubscribe URLs, deterministic fetch/body deadlines, atomic page rejection and synthetic admission/connection denials. The one final command is `corepack pnpm --dir content/agent-plugins/resend-email typecheck`. No installs/builds/full checks. Dependency pins mirror LinkedIn; no new runtime library. See PROVENANCE.md and evidence/primary-sources.json.
