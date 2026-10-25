@@ -6,6 +6,13 @@ import { conversionDispatchSuite } from "./contract/dispatch-suite.js";
 conversionDispatchSuite({ name: "Memory host with real LinkedIn plugin transport", makeFixture: () => capiFixture() });
 
 describe("server-only LinkedIn conversion delivery", () => {
+  it("rejects stored 202609 conversion configuration before authority, credentials or network access", async () => {
+    const f = capiFixture({ configuration: { ...capiConfiguration, apiVersion: "202609" } as unknown as LinkedInCapiConfiguration });
+    expect(await f.backend.deliver(conversionInput())).toMatchObject({ ok: false, error: { code: "invalid_input", retryable: false } });
+    expect(f.dispatches).toHaveLength(0);
+    expect(f.credentialCalls).toHaveLength(0);
+    expect(f.calls).toHaveLength(0);
+  });
   it.each(["consent", "grant", "connection", "production", "admitted"] as const)("rechecks current %s after token resolution", field => {
     const f = capiFixture({ credentialHook: () => { f.capiState[field] = false; } });
     return f.backend.deliver(conversionInput()).then(output => {
