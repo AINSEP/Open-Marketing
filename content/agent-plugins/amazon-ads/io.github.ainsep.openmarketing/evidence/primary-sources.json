@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "checkedAt": "2026-10-24",
+  "scope": "R1 documentation evidence; synthetic fixtures do not prove live acceptance or admission",
+  "sources": [
+    { "url": "https://raw.githubusercontent.com/amzn/ads-advanced-tools-docs/main/postman/README.md", "quote": "Currently supported", "verified": "Service-specific SP v3, SB v4 and reporting v3 coexist with Unified API; no guaranteed lifetime established" },
+    { "url": "https://raw.githubusercontent.com/amzn/ads-advanced-tools-docs/main/postman/Amazon_Ads_API.postman_collection.json", "quote": "/v2/profiles", "verified": "GET profile discovery; bearer token and client ID; other calls carry profile scope" },
+    { "url": "https://raw.githubusercontent.com/amzn/ads-advanced-tools-docs/main/postman/Amazon_Ads_API.postman_collection.json", "quote": "application/vnd.spCampaign.v3+json", "verified": "SP campaign POST list and resource media; campaigns array with string IDs, names, states and ISO dates" },
+    { "url": "https://advertising.amazon.com/API/docs/en-us/reference/sponsored-brands/2/campaigns", "quote": "maxResults", "verified": "SB POST /sb/v4/campaigns/list; application/vnd.sbcampaignresource.v4+json; page size 1..100 and nextToken; 429 throttling", "access": "Official search excerpt readable; direct portal previously empty" },
+    { "url": "https://raw.githubusercontent.com/amzn/ads-advanced-tools-docs/main/postman/Amazon_Ads_API.postman_collection.json", "quote": "offline-report-storage-us-east-1-prod.s3.amazonaws.com", "verified": "POST reporting/reports and scoped GET by reportId; fixed spCampaigns traffic/cost and sbPurchasedProduct examples; PENDING/COMPLETED status, dates, identity, configuration and expiring S3 location. Only this exact storage hostname is admitted; bucket/region variants remain unverified." },
+    { "url": "https://advertising.amazon.com/API/docs/en-us/guides/reporting/dsp/creating-reports", "quote": "profileId", "verified": "Shared profile response includes countryCode, currencyCode, timezone, accountInfo.id/type/name/marketplaceStringId", "access": "Official search excerpt" },
+    { "url": "https://advertising.amazon.com/API/docs/en-us/guides/amazon-marketing-stream/v2/overview", "quote": "API endpoint", "verified": "NA advertising-api.amazon.com; EU advertising-api-eu.amazon.com; FE advertising-api-fe.amazon.com", "access": "Official search excerpt" },
+    { "url": "https://raw.githubusercontent.com/amzn/ads-advanced-tools-docs/main/postman/Amazon_Ads_API_Environment.postman_environment.json", "quote": "advertising::campaign_management", "verified": "Ads OAuth scope, authorization and token endpoints" },
+    { "url": "https://developer.amazon.com/docs/login-with-amazon/authorization-code-grant.html", "quote": "The HTTPS address", "verified": "Authorization code flow with expires_in; HTTP loopback is UNVERIFIED, paste-token only" },
+    { "url": "https://developer.amazon.com/docs/login-with-amazon/refresh-token.html", "quote": "Refresh tokens", "verified": "Refresh supported by vendor; intentionally omitted in R1" },
+    { "url": "https://advertising.amazon.com/about-api", "quote": "application and approval process", "verified": "App approval required; OM eligibility not tested" },
+    { "url": "https://d1y2lf8k3vrkfu.cloudfront.net/openapi/en-us/dest/SponsoredProducts_prod_3p.json", "quote": "Entity state for create or update operation", "verified": "SP resource-specific schemas and state enums; campaign endDate accepts null; deployment deferred to R2" }
+  ],
+  "unverified": ["General sunset deadlines", "Numerical per-operation quotas", "Vendor create-idempotency guarantees", "HTTP loopback redirects", "Other report lifecycle schemas and download host shapes", "SB campaign-spend reports", "Current complete SB PAUSED hierarchy", "Sponsored Ads conversions eligibility"],
+  "behavior": "Unknown report states/schema/configuration deny; unknown storage hosts deny before storage egress. No retries, OAuth descriptor, deployment or conversions. Limits are OM caps, not invented vendor quotas.",
+  "blockedPages": [
+    "https://advertising.amazon.com/API/docs/en-us/reporting-3p",
+    "https://advertising.amazon.com/API/docs/en-us/offline-report-prod-3p",
+    "https://advertising.amazon.com/API/docs/en-us/reference/2/profiles",
+    "https://advertising.amazon.com/API/docs/en-us/sponsored-brands/4-0/openapi",
+    "https://advertising.amazon.com/API/docs/en-us/concepts/rate-limits"
+  ],
+  "blockedDetails": "Reporting portal empty or inaccessible. Prior plan recorded empty profiles/SB portal and inaccessible SB specs/rate-limit page. Official GitHub and SP CDN fallback worked via web; shell HTTP unavailable. No 429 observed. No live vendor API calls."
+}

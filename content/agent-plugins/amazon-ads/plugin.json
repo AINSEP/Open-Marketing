@@ -1,0 +1,46 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.1.0/plugin.schema.json",
+  "name": "amazon-ads",
+  "version": "0.1.0",
+  "description": "Amazon Ads profiles, SP/SB campaign reads and bounded reports; disabled until server admission.",
+  "license": "Apache-2.0",
+  "extensions": {
+    "io.github.ainsep.openmarketing": {
+      "version": 1,
+      "enabled": false,
+      "admitted": false,
+      "capabilities": [
+        {
+          "capabilityId": "campaign.read.v1",
+          "version": 1,
+          "pluginId": "amazon-ads",
+          "schemaFingerprint": "5ab9c065e869f12e0e739e72c3075c30a0f6b5b1beb8e7c785d03665cf3ea20b",
+          "admitted": false,
+          "effects": [
+            "read"
+          ]
+        },
+        {
+          "capabilityId": "report.account-spend.v1",
+          "version": 1,
+          "pluginId": "amazon-ads",
+          "schemaFingerprint": "5ab9c065e869f12e0e739e72c3075c30a0f6b5b1beb8e7c785d03665cf3ea20b",
+          "admitted": false,
+          "effects": [
+            "read"
+          ]
+        },
+        {
+          "capabilityId": "report.request.v1",
+          "version": 1,
+          "pluginId": "amazon-ads",
+          "schemaFingerprint": "5ab9c065e869f12e0e739e72c3075c30a0f6b5b1beb8e7c785d03665cf3ea20b",
+          "admitted": false,
+          "effects": [
+            "write"
+          ]
+        }
+      ]
+    }
+  }
+}

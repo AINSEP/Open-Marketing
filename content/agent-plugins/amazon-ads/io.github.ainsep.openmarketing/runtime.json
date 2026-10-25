@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "minimumNode": "24.2.0",
+  "defaultAdmission": "disabled",
+  "apiVersion": {
+    "profiles": "v2",
+    "SP": "v3",
+    "SB": "v4",
+    "reporting": "v3"
+  },
+  "auth": "server-owned sealed pasted JSON; expiresAt epoch milliseconds; no refresh or OAuth descriptor",
+  "hostEntry": "./src/index.ts",
+  "stdioDefault": "unavailable; authenticated host composition required",
+  "journal": "ONE server jobs outbox; no plugin persistence"
+}
