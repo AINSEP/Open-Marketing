@@ -1,0 +1,6 @@
+{
+  "version": 1, "admitted": false,
+  "capabilities": [{"capabilityId": "campaign.read.v1", "version": 1, "pluginId": "pinterest-ads", "schemaFingerprint": "5cfe4e48033b17be2a757e3264fa7e6be0f6ed8429ecdebbb296564d6270bd9a", "admitted": false, "effects": ["read"]}, {"capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "pinterest-ads", "schemaFingerprint": "6cf944edbba975e9dc4b67cff9795df2b7e18d2d752c387eace65c3a22ea1f3f", "admitted": false, "effects": ["read"]}],
+  "tools": [{"name": "list_accounts", "effects": ["read"], "capabilityId": "campaign.read.v1"}, {"name": "list_campaigns", "effects": ["read"], "capabilityId": "campaign.read.v1"}, {"name": "report", "effects": ["read"], "capabilityId": "report.account-spend.v1"}],
+  "fingerprintBasis": "SHA-256 of src/commands.ts (reads), src/reporting.ts (reports); compatibility metadata only."
+}

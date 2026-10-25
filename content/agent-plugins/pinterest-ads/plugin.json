@@ -1,0 +1,5 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.1.0/plugin.schema.json",
+  "name": "pinterest-ads", "version": "0.1.0", "license": "Apache-2.0", "description": "Server-held paste-token Pinterest accounts and campaigns; reports unavailable pending verified date semantics; disabled until host admission.",
+  "extensions": {"io.github.ainsep.openmarketing": {"version": 1, "enabled": false, "admitted": false, "capabilities": [{"capabilityId": "campaign.read.v1", "version": 1, "pluginId": "pinterest-ads", "schemaFingerprint": "5cfe4e48033b17be2a757e3264fa7e6be0f6ed8429ecdebbb296564d6270bd9a", "admitted": false, "effects": ["read"]}, {"capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "pinterest-ads", "schemaFingerprint": "6cf944edbba975e9dc4b67cff9795df2b7e18d2d752c387eace65c3a22ea1f3f", "admitted": false, "effects": ["read"]}]}}
+}

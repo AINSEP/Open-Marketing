@@ -1,0 +1,11 @@
+{
+  "checkedAt": "2026-10-24", "apiVersion": "v5", "specVersion": "5.28.0",
+  "sources": [
+    { "url": "https://raw.githubusercontent.com/pinterest/api-description/main/v5/openapi.yaml", "quote": "version: 5.28.0", "facts": "GET /ad_accounts, /ad_accounts/{id}/campaigns, /analytics and /campaigns/analytics require ads:read. Lists return items/bookmark. DAY analytics returns DATE with account/campaign ID; non-hourly history/window is bounded to 90 days. MICRO_DOLLARS uses advertiser currency; missing columns may be omitted.", "consumed": ["id", "name", "currency", "time_zone", "ad_account_id", "status", "items", "bookmark", "page_size", "start_date", "end_date", "campaign_ids", "granularity", "SPEND_IN_MICRO_DOLLAR", "TOTAL_IMPRESSION", "TOTAL_CLICKTHROUGH", "DATE", "AD_ACCOUNT_ID", "CAMPAIGN_ID"] },
+    { "url": "https://developers.pinterest.com/docs/getting-started/set-up-authentication-and-authorization/", "quote": "Must exactly match", "facts": "Use current access tokens with required scopes. Redirect registration is exact; OAuth integration remains unavailable here." },
+    { "url": "https://developers.pinterest.com/docs/reference/rate-limits/", "quote": "1000 requests per day", "facts": "Trial universal limit; category limits also apply. Surface throttling without retries." }
+  ],
+  "unverified": { "endDateInclusivity": "Reports unavailable before credential/gateway/network I/O until end-date inclusivity and exact 90-day vendor window/lookback boundaries are verified; local OM caps and synthetic decoder fixtures do not verify vendor semantics", "oauth": "Production loopback and host flow compatibility await O2; paste-token only", "sunsetAndCreateIdempotency": "No guarantee verified; no writes in R1", "eligibility": "App/account approval and production access not established by fixtures" },
+  "blockedPages": ["https://developers.pinterest.com/docs/ads-analytics/overview/ (inaccessible; official spec used)", "Shell download of official spec: DNS blocked; web reader succeeded"],
+  "omBounds": { "requestBytes": 65536, "responseBytes": 1048576, "timeoutMs": 15000, "maxPageSize": 100, "maxCampaignIds": 100, "maxReportRows": 9000, "maxVendorDates": 90, "retries": 0 }
+}
