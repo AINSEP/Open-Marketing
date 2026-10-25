@@ -37,20 +37,20 @@ export function createExternalMcpStore(required: { db: CredentialSqlPort; observ
         callContextSchema.parse(input.context);
         const result = await required.db.query({ text: 'SELECT connection_id,plugin_id,revision,enabled,configuration FROM addon_external_mcp WHERE owner_id=$1 AND workspace_id=$2 ORDER BY connection_id LIMIT 101', values: [input.context.scope.ownerId, input.context.scope.workspaceId] });
         if (result.rows.length > 100) throw new RangeError('MCP connection cap');
-        return result.rows.map(row => parseConnection({ value: { connectionId: row.connection_id, pluginId: row.plugin_id,
+        return result.rows.map(row => parseExternalMcpConnection({ value: { connectionId: row.connection_id, pluginId: row.plugin_id,
             revision: row.revision, enabled: z.union([z.literal(0), z.literal(1)]).parse(row.enabled) === 1,
             ...z.record(z.string(), z.unknown()).parse(JSON.parse(z.string().max(65536).parse(row.configuration))) } }));
     }
 
     async function writeRow(input: { context: CallContext; connection: ExternalMcpConnection }): Promise<void> {
-        const row = parseConnection({ value: input.connection });
+        const row = parseExternalMcpConnection({ value: input.connection });
         await required.db.query({ text: 'INSERT INTO addon_external_mcp (owner_id,workspace_id,connection_id,plugin_id,revision,enabled,configuration) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(owner_id,workspace_id,connection_id) DO UPDATE SET plugin_id=excluded.plugin_id,revision=excluded.revision,enabled=excluded.enabled,configuration=excluded.configuration',
             values: [input.context.scope.ownerId, input.context.scope.workspaceId, row.connectionId, row.pluginId, row.revision, Number(row.enabled), JSON.stringify({ server: row.server, credentialConnectionId: row.credentialConnectionId })] });
     }
 
     /** Publish disabled first, reload last. A missing session owner refuses enable, never fakes it. */
     async function saveRow(input: { context: CallContext; connection: ExternalMcpConnection }): Promise<void> {
-        const connection = parseConnection({ value: input.connection });
+        const connection = parseExternalMcpConnection({ value: input.connection });
         const rows = await listRows(input);
         if (rows.length >= 100 && !rows.some(row => row.connectionId === connection.connectionId)) throw new RangeError('MCP connection cap');
         await writeRow({ ...input, connection: { ...connection, enabled: false } });
@@ -114,8 +114,11 @@ export function createExternalMcpStore(required: { db: CredentialSqlPort; observ
     }
 }
 
-/** Jini validates each transport; unknown declarations are refused rather than silently discarded. */
-function parseConnection(required: { value: unknown }): ExternalMcpConnection {
+/** Validate an immutable connection at storage and session reload boundaries; Jini checks transport declarations.
+ * @example parseExternalMcpConnection({ value: connection });
+ * @throws On invalid or oversized (64 KiB) configuration. @complexity O(b) time/space for bounded JSON bytes.
+ */
+export function parseExternalMcpConnection(required: { value: unknown }): ExternalMcpConnection {
     const shape = z.strictObject({ connectionId: idSchema, pluginId: idSchema.nullable(), revision: idSchema,
         enabled: z.boolean(), credentialConnectionId: idSchema.optional(), server: boundedJsonSchema });
     const value = shape.parse(required.value);

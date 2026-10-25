@@ -23,8 +23,8 @@ export interface PgClient extends PgQueryable {
 /** Caller owns pool construction, connection timeout, shutdown and credentials. */
 export interface PgPool {
     /** Compatibility name retained; SQLite serializes writers with BEGIN IMMEDIATE. */
-    dialect?: 'sqlite' | 'postgres';
-    /** Required for SQLite: composition injects the ONE kernel shared with Jini repositories. */
+    dialect?: 'sqlite';
+    /** Required: composition injects the ONE kernel shared with Jini repositories. */
     kernel?: StorageKernel<unknown>;
     connect(): Promise<PgClient>;
 }

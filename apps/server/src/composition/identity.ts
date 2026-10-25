@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { idSchema, epochSchema } from '@open-marketing/contracts';
 import type { CallContext, ClockPort, IdPort, ObserverPort, Outcome, UnitOfWork } from '@open-marketing/contracts';
 import { createContactService, createSqlContactRepo } from '@open-marketing/contacts';
-import { createPolicyService, createSqlPolicyRepo, type CanonicalIdentityPort, type PolicyService, type SubjectPolicy } from '@open-marketing/policy';
+import { createPolicyService, createSqlPolicyRepo, type PolicyService, type SubjectPolicy } from '@open-marketing/policy';
 import { createSqlWebEventRepo, createWebEventService, type Visit, type VisitTokenPort } from '@open-marketing/web-events';
 import type { ConversionIdentifiersPort, AttributionTouchPort } from '@open-marketing/measure';
 import { localFailure } from './local-auth.js';
@@ -45,13 +45,7 @@ export function createVisitTokens(required: { key: Uint8Array; clock: ClockPort;
  * @complexity Bounded owning repository work, no cross-feature SQL. */
 export function bindIdentity(required: { unit: UnitOfWork; clock: ClockPort; ids: IdPort; observer: ObserverPort; digestKey: Uint8Array; tokens: VisitTokenPort }) {
     const contactsRepo = createSqlContactRepo({ uow: required.unit });
-    const canonical: CanonicalIdentityPort = { async resolve(input, options) {
-        const loaded = await contactsRepo.get({ context: input.context, subjectId: input.identifier }, options);
-        if (!loaded.ok) return loaded;
-        if (!loaded.value) return localFailure({ message: 'Canonical subject unavailable' });
-        return { ok: true, value: { scope: loaded.value.scope, subjectId: loaded.value.subjectId } };
-    } };
-    const evidence = createPolicyService({ repo: createSqlPolicyRepo({ pool: required.unit, observer: required.observer }), clock: required.clock, ids: required.ids }, { observer: required.observer });
+    const evidence = createPolicyService({ repo: createSqlPolicyRepo({ pool: required.unit, observer: required.observer }), clock: required.clock }, { observer: required.observer });
     const policy: PolicyService = { appendEvidence: evidence.appendEvidence, async snapshot(input, options) {
         const root = await contactsRepo.get({ context: input.context, subjectId: input.subjectId }, options);
         if (!root.ok) return root;
@@ -82,7 +76,7 @@ export function bindIdentity(required: { unit: UnitOfWork; clock: ClockPort; ids
         const result = await webEvents.touchesFor(input, options);
         return result.ok ? { ok: true, value: result.value.map(({ touchId, occurredAt, linkId, campaignId }) => ({ touchId, occurredAt, linkId, campaignId })) } : result;
     } };
-    return { contactsRepo, contacts, canonical, policy, webRepo, webEvents, identifiers, touches };
+    return { contactsRepo, contacts, policy, webRepo, webEvents, identifiers, touches };
 }
 
 /** Durable erasure barrier is ordinary policy suppression evidence, with no second authority store. */

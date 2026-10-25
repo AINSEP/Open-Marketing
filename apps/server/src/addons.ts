@@ -81,21 +81,11 @@ export function createAddons(required: AddonDependencies): Addons {
     }
 }
 
-/** Same bytes replay preserves activation; executable plugins may install a different version.
- * Other differing bytes for the same id require uninstall first.
- * No package commit occurs for duplicates/conflicts. Installation never publishes an active source.
- * @example await installAddon({ context, request, dependencies });
- * @complexity Bounded decoding and catalog scan (<=1000 rows); new bytes also use package inspection and save.
- */
-export async function installAddon(required: { context: CallContext; request: InstallAddon; dependencies: AddonDependencies }, optional?: CallOptions): Promise<Outcome<AddonSummary>> {
-    return addonBoundary({ ...required, operation: 'addons.install', run: () => performInstall(required, optional) }, optional);
-}
-
 /** Replay validated upload digests before package preparation, which can reject existing version folders.
  * New versions retain Jini's validation/publication rules; only successful commits update the catalog.
  * @complexity O(upload bytes + paths log paths + catalog rows), bounded by upload/catalog limits.
  */
-async function performInstall(required: Parameters<typeof installAddon>[0], optional?: CallOptions): Promise<Outcome<AddonSummary>> {
+async function performInstall(required: { context: CallContext; request: InstallAddon; dependencies: AddonDependencies }, optional?: CallOptions): Promise<Outcome<AddonSummary>> {
     const parsed = parseBoundary({ schema: installAddonSchema, input: required.request });
     if (!parsed.ok) return parsed;
     const decoded = await decodeAddonUpload({ upload: parsed.value.upload, archiveReader: required.dependencies.archiveReader }, optional);
@@ -122,14 +112,8 @@ function replayOutcome(required: { previous: AddonSummary; revision: string }): 
     return required.previous.revision === required.revision ? { ok: true, value: required.previous } : addonFailure({ code: 'conflict' });
 }
 
-/** Persist disabled before runtime changes. Enable failures dispose and never expose a source.
- * @example await setAddonEnabled({ context, request: { kind, id, enabled: true }, dependencies });
- */
-export async function setAddonEnabled(required: { context: CallContext; request: SetAddonEnabled; dependencies: AddonDependencies }, _optional?: CallOptions): Promise<Outcome<AddonSummary>> {
-    return addonBoundary({ ...required, operation: 'addons.set_enabled', run: () => performSetEnabled(required, _optional) }, _optional);
-}
-
-async function performSetEnabled(required: Parameters<typeof setAddonEnabled>[0], _optional?: CallOptions): Promise<Outcome<AddonSummary>> {
+/** Persist disabled before runtime changes; failed enable closes resources before returning. */
+async function performSetEnabled(required: { context: CallContext; request: SetAddonEnabled; dependencies: AddonDependencies }, _optional?: CallOptions): Promise<Outcome<AddonSummary>> {
     const parsed = parseBoundary({ schema: setAddonEnabledSchema, input: required.request });
     if (!parsed.ok) return parsed;
     const current = await findAddon({ context: required.context, ...parsed.value, repo: required.dependencies.repo });
@@ -148,15 +132,8 @@ async function performSetEnabled(required: Parameters<typeof setAddonEnabled>[0]
     }
 }
 
-/** Disable and close sessions before byte removal; no nonexistent job-idle lookup.
- * A later dispatch reaches the current source check and fails explicitly.
- * @example await uninstallAddon({ context, request: { kind, id }, dependencies });
- */
-export async function uninstallAddon(required: { context: CallContext; request: UninstallAddon; dependencies: AddonDependencies }, optional?: CallOptions): Promise<Outcome<AddonUninstallReceipt>> {
-    return addonBoundary({ ...required, operation: 'addons.uninstall', run: () => performUninstall(required, optional) }, optional);
-}
-
-async function performUninstall(required: Parameters<typeof uninstallAddon>[0], optional?: CallOptions): Promise<Outcome<AddonUninstallReceipt>> {
+/** Disable and close sessions before byte removal; later dispatch rechecks the source. */
+async function performUninstall(required: { context: CallContext; request: UninstallAddon; dependencies: AddonDependencies }, optional?: CallOptions): Promise<Outcome<AddonUninstallReceipt>> {
     const parsed = parseBoundary({ schema: uninstallAddonSchema, input: required.request });
     if (!parsed.ok) return parsed;
     const disabled = await performSetEnabled({ ...required, request: { ...parsed.value, enabled: false } }, optional);

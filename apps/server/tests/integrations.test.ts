@@ -10,7 +10,7 @@ import { createAesGcmSecretSealer, createCredentialBroker, createCredentialKeyri
     createMemoryCredentialAudit, createMemoryCredentialLock, createMemoryCredentialRefresh,
     createMemoryOAuthClient, createSqlCredentialRepo } from '@open-marketing/credentials';
 import type { CredentialRefreshPort, CredentialSqlPort, KeyringConfiguration } from '@open-marketing/credentials';
-import { createIntegrations, resolveProviderKey } from '../src/integrations.js';
+import { createIntegrations } from '../src/integrations.js';
 import { handleIntegrationRequest } from '../src/inbound/integrations.js';
 import { bindServerIntegrations, loadOAuthProviders } from '../src/composition/index.js';
 import { fileURLToPath } from 'node:url';
@@ -126,18 +126,16 @@ function fixture(_required: Record<string, never>) {
     };
 }
 
-it('connects, lists, resolves the provider key and disconnects with secret-free HTTP/audit metadata', async () => {
+it('connects, lists, accesses a saved credential and disconnects with secret-free HTTP/audit metadata', async () => {
     const f = fixture({});
     try {
         const saved = await f.http({ method: 'POST', path: '/api/addons/v1/integrations/token', body: request });
         expect(saved).toMatchObject({ status: 200, body: { ok: true, value: { connectionId: request.connectionId, pluginId: 'anthropic', status: 'saved' } } });
         expect(await f.http({ method: 'GET', path: '/api/addons/v1/integrations' })).toMatchObject({ status: 200, body: { ok: true, value: { items: [{ connectionId: request.connectionId, pluginId: 'anthropic', status: 'saved' }], cursor: null } } });
-        expect(await resolveProviderKey({ context: host, provider: 'anthropic', dependencies: f.dependencies })).toEqual({ ok: true, value: request.plaintext });
         expect(await f.integrations.access({ context: host, pluginId: 'anthropic', connectionId: request.connectionId })).toEqual({ ok: true, value: { accessToken: request.plaintext } });
         const disconnected = await f.http({ method: 'POST', path: '/api/addons/v1/integrations/disconnect', body: { connectionId: request.connectionId } });
         expect(disconnected).toMatchObject({ status: 200, body: { ok: true, value: { status: 'disconnected' } } });
         expect(f.native.prepare('SELECT ciphertext, status FROM om_credential_connection').get()).toEqual({ ciphertext: null, status: 'revoked' });
-        expect(await f.integrations.resolveProviderKey({ context: host, provider: 'anthropic' })).toMatchObject({ ok: false, error: { code: 'unauthenticated' } });
         expect(await f.integrations.access({ context: host, pluginId: 'anthropic', connectionId: request.connectionId })).toMatchObject({ ok: false, error: { code: 'unauthenticated' } });
         expect(await f.http({ method: 'GET', path: '/api/addons/v1/integrations' })).toMatchObject({ body: { value: { items: [{ status: 'disconnected' }] } } });
         expect(JSON.stringify([saved, disconnected, f.events, f.dependencies.audit.entries({})])).not.toContain(request.plaintext);
@@ -180,7 +178,6 @@ it('checks plugin ownership, host-only access and workspace scope at every acces
         expect(await f.integrations.access({ context: owner, pluginId: 'anthropic', connectionId: request.connectionId })).toMatchObject({ ok: false, error: { code: 'forbidden' } });
         const foreign = { ...host, scope: { ...host.scope, workspaceId: 'other-workspace' } };
         expect(await f.integrations.access({ context: foreign, pluginId: 'anthropic', connectionId: request.connectionId })).toMatchObject({ ok: false, error: { code: 'unauthenticated' } });
-        expect(await f.integrations.resolveProviderKey({ context: owner, provider: 'anthropic' })).toMatchObject({ ok: false, error: { code: 'forbidden' } });
         unwrap({ result: await f.dependencies.repo.requireReconnect({ context: host, connectionId: request.connectionId }) });
         expect(await f.http({ method: 'GET', path: '/api/addons/v1/integrations' })).toMatchObject({ body: { value: { items: [{ status: 'reconnect_required' }] } } });
         expect(await f.integrations.access({ context: host, pluginId: 'anthropic', connectionId: request.connectionId })).toMatchObject({ ok: false, error: { code: 'unauthenticated' } });
@@ -202,12 +199,10 @@ it('unseals the refreshed version and reports reconnect required when refresh re
     } finally { f.dispose(); }
 });
 
-it('denies ambiguous provider keys and redacts exceptions from credential adapters', async () => {
+it('redacts exceptions from credential adapters', async () => {
     const f = fixture({});
     try {
         unwrap({ result: await f.integrations.connect({ context: owner, request }) });
-        unwrap({ result: await f.integrations.connect({ context: owner, request: { ...request, connectionId: 'second-key' } }) });
-        expect(await f.integrations.resolveProviderKey({ context: host, provider: 'anthropic' })).toMatchObject({ ok: false, error: { code: 'conflict' } });
         const integrations = createIntegrations({ ...f.dependencies, broker: { async use() { throw new Error(request.plaintext); } } });
         const failed = await integrations.access({ context: host, pluginId: 'anthropic', connectionId: request.connectionId });
         expect(failed).toMatchObject({ ok: false, error: { code: 'unavailable' } });
@@ -223,7 +218,7 @@ it('composition binds credential storage/audit to the existing SQLite handle wit
         const integrations = bindServerIntegrations({ db: f.dependencies.db, clock, ids: { next: () => 'event-' + ++sequence },
             observer: f.dependencies.observer, io: { ...nativeIo, randomToken: () => 'ab'.repeat(32), loadCredentialMaster: async () => ({ ok: true, value: new Uint8Array(32).fill(3) }) }, stateRoot: '/fixture' });
         expect(await integrations.connect({ context: owner, request })).toMatchObject({ ok: true, value: { status: 'saved' } });
-        expect(await integrations.resolveProviderKey({ context: host, provider: 'anthropic' })).toEqual({ ok: true, value: request.plaintext });
+        expect(await integrations.access({ context: host, pluginId: 'anthropic', connectionId: request.connectionId })).toEqual({ ok: true, value: { accessToken: request.plaintext } });
         expect(f.native.prepare('SELECT operation, correlation_id, trace_id, run_id FROM om_credential_audit ORDER BY rowid').all()).toEqual([
             { operation: 'credentials.connect', correlation_id: owner.correlationId, trace_id: owner.traceId, run_id: owner.runId },
             { operation: 'credentials.use', correlation_id: owner.correlationId, trace_id: owner.traceId, run_id: owner.runId },

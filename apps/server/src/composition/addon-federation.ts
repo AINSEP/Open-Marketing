@@ -13,8 +13,7 @@ import { addonToolEffectsSchema, boundedJsonSchema, callContextSchema, idSchema,
 import { toolPolicy } from '../om-tools.js';
 import type { OmToolDefinition } from '../om-tools.js';
 import type { AgentPluginState, bindAgentPluginJobs } from './agent-plugin-backends.js';
-import { parseAgentPluginMcpConfig } from '@jini-ai/agent-plugins/lifecycle';
-import type { ExternalMcpConnection, ExternalMcpSessions } from '../external-mcp.js';
+import { parseExternalMcpConnection, type ExternalMcpConnection, type ExternalMcpSessions } from '../external-mcp.js';
 import type { Integrations } from '../integrations.js';
 
 /** Native I/O is supplied by serve; protocol parsing/fencing belongs to the federation package. */
@@ -54,7 +53,7 @@ export function bindAddonFederationSessions(required: Dependencies): Sessions {
     definitions: input => federationDefinitions({ dependencies: required, context: input.context, bindings, transport: sessions.transport }),
     async reload(input) {
       assertScope({ context: input.context, expected: required.context });
-      const connection = parseConnection({ connection: input.connection });
+      const connection = parseExternalMcpConnection({ value: input.connection });
       await close({ context: input.context, connectionId: connection.connectionId });
       if (!connection.enabled) return;
       if (connection.server.type === 'sse') throw new Error('Legacy SSE session adapter unavailable');
@@ -83,15 +82,6 @@ export function bindAddonFederationSessions(required: Dependencies): Sessions {
     },
   };
   return sessions;
-}
-
-/** Store reload validates an immutable copy; malformed configuration never becomes active. */
-function parseConnection(required: { connection: ExternalMcpConnection }): ExternalMcpConnection {
-  const connection = z.strictObject({ connectionId: idSchema, pluginId: idSchema.nullable(), revision: idSchema,
-    enabled: z.boolean(), credentialConnectionId: idSchema.optional(), server: boundedJsonSchema }).parse(required.connection);
-  const parsed = parseAgentPluginMcpConfig({ value: { $schema: 'https://agent-plugins.org/schemas/1.0.0/mcp.schema.json', mcpServers: { connection: connection.server } }, extensionNamespace: 'io.github.ainsep.openmarketing' });
-  if (!parsed.ok || !parsed.config.servers.connection) throw new Error('Invalid federation transport');
-  return { ...connection, server: parsed.config.servers.connection };
 }
 
 /** Resolve sealed credentials freshly for each HTTP exchange, under the invoking scope/trace. */

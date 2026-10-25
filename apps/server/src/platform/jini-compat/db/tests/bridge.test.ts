@@ -213,17 +213,62 @@ describe('kernel ownership and cleanup', () => {
             await expect(pool.connect()).rejects.toMatchObject({ code: 'connection_unavailable' });
         } finally { spy.mockRestore(); database.close(); }
     });
-    it('preserves failed-Outcome release precedence after successful rollback', async () => {
+    it('commits the returned value on one lease and releases it once', async () => {
         const database = new Database(':memory:');
         const base = createSqlitePool({ database, kernel: sqliteKernel(createCheckedSqliteClient({ database })) });
-        const denied = { ok: false, error: { code: 'denied' } };
+        const release = vi.fn();
+        const connect = vi.fn(async () => {
+            const client = await base.connect();
+            return { ...client, release(input: { destroy?: boolean }) { release(input); client.release(input); } };
+        });
+        try {
+            expect(await withTransaction({ pool: { ...base, connect }, work: async tx => {
+                const result = await tx.query({ text: 'SELECT 42 AS value' });
+                return result.rows[0].value;
+            } })).toBe(42);
+            expect(connect).toHaveBeenCalledTimes(1);
+            expect(release.mock.calls).toEqual([[{ destroy: undefined }]]);
+            expect(database.inTransaction).toBe(false);
+            expect(await base.transaction({ work: async () => 'available' })).toBe('available');
+        } finally { database.close(); }
+    });
+    it.each(['denial', 'throw', 'commit'])('preserves %s precedence when release also fails', async mode => {
+        const database = new Database(':memory:');
+        database.exec('CREATE TABLE items (value TEXT)');
+        const base = createSqlitePool({ database, kernel: sqliteKernel(createCheckedSqliteClient({ database })) });
+        const original = mode === 'throw' ? new Error('body failed') : { ok: false, error: { code: 'denied' } };
+        const cleanup = new Error('release failed');
+        const release = vi.fn();
         const pool: PgPool = { ...base, async connect() {
             const client = await base.connect();
-            return { ...client, release(input) { client.release(input); throw new Error('release failed'); } };
+            return { ...client, release(input) { release(input); client.release(input); throw cleanup; } };
         } };
         try {
-            await expect(withTransaction({ pool, work: async () => denied })).rejects.toMatchObject({ code: 'release_after_failure', cause: { errors: [denied, expect.any(Error)] } });
+            const result = withTransaction({ pool, work: async tx => {
+                await tx.query({ text: 'INSERT INTO items VALUES ($1)', values: ['written'] });
+                if (mode === 'throw') throw original;
+                return mode === 'commit' ? 42 : original;
+            } });
+            const primary = mode === 'throw' ? expect.objectContaining({ code: 'transaction_failed', cause: original }) : original;
+            await expect(result).rejects.toMatchObject(mode === 'commit'
+                ? { code: 'release_after_commit', cause: cleanup }
+                : { code: 'release_after_failure', cause: { errors: [primary, cleanup] } });
+            expect(database.prepare('SELECT value FROM items').all()).toEqual(mode === 'commit' ? [{ value: 'written' }] : []);
+            expect(release.mock.calls).toEqual([[{ destroy: undefined }]]);
             expect(database.inTransaction).toBe(false);
+        } finally { database.close(); }
+    });
+    it('rejects timeout overrides before acquiring a lease', async () => {
+        const database = new Database(':memory:');
+        const base = createSqlitePool({ database, kernel: sqliteKernel(createCheckedSqliteClient({ database })) });
+        const connect = vi.spyOn(base, 'connect');
+        const work = vi.fn(async () => 1);
+        try {
+            for (const options of [{ statementTimeoutMs: 0 }, { statementTimeoutMs: 1 }, { lockTimeoutMs: Infinity }]) {
+                await expect(withTransaction({ pool: base, work }, options)).rejects.toMatchObject({ code: 'unsupported_timeout' });
+            }
+            expect(connect).not.toHaveBeenCalled();
+            expect(work).not.toHaveBeenCalled();
         } finally { database.close(); }
     });
     it('preserves committed rows and quarantines an uncertain COMMIT without retry', async () => {

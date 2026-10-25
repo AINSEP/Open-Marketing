@@ -1,4 +1,4 @@
-import type { CallContext, Outcome, StartRunRequest, CancelRunRequest, RunReceipt, CancellationReceipt, EventSubscription, RunEvent } from "@open-marketing/contracts";
+import type { CallContext, Outcome } from "@open-marketing/contracts";
 import type { z } from "zod";
 import type { routes } from "./cli/http.js";
 /** Owner operations derive all scope/grants on the server; no prompt or credential is returned. */
@@ -32,8 +32,3 @@ export interface HttpResponse {
  readonly stream?: { readonly chunks: AsyncIterable<Uint8Array>; cancel(required: Record<string, never>): Promise<void> };
 }
 export interface HttpListenerPort { start(required: { handle: (required: HttpRequest) => Promise<HttpResponse> }): Promise<Outcome<void>>; stop(required: Record<string, never>): Promise<Outcome<void>> }
-export interface JiniRuntimePort {
- startRun(required: StartRunRequest): Promise<Outcome<RunReceipt>>;
- cancelRun(required: CancelRunRequest): Promise<Outcome<CancellationReceipt>>;
- events(required: EventSubscription): Promise<Outcome<readonly RunEvent[]>>;
-}

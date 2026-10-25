@@ -26,7 +26,7 @@ export interface IntegrationDependencies {
     readonly readCredentialCards?: (required: { context: CallContext; pluginId: string }) => Promise<Outcome<CredentialCardManifest>>;
     readonly readCredentialAsset?: (required: { context: CallContext; pluginId: string; path: string }) => Promise<Outcome<Uint8Array>>;
 }
-/** Owner management returns secret-free contracts. access/resolveProviderKey stay server-only. */
+/** Owner management returns secret-free contracts. Credential access stays server-only. */
 export interface Integrations {
     credentialAsset(required: { context: CallContext; pluginId: string; digest: string }, optional?: CallOptions): Promise<Outcome<{ bytes: Uint8Array; contentType: 'image/svg+xml' | 'image/png' }>>;
     /** Owner-only paste/clear and secret-free status; resolve is a Google transport-only host seam. */
@@ -41,7 +41,6 @@ export interface Integrations {
     list(required: { context: CallContext; query: PageQuery }, optional?: CallOptions): Promise<Outcome<IntegrationList>>;
     disconnect(required: { context: CallContext; request: DisconnectIntegration }, optional?: CallOptions): Promise<Outcome<IntegrationSummary>>;
     access(required: { context: CallContext; pluginId: string; connectionId: string }, optional?: CallOptions): Promise<Outcome<{ accessToken: string; expiresAt?: number }>>;
-    resolveProviderKey(required: { context: CallContext; provider: 'anthropic' }, optional?: CallOptions): Promise<Outcome<string>>;
 }
 
 /** Inert binding to the existing credential lifecycle/sealing; operations use injected I/O, without caches.
@@ -122,7 +121,6 @@ export function createIntegrations(required: IntegrationDependencies): Integrati
             return disconnect({ dependencies: required, context: input.context, connectionId: parsed.value.connectionId }, options);
         } }, options),
         access: (input, options) => accessCredential({ ...input, dependencies: required }, options),
-        resolveProviderKey: (input, options) => resolveProviderKey({ ...input, dependencies: required }, options),
     };
 }
 
@@ -250,28 +248,6 @@ async function accessCurrent(required: {
     const opened = await dependencies.sealer.open({ reference, secret: used.value }, optional);
     if (!opened.ok) return opened;
     return readCredentialAccess({ plaintext: opened.value });
-}
-
-/** Model-broker seam only: select the one saved Anthropic connection in this scope at call time.
- * No agent/HTTP DTO contains the returned key. Multiple saved keys conflict rather than guessing.
- * @example await resolveProviderKey({ context: serviceContext, provider: 'anthropic', dependencies });
- * @complexity One bounded two-row list plus one credential access; O(b) space, <=64 KiB.
- */
-export async function resolveProviderKey(required: {
-    context: CallContext; provider: 'anthropic'; dependencies: IntegrationDependencies;
-}, optional?: CallOptions): Promise<Outcome<string>> {
-    return integrationBoundary({ ...required, operation: 'integrations.resolveProviderKey', run: async () => {
-        if (required.provider !== 'anthropic') return integrationFailure({ code: 'invalid_input' });
-        if (required.context.principal.kind !== 'service') return integrationFailure({ code: 'forbidden' });
-        const saved = await listCredentialConnections({ context: required.context, db: required.dependencies.db,
-            query: { limit: 2, pluginId: required.provider, status: 'connected' } }, optional);
-        if (!saved.ok) return saved;
-        if (!saved.value.items.length) return integrationFailure({ code: 'unauthenticated' });
-        if (saved.value.items.length !== 1) return integrationFailure({ code: 'conflict' });
-        const accessed = await accessCredential({ ...required, pluginId: required.provider, connectionId: saved.value.items[0].connectionId }, optional);
-        if (!accessed.ok) return accessed;
-        return { ok: true, value: accessed.value.accessToken };
-    } }, optional);
 }
 
 /** Fixed diagnostics sanitize thrown/returned foreign errors; observer receives correlation only.
