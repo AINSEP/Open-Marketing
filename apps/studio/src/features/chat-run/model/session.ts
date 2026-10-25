@@ -1,3 +1,5 @@
+import { z } from "zod";
+import type { AgentEvent, ChatTransport, RunHandlers, ChatRunStatus } from "@jini-ai/chat";
 import type { A2uiSurfacePayload } from '@open-marketing/contracts';
 import { a2uiSurfacePayloadSchema, confirmationCardSchema, assistantSettingsStatusSchema, conversationListSchema, conversationSchema, chatMessageSchema, idSchema, epochSchema, parseBoundary } from "@open-marketing/contracts";
 import type { AssistantSettingsStatus, ConversationSummary, ChatMessage, ConfirmationCard, NavigationAction, NavigationResult, Outcome } from "@open-marketing/contracts";
@@ -6,6 +8,8 @@ import { parseStudioEvent, parseStudioSnapshot, isSafeUiValue } from "../../../s
 import type { StudioRuntime } from "../../../shared/api/index.js";
 
 export interface ChatState {
+  /** Changes only on history/reset/hydration, never on run acceptance or stream updates. */
+  readonly transcriptVersion: number;
   readonly surfaces: readonly A2uiSurfacePayload[];
   readonly messages: readonly ChatMessage[];
   readonly cards: readonly ConfirmationCard[];
@@ -19,6 +23,8 @@ export interface ChatState {
   readonly tools: readonly { operationId: string; name: string; status: 'running' | 'completed' | 'pending' | 'cancelled' }[];
 }
 export interface ChatSession {
+  /** Published Jini transport over this session; detach never requests remote cancellation. */
+  readonly transport: ChatTransport;
   currentRun(): { runId: string; expiresAt: number; frontendSessionId?: string } | null;
   receiveSurface(required: { input: unknown }): void;
   receiveFrontendBinding(required: { runId: string; expiresAt: number; frontendSessionId: string }): void;
@@ -30,7 +36,7 @@ export interface ChatSession {
   refresh(): Promise<void>;
   selectConversation(required: { conversationId: string }): Promise<void>;
   newConversation(): Promise<void>;
-  selectModel(required: { model: 'sandbox' | 'claude-sonnet-5-5' | 'claude-opus-5-5' }): Promise<void>;
+  selectModel(required: { model: string }): Promise<void>;
   send(required: { text: string }): Promise<void>;
   cancel(): Promise<void>;
   dispose(): void;
@@ -51,8 +57,36 @@ function mergeMessage(required: { messages: readonly ChatMessage[]; message: Cha
  * @complexity O(messages + cards) per update, bounded to 200/50; 8,192 unique events/2 MiB per run.
  */
 export function createChatSession(required: Dependencies): ChatSession {
-  let state: ChatState = { surfaces: [], messages: [], cards: [], status: "idle", notice: "Agent runtime is not connected.", navigation: null, conversationId: null, conversations: [], settings: null, mode: null, tools: [] };
+  let state: ChatState = { transcriptVersion: 0, surfaces: [], messages: [], cards: [], status: "idle", notice: "Agent runtime is not connected.", navigation: null, conversationId: null, conversations: [], settings: null, mode: null, tools: [] };
   let active: ActiveRun | null = null;
+  let lastRun: ActiveRun | null = null;
+  let displayEvents: AgentEvent[] = [];
+  let display: { handlers: RunHandlers; release: () => void } | null = null;
+  const emit = (event: AgentEvent): void => {
+    if (displayEvents.length >= 8192) {
+      state = { ...state, status: 'unavailable', notice: 'Display event limit reached. Reconnect to reconcile.' }; clearRun(); finishDisplay(); return;
+    }
+    displayEvents.push(event); display?.handlers.onEvent(event);
+  };
+  // Frontend-session deliveries use the same slots as run events, once per identity.
+  const extensionIds = new Set<string>();
+  const extensions = (): void => {
+    const slots = [...state.cards.map(card => ({ name: 'om.approval', id: card.cardId })),
+      ...state.surfaces.map(surface => ({ name: 'om.surface', id: surface.runId + ':' + surface.surfaceId }))];
+    for (const slot of slots) {
+      const key = slot.name + ':' + slot.id;
+      if (extensionIds.has(key)) continue;
+      extensionIds.add(key); emit({ kind: 'ext', name: slot.name, data: { id: slot.id } });
+    }
+  };
+  const finishDisplay = (): void => {
+    const status = displayStatus({ status: state.status });
+    if (!display || !lastRun || !status || status === 'running') return;
+    const handlers = display.handlers; display.release();
+    handlers.onCheckpoint?.({ id: lastRun.receipt.runId + '-reply', role: 'assistant', content: '', runId: lastRun.receipt.runId, runStatus: status, events: displayEvents });
+    if (status === 'failed') handlers.onError(new Error(state.notice));
+    handlers.onDone([...displayEvents]);
+  };
   let frontendRun: { runId: string; expiresAt: number; frontendSessionId: string } | null = null;
   const frontendCardIds = new Set<string>();
   let pendingController: AbortController | null = null;
@@ -63,6 +97,7 @@ export function createChatSession(required: Dependencies): ChatSession {
   const update = (patch: Partial<ChatState>): void => {
     if (disposed) return;
     state = { ...state, ...patch };
+    extensions();
     for (const listener of listeners) listener();
   };
   const clearRun = (): void => {
@@ -78,9 +113,9 @@ export function createChatSession(required: Dependencies): ChatSession {
   };
   const stop = async (input: { reason: "owner" | "expired" }): Promise<void> => {
     clearPending();
-    const runId = active?.receipt.runId ?? frontendRun?.runId;
+    const runId = active?.receipt.runId ?? frontendRun?.runId ?? lastRun?.receipt.runId;
     frontendRun = null;
-    const cards = state.cards.filter(card => !active?.cardIds.has(card.cardId) && !frontendCardIds.has(card.cardId));
+    const cards = state.cards.filter(card => !lastRun?.cardIds.has(card.cardId) && !frontendCardIds.has(card.cardId));
     frontendCardIds.clear();
     update({ cards, tools: state.tools.map(tool => tool.status === 'running' || tool.status === 'pending' ? { ...tool, status: 'cancelled' } : tool) });
     clearRun();
@@ -135,23 +170,39 @@ export function createChatSession(required: Dependencies): ChatSession {
     const cursor = retainEvent({ event, run: input.run });
     if (!cursor.ok) { update({ status: 'unavailable', notice: cursor.error.message }); return false; }
     if (cursor.value === 'duplicate') return true;
+    const rendered = displayPayload({ payload, state });
+    if (rendered) emit(rendered);
+    if (active !== input.run) return false;
     await applyPayload({ payload, run: input.run });
     if (active !== input.run) return false;
     return finishEvent({ kind: event.kind, update });
   };
   const consume = async (input: { run: ActiveRun }): Promise<void> => {
     const run = input.run;
-    for await (const event of required.api.events({ runId: run.receipt.runId, after: 0, signal: run.controller.signal })) {
+    for await (const event of required.api.events({ runId: run.receipt.runId, after: run.sequence, signal: run.controller.signal })) {
       if (active !== run) return;
       if (!event.ok) { update({ status: "unavailable", notice: "Run stream unavailable. External outcomes are unconfirmed." }); break; }
       if (!await accept({ value: event.value, run })) break;
     }
-    if (active !== run) return;
-    if (state.status === "running") update({ status: "unavailable", notice: "Stream ended without a completion event. Outcomes are unconfirmed." });
-    if (state.status !== 'complete') update({ cards: state.cards.filter(card => !run.cardIds.has(card.cardId)) });
-    clearRun();
-    await refresh();
+    await settleObservation({ run });
   };
+  /** Server timing is an optional presentation read; it cannot establish spend authority. */
+  async function readTiming(input: { run: ActiveRun }): Promise<void> {
+    if (!['complete', 'cancelled'].includes(state.status) || !required.api.runStatus) return;
+    const run = input.run;
+    const result = await required.api.runStatus({ runId: run.receipt.runId, after: Math.max(0, run.sequence - 1), signal: run.controller.signal });
+    if (active !== run) return;
+    if (result.ok && result.value.usage) emit({ kind: 'usage', durationMs: result.value.usage.durationMs, inputTokens: result.value.usage.inputTokens, outputTokens: result.value.usage.outputTokens });
+  }
+  async function settleObservation(input: { run: ActiveRun }): Promise<void> {
+    const run = input.run;
+    if (active !== run) return;
+    if (state.status === 'running') update({ status: 'unavailable', notice: 'Stream ended without a completion event. Outcomes are unconfirmed.' });
+    if (state.status !== 'complete') update({ cards: state.cards.filter(card => !run.cardIds.has(card.cardId)) });
+    await readTiming({ run });
+    if (active !== run) return;
+    finishDisplay(); clearRun(); await refresh();
+  }
   /** History requests have their own cancellation and cannot overwrite a subsequently selected chat. */
   async function refresh(): Promise<void> {
     if (!required.api.conversations || !required.api.settings || disposed) return;
@@ -163,7 +214,99 @@ export function createChatSession(required: Dependencies): ChatSession {
     if (list.ok) update({ conversations: list.value.items });
     if (config.ok) update({ settings: config.value });
   }
+  /** Acceptance ends at the receipt; the existing consumer owns the sole subscription. */
+  async function start(input: { text: string }): Promise<ActiveRun | null> {
+      if (disposed || isActive({ status: state.status })) return null;
+      const message = prepareMessage({ text: input.text, id: required.runtime.ids.next({}) });
+      if (!message.ok) { update({ notice: message.error.message }); return null; }
+      display?.release(); extensionIds.clear(); extensions(); displayEvents = []; lastRun = null;
+      historyController?.abort(); frontendRun = null;
+      frontendCardIds.clear();
+      update({ messages: mergeMessage({ messages: state.messages, message: message.value }), tools: [], status: "starting", notice: "Requesting a run…" });
+      const controller = required.runtime.abort(); pendingController = controller;
+      const startDeadline = required.runtime.timers.schedule({ delayMs: 15000, callback: () => {
+        if (pendingController !== controller) return;
+        clearPending(); update({ status: "unavailable", notice: "Run start timed out. Server outcome is unconfirmed." });
+      } });
+      pendingTimer = startDeadline;
+      const frontendSessionId = required.frontendSessionId?.();
+      const frontendBindToken = required.frontendBindToken?.();
+      const result = await required.api.start({ message: message.value, signal: controller.signal, conversationId: state.conversationId ?? undefined, frontendSessionId, frontendBindToken });
+      required.runtime.timers.cancel({ handle: startDeadline });
+      if (disposed || controller.signal.aborted) return null;
+      pendingController = null; pendingTimer = null;
+      if (!result.ok || !validReceipt(result.value)) { update({ status: "unavailable", notice: "Run could not be started." }); return null; }
+      if (!matchingFrontendReceipt({ binding: frontendRun, receipt: result.value })) { update({ status: 'unavailable', notice: 'Frontend run binding disagrees with the server receipt.' }); return null; }
+      if (result.value.expiresAt <= required.runtime.clock.now({})) { update({ status: "expired", notice: "Server run receipt already expired." }); return null; }
+      const timer = required.runtime.timers.schedule({ delayMs: result.value.expiresAt - required.runtime.clock.now({}), callback: () => { void stop({ reason: "expired" }).then(finishDisplay); } });
+      active = { frontendSessionId, receipt: result.value, controller, timer, sequence: 0, count: 0, bytes: 0, cardIds: new Set(frontendCardIds), seen: new Map() };
+      lastRun = active;
+      update({ status: "running", conversationId: result.value.conversationId ?? state.conversationId, mode: result.value.mode ?? null, notice: result.value.mode === 'sandbox' ? "Sandbox response · no model or vendor calls." : "Receiving a response…" });
+      return active;
+  }
+  async function consumeSafely(input: { run: ActiveRun }): Promise<void> {
+    try { await consume(input); }
+    catch {
+      if (active !== input.run) return;
+      clearRun(); update({ status: 'unavailable', notice: 'Run stream interrupted. Saved work remains on the server.', cards: [] }); finishDisplay();
+    }
+  }
+  /** Jini's foreign callbacks retain their ABI. Releasing handlers is separate from Stop. */
+  function observe(input: { handlers: RunHandlers; signal?: AbortSignal }): void {
+    display?.release();
+    const release = (): void => { input.signal?.removeEventListener('abort', detach); if (display?.release === release) display = null; };
+    const detach = (): void => { release(); clearRun(); };
+    display = { handlers: input.handlers, release };
+    input.signal?.addEventListener('abort', detach, { once: true });
+    input.handlers.onCheckpoint?.({ id: lastRun!.receipt.runId + '-reply', role: 'assistant', content: '', runId: lastRun!.receipt.runId, runStatus: 'running', events: [...displayEvents] });
+    if (input.signal?.aborted) detach();
+    else finishDisplay();
+  }
+  const transport: ChatTransport = {
+    async startRun(input, handlers) {
+      if (input.attachments?.length) throw new Error('Image attachments coming soon.');
+      const message = input.history.findLast(item => item.role === 'user');
+      const plugins = z.array(z.string().max(400)).max(100).safeParse(input.context?.pluginInstructions ?? []);
+      if (!plugins.success) throw new Error('Invalid add-on selection.');
+      const prefix = plugins.data.length ? 'Use these enabled add-ons when relevant: ' + plugins.data.join(', ') + '. This selection grants no authority.\n\n' : '';
+      const run = await start({ text: prefix + (message?.content ?? '') });
+      if (!run) throw new Error(state.notice);
+      observe({ handlers, signal: input.signal });
+      if (active === run) void consumeSafely({ run });
+      return { runId: run.receipt.runId };
+    },
+    async reattachRun(runId, handlers, options) {
+      const known = lastRun?.receipt.runId === runId;
+      if (disposed || !idSchema.safeParse(runId).success) throw new Error('Invalid run.');
+      if (lastRun?.receipt.runId !== runId) {
+        clearRun(); displayEvents = []; extensionIds.clear();
+        lastRun = { receipt: { runId, status: 'pending', expiresAt: required.runtime.clock.now({}) + 300000 }, controller: required.runtime.abort(), timer: null,
+          sequence: 0, count: 0, bytes: 0, cardIds: new Set(), seen: new Map(), frontendSessionId: required.frontendSessionId?.() };
+      }
+      if (known && ['complete', 'cancelled'].includes(state.status)) { observe({ handlers, signal: options?.signal }); return; }
+      if (lastRun.receipt.expiresAt <= required.runtime.clock.now({})) throw new Error('Run observation expired.');
+      const alreadyObserving = active?.receipt.runId === runId;
+      if (!alreadyObserving) {
+        active = { ...lastRun, controller: required.runtime.abort(), timer: required.runtime.timers.schedule({ delayMs: lastRun.receipt.expiresAt - required.runtime.clock.now({}), callback: () => { void stop({ reason: 'expired' }).then(finishDisplay); } }) };
+        lastRun = active; update({ status: 'running' });
+      }
+      observe({ handlers, signal: options?.signal });
+      if (!alreadyObserving && active) void consumeSafely({ run: active });
+    },
+    async fetchRunStatus(runId) {
+      if ((active?.receipt.runId === runId || ['complete', 'cancelled'].includes(state.status)) && lastRun?.receipt.runId === runId) return displayStatus({ status: state.status });
+      const result = await required.api.runStatus?.({ runId });
+      if (!result?.ok) return null;
+      return { running: 'running', completed: 'succeeded', cancelled: 'canceled', interrupted: 'failed' }[result.value.status] as ChatRunStatus;
+    },
+    async stopRun(runId) {
+      if (lastRun?.receipt.runId === runId) { await stop({ reason: 'owner' }); finishDisplay(); return; }
+      const result = await required.api.cancel({ runId, reason: 'owner' });
+      if (!result.ok) throw new Error(result.error.message);
+    },
+  };
   return {
+    transport,
     currentRun() { if (disposed) return null; return active ? { runId: active.receipt.runId, expiresAt: active.receipt.expiresAt, frontendSessionId: active.frontendSessionId } : state.status === 'starting' ? frontendRun : null; },
     receiveFrontendBinding(input) {
       if (disposed || state.status !== 'starting' || input.frontendSessionId !== required.frontendSessionId?.() || !idSchema.safeParse(input.runId).success || !epochSchema.safeParse(input.expiresAt).success || input.expiresAt <= required.runtime.clock.now({})) return;
@@ -171,10 +314,11 @@ export function createChatSession(required: Dependencies): ChatSession {
     },
     voidFrontendRun(input) {
       if (input.runId !== (active?.receipt.runId ?? frontendRun?.runId)) return;
-      const cards = state.cards.filter(card => !active?.cardIds.has(card.cardId) && !frontendCardIds.has(card.cardId));
+      const cards = state.cards.filter(card => !lastRun?.cardIds.has(card.cardId) && !frontendCardIds.has(card.cardId));
       clearPending(); clearRun(); frontendRun = null; frontendCardIds.clear();
       update({ cards, status: input.status === 'cancelled' ? 'cancelled' : 'unavailable', notice: 'Server voided browser actions for this run. External outcomes may need reconciliation.',
         tools: state.tools.map(tool => tool.status === 'running' || tool.status === 'pending' ? { ...tool, status: 'cancelled' } : tool) });
+      finishDisplay();
     },
     receiveSurface(input) {
       const parsed = a2uiSurfacePayloadSchema.safeParse(input.input);
@@ -199,64 +343,38 @@ export function createChatSession(required: Dependencies): ChatSession {
       if (controller.signal.aborted || disposed) return;
       const parsed = result.ok ? parseBoundary({ schema: conversationSchema, input: result.value }) : result;
       if (!parsed.ok || !isSafeUiValue({ value: parsed.ok ? parsed.value : null, maxCharacters: 262144 }) || parsed.value.conversation.conversationId !== input.conversationId) { update({ notice: 'Conversation could not be safely loaded.' }); return; }
-      update({ conversationId: input.conversationId, surfaces: [], messages: parsed.value.messages, cards: [], tools: [], status: 'idle', mode: null,
+      update({ transcriptVersion: state.transcriptVersion + 1, conversationId: input.conversationId, surfaces: [], messages: parsed.value.messages, cards: [], tools: [], status: 'idle', mode: null,
         notice: parsed.value.cursor ? 'Saved conversation. Showing the first 100 messages.' : 'Saved conversation.' });
     },
     async newConversation() {
       if (disposed || isActive({ status: state.status })) return;
       historyController?.abort();
-      update({ conversationId: null, surfaces: [], messages: [], cards: [], tools: [], status: 'idle', mode: null, notice: 'New conversation.' });
+      update({ transcriptVersion: state.transcriptVersion + 1, conversationId: null, surfaces: [], messages: [], cards: [], tools: [], status: 'idle', mode: null, notice: 'New conversation.' });
     },
     async selectModel(input) {
       if (disposed || isActive({ status: state.status }) || !required.api.setSettings) return;
-      const settings = { mode: input.model === 'sandbox' ? 'sandbox' as const : 'model' as const,
-        model: input.model === 'sandbox' ? state.settings?.settings.model ?? 'claude-sonnet-5-5' : input.model,
+      if (input.model !== 'sandbox' && !state.settings?.models?.some(model => model.id === input.model)) return;
+      const settings = { ...state.settings?.settings, mode: input.model === 'sandbox' ? 'sandbox' as const : 'model' as const,
+        model: input.model === 'sandbox' ? state.settings?.settings.model ?? '' : input.model,
         connectionId: state.settings?.settings.connectionId ?? null };
       const result = await required.api.setSettings({ settings });
       if (disposed) return;
       const parsed = result.ok ? parseBoundary({ schema: assistantSettingsStatusSchema, input: result.value }) : result;
       if (!parsed.ok) { update({ notice: 'Assistant settings could not be saved.' }); return; }
-      update({ settings: parsed.value, notice: parsed.value.ready ? 'Assistant settings saved.' : 'Reconnect Anthropic in Add-ons / Integrations, or choose Sandbox.' });
+      update({ settings: parsed.value, notice: parsed.value.ready ? 'Assistant settings saved.' : 'Connect the selected provider in Add-ons / Integrations, or choose Sandbox.' });
     },
     subscribe(input) { listeners.add(input.listener); return () => { listeners.delete(input.listener); }; },
     hydrate(input) {
       const parsed = parseStudioSnapshot(input);
       if (!parsed.ok) { update({ notice: "Studio snapshot rejected.", status: "unavailable" }); return; }
-      update({ messages: parsed.value.messages, cards: parsed.value.cards, notice: parsed.value.mode === "sample" ? "Sample conversation · agent runtime is not connected." : "Ready" });
+      update({ transcriptVersion: state.transcriptVersion + 1, messages: parsed.value.messages, cards: parsed.value.cards, notice: parsed.value.mode === "sample" ? "Sample conversation · agent runtime is not connected." : "Ready" });
     },
-    async send(input) {
-      if (disposed || isActive({ status: state.status })) return;
-      const message = prepareMessage({ text: input.text, id: required.runtime.ids.next({}) });
-      if (!message.ok) { update({ notice: message.error.message }); return; }
-      frontendRun = null;
-      frontendCardIds.clear();
-      update({ messages: mergeMessage({ messages: state.messages, message: message.value }), tools: [], status: "starting", notice: "Requesting a run…" });
-      const controller = required.runtime.abort(); pendingController = controller;
-      const startDeadline = required.runtime.timers.schedule({ delayMs: 15000, callback: () => {
-        if (pendingController !== controller) return;
-        clearPending(); update({ status: "unavailable", notice: "Run start timed out. Server outcome is unconfirmed." });
-      } });
-      pendingTimer = startDeadline;
-      const frontendSessionId = required.frontendSessionId?.();
-      const frontendBindToken = required.frontendBindToken?.();
-      const result = await required.api.start({ message: message.value, signal: controller.signal, conversationId: state.conversationId ?? undefined, frontendSessionId, frontendBindToken });
-      required.runtime.timers.cancel({ handle: startDeadline });
-      if (disposed || controller.signal.aborted) return;
-      pendingController = null; pendingTimer = null;
-      if (!result.ok || !validReceipt(result.value)) { update({ status: "unavailable", notice: "Run could not be started." }); return; }
-      if (!matchingFrontendReceipt({ binding: frontendRun, receipt: result.value })) { update({ status: 'unavailable', notice: 'Frontend run binding disagrees with the server receipt.' }); return; }
-      if (result.value.expiresAt <= required.runtime.clock.now({})) { update({ status: "expired", notice: "Server run receipt already expired." }); return; }
-      const timer = required.runtime.timers.schedule({ delayMs: result.value.expiresAt - required.runtime.clock.now({}), callback: () => { void stop({ reason: "expired" }); } });
-      active = { frontendSessionId, receipt: result.value, controller, timer, sequence: 0, count: 0, bytes: 0, cardIds: new Set(frontendCardIds), seen: new Map() };
-      update({ status: "running", conversationId: result.value.conversationId ?? state.conversationId, mode: result.value.mode ?? null, notice: result.value.mode === 'sandbox' ? "Sandbox response · no model or vendor calls." : "Receiving a response…" });
-      try { await consume({ run: active }); }
-      catch { clearRun(); update({ status: 'unavailable', notice: 'Run stream interrupted. Saved work remains on the server.', cards: [] }); }
-    },
+    async send(input) { const run = await start(input); if (run) await consumeSafely({ run }); },
     async cancel() {
       if (disposed || state.status === "cancelling") return;
-      await stop({ reason: "owner" });
+      await stop({ reason: "owner" }); finishDisplay();
     },
-    dispose() { historyController?.abort(); clearPending(); clearRun(); frontendRun = null; frontendCardIds.clear(); disposed = true; listeners.clear(); },
+    dispose() { display?.release(); historyController?.abort(); clearPending(); clearRun(); frontendRun = null; frontendCardIds.clear(); disposed = true; listeners.clear(); },
   };
 }
 /** A bind frame can arrive while start awaits I/O; headless starts have no binding to compare. */
@@ -306,4 +424,29 @@ function prepareMessage(required: { text: string; id: string }): Outcome<ChatMes
   if (!parsed.ok || !parsed.value.text) return { ok: false, error: { code: "invalid_input", message: "Enter a message of at most 65,536 characters.", retryable: false } };
   if (!isSafeUiValue({ value: parsed.value, maxCharacters: 65536 })) return { ok: false, error: { code: "invalid_input", message: "Message rejected: keep credentials out of chat.", retryable: false } };
   return parsed;
+}
+
+/** Pure display translation; authority remains in the validated OM payload/session. */
+function displayPayload(required: { payload: StudioPayload; state: ChatState }): AgentEvent | null {
+  const p = required.payload;
+  switch (p.type) {
+    case 'text_delta': return { kind: 'text', text: p.text };
+    case 'message': return p.message.role === 'assistant' ? { kind: 'text', text: p.message.text.slice(required.state.messages.find(message => message.id === p.message.id)?.text.length ?? 0) } : null;
+    case 'tool_requested': return { kind: 'tool_use', id: p.call.operationId, name: p.call.name, input: p.call.input };
+    case 'tool_result': return p.result.status === 'completed' ? { kind: 'tool_result', toolUseId: p.operationId, content: JSON.stringify(p.result.output), isError: false } : null;
+    case 'confirmation_resolved': return p.status === 'cancelled' ? { kind: 'tool_result', toolUseId: p.operationId, content: 'Cancelled', isError: true } : null;
+    case 'confirmation': case 'a2ui': case 'navigation': case 'status': return null;
+    default: { const exhaustive: never = p; return exhaustive; }
+  }
+}
+function displayStatus(required: { status: ChatState['status'] }): ChatRunStatus | null {
+  switch (required.status) {
+    case 'starting': return 'queued';
+    case 'running': case 'cancelling': return 'running';
+    case 'complete': return 'succeeded';
+    case 'cancelled': return 'canceled';
+    case 'expired': case 'unavailable': return 'failed';
+    case 'idle': return null;
+    default: { const exhaustive: never = required.status; return exhaustive; }
+  }
 }

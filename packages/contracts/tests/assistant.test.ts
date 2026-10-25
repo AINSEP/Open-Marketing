@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import {
- a2uiSurfacePayloadSchema, approvalPayloadSchema, assistantContextSchema, assistantRunRequestSchema,
+ assistantUsageSchema, a2uiSurfacePayloadSchema, approvalPayloadSchema, assistantContextSchema, assistantRunRequestSchema,
  assistantSettingsSchema, assistantSettingsStatusSchema, boundedJsonSchema, conversationListSchema,
  conversationReadSchema, conversationSchema, frontendInvocationSchema, frontendResultSchema,
  navigationActionSchema, navigationTargetSchema, operationPollSchema, runEventSchema, startRunSchema,
@@ -134,4 +134,12 @@ it("carries the current frontend bind token additively without putting it in eve
  }
  expect(runEventSchema.safeParse({ protocolVersion: 1, eventId: "e", runId: "run", sequence: 1, kind: "started", payload: {},
   correlationId: "c", traceId: "t", frontendBindToken: binding.frontendBindToken }).success).toBe(false);
+});
+
+it('accepts additive provider/effort and flat usage while preserving unknown cost', () => {
+ expect(assistantSettingsSchema.parse({ ...settings, provider: 'openai', effort: 'high' }).provider).toBe('openai');
+ expect(assistantSettingsSchema.safeParse({ ...settings, provider: 'arbitrary-url' }).success).toBe(false);
+ const usage = assistantUsageSchema.parse({ kind: 'usage', complete: false, costBasis: 'unavailable', durationMs: 8000 });
+ expect(usage.costUsd).toBeUndefined(); expect(usage.totalCostUsd).toBeUndefined();
+ expect(assistantUsageSchema.safeParse({ ...usage, inputTokens: -1 }).success).toBe(false);
 });

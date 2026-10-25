@@ -29,3 +29,6 @@ export interface SqlSession extends UnitOfWork {
     values?: unknown[];
   }): Promise<{ rows: Row[]; rowCount: number | null }>;
 }
+
+export { assistantUsageSchema, assistantProviderSchema, assistantRuntimeSchema } from './api/index.js';
+export type { AssistantProvider, AssistantUsage } from './api/index.js';

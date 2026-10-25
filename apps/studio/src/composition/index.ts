@@ -12,6 +12,7 @@ import { ROUTES } from '../shared/navigation/index.js';
 import type { StudioNavigationTarget } from '@open-marketing/contracts';
 import { applyAppearance } from "../shared/ui/index.js";
 import type { AppearanceHost } from "../shared/ui/index.js";
+import { THEMES, ACCENTS } from "../themes/registry.js";
 
 export interface StudioAppDependencies { readonly root: Root; readonly runtime: StudioRuntime; readonly browser: BrowserRoutePort | null; readonly api?: StudioApiPort; readonly appearance?: AppearanceHost;
   readonly doc?: Document;
@@ -51,7 +52,7 @@ export function createStudioApp(required: StudioAppDependencies) {
   };
 }
 
-/** Browser effects stay in composition. Only Appearance is a local writable DOM control;
+/** Browser effects stay in composition. Only appearance choices are local writable DOM controls;
  * routes are published explicitly and every business mutation uses the catalog.
  */
 function studioPageBinding(required: { frontend: NonNullable<StudioAppDependencies['frontend']>; runtime: StudioRuntime;
@@ -63,7 +64,8 @@ function studioPageBinding(required: { frontend: NonNullable<StudioAppDependenci
       allowPath: input => Object.hasOwn(ROUTES, input.path.slice(1)), navigate: input => frontend.navigate({ page: input.path.slice(1) as StudioNavigationTarget }),
       reducedMotion: frontend.reducedMotion, scroll: frontend.scroll, timers: required.runtime.timers,
       highlightClass: 'agent-highlight', fadeAnimationName: 'agent-highlight-fade', cleanupFallbackMs: 3000 },
-    runtime: required.runtime, currentRun: required.currentRun, localWriteHandles: new Set(['appearance-mode']) });
+    runtime: required.runtime, currentRun: required.currentRun, localWriteHandles: new Set(['appearance-mode',
+      ...THEMES.map(theme => 'appearance-theme-' + theme.id), ...Object.keys(ACCENTS).map(accent => 'appearance-accent-' + accent)]) });
 }
 /** Plugin mutations refresh one chat-owned inventory; other API effects remain with their owner. */
 function chartAwareApi(required: { api: StudioApiPort; changed(): void }): StudioApiPort {

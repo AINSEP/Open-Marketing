@@ -1,4 +1,4 @@
-import { confirmationCardSchema, toolOperationSchema, surfaceAcknowledgementSchema, toolCallSchema, toolResultSchema } from '@open-marketing/contracts';
+import { assistantUsageSchema, confirmationCardSchema, toolOperationSchema, surfaceAcknowledgementSchema, toolCallSchema, toolResultSchema } from '@open-marketing/contracts';
 /** Cookie-authenticated owner transport. Server state is validated before reaching presentation. */
 import { z } from 'zod';
 import { addonListRequestSchema, addonListSchema, addonSummarySchema, addonUninstallReceiptSchema, installAddonSchema, setAddonEnabledSchema, uninstallAddonSchema, integrationListSchema, integrationSummarySchema, connectIntegrationTokenSchema, disconnectIntegrationSchema, pageQuerySchema } from '@open-marketing/contracts';
@@ -187,6 +187,7 @@ export function createHttpStudioApi(required: Dependencies): StudioApiPort {
             return request({ dependencies: required, origin, path: '/api/runs', method: 'POST', body: parsed.value, signal: input.signal,
                 parse: value => parseBoundary({ schema: runReceiptSchema, input: value.input }) });
         },
+        runStatus: input => readRunStatus({ dependencies: required, origin, runId: input.runId, after: input.after ?? 0, signal: input.signal ?? required.runtime.abort().signal }),
         events: input => pollEvents({ dependencies: required, origin, ...input }),
         cancel: input => request({ dependencies: required, origin, path: '/api/runs/' + encodeURIComponent(input.runId) + '/cancel', method: 'POST', body: {},
             parse: value => parseBoundary({ schema: cancellationSchema, input: value.input }) }),
@@ -211,7 +212,7 @@ export function createHttpStudioApi(required: Dependencies): StudioApiPort {
 const runReceiptSchema = z.strictObject({ runId: idSchema, status: z.enum(['requested', 'pending']), expiresAt: epochSchema,
  conversationId: idSchema.optional(), mode: z.enum(['sandbox', 'model']).optional() });
 const cancellationSchema = z.strictObject({ runId: idSchema, status: z.enum(['requested', 'cancelled']) });
-const runPageSchema = z.strictObject({ runId: idSchema, status: z.enum(['running', 'completed', 'cancelled', 'interrupted']), events: z.array(runEventSchema).max(128) });
+const runPageSchema = z.strictObject({ runId: idSchema, status: z.enum(['running', 'completed', 'cancelled', 'interrupted']), events: z.array(runEventSchema).max(128), usage: assistantUsageSchema.optional() });
 
 /** Validate a full page before yielding anything; malformed/foreign/gapped pages leak no partial UI. */
 function checkedRunPage(required: { input: unknown; runId: string; after: number }): Outcome<z.infer<typeof runPageSchema>> {
@@ -276,4 +277,19 @@ async function addonWrite<T>(required: { dependencies: Dependencies; origin: Out
     const body = parseBoundary({ schema: required.inputSchema, input: required.request });
     if (!body.ok) return failure({ code: 'invalid_input', message: 'Invalid add-on request' });
     return request({ ...required, method: 'POST', body: body.value, parse: input => parseBoundary({ schema: required.schema, input: input.input }) });
+}
+
+/** Intermediate pages of a completed run say running. Drain nonempty pages, <=8,192 events/128 pages,
+ * before returning status; an empty running page is the current head. No polling or write.
+ * @complexity O(n) bounded events, O(128) page space; existing per-request deadlines apply.
+ */
+async function readRunStatus(required: PollInput): Promise<Outcome<Omit<z.infer<typeof runPageSchema>, 'events'>>> {
+ let after = required.after, pages = 0;
+ while (after < 8192 && pages++ < 128) {
+  const page = await requestRunPage({ ...required, after });
+  if (!page.ok) return page;
+  if (page.value.status !== 'running' || page.value.events.length === 0) return { ok: true, value: { runId: required.runId, status: page.value.status, usage: page.value.usage } };
+  after = page.value.events.at(-1)!.sequence;
+ }
+ return failure({ code: 'limit_exceeded', message: 'Run status exceeds the event bound' });
 }

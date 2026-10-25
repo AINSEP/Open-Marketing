@@ -21,7 +21,15 @@ export type ApiRequest = z.infer<typeof apiRequestSchema>;
 export type ApiResponse<T> = Outcome<T>;
 export const mcpRequestSchema = z.strictObject({ jsonrpc: z.literal("2.0"), id: z.union([idSchema, z.number().int()]), method: z.enum(["initialize", "tools/list", "tools/call", "resources/list", "resources/read"]), params: z.record(z.string(), z.json()).default({}) });
 export type OmMcpRequest = z.infer<typeof mcpRequestSchema>;
-export const chatMessageSchema = z.strictObject({ id: idSchema, role: z.enum(["user", "assistant"]), text: z.string().max(65536) });
+/** Flat Jini ChatUsageSummary projection; absent money is unknown, never zero. */
+export const assistantUsageSchema = z.strictObject({ kind: z.literal('usage'), inputTokens: z.number().int().nonnegative().optional(), outputTokens: z.number().int().nonnegative().optional(), costUsd: z.number().nonnegative().optional(), durationMs: z.number().nonnegative().optional(), totalCostUsd: z.number().nonnegative().optional(), complete: z.boolean(), costBasis: z.enum(['estimated', 'unavailable']) });
+export type AssistantUsage = z.infer<typeof assistantUsageSchema>;
+export const assistantProviderSchema = z.enum(['anthropic', 'openai', 'google']);
+export type AssistantProvider = z.infer<typeof assistantProviderSchema>;
+const reasoningOptionSchema = z.strictObject({ id: idSchema, label: z.string().min(1).max(80) });
+const assistantModelSchema = z.strictObject({ id: idSchema, label: z.string().min(1).max(80), reasoning: z.array(reasoningOptionSchema).max(8).optional() });
+export const assistantRuntimeSchema = z.strictObject({ id: assistantProviderSchema, name: z.string().max(80), available: z.boolean(), authStatus: z.enum(['ok', 'missing', 'unknown']), models: z.array(assistantModelSchema).max(16), reasoningOptions: z.array(reasoningOptionSchema).max(8), diagnostic: z.string().max(200).optional() });
+export const chatMessageSchema = z.strictObject({ id: idSchema, role: z.enum(["user", "assistant"]), text: z.string().max(65536), usage: assistantUsageSchema.optional(), createdAt: epochSchema.optional(), startedAt: epochSchema.optional(), endedAt: epochSchema.optional() });
 export type ChatMessage = z.infer<typeof chatMessageSchema>;
 
 /** Additive Studio routes; legacy navigation and exhaustive snapshot records stay unchanged. */
@@ -50,10 +58,10 @@ export const boundedJsonSchema = z.unknown()
  .refine(value => new TextEncoder().encode(JSON.stringify(value)).length <= 65536, "JSON exceeds 64 KiB");
 
 /** Saved assistant selection. Keys are held by the server; this contains only a connection ID. */
-export const assistantSettingsSchema = z.strictObject({ mode: z.enum(["sandbox", "model"]), model: idSchema, connectionId: idSchema.nullable() });
+export const assistantSettingsSchema = z.strictObject({ mode: z.enum(["sandbox", "model"]), model: idSchema, connectionId: idSchema.nullable(), provider: assistantProviderSchema.optional(), effort: idSchema.optional() });
 export type AssistantSettings = z.infer<typeof assistantSettingsSchema>;
 /** Server-configured model choices; optional for compatibility with existing settings responses. */
-export const assistantSettingsStatusSchema = z.strictObject({ settings: assistantSettingsSchema, ready: z.boolean(), status: z.enum(["sandbox", "ready", "reconnect_required", "disconnected", "unavailable"]), models: z.array(z.strictObject({ id: idSchema, label: z.string().min(1).max(80) })).max(16).optional() });
+export const assistantSettingsStatusSchema = z.strictObject({ settings: assistantSettingsSchema, ready: z.boolean(), status: z.enum(["sandbox", "ready", "reconnect_required", "disconnected", "unavailable"]), models: z.array(assistantModelSchema).max(16).optional(), runtimes: z.array(assistantRuntimeSchema).max(3).optional() });
 export type AssistantSettingsStatus = z.infer<typeof assistantSettingsStatusSchema>;
 /** Read the current Jini attachment token at send time; it is never stored in chat history. */
 export const assistantRunRequestSchema = z.strictObject({ prompt: z.string().min(1).max(65536), conversationId: idSchema.optional(), frontendSessionId: idSchema.optional(), frontendBindToken: z.string().min(1).max(8192).optional() });

@@ -157,3 +157,32 @@ it('HTTP polling stops at the unique event cap without waiting or fetching again
  expect(results).toEqual([{ ok: true, value: event({ sequence: 8192 }) }, { ok: false, error: { code: 'limit_exceeded', message: 'Run event limit exceeded', retryable: false } }]);
  expect(calls).toBe(1); expect(host.pending()).toBe(0);
 });
+
+it('Jini slots receive both run and frontend updates once per identity; resolution removes the live card', async () => {
+ const seed = fixture(); const snapshot = await seed.api.snapshot({}); if (!snapshot.ok) throw new Error('Missing fixture');
+ const card = snapshot.value.cards[0], entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>(), done = Promise.withResolvers<void>();
+ const host = testRuntime();
+ const surface = { type: 'a2ui' as const, surfaceId: 'surface', invocationId: 'invocation', runId: 'run', frontendSessionId: 'frontend', version: 'v1.0' as const, messages: [{ createSurface: { surfaceId: 'surface', catalogId: 'basic', theme: {} } }] };
+ const api = { ...seed.api, async *events() {
+  yield { ok: true as const, value: event({ sequence: 1, payload: surface }) };
+  entered.resolve(); await release.promise;
+  yield { ok: true as const, value: event({ sequence: 2, payload: { type: 'confirmation', card } }) };
+  yield { ok: true as const, value: event({ sequence: 3, payload: { type: 'confirmation_resolved', cardId: card.cardId, operationId: card.operationId, status: 'completed' } }) };
+  yield { ok: true as const, value: event({ sequence: 4, kind: 'ended', payload: {} }) };
+ } };
+ const session = createChatSession({ api, runtime: host.runtime, frontendSessionId: () => 'frontend', async navigate({ action }) { return { status: 'completed', actionId: action.actionId, target: action.target }; } });
+ const displayed: import('@jini-ai/chat').AgentEvent[] = [];
+ try {
+  await session.transport.startRun({ history: [{ id: 'user', role: 'user', content: 'fixture' }], signal: new AbortController().signal }, { onEvent: value => displayed.push(value), onError() {}, onDone: () => done.resolve() });
+  await entered.promise;
+  session.receiveSurface({ input: { ...surface, surfaceId: 'frontend-surface' } });
+  session.receiveSurface({ input: { ...surface, runId: 'foreign', surfaceId: 'rejected' } });
+  session.receiveSurface({ input: surface });
+  session.addSurfaceApproval({ runId: 'run', card });
+  expect(displayed.filter(value => value.kind === 'ext' && value.name === 'om.surface')).toHaveLength(2);
+  expect(displayed.filter(value => value.kind === 'ext' && value.name === 'om.approval')).toHaveLength(1);
+  release.resolve(); await done.promise;
+  expect(session.getSnapshot().cards).toEqual([]);
+  expect(displayed.filter(value => value.kind === 'ext' && value.name === 'om.approval')).toHaveLength(1);
+ } finally { release.resolve(); session.dispose(); seed.session.dispose(); }
+});

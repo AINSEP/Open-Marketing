@@ -118,6 +118,8 @@ export interface StudioApiPort {
   setSettings?(required: { settings: AssistantSettings; signal?: AbortSignal }): Promise<Outcome<AssistantSettingsStatus>>;
   snapshot(required: { signal?: AbortSignal }): Promise<Outcome<StudioSnapshot>>;
   start(required: { message: ChatMessage; signal: AbortSignal; conversationId?: string; frontendSessionId?: string; frontendBindToken?: string }): Promise<Outcome<StudioRun>>;
+  /** Validated cursor scan of the existing endpoint; no run is started. */
+  runStatus?(required: { runId: string; after?: number; signal?: AbortSignal }): Promise<Outcome<{ runId: string; status: 'running' | 'completed' | 'cancelled' | 'interrupted'; usage?: import('@open-marketing/contracts').AssistantUsage }>>;
   events(required: { runId: string; after: number; signal: AbortSignal }): AsyncIterable<Outcome<RunEvent>>;
   cancel(required: { runId: string; reason: "owner" | "expired" }): Promise<Outcome<CancellationReceipt>>;
   approve(required: { response: ApprovalResponse; signal?: AbortSignal }): Promise<Outcome<{ status: "recorded" }>>;

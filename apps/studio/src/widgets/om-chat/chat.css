@@ -1,0 +1,11 @@
+/* Layout only: TH1 owns theme tokens, including portaled Jini menus. */
+.om-jini-chat { min-width: 0; min-height: 0; overflow: hidden; }
+.om-jini-chat .jini-chat-pane { flex: 1; min-height: 0; width: 100%; }
+.om-chat-header { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; padding: .75rem; border-bottom: 1px solid var(--jini-chat-border); }
+.om-chat-header strong { flex: 1; }
+.om-chat-header label { display: flex; align-items: center; gap: .5rem; width: 100%; }
+.om-chat-header select { flex: 1; min-width: 0; }
+.om-chat-header small { width: 100%; color: var(--jini-chat-muted); }
+.om-chat-status { padding: .5rem .75rem; font-size: .75rem; color: var(--jini-chat-muted); }
+.om-chat-status small { display: block; margin-top: .25rem; }
+.om-chat-plugins { display: flex; flex-wrap: wrap; gap: .375rem; }

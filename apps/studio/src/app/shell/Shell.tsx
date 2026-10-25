@@ -5,6 +5,7 @@ import type { AddonNavigationTarget } from "@open-marketing/contracts";
 import { NAV_ICONS } from "../../shared/navigation/index.js";
 import { useShell } from "./Shell.hooks.js";
 import type { ShellProps, NavLink, NavGroup } from "./Shell.hooks.js";
+import { AppearancePicker } from "./AppearancePicker.js";
 
 /** One operator application: feature rail, central canvas, global docked assistant. */
 export function Shell(props: ShellProps) {
@@ -15,7 +16,7 @@ export function Shell(props: ShellProps) {
     <main id="workspace-canvas" className="workspace-main" tabIndex={-1} aria-label="Workspace canvas" data-agent-page={shell.target}>
       <div className="canvas-content"><header className="page-heading"><div><span className="eyebrow">{shell.sidebar.groupLabel}</span><h1 tabIndex={-1} ref={shell.headingRef}>{shell.page.label}</h1><p>{shell.page.description}</p></div><span className="mode-badge" role="status" data-state={shell.connection.state}>{shell.connection.badge}</span></header>
         {shell.error && <p role="alert" className="error-notice">{shell.error}</p>}
-        {shell.target === "settings" && <section className="settings-card appearance-card" aria-labelledby="appearance-heading"><span className="eyebrow">DEVICE PREFERENCES</span><h2 id="appearance-heading">Appearance</h2><div className="appearance-control"><label htmlFor="appearance-mode">Appearance</label><select data-agent-element="appearance-mode" data-agent-role="field" data-agent-label="Appearance" id="appearance-mode" value={shell.appearance.preference} onChange={shell.appearance.change}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></div><p className="muted">System follows your device’s light or dark appearance.</p></section>}
+        {shell.target === "settings" && <AppearancePicker appearance={shell.appearance} />}
         {shell.addonTarget ? <AddonPage target={shell.addonTarget} api={props.api} runtime={props.runtime} /> : shell.snapshot && shell.canvasTarget ? <WorkspaceCanvas target={shell.canvasTarget} snapshot={shell.snapshot} cards={shell.session.cards} onOpenChat={shell.openChat} api={props.api} runtime={props.runtime} /> : !shell.error && <p role="status">Opening your workspace…</p>}
       </div>
     </main>

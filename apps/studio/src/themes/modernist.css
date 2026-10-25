@@ -6,8 +6,8 @@
   --jini-theme-light-primary-ink: #073e2e; --jini-theme-light-danger: #b33332;
   --jini-theme-light-success: #007a52; --jini-theme-light-warning: #87570d;
   --jini-accent: var(--jini-primary); --jini-accent-strong: #007a52;
-  --jini-accent-hover: #00b787; --jini-accent-ink: var(--jini-primary-ink);
-  --jini-accent-soft: #e6f6ef; --jini-accent-ring: #81cdb1; --jini-link: #007a52;
+  --jini-accent-hover: var(--jini-primary); --jini-accent-ink: var(--jini-primary-ink);
+  --jini-accent-soft: #e6f6ef; --jini-accent-ring: #81cdb1; --jini-link: var(--jini-accent-strong);
   --jini-success-bg: #e8f5ee; --jini-warning-bg: #fff4df; --jini-danger-bg: #fceceb;
   --jini-app-bg: var(--jini-bg); --jini-shell-bg: var(--jini-bg);
   --jini-panel-bg: var(--jini-bg); --jini-panel-border: var(--jini-border);
@@ -57,8 +57,8 @@
   --jini-theme-dark-primary-ink: #04261b; --jini-theme-dark-danger: #ffa4a0;
   --jini-theme-dark-success: #77d8ae; --jini-theme-dark-warning: #eac077;
   --jini-accent: var(--jini-primary); --jini-accent-strong: #6fe1b5;
-  --jini-accent-hover: #20d6a5; --jini-accent-ink: var(--jini-primary-ink);
-  --jini-accent-soft: #173f30; --jini-accent-ring: #469879; --jini-link: #6fe1b5;
+  --jini-accent-hover: var(--jini-primary); --jini-accent-ink: var(--jini-primary-ink);
+  --jini-accent-soft: #173f30; --jini-accent-ring: #469879; --jini-link: var(--jini-accent-strong);
   --jini-success-bg: #173f30; --jini-warning-bg: #3c321f; --jini-danger-bg: #482b2b;
   --jini-app-bg: var(--jini-bg); --jini-shell-bg: var(--jini-bg);
   --jini-panel-bg: #16181a; --jini-panel-border: var(--jini-border);
