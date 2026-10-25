@@ -123,6 +123,13 @@ The owner is building Jini adapters for OpenTelemetry, PostHog and Sentry so we 
 - [ ] **OM plan:** inject the port in the server composition (noop by default; on only via explicit config). Then add spans for HTTP, DB, plugin tool calls, vendor dispatch and agent runs. Use the PostHog/Sentry adapters once Jini publishes them. Never send ad-account PII or secrets.
 
 ## QUEUED — over-engineering cleanup (Codex audit 2026-10-25)
+- [x] **Quick wins DONE 2026-10-25, about −1,200 net lines; typechecks green, tests not run:**
+  - JS1-A f1c28b0;
+  - QW1 313c3e8 (studio/agent/tooling, −593);
+  - QW2 2900f9c (features/tests, −186);
+  - QW3 a7b3356 (server + JS1-B, −245);
+  - QW4 eb65a0b (plugins, −29).
+- [ ] **Integrator follow-up from QW1:** remove the unused dependency declarations A7 lists (om-clock ×15, agent core/protocol, desktop desktop-host, plugins ajv, clock zod, fast-check outside safety, sqlite in federation/plugins, root @eslint/js/@playwright/test/fast-check). This is a lockfile change, so verify each first; some are Jini peers.
 Full report: `ADS-memory/.local-artifacts/codex-runs/2026-10-25-overengineering-audit/audit.md`, with 20 ranked findings and 7 proposed rule changes (owner decisions). The biggest waste is parallel implementations: old feature stacks stay tested while the server runs a different path.
 - [ ] **Batch 1 — mechanical pruning:**
   - delete the unused jini-compat `claimBatch`;
@@ -172,7 +179,7 @@ Full report: `ADS-memory/.local-artifacts/codex-runs/2026-10-25-overengineering-
 ## Jini swap (2026-10-25): result of the JS1/JS2/JS3 plans
 OM already delegates to Jini wherever parity exists. What's left are guarantees Jini lacks. Plans: `codex-runs/2026-10-25-jini-swap-*/plan.md`.
 - [x] JS1-A: deleted the unused claimBatch and swapped to Jini `sourceChecksum` (f1c28b0, −160 lines; tests not run because of load).
-- [ ] **JS1-B:** remove the unused PostgreSQL transaction path (`jini-compat/db/src/transaction.ts`, `ports.ts` dialect, `tests/db/{transaction,migrations}.test.ts`, `fake-client.ts`). First port the unique release/commit/migration assertions into the SQLite tests (plan stage 2, cap 380 lines). Run when load allows.
+- [x] **JS1-B DONE** (a7b3356, with QW3). Was: remove the unused PostgreSQL transaction path (`jini-compat/db/src/transaction.ts`, `ports.ts` dialect, `tests/db/{transaction,migrations}.test.ts`, `fake-client.ts`). First port the unique release/commit/migration assertions into the SQLite tests (plan stage 2, cap 380 lines). Run when load allows.
 - [x] JS2 and JS3 builds skipped (no net deletion now).
 - [ ] **Jini upstream asks sent to tovu-9b (10-25)**, all additive/opt-in:
   - outbox fencing, reconciliation and receipts;
@@ -209,7 +216,14 @@ OM already delegates to Jini wherever parity exists. What's left are guarantees 
   - `InMemoryTransaction` and `InMemoryFencedOutbox<E>`;
   - `fencedOutboxConformance({ createSubject })` → `{ name, run }` cases (node:assert).
 
-  OM's SQLite adapter must run the conformance cases; its own run is what proves uniqueness under racing transactions. Enqueue is a separate port; FencedOutboxPort and the legacy OutboxPort are unchanged. A SQLite lease race was also fixed.
+  OM's SQLite adapter must run the conformance cases; its own run is what proves uniqueness under racing transactions.
+  **FINAL (tovu-dd, 10-25, Jini 4bd32f8c):**
+  - `FencedConformanceSubject<E, Tx>` now REQUIRES `conflictingEvent` (deep-unequal to `event`), with an optional `awaitOverlap({ transaction })` for adapters with concurrent transactions.
+  - A key held by an open transaction is never inserted twice. An abandoned open transaction keeps its key reserved, so ALWAYS settle transactions in `finally`.
+  - A failed InMemoryTransaction commit runs every rollback; several errors become an AggregateError.
+  - New overlap conformance case.
+
+  Publish notice comes from tovu-dd. Enqueue is a separate port; FencedOutboxPort and the legacy OutboxPort are unchanged. A SQLite lease race was also fixed.
   tovu-9b accepted all 9 (10-25). Target is **Jini 0.6.15**, built in 5 groups: outbox+pump, event-log, db, fetch/mcp/guarded-reader, pack+redact. Each group must prove Tovu's defaults are unchanged. #9 extends the existing `keepIdentifiers` sanitizer option (Jini 31641d1b). tovu-9b reports each group as it lands.
 
 ## QUEUED — Tovu → Jini extraction audit (owner, 2026-10-24)
