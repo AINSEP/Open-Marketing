@@ -16,7 +16,7 @@ export const siteGuideInputSchema = z.discriminatedUnion('operation', [
     z.strictObject({ operation: z.literal('explain'), topic: topicId }),
 ]);
 const factSchema = z.discriminatedUnion('status', [
-    z.strictObject({ tool: idSchema, status: z.literal('available'), data: boundedJsonSchema, truncated: z.boolean() }),
+    z.strictObject({ tool: idSchema, status: z.literal('available'), data: z.json(), truncated: z.boolean() }),
     z.strictObject({ tool: idSchema, status: z.literal('unavailable') }),
 ]);
 type Fact = z.infer<typeof factSchema>;
