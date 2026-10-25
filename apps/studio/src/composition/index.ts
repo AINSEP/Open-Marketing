@@ -14,6 +14,7 @@ import { applyAppearance } from "../shared/ui/index.js";
 import type { AppearanceHost } from "../shared/ui/index.js";
 
 export interface StudioAppDependencies { readonly root: Root; readonly runtime: StudioRuntime; readonly browser: BrowserRoutePort | null; readonly api?: StudioApiPort; readonly appearance?: AppearanceHost;
+  readonly doc?: Document;
   readonly charts?: StudioChartHost;
   readonly frontend?: { root: HTMLElement; transport: Parameters<typeof bindPageActions>[0]['transport'];
     navigate(required: { page: StudioNavigationTarget }): void; reducedMotion(required: Record<string, never>): boolean;
@@ -41,7 +42,7 @@ export function createStudioApp(required: StudioAppDependencies) {
       if (page && required.frontend) bridge = bindPageActions({ driver: page.driver, transport: required.frontend.transport,
         currentRun: session.currentRun, onBound: session.receiveFrontendBinding, onVoided: session.voidFrontendRun, onSurface: session.receiveSurface,
         onError: () => { /* Individual requests report typed failures via the server relay. */ } });
-      function paint() { required.root.render(createElement(Shell, { api, navigation, session, runtime: required.runtime, appearance: required.appearance,
+      function paint() { required.root.render(createElement(Shell, { api, navigation, session, runtime: required.runtime, appearance: required.appearance, doc: required.doc,
         charts: required.charts ? { host: required.charts, revision: chartRevision } : undefined })); }
       paint();
       stopCurrent = () => { mounted = false; bridge?.close(); page?.dispose(); required.root.unmount(); session.dispose(); navigation.dispose(); };

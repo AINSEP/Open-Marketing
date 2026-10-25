@@ -2,18 +2,18 @@ import { OMChatPane } from "../../widgets/om-chat/index.js";
 import { WorkspaceCanvas } from "../../widgets/workspace-canvas/index.js";
 import { PluginsPage, AgentPluginsPage, SkillsPage, IntegrationsPage } from "../../pages/addons/index.js";
 import type { AddonNavigationTarget } from "@open-marketing/contracts";
+import { NAV_ICONS } from "../../shared/navigation/index.js";
 import { useShell } from "./Shell.hooks.js";
-import type { ShellProps, NavLink } from "./Shell.hooks.js";
+import type { ShellProps, NavLink, NavGroup } from "./Shell.hooks.js";
 
 /** One operator application: feature rail, central canvas, global docked assistant. */
 export function Shell(props: ShellProps) {
   const shell = useShell(props);
-  return <div className="shell" data-chat-open={shell.chatOpen}>
+  return <div className="shell" data-chat-open={shell.chatOpen} data-rail={shell.sidebar.rail}>
     <a className="skip-link" href="#workspace-canvas">Skip to workspace canvas</a>
-    <nav className="sidebar" aria-label="Features"><a className="brand" href="#workspaces"><span className="brand-mark" aria-hidden="true">om</span><span>Open<br />Marketing</span></a><div className="workspace-label"><span className="workspace-avatar" aria-hidden="true">OM</span><div><strong>{shell.workspace}</strong><span>Marketing workspace</span></div></div><span className="nav-caption">WORKSPACE</span><div className="nav-links">{shell.links.map(renderNavLink)}</div><span className="nav-caption" id="addons-navigation">ADD-ONS</span><div className="nav-links" role="group" aria-labelledby="addons-navigation">{shell.addonLinks.map(renderNavLink)}</div><div className="sidebar-footer" data-state={shell.connection.state}><span className="status-dot" aria-hidden="true" /><span>{shell.connection.sidebar}</span></div></nav>
+    <Sidebar shell={shell} />
     <main id="workspace-canvas" className="workspace-main" tabIndex={-1} aria-label="Workspace canvas" data-agent-page={shell.target}>
-      <header className="topbar"><span>Workspace <span aria-hidden="true">/</span> <strong>{shell.page.label}</strong></span><span className="mode-badge" role="status" data-state={shell.connection.state}>{shell.connection.badge}</span></header>
-      <div className="canvas-content"><header className="page-heading"><div><span className="eyebrow">OPEN MARKETING</span><h1 tabIndex={-1} ref={shell.headingRef}>{shell.page.label}</h1><p>{shell.page.description}</p></div><button type="button" className="assistant-action" onClick={shell.openChat}><span aria-hidden="true">✦</span> Think with Assistant</button></header>
+      <div className="canvas-content"><header className="page-heading"><div><span className="eyebrow">{shell.sidebar.groupLabel}</span><h1 tabIndex={-1} ref={shell.headingRef}>{shell.page.label}</h1><p>{shell.page.description}</p></div><span className="mode-badge" role="status" data-state={shell.connection.state}>{shell.connection.badge}</span></header>
         {shell.error && <p role="alert" className="error-notice">{shell.error}</p>}
         {shell.target === "settings" && <section className="settings-card appearance-card" aria-labelledby="appearance-heading"><span className="eyebrow">DEVICE PREFERENCES</span><h2 id="appearance-heading">Appearance</h2><div className="appearance-control"><label htmlFor="appearance-mode">Appearance</label><select data-agent-element="appearance-mode" data-agent-role="field" data-agent-label="Appearance" id="appearance-mode" value={shell.appearance.preference} onChange={shell.appearance.change}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></div><p className="muted">System follows your device’s light or dark appearance.</p></section>}
         {shell.addonTarget ? <AddonPage target={shell.addonTarget} api={props.api} runtime={props.runtime} /> : shell.snapshot && shell.canvasTarget ? <WorkspaceCanvas target={shell.canvasTarget} snapshot={shell.snapshot} onOpenChat={shell.openChat} api={props.api} runtime={props.runtime} /> : !shell.error && <p role="status">Opening your workspace…</p>}
@@ -22,7 +22,32 @@ export function Shell(props: ShellProps) {
     <OMChatPane session={props.session} api={props.api} runtime={props.runtime} charts={props.charts} sample={shell.mode === "sample"} available={shell.chatAvailable} open={shell.chatOpen} toggle={shell.toggleChat} />
   </div>;
 }
-function renderNavLink(link: NavLink) { return <a key={link.target} className="nav-link" href={"#" + link.target} aria-current={link.active ? "page" : undefined} onClick={link.onClick} data-action="navigate" data-target={link.target}><span className="nav-glyph" aria-hidden="true">{link.glyph}</span>{link.label}</a>; }
+/** Local shell chrome follows Tovu's grouped sidebar without taking over OM routing. */
+function Sidebar(props: { shell: ReturnType<typeof useShell> }) {
+  return <nav id="studio-sidebar" className="sidebar" aria-label="Features"><div className="sidebar-inner">
+    <a className="brand" href="#workspaces" aria-label="Open Marketing overview"><span className="brand-mark" aria-hidden="true">om</span><span className="brand-label">Open Marketing</span></a>
+    <div className="workspace-label"><strong>{props.shell.workspace}</strong><span>Marketing workspace</span></div>
+    <div className="nav-groups">{props.shell.sidebar.groups.map(renderNavGroup)}</div>
+    <div className="sidebar-footer"><div className="connection" data-state={props.shell.connection.state}><span className="status-dot" aria-hidden="true" /><span>{props.shell.connection.sidebar}</span></div>
+      <button className="rail-toggle" type="button" onClick={props.shell.sidebar.toggleRail} aria-controls="studio-sidebar" aria-expanded={!props.shell.sidebar.rail} aria-label={props.shell.sidebar.toggleLabel} title={props.shell.sidebar.toggleLabel}><NavIcon markup={NAV_ICONS.rail} /></button>
+    </div>
+  </div></nav>;
+}
+function renderNavGroup(group: NavGroup) {
+  return <section className="nav-group" key={group.id} aria-label={group.label}>
+    <button className="group-toggle" type="button" onClick={group.toggle} aria-expanded={group.open} aria-controls={group.id}><span>{group.label}</span><NavIcon markup={NAV_ICONS.chevron} /></button>
+    <div id={group.id} className="nav-links" hidden={!group.open}>{group.links.map(renderNavLink)}</div>
+  </section>;
+}
+function renderNavLink(link: NavLink) {
+  return <a key={link.target} className="nav-link" href={"#" + link.target} aria-label={link.label} title={link.soon ? link.label + " · Preview; more coming soon" : link.label} aria-current={link.active ? "page" : undefined} onClick={link.onClick} data-action="navigate" data-target={link.target}>
+    <NavIcon markup={link.icon} /><span className="nav-label">{link.label}</span>{link.soon && <span className="soon" aria-hidden="true">SOON</span>}
+  </a>;
+}
+/** Markup comes exclusively from the checked-in Lucide constants, never external input. */
+function NavIcon(props: { markup: string }) {
+  return <svg className="nav-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" dangerouslySetInnerHTML={{ __html: props.markup }} />;
+}
 /** App composition mounts pages through their public entry; widgets never import upward. */
 function AddonPage(props: Pick<ShellProps, 'api' | 'runtime'> & { readonly target: AddonNavigationTarget }) {
   switch (props.target) {

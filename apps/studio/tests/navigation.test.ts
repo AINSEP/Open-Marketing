@@ -38,3 +38,18 @@ it("a changed target with the same action ID is rejected and a superseded action
   expect(await first).toMatchObject({ status: "failed", error: { code: "conflict" } });
   route.rendered({ target: "creative" }); expect(await second).toEqual({ status: "completed", actionId: "second", target: "creative" }); route.dispose();
 });
+
+it("keeps literal grouped destinations, distinct icons, and SOON preview targets", async () => {
+  const { NAV_GROUPS, ROUTES, NAV_ICONS } = await import("../src/shared/navigation/index.js");
+  expect(NAV_GROUPS.map(group => group.label)).toEqual(["WORKSPACE", "ADD-ONS", "SYSTEM"]);
+  const targets = NAV_GROUPS.flatMap(group => group.targets);
+  expect(targets).toEqual(["workspaces", "creative", "media-library", "campaigns", "measure", "activity",
+    "/addons/plugins", "/addons/agent-plugins", "/addons/skills", "/addons/integrations", "connections", "settings"]);
+  expect(new Set(targets).size).toBe(12);
+  expect(targets.filter(target => ROUTES[target].soon)).toEqual(["creative", "measure"]);
+  expect(new Set(targets.map(target => ROUTES[target].icon)).size).toBe(12);
+  for (const icon of Object.values(NAV_ICONS)) {
+    expect(icon).toMatch(/<(?:path|rect|circle|line|polyline|polygon)\b/);
+    expect(icon).not.toMatch(/<script|<use|href=|\bon\w+=/);
+  }
+});

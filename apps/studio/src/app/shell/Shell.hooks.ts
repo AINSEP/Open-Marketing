@@ -1,6 +1,6 @@
 import { useAppearance, usePortSnapshot } from "../../shared/ui/index.js";
 import type { AppearanceHost } from "../../shared/ui/index.js";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { MouseEvent } from "react";
 import type { NavigationTarget, StudioNavigationTarget, AddonNavigationTarget } from "@open-marketing/contracts";
 import type { ChatSession } from "../../features/chat-run/index.js";
@@ -9,14 +9,17 @@ import { parseStudioSnapshot } from "../../shared/api/index.js";
 import type { StudioApiPort, StudioSnapshot } from "../../shared/api/index.js";
 import type { StudioRuntime } from "../../shared/api/index.js";
 import type { StudioChartHost } from '../../features/chart-providers/index.js';
-import { NAVIGATION, ADDON_NAVIGATION, ROUTES, isAddonTarget } from "../../shared/navigation/index.js";
+import { NAV_GROUPS, ROUTES, isAddonTarget } from "../../shared/navigation/index.js";
+import { useSidebarEmptyClickToggle } from "./sidebar-blank-click.hooks.js";
 
-export interface ShellProps { readonly api: StudioApiPort; readonly runtime: StudioRuntime; readonly navigation: NavigationController; readonly session: ChatSession; readonly appearance?: AppearanceHost; readonly charts?: { host: StudioChartHost; revision: number } }
-export interface NavLink { readonly target: StudioNavigationTarget; readonly label: string; readonly glyph: string; readonly active: boolean; readonly onClick?: (event: MouseEvent<HTMLAnchorElement>) => void }
+export interface ShellProps { readonly api: StudioApiPort; readonly runtime: StudioRuntime; readonly navigation: NavigationController; readonly session: ChatSession; readonly appearance?: AppearanceHost; readonly doc?: Document; readonly charts?: { host: StudioChartHost; revision: number } }
+export interface NavLink { readonly target: StudioNavigationTarget; readonly label: string; readonly icon: string; readonly soon?: boolean; readonly active: boolean; readonly onClick?: (event: MouseEvent<HTMLAnchorElement>) => void }
+export interface NavGroup { readonly label: string; readonly id: string; readonly links: readonly NavLink[]; readonly open: boolean; readonly toggle: () => void }
 /** App owns shared routing and boot data; widgets receive only downward ports and state. */
 export function useShell(required: ShellProps) {
   const appearance = useAppearance(required.appearance ?? { root: null, storage: null });
   const target = usePortSnapshot(required.navigation);
+  const sidebar = useSidebar({ ...required, target });
   const [snapshot, setSnapshot] = useState<StudioSnapshot | null>(null);
   const [error, setError] = useState("");
   const [chatOpen, setChatOpen] = useState(false);
@@ -44,16 +47,52 @@ export function useShell(required: ShellProps) {
   }, [target, required.navigation]);
   const toggleChat = (): void => setChatOpen(value => !value);
   const openChat = (): void => setChatOpen(true);
-  const links: readonly NavLink[] = NAVIGATION.map(route => ({ target: route, ...ROUTES[route], active: route === target, onClick: (event: MouseEvent<HTMLAnchorElement>) => {
-    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-    event.preventDefault(); required.navigation.select({ target: route });
-  } }));
-  // Native hash links reach the controller's validated read/listen path; legacy writes stay compatible.
-  const addonLinks: readonly NavLink[] = ADDON_NAVIGATION.map(route => ({ target: route, ...ROUTES[route], active: route === target }));
   const route = { target };
   const addonTarget: AddonNavigationTarget | null = isAddonTarget(route) ? route.target : null;
   const canvasTarget: NavigationTarget | null = isAddonTarget(route) ? null : route.target as NavigationTarget;
-  return { target, addonTarget, canvasTarget, snapshot, error, chatOpen, toggleChat, openChat, headingRef, links, addonLinks, appearance, page: ROUTES[target], workspace: workspaceLabel({ value: snapshot?.workspace }), connection: connectionLabels({ snapshot, error }), chatAvailable: snapshot !== null && snapshot.mode !== "unavailable", mode: snapshot?.mode ?? "unavailable" };
+  return { target, addonTarget, canvasTarget, snapshot, error, chatOpen, toggleChat, openChat, headingRef, sidebar, appearance, page: ROUTES[target], workspace: workspaceLabel({ value: snapshot?.workspace }), connection: connectionLabels({ snapshot, error }), chatAvailable: snapshot !== null && snapshot.mode !== "unavailable", mode: snapshot?.mode ?? "unavailable" };
+}
+
+/** Rail preference is device-local, best effort; a malformed value means expanded. */
+function readRail(required: { storage: AppearanceHost["storage"] }): boolean {
+  try { return required.storage?.getItem("om.sidebar-rail.v1") === "true"; }
+  catch { return false; }
+}
+
+/** Small OM-owned navigation model. React callbacks live here, never inside TSX bodies.
+ * Fixed navigation is linear in 12 links; there is no registry or routing ownership change.
+ */
+function useSidebar(required: ShellProps & { target: StudioNavigationTarget }) {
+  const storage = required.appearance?.storage ?? null;
+  const [rail, setRail] = useState(() => readRail({ storage }));
+  const [closed, setClosed] = useState<readonly string[]>([]);
+  const toggleRail = useCallback((): void => setRail(value => !value), []);
+  useEffect(() => {
+    try { storage?.setItem("om.sidebar-rail.v1", String(rail)); }
+    catch { /* Restricted storage does not disable the visible toggle. */ }
+  }, [storage, rail]);
+  useSidebarEmptyClickToggle({ doc: required.doc, matchMedia: required.appearance?.matchMedia, navId: "studio-sidebar", toggleRail });
+  const groups: readonly NavGroup[] = NAV_GROUPS.map(group => ({
+    label: group.label, id: "nav-" + group.label.toLowerCase(), open: !closed.includes(group.label),
+    toggle: () => setClosed(value => value.includes(group.label) ? value.filter(label => label !== group.label) : [...value, group.label]),
+    links: group.targets.map(route => ({ target: route, ...ROUTES[route], active: route === required.target,
+      onClick: navigationClick({ target: route, navigation: required.navigation }),
+    })),
+  }));
+  return { rail, toggleRail, groups, groupLabel: NAV_GROUPS.find(group => group.targets.includes(required.target))?.label,
+    toggleLabel: rail ? "Expand sidebar" : "Collapse sidebar" };
+}
+
+/** Add-on hash links use the controller's validated browser-listen path, as before this redesign.
+ * Legacy targets use select; modified clicks keep the browser's copy/open-link behavior.
+ */
+function navigationClick(required: { target: StudioNavigationTarget; navigation: NavigationController }): NavLink["onClick"] {
+  if (isAddonTarget({ target: required.target })) return undefined;
+  const target = required.target as NavigationTarget;
+  return event => {
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault(); required.navigation.select({ target });
+  };
 }
 
 function workspaceLabel(required: { value?: string }): string {

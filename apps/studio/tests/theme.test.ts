@@ -95,3 +95,48 @@ it("keeps raw colors in theme files only across all studio component stylesheets
   }
   expect(violations).toEqual([]);
 });
+
+it("loads Jini variables before scoped Modernist tokens and imports locally bundled fonts once", () => {
+  const styles = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+  expect(styles.startsWith('@import "@jini-ai/ui/styles/variables.css";')).toBe(true);
+  expect(styles).not.toContain('ui/styles/admin.css');
+  const entry = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
+  expect(entry.match(/import "@fontsource-variable\/space-grotesk"/g)).toHaveLength(1);
+  expect(entry.match(/import "@fontsource-variable\/dm-sans"/g)).toHaveLength(1);
+});
+
+it("uses only Jini tokens outside the one chart compatibility block", () => {
+  const styles = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+  const marker = styles.indexOf("/* Transitional chart aliases:"); expect(marker).toBeGreaterThan(0);
+  expect(styles.slice(0, marker)).not.toContain("--om-");
+  const aliases = [...styles.slice(marker).matchAll(/--om-([\w-]+):var\(--jini-[\w-]+\)/g)].map(match => match[1]);
+  expect(aliases).toEqual(["accent-text", "warning", "danger", "text-muted", "border-control", "text", "surface", "border", "font-body", "radius-sm", "shadow-card"]);
+  const root = fileURLToPath(new URL("../src/", import.meta.url));
+  for (const path of readdirSync(root, { recursive: true, encoding: "utf8" }).filter(path => path.endsWith(".tsx"))) {
+    expect(readFileSync(join(root, path), "utf8")).not.toContain("--om-");
+  }
+  for (const declaration of styles.matchAll(/(?:box-shadow|text-shadow)\s*:\s*([^;{}\n]+)/g)) {
+    expect(declaration[1]).toMatch(/^var\(--jini-/);
+  }
+});
+
+it("keeps theme values in exactly two scoped blocks and ships every reviewed material role", () => {
+  const theme = readFileSync(new URL("../src/themes/modernist.css", import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+  expect(theme).not.toContain("light-dark("); expect(theme).not.toContain("--om-");
+  const blocks = [...theme.matchAll(/([^{}]+)\{([^{}]*)\}/g)]; expect(blocks).toHaveLength(2);
+  for (const [index, block] of blocks.entries()) {
+    expect(block[1]?.trim()).toBe(':root[data-admin-theme="modernist"][data-color-scheme="' + (index === 0 ? "light" : "dark") + '"]');
+    const declarations = block[2]?.split(";").map(value => value.trim()).filter(Boolean) ?? [];
+    expect(declarations.every(value => /^--jini-[\w-]+:/.test(value))).toBe(true);
+    for (const role of ["panel-text", "panel-muted", "metric-bg", "metric-border", "nav-active-bg", "nav-active-text", "nav-active-shadow", "nav-active-indicator",
+      "tab-bg", "tab-active-bg", "tab-radius", "panel-shadow-inset", "space-gutter", "space-panel", "tracking-heading", "tracking-eyebrow"]) {
+      expect(block[2]).toContain("--jini-" + role + ":");
+    }
+    expect(block[2]).toContain("--jini-sidebar-width: 232px"); expect(block[2]).toContain("--jini-sidebar-rail-width: 60px");
+  }
+  expect(blocks[0]?.[2]).toContain("--jini-theme-light-bg: #ffffff");
+  expect(blocks[1]?.[2]).toContain("--jini-theme-dark-bg: #0f1112");
+  expect(blocks[1]?.[2]).toContain("--jini-panel-bg: #16181a");
+  expect(blocks[1]?.[2]).toContain("--jini-theme-dark-border: #2a2d30");
+  expect(blocks[1]?.[2]).toContain("--jini-theme-dark-primary: #00b386");
+});
