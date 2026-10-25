@@ -1,0 +1,22 @@
+{
+  "checkedAt": "2026-10-24", "liveAccountCalls": false,
+  "sources": [
+    { "url": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json", "finding": "Portable 1.0.0 manifest; OM compatibility is an integrator NEEDS." },
+    { "url": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json", "finding": "Empty mcpServers is valid; no external process configured." },
+    { "url": "https://www.twilio.com/docs/iam/api-keys", "finding": "API-key Basic auth; Standard keys exclude Accounts and Keys resources." },
+    { "url": "https://help.twilio.com/articles/50301225354651", "finding": "Accounts GET may return HTTP 401/code 20003 for Standard or Restricted keys as well as invalid credentials. Return permission_limited with null data and unknown readiness; do not infer successful authentication or require broader credentials merely for this read." },
+    { "url": "https://www.twilio.com/docs/iam/api/account", "finding": "Configured Account resource read; strip auth_token and other extras." },
+    { "url": "https://www.twilio.com/docs/messaging/api/service-resource", "finding": "Read existing service; smart_encoding and inbound routing do not prove Advanced Opt-Out readiness." },
+    { "url": "https://www.twilio.com/docs/messaging/api/phonenumber-resource", "finding": "Service-scoped sender GET returns account_sid, service_sid, phone SID and capabilities." },
+    { "url": "https://www.twilio.com/docs/messaging/api/brand-registration-resource", "finding": "Brand has a separate status; response lacks account_sid, so configured ownership is host-verified." },
+    { "url": "https://www.twilio.com/docs/messaging/api/usapptoperson-resource", "finding": "Configured QE campaign belongs to account, service and BN brand; campaign_status is independent." },
+    { "url": "https://www.twilio.com/docs/messaging/api/tollfree-verification-resource", "finding": "Configured HH verification binds account and tollfree_phone_number_sid; separate status." },
+    { "url": "https://raw.githubusercontent.com/twilio-labs/mcp/main/packages/mcp/package.json", "finding": "Upstream @twilio-alpha/mcp 0.7.0, MIT; no install or registry-latest claim." },
+    { "url": "https://raw.githubusercontent.com/twilio-labs/mcp/main/packages/mcp/src/main.ts", "finding": "Stdio transport; Account SID and API Key/secret credentials." },
+    { "url": "https://raw.githubusercontent.com/twilio-labs/mcp/main/packages/openapi-mcp-server/src/utils/loadTools.ts", "finding": "Generated OpenAPI operations include GET/POST/PUT/DELETE; not an immutable read-only tool list." },
+    { "url": "https://raw.githubusercontent.com/twilio-labs/mcp/main/LICENSE", "finding": "Alpha MCP MIT license; no source bundled." },
+    { "url": "https://www.twilio.com/docs/ai/mcp", "finding": "Hosted public-beta HTTP docs MCP has twilio__search and twilio__retrieve; no credentials or account execution." }
+  ],
+  "reviewEvidenceForR2": ["https://www.twilio.com/docs/messaging/api/message-resource", "https://www.twilio.com/docs/usage/security", "https://www.twilio.com/docs/messaging/guides/track-outbound-message-status", "https://www.twilio.com/docs/messaging/tutorials/advanced-opt-out", "https://www.twilio.com/docs/messaging/api/pricing", "https://www.twilio.com/docs/glossary/what-sms-character-limit", "https://www.twilio.com/en-us/legal/messaging-policy"],
+  "unresolved": ["R1 quotes/segments await calculator dependency", "Messages-create idempotency not verified; no sends in R1", "No API-readable Advanced Opt-Out readiness proven", "Policy START cannot currently clear withdrawals", "No live credentials, permissions, registration or sendability verified"]
+}

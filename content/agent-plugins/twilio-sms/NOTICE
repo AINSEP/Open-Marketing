@@ -1,0 +1,4 @@
+Open Marketing Twilio SMS plugin — Copyright 2026 Open Marketing contributors.
+Adapted from Open Marketing's LinkedIn adapter conventions (Apache-2.0).
+No Twilio SDK, MCP server or SMS calculator is bundled in R1.
+Twilio is a trademark of Twilio Inc.; this plugin is not endorsed by Twilio.

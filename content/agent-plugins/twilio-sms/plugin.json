@@ -1,0 +1,63 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "twilio-sms",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "description": "Twilio account, Messaging Service, sender and registration reads. Disabled and unadmitted; sends unavailable in R1.",
+  "extensions": {
+    "io.github.ainsep.openmarketing": {
+      "version": 1,
+      "enabled": false,
+      "admitted": false,
+      "credentialCards": [
+        {
+          "target": "twilio-sms",
+          "title": "Connect Twilio",
+          "saveKind": "agent-plugin-token",
+          "saveTarget": "twilio-sms",
+          "helpUrl": "https://www.twilio.com/console",
+          "helpLabel": "Open Twilio Console",
+          "intro": "Paste an Account SID and API key. Credentials stay on the server. Standard keys cannot read Accounts; other permitted reads remain usable.",
+          "fields": [
+            {
+              "id": "accountSid",
+              "label": "Account SID",
+              "secret": false,
+              "required": true
+            },
+            {
+              "id": "apiKeySid",
+              "label": "API Key SID",
+              "secret": false,
+              "required": true
+            },
+            {
+              "id": "apiKeySecret",
+              "label": "API Key secret",
+              "secret": true,
+              "required": true
+            },
+            {
+              "id": "authToken",
+              "label": "Account Auth Token (webhook verification)",
+              "secret": true,
+              "required": false
+            }
+          ]
+        }
+      ],
+      "capabilities": [
+        {
+          "capabilityId": "sms.read.v1",
+          "version": 1,
+          "pluginId": "twilio-sms",
+          "schemaFingerprint": "1e6e2c88b6b3682f733af5f3095099b8adda6d689f7d367dc545df50d3b555c1",
+          "admitted": false,
+          "effects": [
+            "read"
+          ]
+        }
+      ]
+    }
+  }
+}

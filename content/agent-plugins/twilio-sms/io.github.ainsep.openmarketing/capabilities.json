@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "admitted": false,
+  "capabilities": [
+    {
+      "capabilityId": "sms.read.v1",
+      "version": 1,
+      "pluginId": "twilio-sms",
+      "schemaFingerprint": "1e6e2c88b6b3682f733af5f3095099b8adda6d689f7d367dc545df50d3b555c1",
+      "admitted": false,
+      "effects": [
+        "read"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "om_twilio_account_status",
+      "effects": [
+        "read"
+      ],
+      "capabilityId": "sms.read.v1"
+    },
+    {
+      "name": "om_twilio_sender_status",
+      "effects": [
+        "read"
+      ],
+      "capabilityId": "sms.read.v1"
+    }
+  ],
+  "fingerprintBasis": "SHA-256 of src/commands.ts; compatibility metadata, not a trust allowlist."
+}
