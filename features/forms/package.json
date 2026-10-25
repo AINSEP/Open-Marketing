@@ -19,7 +19,7 @@
   },
   "dependencies": {
     "@open-marketing/contracts": "workspace:*",
-    "@jini-ai/cms": "0.5.6",
+    "@jini-ai/cms": "0.6.12",
     "zod": "4.1.13",
     "@open-marketing/om-clock": "workspace:*"
   },
@@ -28,6 +28,6 @@
     "fast-check": "4.3.0",
     "better-sqlite3": "13.0.3",
     "@types/better-sqlite3": "9.6.0",
-    "@jini-ai/db": "0.3.2"
+    "@jini-ai/db": "0.6.12"
   }
 }

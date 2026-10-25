@@ -80,6 +80,30 @@ async function fixture(required: { transport: 'memory' | 'http' }) {
 }
 
 for (const transport of ['memory', 'http'] as const) describe('model broker / ' + transport, () => {
+    it.each([true, false, undefined])('preserves optional strict tool field %s through the broker', async strict => {
+        const f = await fixture({ transport });
+        try {
+            const tool = { name: 'fixture_tool', description: 'Fixture', input_schema: { type: 'object' }, ...(strict === undefined ? {} : { strict }) };
+            const body = { ...message, tools: [tool] };
+            const response = await f.request({ body });
+            expect(response.status).toBe(200); expect(await response.text()).toBe(stopped);
+            expect(f.upstreamRequests).toHaveLength(1);
+            expect(JSON.parse(f.upstreamRequests[0].body)).toEqual(body);
+        } finally { await f.dispose(); }
+    });
+
+    it('rejects invalid strict flags and mixed-validity tool batches before egress', async () => {
+        const f = await fixture({ transport });
+        try {
+            const tool = { name: 'fixture_tool', input_schema: { type: 'object' }, strict: true };
+            for (const invalid of [{ strict: 'true' }, { strict: null }, { strict: 1 }, { unknown: true }, { name: 'x'.repeat(257) }, { description: 'x'.repeat(4097) }]) {
+                expect((await f.request({ body: { ...message, tools: [tool, { ...tool, ...invalid }] } })).status).toBe(400);
+            }
+            expect((await f.request({ body: { ...message, tools: Array(101).fill(tool) } })).status).toBe(400);
+            expect(f.credentials).not.toHaveBeenCalled(); expect(f.send).not.toHaveBeenCalled();
+        } finally { await f.dispose(); }
+    });
+
     it('replaces caller credentials, preserves the selected model and fixed URL, and drops upstream headers', async () => {
         const f = await fixture({ transport });
         try {

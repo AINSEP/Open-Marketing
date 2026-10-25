@@ -1,6 +1,6 @@
-// Jini UI/agentic/chat are written against zod 3 (they declare peer zod ^3.25.76); OM itself uses zod 4.
+// Jini UI/agentic are written against zod 3 (they declare peer zod ^3.25.76); OM itself uses zod 4. Chat 0.6.12 no longer peers on zod.
 // A peer would resolve to OM's zod 4 and break their schemas, so give these packages their own zod 3.
-const zod3Packages = new Set(['@jini-ai/ui', '@jini-ai/agentic', '@jini-ai/chat']);
+const zod3Packages = new Set(['@jini-ai/ui', '@jini-ai/agentic']);
 
 function readPackage({ ...pkg }) {
   if (!zod3Packages.has(pkg.name)) return pkg;

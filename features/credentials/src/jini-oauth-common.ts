@@ -36,7 +36,8 @@ const providerSchema = z.strictObject({
   extraAuthorizationParams: z.strictObject({ access_type: z.literal("offline").optional(), prompt: z.literal("consent").optional() }).optional(),
 });
 const tokenSchema = z.strictObject({ accessToken: z.string().min(1).max(32768), refreshToken: z.string().min(1).max(32768).nullable(), tokenType: z.string().regex(/^Bearer$/i), scopes: scopesSchema, expiresAt: z.iso.datetime().nullable(), refreshExpiresAt: z.iso.datetime().optional() });
-export type StoredOAuthTokens = OAuthTokenSet & { readonly refreshExpiresAt?: string };
+const upstreamTokenSchema = tokenSchema.extend({ idToken: z.string().min(1).max(32768).optional() });
+export type StoredOAuthTokens = Omit<OAuthTokenSet, "idToken"> & { readonly refreshExpiresAt?: string };
 export const oauthPayloadPrefix = "om.oauth.v1:";
 
 /** Host-only decoder: untagged pasted secrets pass unchanged; malformed/version-unknown tags deny.
@@ -94,6 +95,18 @@ export function parseTokens(required: { value: unknown }): Outcome<StoredOAuthTo
   const parsed = tokenSchema.safeParse(required.value);
   if (!parsed.success) return failure({ code: "protocol_mismatch" });
   return { ok: true, value: parsed.data as StoredOAuthTokens };
+}
+
+/** Validate Jini's opaque ID token, then discard it before the unchanged stored-token parser.
+ * No identity is inferred and no ID token is sealed or returned to callers.
+ * @complexity Time/space O(token bytes), bounded fields and a 64 KiB HTTP response cap.
+ * @example parseUpstreamTokens({ value: normalizedTokens })
+ */
+export function parseUpstreamTokens(required: { value: unknown }): Outcome<StoredOAuthTokens> {
+  const parsed = upstreamTokenSchema.safeParse(required.value);
+  if (!parsed.success) return failure({ code: "protocol_mismatch" });
+  const { idToken: _idToken, ...stored } = parsed.data;
+  return parseTokens({ value: stored });
 }
 
 /** Convert thrown Jini errors to safe OM values without exposing message, URL or cause.

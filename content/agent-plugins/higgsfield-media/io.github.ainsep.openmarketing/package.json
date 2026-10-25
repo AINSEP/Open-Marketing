@@ -11,7 +11,7 @@
     "test": "vitest run tests"
   },
   "dependencies": {
-    "@jini-ai/integrations": "0.4.2",
+    "@jini-ai/integrations": "0.6.12",
     "@open-marketing/contracts": "workspace:*",
     "zod": "4.1.13"
   },

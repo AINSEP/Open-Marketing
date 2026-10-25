@@ -6,7 +6,7 @@ import type { OAuthHostBindings } from "./oauth.js";
 import type { OAuthChallengeRules } from "./service.js";
 import type { SealedSecret } from "./types.js";
 import { createBoundOAuthClient } from "./oauth.js";
-import { correlatedFetch, jiniBoundary, oauthPayloadPrefix, oauthTimeout, parseTokens, resolveProvider } from "./jini-oauth-common.js";
+import { correlatedFetch, jiniBoundary, oauthPayloadPrefix, oauthTimeout, parseUpstreamTokens, resolveProvider } from "./jini-oauth-common.js";
 import type { JiniOAuthDependencies } from "./jini-oauth-common.js";
 import { failure, scopeKey } from "./rules.js";
 
@@ -70,7 +70,7 @@ async function exchange(required: { dependencies: Parameters<typeof createJiniOA
       clock: { nowMs: () => required.dependencies.clock.now({}) }, ownerKey: scopeKey(required.input.reference),
       params: { state: required.input.callback.state, code: required.input.callback.code, error: required.input.callback.error },
     }, { timeoutMs: timeout.value });
-    const parsed = parseTokens({ value: tokens });
+    const parsed = parseUpstreamTokens({ value: tokens });
     if (!parsed.ok) return parsed;
     const scopes = resolved.value.provider.defaultScopes;
     const allowed = new Set(scopes);

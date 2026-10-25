@@ -3,7 +3,7 @@ import type { CallOptions, Outcome } from "@open-marketing/contracts";
 import type { CredentialRefreshPort } from "./ports.js";
 import type { SealedSecret } from "./types.js";
 import { brokerSchema, failure, recordSchema, sameScope } from "./rules.js";
-import { correlatedFetch, jiniBoundary, oauthPayloadPrefix, oauthTimeout, parseTokens, readStoredTokens, resolveProvider } from "./jini-oauth-common.js";
+import { correlatedFetch, jiniBoundary, oauthPayloadPrefix, oauthTimeout, parseUpstreamTokens, readStoredTokens, resolveProvider } from "./jini-oauth-common.js";
 import type { JiniOAuthDependencies, StoredOAuthTokens } from "./jini-oauth-common.js";
 
 /** Published Jini expiry/refresh protocol behind the existing OM refresh port.
@@ -72,7 +72,7 @@ async function refreshDue(required: { dependencies: JiniOAuthDependencies; input
     fetchFn: correlatedFetch({ dependencies: required.dependencies, context: required.input.context, expiry }, optional),
     clock: { nowMs: () => required.dependencies.clock.now({}) },
   }, { scopes: required.tokens.scopes, resource: resolved.value.resource, timeoutMs: timeout.value });
-  const parsed = parseTokens({ value: tokens });
+  const parsed = parseUpstreamTokens({ value: tokens });
   if (!parsed.ok) return parsed;
   const allowed = new Set(required.tokens.scopes);
   if (parsed.value.scopes.some(scope => !allowed.has(scope))) return failure({ code: "protocol_mismatch" });

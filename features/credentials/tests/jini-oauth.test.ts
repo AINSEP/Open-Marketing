@@ -4,6 +4,7 @@ import { createCredentialBroker, createJiniOAuthClient, createMemoryCredentialAu
 import type { OAuthHostBindings } from "../index.js";
 import { createJiniFixture, createTokenRecord as createFixtureRecord, expiredTokens, freshTokens, oauthProvider } from "./jini-fixture.js";
 import { context, hostContext, request, value } from "./fixtures.js";
+import { parseUpstreamTokens, readStoredTokens } from "../src/jini-oauth-common.js";
 
 /** Versioned fixture storage exercises the production decoder without changing legacy fixtures. */
 async function createTokenRecord(required: Parameters<typeof createFixtureRecord>[0]) {
@@ -25,6 +26,21 @@ async function connect(required: { fixture: ReturnType<typeof createJiniFixture>
 }
 
 describe("published Jini OAuth adapter", () => {
+  it.each(["opaque-id-token", "x".repeat(32768)])("discards a bounded ID token during code exchange", async idToken => {
+    const h = createJiniFixture({ body: { access_token: "access", token_type: "Bearer", id_token: idToken } });
+    const connected = await connect({ fixture: h });
+    const secret = value({ outcome: connected.result });
+    const reference = { scope: context.scope, connectionId: connected.challenge.transactionId, version: 1 };
+    const stored = value({ outcome: await h.sealer.open({ reference, secret }) });
+    expect(payload({ plaintext: stored })).toEqual({ accessToken: "access", refreshToken: null, tokenType: "Bearer", scopes: ["ads.read"], expiresAt: null });
+    expect(JSON.stringify([connected, h.observer.events({})])).not.toContain(idToken);
+    expect(h.requests).toHaveLength(1);
+  });
+  it("rejects an oversized upstream ID token before sealing", async () => {
+    const h = createJiniFixture({ body: { access_token: "access", token_type: "Bearer", id_token: "x".repeat(32769) } });
+    expect((await connect({ fixture: h })).result).toMatchObject({ ok: false, error: { code: "protocol_mismatch" } });
+    expect(h.requests).toHaveLength(1);
+  });
   it("uses injected bindings within the same owner-bound, one-shot lifecycle", async () => {
     const h = createJiniFixture({});
     let exchanges = 0;
@@ -73,7 +89,7 @@ describe("published Jini OAuth adapter", () => {
     expect(h.requests).toHaveLength(0);
   });
   it("passes offline/consent parameters and captures the provider's refresh deadline", async () => {
-    const h = createJiniFixture({ provider: { ...oauthProvider, extraAuthorizationParams: { access_type: "offline", prompt: "consent" } }, body: { access_token: "access", refresh_token: "refresh", expires_in: 3600, refresh_token_expires_in: 86400 } });
+    const h = createJiniFixture({ provider: { ...oauthProvider, extraAuthorizationParams: { access_type: "offline", prompt: "consent" } }, body: { access_token: "access", token_type: "Bearer", refresh_token: "refresh", expires_in: 3600, refresh_token_expires_in: 86400 } });
     const connected = await connect({ fixture: h });
     const url = new URL(connected.challenge.authorizationUrl);
     expect(url.searchParams.get("access_type")).toBe("offline");
@@ -83,7 +99,7 @@ describe("published Jini OAuth adapter", () => {
     expect(tokens.refreshExpiresAt).toBe(new Date(1234 + 86400000).toISOString());
   });
   it.each([-1, "3600", null])("rejects malformed refresh lifetime %s before saving", async lifetime => {
-    const h = createJiniFixture({ body: { access_token: "access", refresh_token_expires_in: lifetime } });
+    const h = createJiniFixture({ body: { access_token: "access", token_type: "Bearer", refresh_token_expires_in: lifetime } });
     expect((await connect({ fixture: h })).result).toMatchObject({ ok: false, error: { code: "protocol_mismatch" } });
     expect(h.requests).toHaveLength(1);
   });
@@ -130,7 +146,7 @@ describe("published Jini OAuth adapter", () => {
     expect(h.requests).toHaveLength(1);
   });
   it("retains requested scopes when the token endpoint omits scope", async () => {
-    const h = createJiniFixture({ body: { access_token: "sensitive-access-token", expires_in: 3600 } });
+    const h = createJiniFixture({ body: { access_token: "sensitive-access-token", token_type: "Bearer", expires_in: 3600 } });
     const connected = await connect({ fixture: h });
     const secret = value({ outcome: connected.result });
     const reference = { scope: context.scope, connectionId: connected.challenge.transactionId, version: 1 };
@@ -138,9 +154,13 @@ describe("published Jini OAuth adapter", () => {
   });
   it.each([
     { body: { error: "invalid_grant", error_description: "sensitive-provider-error" }, status: 400, code: "unauthenticated" },
-    { body: { access_token: 42 }, status: 200, code: "protocol_mismatch" },
+    { body: { access_token: 42, token_type: "Bearer" }, status: 200, code: "protocol_mismatch" },
+    { body: { access_token: "token" }, status: 200, code: "protocol_mismatch" },
+    { body: { access_token: "token", token_type: 42 }, status: 200, code: "protocol_mismatch" },
     { body: { access_token: "token", token_type: "MAC" }, status: 200, code: "protocol_mismatch" },
-    { body: { access_token: "token", scope: "ads.write" }, status: 200, code: "protocol_mismatch" },
+    { body: { access_token: "token", token_type: "Bearer", scope: "ads.write" }, status: 200, code: "protocol_mismatch" },
+    { body: { access_token: "token", token_type: "Bearer" }, status: 201, code: "protocol_mismatch" },
+    { body: { access_token: "token", token_type: "Bearer" }, status: 500, code: "unavailable" },
   ])("redacts errors and validates tokens ($code)", async testCase => {
     const h = createJiniFixture(testCase);
     const result = (await connect({ fixture: h })).result;
@@ -170,11 +190,32 @@ describe("published Jini OAuth adapter", () => {
 });
 
 describe("published Jini refresh adapter", () => {
+  it("discards the refresh response's ID token while retaining the refresh token and scopes", async () => {
+    const h = createJiniFixture({ body: { access_token: "rotated", token_type: "Bearer", id_token: "sensitive-id-token", expires_in: 3600 } });
+    const record = await createTokenRecord({ sealer: h.sealer, tokens: expiredTokens });
+    const secret = value({ outcome: await h.refresh.refresh({ context: hostContext, record }) })!;
+    const stored = value({ outcome: await h.sealer.open({ reference: { ...record.reference, version: 2 }, secret }) });
+    expect(payload({ plaintext: stored })).toEqual({ accessToken: "rotated", refreshToken: expiredTokens.refreshToken, tokenType: "Bearer", scopes: ["ads.read"], expiresAt: new Date(1234 + 3600000).toISOString() });
+    expect(JSON.stringify([secret, h.observer.events({})])).not.toContain("sensitive-id-token");
+    expect(h.requests).toHaveLength(1);
+  });
+  it.each([
+    { body: { access_token: "rotated" }, status: 200 },
+    { body: { access_token: "rotated", token_type: "MAC" }, status: 200 },
+    { body: { access_token: "rotated", token_type: "Bearer", id_token: "x".repeat(32769) }, status: 200 },
+    { body: { access_token: "rotated", token_type: "Bearer" }, status: 201 },
+  ])("rejects malformed refresh tokens and non-200 success responses", async testCase => {
+    const h = createJiniFixture(testCase);
+    const record = await createTokenRecord({ sealer: h.sealer, tokens: expiredTokens });
+    expect(await h.refresh.refresh({ context: hostContext, record })).toMatchObject({ ok: false, error: { code: "protocol_mismatch" } });
+    expect(payload({ plaintext: value({ outcome: await h.sealer.open({ reference: record.reference, secret: record.secret }) }) })).toEqual(expiredTokens);
+    expect(h.requests).toHaveLength(1);
+  });
   it("persists a completed token rotation even when its initiating caller disconnects", async () => {
     const controller = new AbortController();
     const h = createJiniFixture({ fetchFn: async () => {
       controller.abort();
-      return Response.json({ access_token: "rotated-after-disconnect", refresh_token: "rotated-refresh-token", expires_in: 3600 });
+      return Response.json({ access_token: "rotated-after-disconnect", token_type: "Bearer", refresh_token: "rotated-refresh-token", expires_in: 3600 });
     } });
     const record = await createTokenRecord({ sealer: h.sealer, tokens: expiredTokens });
     const repo = createMemoryCredentialRepo({});
@@ -187,7 +228,7 @@ describe("published Jini refresh adapter", () => {
     expect(h.requests).toHaveLength(1);
   });
   it("refreshes once through the broker for racing stale references", async () => {
-    const h = createJiniFixture({ body: { access_token: "rotated-access-token", expires_in: 3600 } });
+    const h = createJiniFixture({ body: { access_token: "rotated-access-token", token_type: "Bearer", expires_in: 3600 } });
     const record = await createTokenRecord({ sealer: h.sealer, tokens: expiredTokens });
     const repo = createMemoryCredentialRepo({});
     value({ outcome: await repo.store({ context, reference: record.reference, secret: record.secret, pluginId: "plugin" }) });
@@ -217,7 +258,7 @@ describe("published Jini refresh adapter", () => {
     expect(value({ outcome: await repo.get({ context, connectionId: record.reference.connectionId }) })?.status).toBe("reconnect_required");
   });
   it("rejects scope expansion and cross-scope records", async () => {
-    const h = createJiniFixture({ body: { access_token: "rotated", scope: "ads.read ads.write", expires_in: 3600 } });
+    const h = createJiniFixture({ body: { access_token: "rotated", token_type: "Bearer", scope: "ads.read ads.write", expires_in: 3600 } });
     const record = await createTokenRecord({ sealer: h.sealer, tokens: expiredTokens });
     expect(await h.refresh.refresh({ context: hostContext, record })).toMatchObject({ ok: false, error: { code: "protocol_mismatch" } });
     expect(h.requests).toHaveLength(1);
@@ -231,5 +272,15 @@ describe("published Jini refresh adapter", () => {
     const secret = value({ outcome: await h.sealer.seal({ reference: record.reference, plaintext: "om.oauth.v1:not-json" }) });
     expect(await h.refresh.refresh({ context: hostContext, record: { ...record, secret } })).toMatchObject({ ok: false, error: { code: "protocol_mismatch" } });
     expect(h.requests).toHaveLength(0);
+  });
+});
+
+describe("normalized OAuth token boundary", () => {
+  it.each(["", null, 42, "x".repeat(32769)])("rejects malformed normalized ID tokens", idToken => {
+    expect(parseUpstreamTokens({ value: { ...freshTokens, idToken } })).toMatchObject({ ok: false, error: { code: "protocol_mismatch" } });
+  });
+  it("rejects unknown upstream fields and keeps stored credentials strict", () => {
+    expect(parseUpstreamTokens({ value: { ...freshTokens, unexpected: true } })).toMatchObject({ ok: false, error: { code: "protocol_mismatch" } });
+    expect(readStoredTokens({ plaintext: "om.oauth.v1:" + JSON.stringify({ ...freshTokens, idToken: "opaque" }) })).toMatchObject({ ok: false, error: { code: "protocol_mismatch" } });
   });
 });

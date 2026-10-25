@@ -47,7 +47,7 @@ describe("tagged OAuth storage compatibility", () => {
     { deadline: undefined, rotation: "rotated", lifetime: undefined },
     { deadline: "1970-01-02T00:00:00.000Z", rotation: "rotated", lifetime: 1000 },
   ])("preserves omitted/rotated refresh tokens without resetting a known deadline", async testCase => {
-    const h = createJiniFixture({ body: { access_token: "new-access", expires_in: 3600, refresh_token: testCase.rotation, refresh_token_expires_in: testCase.lifetime } });
+    const h = createJiniFixture({ body: { access_token: "new-access", token_type: "Bearer", expires_in: 3600, refresh_token: testCase.rotation, refresh_token_expires_in: testCase.lifetime } });
     const record = await createTokenRecord({ sealer: h.sealer });
     const plaintext = "om.oauth.v1:" + JSON.stringify({ ...expiredTokens, refreshExpiresAt: testCase.deadline });
     const secret = value({ outcome: await h.sealer.seal({ reference, plaintext }) });

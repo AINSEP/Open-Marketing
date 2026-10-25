@@ -18,7 +18,7 @@
     "test": "vitest run tests"
   },
   "dependencies": {
-    "@jini-ai/mcp": "0.4.3",
+    "@jini-ai/mcp": "0.6.12",
     "@modelcontextprotocol/sdk": "1.32.1",
     "@open-marketing/contracts": "workspace:*",
     "@open-marketing/om-clock": "workspace:*",

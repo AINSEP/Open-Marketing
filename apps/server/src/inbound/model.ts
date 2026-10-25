@@ -10,7 +10,7 @@ const messageSchema = z.strictObject({ role: z.enum(['user', 'assistant']), cont
 const requestSchema = z.strictObject({
     model: z.string().min(1).max(256), stream: z.literal(true), max_tokens: z.number().int().min(1).max(4096),
     messages: z.array(messageSchema).min(1).max(90), system: z.string().max(131072).optional(),
-    tools: z.array(z.strictObject({ name: z.string().min(1).max(256), description: z.string().max(4096).optional(), input_schema: z.record(z.string(), z.json()) })).max(100).optional(),
+    tools: z.array(z.strictObject({ name: z.string().min(1).max(256), description: z.string().max(4096).optional(), input_schema: z.record(z.string(), z.json()), strict: z.boolean().optional() })).max(100).optional(),
 });
 
 /** Addons/composition owns sealed storage and the selected model. Keys never enter OM DTOs. */

@@ -18,7 +18,7 @@
     "test": "vitest run tests"
   },
   "dependencies": {
-    "@jini-ai/cms": "0.5.6",
+    "@jini-ai/cms": "0.6.12",
     "@open-marketing/contracts": "workspace:*",
     "@open-marketing/om-clock": "workspace:*",
     "zod": "4.1.13"

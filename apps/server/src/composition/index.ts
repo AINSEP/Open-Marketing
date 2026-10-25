@@ -290,7 +290,7 @@ export async function bootServer(required: {
             stores: ({ scope }) => createSqliteChatStore({ kernel: chatKernel, scope }, { clock: { nowMs: () => required.clock.now({}) } }) });
         const persistence = createAssistantRuns({ kernel: chatKernel, conversations, clock: required.clock, ids: required.ids, observer: required.observer,
             durable: createDurableRunStore({ kernel: chatKernel, isDaemonRunId: () => true }),
-            ledger: createChatRunLedger({ kernel: chatKernel, isDaemonRunId: () => true }) });
+            ledger: createChatRunLedger({ kernel: chatKernel, isDaemonRunId: () => true }, { now: () => required.clock.now({}) }) });
         const interrupted = await persistence.initialize({ context });
         if (!interrupted.ok) throw new Error('Assistant recovery unavailable');
         services.conversations = conversations;
