@@ -16,8 +16,8 @@ export interface LineAdsConfiguration {
 export interface LineAdsCredentialPort {
   access(required: { connectionId: string; accountId: string | null }, optional?: CallOptions): Promise<Outcome<{ accessToken: string }>>;
 }
-/** One fixed GET, with no caller-controlled URL or headers. */
-export interface LineAdsWireRequest { readonly url: string; readonly method: "GET" }
+/** Fixed plugin-owned paths/payloads; creates are private to the grouped deployment. */
+export type LineAdsWireRequest = { readonly url: string; readonly method: "GET" } | { readonly url: string; readonly method: "POST"; readonly body: string };
 /** Read receipt. Data is a validated page or a source-labelled report, never raw vendor JSON. */
 export interface LineAdsResult { readonly operationId: string; readonly status: "succeeded"; readonly observedState: "unknown"; readonly data: unknown }
 /** The sole invocation shape; no account/group/credential overrides in commands. */

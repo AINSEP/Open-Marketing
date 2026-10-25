@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { digestSchema, idSchema } from "@open-marketing/contracts";
 import type { LineAdsWireRequest } from "./ports.js";
 
 /** Vendor IDs remain exact strings; unsafe numeric response IDs are rejected, never rounded. */
@@ -32,3 +33,38 @@ export function encodeCommand(required: { command: ParsedCommand; accountId: str
   if (command.kind === "report") { query.set("since", command.since); query.set("until", command.until); }
   return { url: "https://ads.line.me/api/v3" + path + "?" + query.toString(), method: "GET" };
 }
+
+/** No regional Management entitlement is verified. Admission cannot override this evidence gap.
+ * Fixture tests replace this immutable evidence constant; production has no override option.
+ */
+export const verifiedDeploymentCountries: readonly string[] = Object.freeze([]);
+/** JSON numbers must remain exact on both POST and readback; strings never rescue rounded IDs. */
+export const exactInteger = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
+export const deploymentId = vendorIdSchema.refine(value => Number.isSafeInteger(Number(value)));
+const name = z.string().min(1).max(120);
+const timestamp = z.iso.datetime({ offset: true, precision: 0 }).refine(value => value >= "2000" && value < "2100");
+/** Small consumed IMAGE subset; no tracking URL, upload, action-code lookup or other format. */
+export const imageCreativeSchema = z.strictObject({ creativeFormat: z.literal("IMAGE"), title: z.string().min(1).max(20), description: z.string().min(1).max(75),
+  imageHash: z.string().min(1).max(256).regex(/^[A-Za-z0-9_-]+$/), callToAction: z.strictObject({ landingPageUrl: z.url({ protocol: /^https?$/ }).max(2048) }) });
+/** Frozen resolved account/asset metadata participates in the owning grouped card's digest. */
+export const deploymentMetadataSchema = z.strictObject({ accountId: deploymentId, country: z.enum(["TW", "TH"]), currency: z.string().regex(/^[A-Z]{3}$/),
+  currencyExponent: z.number().int().min(0).max(3), timezone: z.enum(["Asia/Taipei", "Asia/Bangkok"]), creativeId: idSchema, creativeDigest: digestSchema, imageAccountId: deploymentId });
+/** Complete fixed POST schemas; only the two acknowledged parent slots are substituted. */
+export const pausedCampaignSchema = z.strictObject({ name, campaignObjective: z.literal("VISIT_MY_WEBSITE"), configuredStatus: z.literal("PAUSED"),
+  spendingLimitType: z.literal("NONE"), activeCbo: z.literal(false), startDate: timestamp, endDate: timestamp });
+export const pausedAdgroupSchema = z.strictObject({ name, campaignId: exactInteger, configuredStatus: z.literal("PAUSED"), bidType: z.literal("CPC"),
+  autoBidType: z.literal("MANUAL"), bidAmountMicro: exactInteger, dailyBudgetMicro: exactInteger, targeting: z.strictObject({ country: z.enum(["TW", "TH"]), targetingMode: z.literal("MANUAL") }) });
+export const pausedAdSchema = z.strictObject({ name, adgroupId: exactInteger, configuredStatus: z.literal("PAUSED"), creative: imageCreativeSchema, generatedByAi: z.boolean().optional() });
+/** One finite daily traffic plan; daily budget is not a guaranteed billing ceiling. */
+export const campaignDeploymentPlanSchema = z.strictObject({ metadata: deploymentMetadataSchema, campaign: pausedCampaignSchema,
+  adgroup: pausedAdgroupSchema.extend({ campaignId: z.strictObject({ from: z.literal("campaign") }) }),
+  ad: pausedAdSchema.extend({ adgroupId: z.strictObject({ from: z.literal("adgroup") }) }),
+}).refine(value => value.metadata.accountId === value.metadata.imageAccountId && value.metadata.country === value.adgroup.targeting.country)
+  .refine(value => value.metadata.currency === (value.metadata.country === "TW" ? "TWD" : "THB") && value.metadata.currencyExponent === 2)
+  .refine(value => value.metadata.timezone === (value.metadata.country === "TW" ? "Asia/Taipei" : "Asia/Bangkok"))
+  .refine(value => [value.campaign.startDate, value.campaign.endDate].every(date => date.endsWith(value.metadata.country === "TW" ? "+08:00" : "+07:00")))
+  .refine(value => value.metadata.country !== "TW" || value.ad.generatedByAi !== undefined)
+  .refine(value => value.campaign.name === value.adgroup.name && value.campaign.name === value.ad.name)
+  .refine(value => Date.parse(value.campaign.startDate) < Date.parse(value.campaign.endDate));
+/** Fixed PAUSED deployment plan; consumers import it through index.ts. */
+export type LineAdsPausedPlan = z.infer<typeof campaignDeploymentPlanSchema>;

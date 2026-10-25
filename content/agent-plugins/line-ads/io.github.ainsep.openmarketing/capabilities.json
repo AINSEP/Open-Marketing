@@ -1,13 +1,15 @@
 {
   "version": 1, "admitted": false,
   "capabilities": [
-    {"capabilityId":"campaign.read.v1","version":1,"pluginId":"line-ads","schemaFingerprint":"22ac8b7a6b3b5f31cf2c982584a401081c636e7cd72f46422410a102ce564467","admitted":false,"effects":["read"]},
-    {"capabilityId":"report.account-spend.v1","version":1,"pluginId":"line-ads","schemaFingerprint":"22ac8b7a6b3b5f31cf2c982584a401081c636e7cd72f46422410a102ce564467","admitted":false,"effects":["read"]}
+    {"capabilityId":"campaign.read.v1","version":1,"pluginId":"line-ads","schemaFingerprint":"78d71319e114851defdd113d59f92b476407011e3e1dc43da8c0f3b24ebdecfd","admitted":false,"effects":["read"]},
+    {"capabilityId":"report.account-spend.v1","version":1,"pluginId":"line-ads","schemaFingerprint":"78d71319e114851defdd113d59f92b476407011e3e1dc43da8c0f3b24ebdecfd","admitted":false,"effects":["read"]},
+    {"capabilityId":"campaign.create-paused.v1","version":1,"pluginId":"line-ads","schemaFingerprint":"7f4740b68cf52c72f957089a365adab2497c9d294c34e8ee450bdc36284c69e1","admitted":false,"effects":["write"]}
   ],
   "tools": [
     {"name":"list_accounts","effects":["read"],"capabilityId":"campaign.read.v1"},
     {"name":"list_campaigns","effects":["read"],"capabilityId":"campaign.read.v1"},
     {"name":"report","effects":["read"],"capabilityId":"report.account-spend.v1"}
   ],
-  "fingerprintBasis": "SHA-256 of src/commands.ts; compatibility metadata, not plugin admission or an allowlist."
+  "deployment": {"capabilityId":"campaign.create-paused.v1","create":"deployCampaignPaused","read":"readCampaignDeployment","planSchema":"campaignDeploymentPlanSchema","admitted":false},
+  "fingerprintBasis": "Reads: SHA-256 of src/commands.ts. Deployment: SHA-256 of src/{campaign-deployment,campaign-translation,commands,transport}.ts concatenated in that order. Compatibility metadata, not plugin admission or an allowlist."
 }

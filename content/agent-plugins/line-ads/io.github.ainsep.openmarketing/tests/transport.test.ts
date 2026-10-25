@@ -1,8 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
-import { commandSchema, createLineAdsAdapter, lineAdsTools } from "../src/index.js";
-import { accountPage, bundle, campaignPage, fixture, invocation, report, reportPage } from "./fixtures.js";
+import { commandSchema, createLineAdsAdapter, deployCampaignPaused, lineAdsTools, readCampaignDeployment } from "../src/index.js";
+import { accountPage, bundle, campaignPage, fixture, invocation, pausedPlan, report, reportPage } from "./fixtures.js";
 import { dispatchSuite } from "./contract/dispatch-suite.js";
 
 dispatchSuite({ name: "fixture", makeFixture: fixture });
@@ -101,15 +101,26 @@ describe("LINE read boundaries", () => {
     expect(createDeadline).toHaveBeenCalledExactlyOnceWith({ timeoutMs: 15000 });
     expect(caller.signal.aborted).toBe(false);
   });
-  it("packages only unadmitted read capabilities with matching source fingerprints", async () => {
+  it.each(["JP", "TW", "TH"] as const)("keeps actual %s deployment and reconciliation unavailable even when admitted", async country => {
+    const f = fixture(); f.binding.country = country;
+    const checkpoint = vi.fn(); const input = { context: invocation().context, operationId: "deployment", plan: pausedPlan, dependencies: f.dependencies, checkpoint };
+    expect(await deployCampaignPaused(input)).toMatchObject({ ok: false, error: { code: "unavailable", retryable: false } });
+    expect(await readCampaignDeployment({ ...input, references: { campaign: "456" } })).toMatchObject({ ok: false, error: { code: "unavailable", retryable: false } });
+    expect(f.credentialCalls).toEqual([]); expect(f.calls).toEqual([]); expect(checkpoint).not.toHaveBeenCalled();
+  });
+  it("packages unadmitted reads and a private grouped deployment with matching fingerprints", async () => {
     const root = new URL("../../", import.meta.url);
     const manifest = JSON.parse(await readFile(new URL("plugin.json", root), "utf8"));
     const capabilities = JSON.parse(await readFile(new URL("io.github.ainsep.openmarketing/capabilities.json", root), "utf8"));
     const fingerprint = createHash("sha256").update(await readFile(new URL("../src/commands.ts", import.meta.url))).digest("hex");
     expect(manifest.extensions["io.github.ainsep.openmarketing"]).toMatchObject({ enabled: false, admitted: false, capabilities: capabilities.capabilities });
     expect(lineAdsTools.map(tool => tool.name)).toEqual(["list_accounts", "list_campaigns", "report"]);
-    expect(capabilities.capabilities).toHaveLength(2);
-    for (const capability of capabilities.capabilities) expect(capability).toMatchObject({ admitted: false, effects: ["read"], schemaFingerprint: fingerprint });
+    expect(capabilities.capabilities).toHaveLength(3);
+    for (const capability of capabilities.capabilities.slice(0, 2)) expect(capability).toMatchObject({ admitted: false, effects: ["read"], schemaFingerprint: fingerprint });
+    const deploymentSource = await Promise.all(["campaign-deployment", "campaign-translation", "commands", "transport"].map(name => readFile(new URL("../src/" + name + ".ts", import.meta.url))));
+    expect(capabilities.capabilities[2]).toMatchObject({ capabilityId: "campaign.create-paused.v1", admitted: false, effects: ["write"], schemaFingerprint: createHash("sha256").update(Buffer.concat(deploymentSource)).digest("hex") });
+    expect(capabilities.tools.map((tool: { name: string }) => tool.name)).toEqual(["list_accounts", "list_campaigns", "report"]);
+    expect(capabilities.deployment).toMatchObject({ create: "deployCampaignPaused", read: "readCampaignDeployment", planSchema: "campaignDeploymentPlanSchema", admitted: false });
     expect(JSON.parse(await readFile(new URL("mcp.json", root), "utf8")).mcpServers).toEqual({});
   });
 });
