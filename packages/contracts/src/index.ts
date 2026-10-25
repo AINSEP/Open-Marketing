@@ -34,3 +34,11 @@ export interface SqlSession extends UnitOfWork {
 
 export { assistantUsageSchema, assistantProviderSchema, assistantRuntimeSchema } from './api/index.js';
 export type { AssistantProvider, AssistantUsage } from './api/index.js';
+export { metricGrainSchema, metricValuesSchema, metricMappingSchema, metricBatchSchema, ratioResultSchema, deriveMetricRatios } from './metrics/index.js';
+export type { MetricGrain, MetricValues, MetricMapping, MetricBatch, RatioResult, MetricRatios } from './metrics/index.js';
+export { capabilityIdSchema, capabilityCatalog, reportMetricsInputSchema, campaignStatusInputSchema, campaignStatusOutputSchema, trackingTagInputSchema, trackingTagOutputSchema, effectiveCapabilityEffects } from './capabilities/index.js';
+export type { CapabilityId, CallableCapabilityId, CapabilityInput, CapabilityOutput, PluginCapability, ReportMetricsInput, CampaignStatusInput, CampaignStatusOutput, TrackingTagInput, TrackingTagOutput } from './capabilities/index.js';
+export { campaignKeySchema, encodeCampaignKey, parseCampaignKey, approverRefSchema, dispatchDecisionSchema } from './values/index.js';
+export type { CampaignKey, ApproverRef, DispatchDecision } from './values/index.js';
+export { neutralCampaignLaunchSchema, neutralCampaignRecordSchema, saveNeutralCampaignSchema } from './launch/index.js';
+export type { NeutralCampaignLaunch, NeutralCampaignRecord } from './launch/index.js';

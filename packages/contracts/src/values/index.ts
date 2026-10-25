@@ -36,3 +36,48 @@ export function parseBoundary<T>(required: { schema: z.ZodType<T>; input: unknow
  if (!parsed.success) return { ok: false, error: { code: "invalid_input", message: "Boundary validation failed", retryable: false } };
  return { ok: true, value: parsed.data };
 }
+
+export const campaignKeySchema = z.strictObject({ pluginId: idSchema, accountId: idSchema, vendorCampaignId: idSchema });
+export type CampaignKey = z.infer<typeof campaignKeySchema>;
+const encodedKey = z.string().max(256).regex(/^ck1:[A-Za-z0-9_-]+$/);
+const keyParts = z.tuple([idSchema, idSchema, idSchema]);
+/** Encode UTF-8 JSON [plugin,account,campaign] as canonical unpadded base64url, <=256 chars.
+ * Returns invalid_input on invalid/oversized keys, no effects. O(b) time/space in bounded bytes.
+ * @example encodeCampaignKey({ key: { pluginId: "ads", accountId: "a", vendorCampaignId: "urn:1" } })
+ */
+export function encodeCampaignKey({ key }: { key: CampaignKey }): Outcome<string> {
+  const parsed = parseBoundary({ schema: campaignKeySchema, input: key });
+  if (!parsed.ok) return parsed;
+  const value = parsed.value;
+  const bytes = new TextEncoder().encode(JSON.stringify([value.pluginId, value.accountId, value.vendorCampaignId]));
+  const encoded = "ck1:" + btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return parseBoundary({ schema: encodedKey, input: encoded });
+}
+/** Parse only canonical ck1 keys, rejecting invalid UTF-8/JSON/padding/aliases.
+ * Returns invalid_input, no effects. O(b) time/space, input <=256 characters.
+ * @example parseCampaignKey({ value: "ck1:WyJhIiwiYiIsImMiXQ" })
+ */
+export function parseCampaignKey({ value }: { value: unknown }): Outcome<CampaignKey> {
+  const parsed = parseBoundary({ schema: encodedKey, input: value });
+  if (!parsed.ok) return parsed;
+  try {
+    const binary = atob(parsed.value.slice(4).replace(/-/g, "+").replace(/_/g, "/"));
+    const json = new TextDecoder("utf-8", { fatal: true }).decode(Uint8Array.from(binary, char => char.charCodeAt(0)));
+    const parts = keyParts.parse(JSON.parse(json));
+    const key = { pluginId: parts[0], accountId: parts[1], vendorCampaignId: parts[2] };
+    const canonical = encodeCampaignKey({ key });
+    if (canonical.ok && canonical.value === value) return { ok: true, value: key };
+  } catch { /* Invalid encodings are ordinary boundary failures. */ }
+  return { ok: false, error: { code: "invalid_input", message: "Invalid campaign key", retryable: false } };
+}
+/** Descriptive server-derived actor reference; parsing grants no trust. Never contains a token secret. */
+export const approverRefSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("jini_user"), userId: idSchema }),
+  z.strictObject({ kind: z.literal("local_token"), ownerId: idSchema, deviceId: idSchema, tokenId: idSchema }),
+]);
+export type ApproverRef = z.infer<typeof approverRefSchema>;
+/** Barrier evidence only, never an execution permit. P0-2 owns policy and denial vocabulary. */
+export const dispatchDecisionSchema = z.discriminatedUnion("allowed", [
+  z.strictObject({ allowed: z.literal(true) }), z.strictObject({ allowed: z.literal(false), reason: idSchema }),
+]);
+export type DispatchDecision = z.infer<typeof dispatchDecisionSchema>;
