@@ -8,6 +8,17 @@ interface PendingConnection { context: CallContext; request: ConnectRequest; cha
 interface ServiceDependencies {
   repo: CredentialRepoPort; sealer: SecretSealerPort; keyring: KeyringPort;
   oauth: OAuthClientPort; clock: ClockPort; locks: CredentialLockPort; audit: CredentialAuditPort;
+  challengeRules?: ReadonlyMap<string, OAuthChallengeRules>;
+}
+
+/** Trusted host configuration, keyed by plugin ID at both lifecycle layers; never callback input.
+ * Missing rules retain S256 and response_type=code. Only these two extra public fields are supported.
+ * @example new Map([["plugin", { usesPkce: false, responseType: "omitted", additionalParameters: ["app_id"] }]])
+ */
+export interface OAuthChallengeRules {
+  readonly usesPkce: boolean;
+  readonly responseType: "code" | "omitted";
+  readonly additionalParameters?: readonly ("app_id" | "config_id")[];
 }
 
 /** Inert server lifecycle factory. Bound transactions expire and are consumed before exchange.
@@ -17,6 +28,7 @@ interface ServiceDependencies {
  * @example service.completeConnect({ callback: { state, code, redirectUri } })
  */
 export function createCredentialService(required: ServiceDependencies, optional?: { observer?: CredentialObserverPort }): CredentialService {
+  const challengeRules = new Map(Array.from(required.challengeRules ?? [], ([id, rules]) => [id, structuredClone(rules)]));
   const pending = new Map<string, PendingConnection>();
   let inFlight = 0;
   return {
@@ -28,7 +40,7 @@ export function createCredentialService(required: ServiceDependencies, optional?
         if (pending.size + inFlight >= 256) return failure({ code: "limit_exceeded" });
         inFlight++;
         try {
-          return await beginConnection({ dependencies: required, pending, input, observer: optional?.observer }, options);
+          return await beginConnection({ dependencies: { ...required, challengeRules }, pending, input, observer: optional?.observer }, options);
         } finally { inFlight--; }
       } }, options);
     },
@@ -101,17 +113,23 @@ function expirePending(required: { pending: Map<string, PendingConnection>; now:
     if (!entry.consumed && entry.challenge.expiresAt <= required.now) required.pending.delete(id);
   }
 }
-/** Require HTTPS authorization and S256; provider remains responsible for generating/persisting PKCE. @complexity O(URL length). */
-export function validChallenge(required: { challenge: ConnectChallenge; now: number; redirectUri: string }): boolean {
+/** Require HTTPS, exact redirect/state and trusted protocol rules; default to S256.
+ * Pure validation returns false for tainted challenges; no effects. @complexity O(URL length), <=8192 chars.
+ */
+export function validChallenge(required: { challenge: ConnectChallenge; now: number; redirectUri: string; rules?: OAuthChallengeRules }): boolean {
   if (!challengeSchema.safeParse(required.challenge).success) return false;
   if (required.challenge.expiresAt <= required.now || required.challenge.expiresAt > required.now + 600000) return false;
   const url = new URL(required.challenge.authorizationUrl);
   const query = url.searchParams;
-  return validAuthorizationParameters({ url }) && url.protocol === "https:" && !url.username && !url.password && !url.hash
-    && query.get("code_challenge_method") === "S256"
-    && /^[A-Za-z0-9_-]{43}$/.test(query.get("code_challenge") ?? "")
+  return validAuthorizationParameters({ url, rules: required.rules }) && url.protocol === "https:" && !url.username && !url.password && !url.hash
+    && validPkce({ query, rules: required.rules })
     && /^[A-Za-z0-9_-]{32,256}$/.test(query.get("state") ?? "")
     && query.get("redirect_uri") === required.redirectUri;
+}
+/** Non-PKCE providers must omit both fields; partial/fabricated PKCE is never accepted. @complexity O(1). */
+function validPkce(required: { query: URLSearchParams; rules?: OAuthChallengeRules }): boolean {
+  if (required.rules?.usesPkce === false) return !required.query.has("code_challenge") && !required.query.has("code_challenge_method");
+  return required.query.get("code_challenge_method") === "S256" && /^[A-Za-z0-9_-]{43}$/.test(required.query.get("code_challenge") ?? "");
 }
 /** Compare exact registered redirect and opaque state, before provider exchange. @complexity O(URL length). */
 function matchesCallback(required: { entry: PendingConnection; callback: VerifiedOAuthCallback }): boolean {
@@ -152,7 +170,7 @@ async function beginConnection(required: { dependencies: ServiceDependencies; pe
   const input = structuredClone(required.input);
   const begun = await required.dependencies.oauth.begin(input, optional);
   if (!begun.ok) return begun;
-  if (!validChallenge({ challenge: begun.value, now: required.dependencies.clock.now({}), redirectUri: input.request.returnUri })) return failure({ code: "protocol_mismatch" });
+  if (!validChallenge({ challenge: begun.value, now: required.dependencies.clock.now({}), redirectUri: input.request.returnUri, rules: required.dependencies.challengeRules?.get(input.request.pluginId) })) return failure({ code: "protocol_mismatch" });
   if (required.pending.has(begun.value.transactionId)) return failure({ code: "conflict" });
   required.pending.set(begun.value.transactionId, structuredClone({ ...input, challenge: begun.value }));
   observe({ observer: required.observer, context: input.context, operation: "credentials.beginConnect" });
@@ -160,10 +178,14 @@ async function beginConnection(required: { dependencies: ServiceDependencies; pe
 }
 
 /** Only known authorization fields reach public challenge DTOs; reject duplicates and secret fields. @complexity O(query fields), bounded URL length. */
-function validAuthorizationParameters(required: { url: URL }): boolean {
+function validAuthorizationParameters(required: { url: URL; rules?: OAuthChallengeRules }): boolean {
   const allowed = new Set(["client_id", "redirect_uri", "response_type", "scope", "state", "code_challenge", "code_challenge_method", "resource", "prompt", "access_type"]);
+  for (const field of required.rules?.additionalParameters ?? []) {
+    if (field === "app_id" || field === "config_id") allowed.add(field);
+  }
   const keys = Array.from(required.url.searchParams.keys());
-  return keys.length === new Set(keys).size && keys.every(key => allowed.has(key)) && required.url.searchParams.get("response_type") === "code";
+  const responseType = required.rules?.responseType === "omitted" ? null : "code";
+  return keys.length === new Set(keys).size && keys.every(key => allowed.has(key)) && required.url.searchParams.get("response_type") === responseType;
 }
 
 /** Public result validation forbids plaintext additions even from a replacement repository. @complexity O(summary length). */

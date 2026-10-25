@@ -3,6 +3,7 @@ import type { OAuthRandomBytes, PendingAuthorizationStore } from "@jini-ai/oauth
 import type { CallOptions, IdPort, Outcome } from "@open-marketing/contracts";
 import type { OAuthClientPort } from "./ports.js";
 import type { OAuthHostBindings } from "./oauth.js";
+import type { OAuthChallengeRules } from "./service.js";
 import type { SealedSecret } from "./types.js";
 import { createBoundOAuthClient } from "./oauth.js";
 import { correlatedFetch, jiniBoundary, oauthPayloadPrefix, oauthTimeout, parseTokens, resolveProvider } from "./jini-oauth-common.js";
@@ -12,6 +13,8 @@ import { failure, scopeKey } from "./rules.js";
 /** Stateful browser-grant adapter using published Jini PKCE/state/exchange.
  * Host injects a Jini pending store (memory or durable atomic take), entropy and guarded HTTP.
  * OM callbacks expire on restart; pending PKCE must be encrypted if persisted by the host.
+ * Optional host bindings replace protocol work only; delegate standard providers to the supplied
+ * bindings so every provider retains the same bound lifecycle.
  * @complexity O(pending) begin pruning, O(1) completion plus bounded token I/O/crypto.
  * @example createJiniOAuthClient({ ...httpDependencies, pending, ids, randomBytesFn, allowedReturnUris, allowedAuthorizationOrigins, clientDisplayName, softwareId })
  */
@@ -24,6 +27,11 @@ export function createJiniOAuthClient(required: JiniOAuthDependencies & {
   readonly clientDisplayName: string;
   readonly softwareId: string;
   readonly maxPending?: number;
+  /** Wrap the supplied standard bindings for provider-specific protocol work, never lifecycle work.
+   * @example bindings: ({ standard }) => createVendorOAuthBindings({ standard, ...vendorDependencies })
+   */
+  readonly bindings?: (required: { standard: OAuthHostBindings }) => OAuthHostBindings;
+  readonly challengeRules?: ReadonlyMap<string, OAuthChallengeRules>;
 }): OAuthClientPort {
   const dependencies = { ...required, allowedReturnUris: [...required.allowedReturnUris], allowedAuthorizationOrigins: [...required.allowedAuthorizationOrigins], providers: new Map(Array.from(required.providers, ([id, provider]) => [id, structuredClone(provider)])) };
   const bindings: OAuthHostBindings = {
@@ -42,7 +50,8 @@ export function createJiniOAuthClient(required: JiniOAuthDependencies & {
     },
     exchange(input, options) { return exchange({ dependencies, input }, options); },
   };
-  return createBoundOAuthClient({ ...dependencies, bindings });
+  const selected = required.bindings ? required.bindings({ standard: bindings }) : bindings;
+  return createBoundOAuthClient({ ...dependencies, bindings: selected });
 }
 
 /** Exchange once, parse normalized tokens, then seal before any token leaves the host seam.

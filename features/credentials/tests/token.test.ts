@@ -1,7 +1,7 @@
 /** Written-only paste-token acceptance; shared cases exercise memory and native SQLite repositories. */
 import { describe, expect, it } from "vitest";
 import { connectCredentialToken, createAesGcmSecretSealer, createCredentialKeyring, createMemoryCredentialAudit,
-  createMemoryCredentialLock, createMemoryCredentialRepo, createSqlCredentialRepo, listCredentialConnections, createCredentialBroker, readCredentialDeveloperToken, readCredentialAccess } from "../index.js";
+  createMemoryCredentialLock, createMemoryCredentialRepo, createSqlCredentialRepo, listCredentialConnections, createCredentialBroker, readCredentialDeveloperToken, readCredentialAccess, readCredentialOAuthClient } from "../index.js";
 import type { CredentialRepoPort } from "../index.js";
 import { clock, configuration, context, hostContext, value } from "./fixtures.js";
 import { createSqlFixture } from "./sql-fixture.js";
@@ -18,6 +18,51 @@ function fixture(required: { kind: "memory" | "sql" }) {
   return { repo, sealer, audit, locks, sql, dispose() { sql?.dispose(); } };
 }
 const request = { context, connectionId: "token-connection", pluginId: "test-plugin", plaintext: "fixture-token-never-live" };
+
+describe.each(["memory", "sql"] as const)("Meta OAuth client configuration via %s", kind => {
+  it("seals configId under the existing purpose, replaces/clears it and never exposes it in owner DTOs", async () => {
+    const f = fixture({ kind }); const broker = createCredentialBroker(f);
+    const client = { clientId: "fixture-client", clientSecret: "sensitive-client-secret", configId: "123456789" };
+    const write = { ...f, context, connectionId: "oauth-client.meta-ads", pluginId: "meta-ads", purpose: "oauth-client" as const, plaintext: JSON.stringify(client) };
+    const read = { ...f, broker, context: hostContext, pluginId: "meta-ads" };
+    try {
+      const summary = value({ outcome: await connectCredentialToken(write) });
+      const record = value({ outcome: await f.repo.getSecret({ context: hostContext, connectionId: write.connectionId }) })!;
+      expect(value({ outcome: await f.sealer.open({ reference: record.reference, secret: record.secret }) })).toBe("om.oauth.client.v1:" + JSON.stringify(client));
+      expect(JSON.stringify([summary, record.secret, f.audit.entries({})])).not.toMatch(/123456789|sensitive-client-secret/);
+      expect(await readCredentialOAuthClient(read)).toEqual({ ok: true, value: client });
+      expect((await readCredentialOAuthClient({ ...read, context })).ok).toBe(false);
+      expect(await readCredentialOAuthClient({ ...read, context: { ...hostContext, scope: { ...hostContext.scope, workspaceId: "other" } } })).toEqual({ ok: true, value: null });
+      value({ outcome: await connectCredentialToken({ ...write, plaintext: JSON.stringify({ ...client, configId: "987654321" }) }) });
+      expect(await readCredentialOAuthClient(read)).toEqual({ ok: true, value: { ...client, configId: "987654321" } });
+      value({ outcome: await connectCredentialToken({ ...write, plaintext: "null" }) });
+      expect(await readCredentialOAuthClient(read)).toEqual({ ok: true, value: null });
+      if (f.sql) expect(value({ outcome: await listCredentialConnections({ db: f.sql.db, context, query: { limit: 10 } }) }).items).toEqual([]);
+    } finally { f.dispose(); }
+  });
+  it.each([undefined, "", "0", "not-an-id", "1".repeat(129), 1234])("rejects invalid Meta configId %s before audit/storage", async configId => {
+    const f = fixture({ kind });
+    try {
+      expect(await connectCredentialToken({ ...f, context, connectionId: "oauth-client.meta-ads", pluginId: "meta-ads", purpose: "oauth-client", plaintext: JSON.stringify({ clientId: "client", configId }) })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+      expect(f.audit.entries({})).toEqual([]);
+      expect(await f.repo.get({ context, connectionId: "oauth-client.meta-ads" })).toEqual({ ok: true, value: null });
+    } finally { f.dispose(); }
+  });
+  it.each(["google-ads", "linkedin-ads", "tiktok-ads"])("preserves %s config and rejects Meta-only fields on write/read", async pluginId => {
+    const f = fixture({ kind }); const broker = createCredentialBroker(f);
+    const write = { ...f, context, connectionId: "oauth-client." + pluginId, pluginId, purpose: "oauth-client" as const, plaintext: JSON.stringify({ clientId: "client", clientSecret: "fixture-secret" }) };
+    try {
+      value({ outcome: await connectCredentialToken(write) });
+      expect(await readCredentialOAuthClient({ ...f, broker, context: hostContext, pluginId })).toEqual({ ok: true, value: { clientId: "client", clientSecret: "fixture-secret" } });
+      const client = { clientId: "client", configId: "1234" };
+      expect(await connectCredentialToken({ ...write, plaintext: JSON.stringify(client) })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+      const reference = { scope: context.scope, connectionId: write.connectionId, version: 2 };
+      const secret = value({ outcome: await f.sealer.seal({ reference, plaintext: "om.oauth.client.v1:" + JSON.stringify(client) }) });
+      value({ outcome: await f.repo.store({ context, reference, secret, pluginId }) });
+      expect(await readCredentialOAuthClient({ ...f, broker, context: hostContext, pluginId })).toMatchObject({ ok: false, error: { code: "protocol_mismatch" } });
+    } finally { f.dispose(); }
+  });
+});
 
 describe.each(["memory", "sql"] as const)("paste-token via %s", kind => {
   it("seals at rest, binds AAD and returns no plaintext or ciphertext", async () => {

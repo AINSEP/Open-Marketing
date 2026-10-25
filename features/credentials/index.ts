@@ -1,4 +1,5 @@
 export { createCredentialService } from "./src/service.js";
+export type { OAuthChallengeRules } from "./src/service.js";
 export type { ConnectRequest, ConnectChallenge, VerifiedOAuthCallback, ConnectionSummary, RevocationReceipt, SealedSecret, KeyringConfiguration, CredentialReference, CredentialService } from "./src/types.js";
 export type { CredentialRepoPort, SecretSealerPort, KeyringPort, OAuthClientPort, CredentialLockPort, CredentialAuditPort, CredentialBrokerPort, CredentialObserverPort } from "./src/ports.js";
 export { createMemoryCredentialRepo, createMemorySecretSealer, createMemoryKeyring, createMemoryOAuthClient, createMemoryCredentialLock, createMemoryCredentialAudit, createMemoryCredentialBroker } from "./src/memory.js";

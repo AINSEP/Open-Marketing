@@ -12,6 +12,8 @@ const clientPrefix = "om.oauth.client.v1:";
 const developerPrefix = "om.developer-token.v1:";
 const developerSchema = z.string().regex(/^[A-Za-z0-9]{22}$/).nullable();
 const clientSchema = z.strictObject({ clientId: z.string().min(1).max(2048), clientSecret: z.string().min(1).max(8192).optional() }).nullable();
+const metaClientSchema = clientSchema.unwrap().extend({ configId: z.string().regex(/^[1-9][0-9]{0,127}$/) }).nullable();
+type OAuthClientConfiguration = z.infer<typeof metaClientSchema> | z.infer<typeof clientSchema>;
 type TokenInput = z.infer<typeof tokenSchema>;
 type TokenDependencies = { repo: CredentialRepoPort; sealer: SecretSealerPort; locks: CredentialLockPort; audit: CredentialAuditPort };
 
@@ -58,8 +60,15 @@ function purposePayload(required: { input: TokenInput }): Outcome<string> {
   if (!input.purpose) return /^(oauth-client|developer-token)\./.test(input.connectionId) || input.plaintext.startsWith(clientPrefix) || input.plaintext.startsWith("om.developer-token.") ? failure({ code: "forbidden" }) : { ok: true, value: input.plaintext };
   if (input.purpose === "developer-token") return developerPayload({ input });
   if (input.connectionId !== "oauth-client." + input.pluginId) return failure({ code: "invalid_input" });
-  try { return { ok: true, value: clientPrefix + JSON.stringify(clientSchema.parse(JSON.parse(input.plaintext))) }; }
+  try { return { ok: true, value: clientPrefix + JSON.stringify(oauthClientSchema({ pluginId: input.pluginId }).parse(JSON.parse(input.plaintext))) }; }
   catch { return failure({ code: "invalid_input" }); }
+}
+
+/** Meta requires its user-token Business Login config ID; other plugins reject that field.
+ * JSON null still clears either configuration. @complexity O(1) schema selection, no effects.
+ */
+function oauthClientSchema(required: { pluginId: string }): typeof clientSchema | typeof metaClientSchema {
+  return required.pluginId === "meta-ads" ? metaClientSchema : clientSchema;
 }
 
 /** Google-only compatibility configuration; JSON null clears it. @complexity O(b), b<=64 KiB. */
@@ -88,9 +97,10 @@ export async function readCredentialDeveloperToken(required: { context: CallCont
   } }, optional);
 }
 
-/** Host-only purpose decoder; null clears configuration without reviving revoked token IDs.
+/** Host-only purpose decoder; Meta additionally requires configId, other plugins reject it.
+ * Null clears configuration without reviving revoked token IDs.
  * @complexity Fixed broker/repository I/O and O(b) crypto/JSON, b <=64 KiB; no provider call. */
-export async function readCredentialOAuthClient(required: { context: CallContext; pluginId: string; repo: CredentialRepoPort; broker: CredentialBrokerPort; sealer: SecretSealerPort }, optional?: CallOptions): Promise<Outcome<z.infer<typeof clientSchema>>> {
+export async function readCredentialOAuthClient(required: { context: CallContext; pluginId: string; repo: CredentialRepoPort; broker: CredentialBrokerPort; sealer: SecretSealerPort }, optional?: CallOptions): Promise<Outcome<OAuthClientConfiguration>> {
   return boundary({ run: async () => {
     const loaded = await required.repo.getSecret({ context: required.context, connectionId: "oauth-client." + required.pluginId }, optional);
     if (!loaded.ok) return loaded;
@@ -101,7 +111,7 @@ export async function readCredentialOAuthClient(required: { context: CallContext
     const opened = await required.sealer.open({ reference: { ...loaded.value.reference, version: used.value.version }, secret: used.value }, optional);
     if (!opened.ok) return opened;
     if (!opened.value.startsWith(clientPrefix)) return failure({ code: "protocol_mismatch" });
-    const parsed = clientSchema.safeParse(JSON.parse(opened.value.slice(clientPrefix.length)));
+    const parsed = oauthClientSchema({ pluginId: required.pluginId }).safeParse(JSON.parse(opened.value.slice(clientPrefix.length)));
     return parsed.success ? { ok: true, value: parsed.data } : failure({ code: "protocol_mismatch" });
   } }, optional);
 }

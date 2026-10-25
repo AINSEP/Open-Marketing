@@ -4,6 +4,7 @@ import type { OAuthClientPort } from "./ports.js";
 import type { ConnectRequest, CredentialReference, SealedSecret, VerifiedOAuthCallback } from "./types.js";
 import { boundary, callbackSchema, connectSchema, failure, secretSchema } from "./rules.js";
 import { validChallenge } from "./service.js";
+import type { OAuthChallengeRules } from "./service.js";
 
 /** Host implements these bindings using published Jini exports. PKCE and provider HTTP remain
  * in that adapter/plugin, with guarded egress, deadlines and encrypted pending PKCE storage.
@@ -14,7 +15,7 @@ export interface OAuthHostBindings {
 }
 interface PendingOAuth { context: CallContext; request: ConnectRequest; reference: CredentialReference; state: string; expiresAt: number }
 
-/** Bound OAuth lifecycle adapter. Validates exact redirects, S256, state, expiry and one-shot use.
+/** Bound OAuth lifecycle adapter. Validates exact redirects, trusted challenge rules, state, expiry and one-shot use.
  * In-memory OM bindings deliberately expire on server restart. Injected Jini binding owns PKCE.
  * @complexity O(pending count) on begin, O(1) completion; cap includes in-flight authorizations.
  */
@@ -22,7 +23,9 @@ export function createBoundOAuthClient(required: {
   bindings: OAuthHostBindings; clock: ClockPort; ids: IdPort;
   allowedReturnUris: readonly string[]; allowedAuthorizationOrigins: readonly string[];
   maxPending?: number;
+  challengeRules?: ReadonlyMap<string, OAuthChallengeRules>;
 }): OAuthClientPort {
+  const dependencies = { ...required, challengeRules: new Map(Array.from(required.challengeRules ?? [], ([id, rules]) => [id, structuredClone(rules)])) };
   const pending = new Map<string, PendingOAuth>();
   let inFlight = 0;
   return {
@@ -35,7 +38,7 @@ export function createBoundOAuthClient(required: {
         if (pending.size + inFlight >= (required.maxPending ?? 256)) return failure({ code: "limit_exceeded" });
         inFlight++;
         try {
-          return await authorize({ dependencies: required, pending, input }, options);
+          return await authorize({ dependencies, pending, input }, options);
         } finally { inFlight--; }
       } }, options);
     },
@@ -69,7 +72,7 @@ async function authorize(required: {
   const result = await required.dependencies.bindings.authorize({ ...input, reference }, optional);
   if (!result.ok) return result;
   const challenge = { transactionId, ...result.value };
-  if (!validChallenge({ challenge, now: required.dependencies.clock.now({}), redirectUri: input.request.returnUri })) return failure({ code: "protocol_mismatch" });
+  if (!validChallenge({ challenge, now: required.dependencies.clock.now({}), redirectUri: input.request.returnUri, rules: required.dependencies.challengeRules?.get(input.request.pluginId) })) return failure({ code: "protocol_mismatch" });
   const url = new URL(challenge.authorizationUrl);
   if (!required.dependencies.allowedAuthorizationOrigins.includes(url.origin)) return failure({ code: "forbidden" });
   if (required.pending.has(transactionId)) return failure({ code: "conflict" });

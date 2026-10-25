@@ -1,6 +1,7 @@
 import { deriveCodeChallenge } from "@jini-ai/oauth";
 import { describe, expect, it } from "vitest";
-import { createCredentialBroker, createMemoryCredentialAudit, createMemoryCredentialLock, createMemoryCredentialRepo } from "../index.js";
+import { createCredentialBroker, createJiniOAuthClient, createMemoryCredentialAudit, createMemoryCredentialLock, createMemoryCredentialRepo } from "../index.js";
+import type { OAuthHostBindings } from "../index.js";
 import { createJiniFixture, createTokenRecord as createFixtureRecord, expiredTokens, freshTokens, oauthProvider } from "./jini-fixture.js";
 import { context, hostContext, request, value } from "./fixtures.js";
 
@@ -24,6 +25,44 @@ async function connect(required: { fixture: ReturnType<typeof createJiniFixture>
 }
 
 describe("published Jini OAuth adapter", () => {
+  it("uses injected bindings within the same owner-bound, one-shot lifecycle", async () => {
+    const h = createJiniFixture({});
+    let exchanges = 0;
+    const bindings: OAuthHostBindings = {
+      async authorize(input) {
+        const url = new URL("https://oauth.example/authorize");
+        url.search = new URLSearchParams({ state: "S".repeat(43), redirect_uri: input.request.returnUri, response_type: "code", config_id: "1234" }).toString();
+        return { ok: true, value: { authorizationUrl: url.href, expiresAt: 301234 } };
+      },
+      async exchange(input) {
+        exchanges++;
+        expect(input.context.scope).toEqual(context.scope);
+        expect(input.request.pluginId).toBe("custom");
+        return h.sealer.seal({ reference: input.reference, plaintext: "om.oauth.v1:" + JSON.stringify(freshTokens) });
+      },
+    };
+    let nextId = 0;
+    const oauth = createJiniOAuthClient({ ...h.dependencies, bindings({ standard }) { return {
+      authorize(input, options) { return input.request.pluginId === "custom" ? bindings.authorize(input, options) : standard.authorize(input, options); },
+      exchange(input, options) { return input.request.pluginId === "custom" ? bindings.exchange(input, options) : standard.exchange(input, options); },
+    }; }, pending: h.pending, randomBytesFn(input) { return new Uint8Array(input.byteLength).fill(7); },
+      ids: { next() { return `injected-${++nextId}`; } }, allowedReturnUris: [request.returnUri], allowedAuthorizationOrigins: ["https://oauth.example"],
+      clientDisplayName: "OM Test", softwareId: "io.github.ainsep.openmarketing",
+      challengeRules: new Map([["custom", { usesPkce: false, responseType: "code", additionalParameters: ["config_id"] }]]) });
+    const customRequest = { ...request, pluginId: "custom" };
+    const challenge = value({ outcome: await oauth.begin({ context, request: customRequest }) });
+    const callback = { transactionId: challenge.transactionId, state: "S".repeat(43), code: "sensitive-code", redirectUri: request.returnUri };
+    const results = await Promise.all([oauth.complete({ callback }), oauth.complete({ callback })]);
+    const secret = value({ outcome: results.find(result => result.ok)! });
+    expect(exchanges).toBe(1); expect(h.requests).toHaveLength(0);
+    expect(results.filter(result => !result.ok && result.error.code === "expired")).toHaveLength(1);
+    expect(JSON.stringify([challenge, secret])).not.toMatch(/sensitive-(code|access|refresh)/);
+    expect(payload({ plaintext: value({ outcome: await h.sealer.open({ reference: { scope: context.scope, connectionId: challenge.transactionId, version: 1 }, secret }) }) })).toEqual(freshTokens);
+    const standard = value({ outcome: await oauth.begin({ context, request }) });
+    expect(new URL(standard.authorizationUrl).searchParams.get("code_challenge_method")).toBe("S256");
+    expect(await oauth.complete({ callback: { ...callback, transactionId: standard.transactionId, state: new URL(standard.authorizationUrl).searchParams.get("state")! } })).toMatchObject({ ok: true });
+    expect(h.requests).toHaveLength(1);
+  });
   it("consumes denial through Jini without exchanging tokens, and rejects replay", async () => {
     const h = createJiniFixture({});
     const challenge = value({ outcome: await h.oauth.begin({ context, request }) });

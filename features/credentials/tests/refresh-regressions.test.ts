@@ -4,6 +4,22 @@ import { createJiniFixture, createTokenRecord, expiredTokens } from "./jini-fixt
 import { configuration, context, hostContext, reference, value } from "./fixtures.js";
 
 describe("tagged OAuth storage compatibility", () => {
+  it.each([
+    { pluginId: "meta-ads", expiresAt: "1970-01-01T00:00:00.000Z", ok: false, status: "reconnect_required" },
+    { pluginId: "tiktok-ads", expiresAt: null, ok: true, status: "connected" },
+  ])("preserves the existing broker lifecycle for normalized $pluginId tokens without refresh support", async testCase => {
+    // Normalized fixtures prove lifecycle behavior, not unverified vendor token lifetimes.
+    const h = createJiniFixture({}); const repo = createMemoryCredentialRepo({});
+    const plaintext = "om.oauth.v1:" + JSON.stringify({ ...expiredTokens, refreshToken: null, expiresAt: testCase.expiresAt });
+    const secret = value({ outcome: await h.sealer.seal({ reference, plaintext }) });
+    value({ outcome: await repo.store({ context, reference, secret, pluginId: testCase.pluginId }) });
+    const broker = createCredentialBroker({ repo, sealer: h.sealer, refresh: h.refresh, locks: createMemoryCredentialLock({}), audit: createMemoryCredentialAudit({}) });
+    const result = await broker.use({ context: hostContext, reference, operationId: "dispatch" });
+    expect(result.ok).toBe(testCase.ok);
+    if (!testCase.ok) expect(result).toMatchObject({ error: { code: "unauthenticated" } });
+    expect(value({ outcome: await repo.get({ context, connectionId: reference.connectionId }) })?.status).toBe(testCase.status);
+    expect(h.requests).toHaveLength(0);
+  });
   it.each(["pasted-token", "not-json", JSON.stringify(expiredTokens)])("leaves untagged pasted secrets unchanged: %s", async plaintext => {
     const h = createJiniFixture({});
     const record = await createTokenRecord({ sealer: h.sealer });

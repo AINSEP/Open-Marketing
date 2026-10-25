@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { createBoundOAuthClient, createCredentialService, createMemoryCredentialRepo, createMemoryCredentialAudit, createMemoryCredentialLock, createMemoryKeyring, createMemorySecretSealer } from "../index.js";
-import type { BrowserOAuthCallback } from "../index.js";
+import type { BrowserOAuthCallback, OAuthChallengeRules } from "../index.js";
 import { createJiniFixture } from "./jini-fixture.js";
 import { clock, context, request, value } from "./fixtures.js";
 
 /** Provider fixture is deliberately tainted by the case under test. OM must reject before UI/exchange. */
-function client(required: { mutate?: (required: { url: URL }) => void; maxPending?: number; expired?: boolean }) {
+function client(required: { mutate?: (required: { url: URL }) => void; maxPending?: number; expired?: boolean; challengeRules?: ReadonlyMap<string, OAuthChallengeRules> }) {
   const sealer = createMemorySecretSealer({});
   let nextId = 0;
   let exchanges = 0;
-  const port = createBoundOAuthClient({ clock, ids: { next() { return `txn-${++nextId}`; } }, maxPending: required.maxPending,
+  const port = createBoundOAuthClient({ clock, ids: { next() { return `txn-${++nextId}`; } }, maxPending: required.maxPending, challengeRules: required.challengeRules,
     allowedReturnUris: [request.returnUri], allowedAuthorizationOrigins: ["https://oauth.example"], bindings: {
       async authorize(input) {
         const url = new URL("https://oauth.example/authorize");
@@ -24,8 +24,62 @@ function client(required: { mutate?: (required: { url: URL }) => void; maxPendin
       async exchange(input) { exchanges++; return sealer.seal({ reference: input.reference, plaintext: "protected-token" }); },
     },
   });
-  return { port, exchanges() { return exchanges; } };
+  return { port, sealer, exchanges() { return exchanges; } };
 }
+
+/** Fixture protocol shapes only; these URLs do not claim verified vendor compatibility. */
+function nonPkce(required: { url: URL }) {
+  required.url.searchParams.delete("code_challenge");
+  required.url.searchParams.delete("code_challenge_method");
+  required.url.searchParams.set("config_id", "1234");
+}
+
+/** Both layers receive trusted rules independently, as server composition must do. */
+function serviceFor(required: { client: ReturnType<typeof client>; challengeRules?: ReadonlyMap<string, OAuthChallengeRules> }) {
+  return createCredentialService({ clock, repo: createMemoryCredentialRepo({}), sealer: required.client.sealer,
+    keyring: createMemoryKeyring({}), locks: createMemoryCredentialLock({}), audit: createMemoryCredentialAudit({}),
+    oauth: required.client.port, challengeRules: required.challengeRules });
+}
+
+describe("trusted challenge rules", () => {
+  const rule: OAuthChallengeRules = { usesPkce: false, responseType: "code", additionalParameters: ["config_id"] };
+  it("requires independent trusted rules in both layers and isolates other plugins", async () => {
+    const challengeRules = new Map([[request.pluginId, rule]]);
+    const h = client({ mutate: nonPkce, challengeRules });
+    expect(await serviceFor({ client: h }).beginConnect({ context, request })).toMatchObject({ ok: false, error: { code: "protocol_mismatch" } });
+    const defaultClient = client({ mutate: nonPkce });
+    expect(await serviceFor({ client: defaultClient, challengeRules }).beginConnect({ context, request })).toMatchObject({ ok: false, error: { code: "protocol_mismatch" } });
+    const service = serviceFor({ client: h, challengeRules });
+    const challenge = value({ outcome: await service.beginConnect({ context, request }) });
+    expect((await service.beginConnect({ context, request: { ...request, pluginId: "other" } })).ok).toBe(false);
+    const callback = { state: new URL(challenge.authorizationUrl).searchParams.get("state")!, code: "fixture-code", redirectUri: request.returnUri };
+    expect(await service.completeConnect({ callback: { ...callback, redirectUri: "https://evil.example" } })).toMatchObject({ ok: false, error: { code: "forbidden" } });
+    const results = await Promise.all([service.completeConnect({ callback }), service.completeConnect({ callback })]);
+    expect(results.filter(result => result.ok)).toHaveLength(1);
+    expect(h.exchanges()).toBe(1);
+  });
+  it.each(["state", "config_id", "client_secret", "code_verifier", "code_challenge", "code_challenge_method"])("rejects duplicate/secret/partial PKCE field %s even under trusted rules", async field => {
+    const challengeRules = new Map([[request.pluginId, rule]]);
+    const h = client({ challengeRules, mutate(input) { nonPkce(input); input.url.searchParams.append(field, "sensitive-fixture"); } });
+    const result = await serviceFor({ client: h, challengeRules }).beginConnect({ context, request });
+    expect(result).toMatchObject({ ok: false, error: { code: "protocol_mismatch" } });
+    expect(JSON.stringify(result)).not.toContain("sensitive-fixture");
+    expect(h.exchanges()).toBe(0);
+  });
+  it("admits app_id with omitted response_type only for its trusted plugin", async () => {
+    const challengeRules = new Map([[request.pluginId, { usesPkce: false, responseType: "omitted" as const, additionalParameters: ["app_id" as const] }]]);
+    const h = client({ challengeRules, mutate(input) { nonPkce(input); input.url.searchParams.delete("config_id"); input.url.searchParams.delete("response_type"); input.url.searchParams.set("app_id", "1234"); } });
+    expect(await serviceFor({ client: h, challengeRules }).beginConnect({ context, request })).toMatchObject({ ok: true });
+  });
+  it("snapshots host rules against later mutation", async () => {
+    const mutable = { ...rule, additionalParameters: ["config_id" as const] };
+    const challengeRules = new Map([[request.pluginId, mutable]]);
+    const h = client({ challengeRules, mutate: nonPkce });
+    const service = serviceFor({ client: h, challengeRules });
+    mutable.usesPkce = true; mutable.additionalParameters.length = 0; challengeRules.clear();
+    expect(await service.beginConnect({ context, request })).toMatchObject({ ok: true });
+  });
+});
 
 /** Real service/Jini lifecycle with fixture HTTP and an independently advanced service clock. */
 function lifecycle(required: Parameters<typeof createJiniFixture>[0] = {}) {
