@@ -4,3 +4,7 @@ export type { NaverAdsAdapter, NaverDependencies, NaverConfiguration, NaverInvoc
 export { commandSchema, naverAdsTools } from "./commands.js";
 export type { NaverCommand } from "./commands.js";
 export type { NaverReport } from "./reporting.js";
+export { translateCampaign } from "./campaign-translation.js";
+export type { CampaignTranslationInput, NaverPausedPlan } from "./campaign-translation.js";
+export { campaignDeploymentPlanSchema, deployCampaignPaused, readCampaignDeployment } from "./campaign-deployment.js";
+export type { NaverDeploymentCheckpoint, NaverDeploymentResult } from "./campaign-deployment.js";

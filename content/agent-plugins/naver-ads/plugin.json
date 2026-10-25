@@ -2,7 +2,7 @@
   "$schema": "https://agent-plugins.org/schemas/1.1.0/plugin.schema.json",
   "name": "naver-ads",
   "version": "0.1.0",
-  "description": "Read-only Naver Search Ads accounts, campaigns and stats; disabled until host admission.",
+  "description": "Read-only Naver Search Ads accounts, campaigns, stats and saved paused-reference verification; launches unavailable.",
   "license": "Apache-2.0",
   "extensions": {"io.github.ainsep.openmarketing": {"version": 1, "enabled": false, "admitted": false, "capabilities": [{"capabilityId": "campaign.read.v1", "version": 1, "pluginId": "naver-ads", "schemaFingerprint": "fcdac11b32ecd8a7e0fa4d4bfef88308cc271a6506e4d79217084f6766868e85", "admitted": false, "effects": ["read"]}, {"capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "naver-ads", "schemaFingerprint": "b67af8350290a5d7f048e75d5342d9f86277c0726f0f18a5b4e6833b8ee704c0", "admitted": false, "effects": ["read"]}]}}
 }
