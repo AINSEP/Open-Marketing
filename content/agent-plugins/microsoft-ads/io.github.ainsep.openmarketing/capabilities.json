@@ -2,12 +2,16 @@
   "version": 1, "admitted": false,
   "capabilities": [
     {"capabilityId": "campaign.read.v1", "version": 1, "pluginId": "microsoft-ads", "schemaFingerprint": "6da851324f9afe45cacfe09f9321476bdc00dc745d927f4f5e95874c5a99c677", "admitted": false, "effects": ["read"]},
-    {"capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "microsoft-ads", "schemaFingerprint": "6f68d9cba0cd95f696a02c715fce132ff48f95db6aec187987551ad2e1e61aa6", "admitted": false, "effects": ["read"]}
+    {"capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "microsoft-ads", "schemaFingerprint": "6f68d9cba0cd95f696a02c715fce132ff48f95db6aec187987551ad2e1e61aa6", "admitted": false, "effects": ["read"]},
+    {"capabilityId": "campaign.create-paused.v1", "version": 1, "pluginId": "microsoft-ads", "schemaFingerprint": "ffb393f0127cdb6bd459fde81c366806f9894f9945258bda217566a2e1707fc1", "admitted": false, "effects": ["write"]},
+    {"capabilityId": "conversion.deliver.v1", "version": 1, "pluginId": "microsoft-ads", "schemaFingerprint": "af2b15a29b179bd5fdb5a32261e1af1127362e8f70cccf098c80bf58ad521be8", "admitted": false, "effects": ["conversion"]}
   ],
   "tools": [
     {"name": "list_accounts", "effects": ["read"], "capabilityId": "campaign.read.v1"},
     {"name": "list_campaigns", "effects": ["read"], "capabilityId": "campaign.read.v1"},
     {"name": "report", "effects": ["read"], "capabilityId": "report.account-spend.v1"}
   ],
-  "fingerprintBasis": "SHA-256 of src/commands.ts or src/reporting.ts. Compatibility metadata only; no trust allowlist."
+  "deployment": {"capabilityId": "campaign.create-paused.v1", "create": "deployCampaignPaused", "read": "readCampaignDeployment", "planSchema": "campaignDeploymentPlanSchema", "admitted": false},
+  "backendConversion": {"capabilityId": "conversion.deliver.v1", "effects": ["conversion"], "agentTool": false},
+  "fingerprintBasis": "SHA-256 of src/commands.ts, src/reporting.ts, src/campaign-translation.ts or src/capi.ts. Source compatibility metadata only; no trust allowlist."
 }

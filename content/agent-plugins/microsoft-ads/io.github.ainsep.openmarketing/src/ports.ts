@@ -55,3 +55,6 @@ export interface MicrosoftAdsAdapter { invoke(required: MicrosoftAdsInvocation, 
 export function failure(required: { code: AppError["code"] }): Outcome<never> {
   return { ok: false, error: { code: required.code, message: "Microsoft Ads request " + required.code, retryable: false } };
 }
+
+/** Existing host effects shared by read transport and server-owned jobs; no second gateway/outbox. */
+export type MicrosoftAdsIoDependencies = Pick<MicrosoftAdsDependencies, "configuration" | "credentials" | "fetch" | "clock" | "timeoutSignal" | "observer">;

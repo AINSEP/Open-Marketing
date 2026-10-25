@@ -1,11 +1,14 @@
 import type { CallContext, ObserverEvent } from "@open-marketing/contracts";
-import { createMicrosoftAdsAdapter } from "../src/index.js";
-import type { MicrosoftAdsDependencies, MicrosoftAdsInvocation, MicrosoftAdsWireRequest } from "../src/index.js";
+import { createMicrosoftAdsAdapter, createMicrosoftAdsConversionBackend, translateCampaign } from "../src/index.js";
+import type { CampaignTranslationInput, DeploymentInput, MicrosoftAdsConversionDependencies, MicrosoftAdsConversionRequest, MicrosoftAdsDependencies, MicrosoftAdsInvocation, MicrosoftAdsWireRequest } from "../src/index.js";
 
 export const now = Date.UTC(2026, 9, 12);
 export const context: CallContext = { scope: { ownerId: "owner", workspaceId: "workspace" }, principal: { kind: "owner", ownerId: "owner" }, correlationId: "correlation", traceId: "trace", runId: "run" };
 export const invocation = (required: { command?: MicrosoftAdsInvocation["command"] } = {}): MicrosoftAdsInvocation => ({ context, operationId: "operation", command: required.command ?? { kind: "list_campaigns" } });
 export const campaignPage = { Campaigns: [{ Id: 456, Name: "Fixture", Status: "Paused", secret: "synthetic-secret" }] };
+/** Independent synthetic GetCampaignsByIds success with the documented positional null error. */
+export const campaignReadWithNullError = { Campaigns: [{ Id: 1001, Name: "Fixture traffic", CampaignType: "Search", Status: "Paused", BudgetType: "DailyBudgetStandard", DailyBudget: 12.34,
+  TimeZone: "PacificTimeUSCanadaTijuana", BiddingScheme: { Type: "MaxClicks", MaxCpc: { Amount: 1.23 } } }], PartialErrors: [null] };
 export const reportCommand = { kind: "report" as const, window: { start: now, end: now + 86400000 } };
 export const tsv = "AccountId\tCampaignId\tTimePeriod\tCurrencyCode\tSpend\tImpressions\tClicks\tConversionsQualified\n123\t456\t2026-10-12\tUSD\t12.3400\t0\t0\t0.50\n";
 /** Synthetic HTTP and archive effects only. T1 supplies a host gateway to the SAME dispatch suite. */
@@ -40,3 +43,65 @@ export function reportFixture() {
   f.state.responses = [{ ReportRequestId: "report-id" }, { ReportRequestStatus: { Status: "Success", ReportDownloadUrl: "https://reports.example/report.zip" } }];
   return f;
 }
+
+/** Synthetic whole-day Pacific launch; expected dates/budgets are asserted independently in tests. */
+export function translationInput(): CampaignTranslationInput {
+  return { campaign: { name: "Fixture traffic", objective: "traffic", schedule: { window: { start: now + 7 * 3600000, end: now + 86400000 + 7 * 3600000 }, timezone: "America/Los_Angeles" }, audience: { countries: ["US"], searchTerms: ["fixture shoes", "fixture boots"] }, creativeIds: ["creative"], creativeDigest: "b".repeat(64) }, target: { accountId: "123", dailyBudget: { currency: "USD", minorUnits: 1234 } },
+    resolved: { accountId: "123", currency: "USD", currencyExponent: 2, timezone: "America/Los_Angeles", creativeId: "creative", creativeDigest: "b".repeat(64), language: "English", maxCpc: { currency: "USD", minorUnits: 123 }, locations: [{ country: "US", id: "190" }], ad: { FinalUrls: ["https://example.com/shoes"], Headlines: ["Fixture shoes", "Find your pair", "Shop today"].map(Text => ({ Asset: { Type: "TextAsset", Text } })), Descriptions: ["Find your next pair of shoes.", "Browse our fixture collection today."].map(Text => ({ Asset: { Type: "TextAsset", Text } })) } } };
+}
+/** Real plugin transport with synthetic REST service and durable host checkpoint double. */
+export function deploymentFixture() {
+  const f = fixture();
+  const translated = translateCampaign(translationInput());
+  if (!translated.ok) throw new Error("Invalid deployment fixture");
+  const state = { writes: 0, failWrite: 0, partialWrite: 0, checkpointFail: 0, checkpointCalls: 0, readHook: (_input: { path: string; rows: Record<string, unknown>[] }) => {}, beforeCheckpoint: () => {} };
+  const rows = new Map<string, Record<string, unknown>[]>();
+  const intents = new Set<string>(), checkpoints: { step: string; phase: string; references: Record<string, string> }[] = [];
+  const shape: Record<string, { collection: string; ids: string }> = { Campaigns: { collection: "Campaigns", ids: "CampaignIds" }, CampaignCriterions: { collection: "CampaignCriterions", ids: "CampaignCriterionIds" }, AdGroups: { collection: "AdGroups", ids: "AdGroupIds" }, Keywords: { collection: "Keywords", ids: "KeywordIds" }, Ads: { collection: "Ads", ids: "AdIds" } };
+  const input: DeploymentInput = { context, operationId: "launch", plan: translated.value, dependencies: { ...f.dependencies, fetch: async (url, init) => {
+    if (!f.state.admitted || !f.state.bound) throw new Error("Denied");
+    f.calls.push({ url: String(url), init: init! }); init?.signal?.throwIfAborted();
+    const path = new URL(String(url)).pathname.split("/v13/")[1], collection = path.split("/")[0], definition = shape[collection], body = JSON.parse(String(init?.body));
+    if (path.endsWith("/QueryByIds")) {
+      const observed = structuredClone((rows.get(collection) ?? []).filter(row => body[definition.ids].map(String).includes(String(row.Id))));
+      state.readHook({ path, rows: observed });
+      return Response.json({ [definition.collection]: observed, PartialErrors: null });
+    }
+    state.writes++;
+    if (state.writes === state.failWrite) throw new Error("synthetic-secret ambiguous");
+    const created = body[definition.collection].map((row: Record<string, unknown>, index: number) => ({ ...row, ...(collection === "CampaignCriterions" ? { Status: "Active" } : {}), Id: state.writes * 1000 + index + 1 }));
+    rows.set(collection, created);
+    return Response.json({ [definition.ids]: created.map((row: { Id: number }) => row.Id), PartialErrors: state.writes === state.partialWrite ? [{ Code: 1, Message: "synthetic-secret" }] : null });
+  } }, checkpoint: async event => {
+    checkpoints.push(structuredClone(event)); state.checkpointCalls++; state.beforeCheckpoint();
+    if (state.checkpointCalls === state.checkpointFail) return { ok: false, error: { code: "unavailable", message: "stop", retryable: false } };
+    if (event.phase === "dispatch" && intents.has(event.step)) return { ok: false, error: { code: "conflict", message: "claimed", retryable: false } };
+    if (event.phase === "dispatch") intents.add(event.step);
+    return { ok: true, value: undefined };
+  } };
+  return { ...f, input, deploymentState: state, rows, checkpoints };
+}
+export type DeploymentFixture = ReturnType<typeof deploymentFixture>;
+
+/** Existing measure service request with one synthetic authorized email digest. */
+export function conversionInput(): MicrosoftAdsConversionRequest {
+  return { context: { scope: context.scope, serviceId: "measure", correlationId: "correlation", traceId: "trace" }, deliveryId: "delivery", event: { eventId: "event", definitionId: "purchase", subjectId: "subject", occurredAt: now, destination: "microsoft", purpose: "measurement", identifiers: { email: "a".repeat(64) }, identifierDigests: { email: "b".repeat(64) } },
+    grant: { kind: "measurement", grantId: "grant", scope: context.scope, connectionId: "connection", accountId: "123", definitionIds: ["purchase"], destination: "microsoft", purpose: "measurement", payloadSchema: "email-v1", payloadVersion: 1, expiresAt: now + 60000, revoked: false } };
+}
+/** Host authority double retains a dispatched claim after uncertainty; real host runs the same suite. */
+export function conversionFixture() {
+  const f = fixture(), claims = new Set<string>(), dispatches: unknown[] = [];
+  const state = { consent: true, halted: false, doubleExecute: false, authorityHook: () => {} };
+  f.state.responses = [{ PartialErrors: null }];
+  const dependencies: MicrosoftAdsConversionDependencies = { ...f.dependencies, configuration: { ...f.dependencies.configuration, mode: "production-server", destination: "microsoft", purpose: "measurement", payloadSchema: "email-v1", conversionGoals: { purchase: { name: "Existing purchase goal", createdAt: now - 7200000, enhancedConversionsEnabled: true } } },
+    authority: { async dispatch(input, options) {
+      dispatches.push(input); if (claims.has(input.deliveryId)) return { ok: true, value: { status: "unknown" } };
+      if (!state.consent || state.halted) return { ok: false, error: { code: "forbidden", message: "Denied", retryable: false } };
+      claims.add(input.deliveryId); state.authorityHook();
+      const current = { isCurrent: () => state.consent && !state.halted && f.state.admitted && f.state.bound && !options?.signal?.aborted };
+      const result = await input.execute(current);
+      return state.doubleExecute ? input.execute(current) : result;
+    } } };
+  return { ...f, conversionState: state, conversionDependencies: dependencies, conversionDispatches: dispatches, backend: createMicrosoftAdsConversionBackend(dependencies) };
+}
+export type ConversionFixture = ReturnType<typeof conversionFixture>;

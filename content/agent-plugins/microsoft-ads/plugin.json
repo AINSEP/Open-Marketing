@@ -1,12 +1,14 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.1.0/plugin.schema.json",
   "name": "microsoft-ads", "version": "0.1.0", "license": "Apache-2.0",
-  "description": "Microsoft Advertising account/Search campaign reads and daily reports; disabled until host admission.",
+  "description": "Microsoft Advertising reads/reporting, server-owned paused Search deployment and narrow offline conversions; disabled until host admission.",
   "extensions": { "io.github.ainsep.openmarketing": {
     "version": 1, "enabled": false, "admitted": false,
     "capabilities": [
       {"capabilityId": "campaign.read.v1", "version": 1, "pluginId": "microsoft-ads", "schemaFingerprint": "6da851324f9afe45cacfe09f9321476bdc00dc745d927f4f5e95874c5a99c677", "admitted": false, "effects": ["read"]},
-      {"capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "microsoft-ads", "schemaFingerprint": "6f68d9cba0cd95f696a02c715fce132ff48f95db6aec187987551ad2e1e61aa6", "admitted": false, "effects": ["read"]}
+      {"capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "microsoft-ads", "schemaFingerprint": "6f68d9cba0cd95f696a02c715fce132ff48f95db6aec187987551ad2e1e61aa6", "admitted": false, "effects": ["read"]},
+      {"capabilityId": "campaign.create-paused.v1", "version": 1, "pluginId": "microsoft-ads", "schemaFingerprint": "ffb393f0127cdb6bd459fde81c366806f9894f9945258bda217566a2e1707fc1", "admitted": false, "effects": ["write"]},
+      {"capabilityId": "conversion.deliver.v1", "version": 1, "pluginId": "microsoft-ads", "schemaFingerprint": "af2b15a29b179bd5fdb5a32261e1af1127362e8f70cccf098c80bf58ad521be8", "admitted": false, "effects": ["conversion"]}
     ]
   } }
 }

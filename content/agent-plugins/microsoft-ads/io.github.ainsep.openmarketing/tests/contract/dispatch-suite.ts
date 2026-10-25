@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { invocation, reportCommand } from "../fixtures.js";
-import type { Fixture } from "../fixtures.js";
+import { conversionInput, invocation, reportCommand } from "../fixtures.js";
+import type { ConversionFixture, DeploymentFixture, Fixture } from "../fixtures.js";
+import { deployCampaignPaused } from "../../src/index.js";
 /** Shared acceptance cases: memory now, server gateway adapter after integrator wiring. */
 export function dispatchSuite(required: { name: string; makeFixture: () => Fixture }): void {
   describe(required.name, () => {
@@ -47,6 +48,40 @@ export function dispatchSuite(required: { name: string; makeFixture: () => Fixtu
       expect(f.credentials).toEqual(["connection", "developer-token.microsoft-ads"]);
       expect(JSON.stringify({ result, observations: f.observations })).not.toContain("synthetic-secret");
       expect(f.observations[0]).toMatchObject({ correlationId: "correlation", traceId: "trace", runId: "run" });
+    });
+  });
+}
+
+/** Owning outbox/final fetch ABI suite; integrator supplies the same fixture with real host guards. */
+export function deploymentDispatchSuite(required: { name: string; makeFixture: () => DeploymentFixture }): void {
+  describe(required.name, () => {
+    it("unadmitted deployment does zero checkpoint/secret/network work", async () => {
+      const f = required.makeFixture(); f.input.dependencies = { ...f.input.dependencies, configuration: { ...f.input.dependencies.configuration, admitted: false } };
+      expect(await deployCampaignPaused(f.input)).toMatchObject({ ok: false, error: { code: "forbidden" } }); expect(f.checkpoints).toEqual([]); expect(f.credentials).toEqual([]); expect(f.calls).toEqual([]);
+    });
+    it.each(["admitted", "bound"] as const)("rechecks %s after either secret lookup", async key => {
+      const f = required.makeFixture(); f.state.hook = input => { if (input.connectionId === "developer-token.microsoft-ads") f.state[key] = false; };
+      expect(await deployCampaignPaused(f.input)).toMatchObject({ ok: true, value: { status: "unknown", entityIds: [] } }); expect(f.calls).toEqual([]);
+    });
+    it("a repeated owning job never replays an uncertain create", async () => {
+      const f = required.makeFixture(); f.deploymentState.failWrite = 1;
+      await deployCampaignPaused(f.input); await deployCampaignPaused(f.input); expect(f.deploymentState.writes).toBe(1);
+    });
+  });
+}
+/** Existing measurement authority suite; no plugin-owned grant store or duplicate queue. */
+export function conversionDispatchSuite(required: { name: string; makeFixture: () => ConversionFixture }): void {
+  describe(required.name, () => {
+    it.each(["consent", "halt", "binding"])("rechecks live %s after developer-token lookup", async key => {
+      const f = required.makeFixture(); f.state.hook = input => { if (input.connectionId !== "developer-token.microsoft-ads") return; if (key === "consent") f.conversionState.consent = false; if (key === "halt") f.conversionState.halted = true; if (key === "binding") f.state.bound = false; };
+      expect(await f.backend.deliver(conversionInput())).toMatchObject({ ok: false }); expect(f.calls).toEqual([]);
+    });
+    it("retains the single claim for concurrent identical delivery IDs", async () => {
+      const f = required.makeFixture(); await Promise.all([f.backend.deliver(conversionInput()), f.backend.deliver(conversionInput())]); expect(f.calls).toHaveLength(1);
+    });
+    it("a faulty host cannot invoke one callback twice", async () => {
+      const f = required.makeFixture(); f.conversionState.doubleExecute = true;
+      expect(await f.backend.deliver(conversionInput())).toMatchObject({ ok: false, error: { code: "conflict" } }); expect(f.calls).toHaveLength(1);
     });
   });
 }

@@ -5,12 +5,14 @@ import type { CallOptions, Outcome } from "@open-marketing/contracts";
 import { commandSchema, decodeList, request, userSchema, vendorIdSchema } from "./commands.js";
 import { runReport } from "./reporting.js";
 import { failure } from "./ports.js";
-import type { MicrosoftAdsAdapter, MicrosoftAdsDependencies, MicrosoftAdsInvocation, MicrosoftAdsWireRequest } from "./ports.js";
-const configurationSchema = z.strictObject({ scope: scopeSchema, admitted: z.boolean().default(false), connectionId: idSchema, accountId: vendorIdSchema.nullable(), customerId: vendorIdSchema.nullable(), currency: z.string().regex(/^[A-Z]{3}$/).nullable(), pluginDigest: digestSchema, bindingId: idSchema });
+import type { MicrosoftAdsAdapter, MicrosoftAdsDependencies, MicrosoftAdsInvocation, MicrosoftAdsWireRequest, MicrosoftAdsIoDependencies } from "./ports.js";
+export const configurationSchema = z.strictObject({ scope: scopeSchema, admitted: z.boolean().default(false), connectionId: idSchema, accountId: vendorIdSchema.nullable(), customerId: vendorIdSchema.nullable(), currency: z.string().regex(/^[A-Z]{3}$/).nullable(), pluginDigest: digestSchema, bindingId: idSchema });
 const invocationSchema = z.strictObject({ context: callContextSchema, operationId: idSchema, command: commandSchema });
 const credentialSchema = z.object({ accessToken: z.string().min(1).max(4096).regex(/^[\x21-\x7e]+$/), expiresAt: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional() });
 type Execution = { dependencies: MicrosoftAdsDependencies; input: MicrosoftAdsInvocation; signal: AbortSignal };
 type Credentials = [z.infer<typeof credentialSchema>, z.infer<typeof credentialSchema>];
+/** Late parsed bodies are failure evidence for deployment checkpoints, never successful reads. */
+export type MicrosoftAdsTransportResult = Outcome<unknown> & { receivedBody?: unknown };
 /** Inert factory; only invoke performs I/O through the server gateway.
  * @param required - Server binding and injected effects; no ambient auth or configuration.
  * @returns Read adapter with explicit failures, no retries. @complexity O(b), bounded bytes/rows.
@@ -86,24 +88,49 @@ async function dispatch<T>(required: { execution: Execution; request: MicrosoftA
   }, { signal });
 }
 /** Host credential wrappers recheck live binding around BOTH reads; guarded fetch checks again.
- * @complexity Two credential reads and one <=15s RPC, zero retries. Secrets never leave headers.
+ * Strip late response evidence from public read failures. Secrets never leave headers.
+ * @complexity Two credential reads and one <=15s RPC, zero retries.
  */
 async function send(required: { execution: Execution; request: MicrosoftAdsWireRequest }): Promise<Outcome<unknown>> {
-  const { dependencies, signal } = required.execution;
-  if (signal.aborted) return failure({ code: "cancelled" });
+  const result = await requestMicrosoftAds({ dependencies: required.execution.dependencies, request: required.request }, { signal: required.execution.signal });
+  return result.ok ? result : failure({ code: result.error.code });
+}
+/** Plugin-private transport shared by reads and owning server jobs. The host fetch MUST fence
+ * current admission, account binding, exact approval/consent and audit after credential awaits.
+ * Expired parsed responses retain a tainted body only for candidate-ID checkpointing.
+ * @complexity Two credential reads, one <=15s RPC and <=1MiB response; no retry.
+ */
+export async function requestMicrosoftAds(required: { dependencies: MicrosoftAdsIoDependencies; request: MicrosoftAdsWireRequest }, optional?: CallOptions): Promise<MicrosoftAdsTransportResult> {
+  const { dependencies } = required;
+  if (!dependencies.configuration.admitted) return failure({ code: "forbidden" });
+  if (optional?.signal?.aborted) return failure({ code: "cancelled" });
+  const deadline = dependencies.timeoutSignal({ milliseconds: 15000 });
+  const signal = optional?.signal ? AbortSignal.any([optional.signal, deadline]) : deadline;
   const config = dependencies.configuration;
-  const credentials = await resolveCredentials({ execution: required.execution });
+  const credentials = await resolveCredentials({ dependencies, signal });
   if (!credentials.ok) return credentials;
+  if (!config.admitted) return failure({ code: "forbidden" });
+  if (signal.aborted) return failure({ code: "expired" });
   const headers: Record<string, string> = { Authorization: "Bearer " + credentials.value[0].accessToken, DeveloperToken: credentials.value[1].accessToken, "Content-Type": "application/json" };
   if (config.accountId) headers.CustomerAccountId = config.accountId;
   if (config.customerId) headers.CustomerId = config.customerId;
-  const response = await dependencies.fetch(required.request.url, { method: "POST", body: required.request.body, headers, redirect: "error", signal: AbortSignal.any([signal, dependencies.timeoutSignal({ milliseconds: 15000 })]) });
+  const response = await dependencies.fetch(required.request.url, { method: "POST", body: required.request.body, headers, redirect: "error", signal });
+  return readResponse({ response, signal });
+}
+/** Bound and parse the response; a deadline rejects success while preserving received evidence.
+ * @complexity O(b<=1MiB) time/space; no additional requests or retries.
+ */
+async function readResponse(required: { response: Response; signal: AbortSignal }): Promise<MicrosoftAdsTransportResult> {
+  const { response, signal } = required;
   if (response.status !== 200) { await response.body?.cancel(); return failure({ code: response.status === 429 ? "limit_exceeded" : "unavailable" }); }
-  return readJson({ response });
+  const result = await readJson({ response });
+  if (signal.aborted && result.ok) return { ...failure({ code: "expired" }), receivedBody: result.value };
+  if (signal.aborted) return failure({ code: "expired" });
+  return result;
 }
 /** Two host-scoped secret reads; strip tainted errors and validate header-safe tokens/expiry. @complexity O(1). */
-async function resolveCredentials(required: { execution: Execution }): Promise<Outcome<Credentials>> {
-  const { dependencies, signal } = required.execution;
+async function resolveCredentials(required: { dependencies: MicrosoftAdsIoDependencies; signal: AbortSignal }): Promise<Outcome<Credentials>> {
+  const { dependencies, signal } = required;
   const config = dependencies.configuration;
   const token = await dependencies.credentials.access({ connectionId: config.connectionId, accountId: config.accountId }, { signal });
   if (!token.ok) return failure({ code: token.error.code });
