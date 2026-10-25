@@ -1,0 +1,92 @@
+/* Frost over a static pastel mesh; no image, font download or animated backdrop. */
+:root[data-admin-theme="glass"][data-color-scheme="light"] {
+  --jini-theme-light-bg: #e8eef6; --jini-theme-light-surface: #eef2f8;
+  --jini-theme-light-text: #161b2b; --jini-theme-light-muted: #475266;
+  --jini-theme-light-border: #c5cedd; --jini-theme-light-primary: #141a2e; --jini-theme-light-primary-ink: #ffffff;
+  --jini-theme-light-danger: #b33332; --jini-theme-light-success: #006b47; --jini-theme-light-warning: #87570d;
+  --jini-accent: var(--jini-primary); --jini-accent-ink: var(--jini-primary-ink); --jini-accent-hover: var(--jini-primary);
+  --jini-accent-strong: #141a2e; --jini-accent-soft: #e0e6f2; --jini-accent-ring: var(--jini-accent-strong); --jini-link: var(--jini-accent-strong);
+  --jini-text-faint: var(--jini-muted); --jini-success-bg: #e8f5ee; --jini-warning-bg: #fff4df; --jini-danger-bg: #fceceb;
+  --jini-app-bg: radial-gradient(60% 50% at 15% 10%, #ffffffcc, transparent 70%) fixed, radial-gradient(50% 60% at 85% 20%, #c7d2fe, transparent 70%) fixed, radial-gradient(60% 60% at 70% 90%, #fbcfe8, transparent 70%) fixed, linear-gradient(160deg, #e8eef6, #d6e0ec) fixed;
+  --jini-shell-bg: transparent; --jini-panel-bg: rgb(255 255 255 / .55); --jini-panel-border: rgb(255 255 255 / .6);
+  --jini-panel-text: var(--jini-text); --jini-panel-muted: var(--jini-muted); --jini-panel-texture: none;
+  --jini-panel-shadow: 0 8px 32px rgb(31 38 135 / .10), inset 0 1px 0 rgb(255 255 255 / .7);
+  --jini-panel-shadow-inset: none; --jini-panel-backdrop: blur(24px) saturate(140%);
+  --jini-rail-bg: rgb(255 255 255 / .45); --jini-rail-border: rgb(255 255 255 / .6); --jini-rail-shadow: var(--jini-panel-shadow);
+  --jini-rail-backdrop: blur(20px) saturate(140%); --jini-rail-text: var(--jini-text); --jini-rail-muted: var(--jini-muted);
+  --jini-overlay-bg: rgb(20 26 46 / .4); --jini-overlay-backdrop: blur(12px) saturate(140%); --jini-overlay-shadow: 0 16px 56px rgb(31 38 135 / .18);
+  --jini-control-bg: rgb(255 255 255 / .85); --jini-control-border: #717d8c;
+  --jini-control-shadow: 0 1px 3px rgb(31 38 135 / .08); --jini-control-shadow-hover: var(--jini-control-shadow);
+  --jini-control-shadow-pressed: inset 0 1px 3px rgb(31 38 135 / .12); --jini-control-shadow-inset: var(--jini-control-shadow-pressed);
+  --jini-metric-bg: rgb(255 255 255 / .72); --jini-metric-text: var(--jini-text); --jini-metric-muted: var(--jini-muted); --jini-metric-border: var(--jini-panel-border);
+  --jini-nav-active-bg: var(--jini-primary); --jini-nav-active-text: var(--jini-primary-ink); --jini-nav-active-shadow: var(--jini-control-shadow); --jini-nav-active-indicator: transparent;
+  --jini-tab-bg: var(--jini-surface); --jini-tab-active-bg: var(--jini-primary); --jini-tab-active-text: var(--jini-primary-ink); --jini-tab-radius: 999px;
+  --jini-border-width: 1px; --jini-radius: 20px; --jini-radius-sm: 10px; --jini-radius-lg: 24px; --jini-radius-nav: 14px; --jini-radius-pill: 999px; --jini-radius-circle: 50%;
+  --jini-font-body: "DM Sans Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --jini-font-heading: "Space Grotesk Variable", var(--jini-font-body); --jini-font-mono: "SF Mono", Menlo, Consolas, monospace;
+  --jini-font-size-xs: .6875rem; --jini-font-size-sm: .8125rem; --jini-font-size-base: .875rem; --jini-font-size-lg: 1rem; --jini-font-size-xl: 1.65rem; --jini-font-size-metric: 2.25rem;
+  --jini-font-weight-heading: 600; --jini-font-weight-metric: 300; --jini-tracking-heading: -.02em; --jini-tracking-eyebrow: .08em;
+  --jini-density: 1; --jini-space-gutter: 44px; --jini-space-panel: 24px; --jini-sidebar-width: 232px; --jini-sidebar-rail-width: 60px;
+  --jini-shadow-xs: var(--jini-control-shadow); --jini-shadow-sm: var(--jini-panel-shadow); --jini-shadow-md: var(--jini-overlay-shadow); --jini-shadow-lg: var(--jini-overlay-shadow);
+  --jini-chat-bg: var(--jini-panel-bg); --jini-chat-panel: var(--jini-panel-bg); --jini-chat-text: var(--jini-text); --jini-chat-muted: var(--jini-muted);
+  --jini-chat-border: var(--jini-border); --jini-chat-accent: var(--jini-accent); --jini-chat-subtle: var(--jini-surface); --jini-chat-radius: var(--jini-radius);
+  --jini-focus-width: 2px; --jini-duration-fast: 140ms; --jini-ease-out: ease-out;
+}
+:root[data-admin-theme="glass"][data-color-scheme="dark"] {
+  --jini-theme-dark-bg: #0b1020; --jini-theme-dark-surface: #182030;
+  --jini-theme-dark-text: #eef2f8; --jini-theme-dark-muted: #b4bfd0;
+  --jini-theme-dark-border: #465166; --jini-theme-dark-primary: #dce7ef; --jini-theme-dark-primary-ink: #141a2e;
+  --jini-theme-dark-danger: #ffa4a0; --jini-theme-dark-success: #77d8ae; --jini-theme-dark-warning: #eac077;
+  --jini-accent: var(--jini-primary); --jini-accent-ink: var(--jini-primary-ink); --jini-accent-hover: var(--jini-primary);
+  --jini-accent-strong: #dce7ef; --jini-accent-soft: #28334b; --jini-accent-ring: var(--jini-accent-strong); --jini-link: var(--jini-accent-strong);
+  --jini-text-faint: var(--jini-muted); --jini-success-bg: #173f30; --jini-warning-bg: #3c321f; --jini-danger-bg: #482b2b;
+  --jini-app-bg: radial-gradient(60% 50% at 15% 10%, #312e81, transparent 70%) fixed, radial-gradient(50% 60% at 85% 80%, #134e4a, transparent 70%) fixed, linear-gradient(160deg, #0b1020, #111827) fixed;
+  --jini-shell-bg: transparent; --jini-panel-bg: rgb(17 24 39 / .62); --jini-panel-border: rgb(255 255 255 / .10);
+  --jini-panel-text: var(--jini-text); --jini-panel-muted: var(--jini-muted); --jini-panel-texture: none;
+  --jini-panel-shadow: 0 8px 32px rgb(0 0 0 / .3), inset 0 1px 0 rgb(255 255 255 / .08);
+  --jini-panel-shadow-inset: none; --jini-panel-backdrop: blur(24px) saturate(140%);
+  --jini-rail-bg: rgb(17 24 39 / .55); --jini-rail-border: rgb(255 255 255 / .10); --jini-rail-shadow: var(--jini-panel-shadow);
+  --jini-rail-backdrop: blur(20px) saturate(140%); --jini-rail-text: var(--jini-text); --jini-rail-muted: var(--jini-muted);
+  --jini-overlay-bg: rgb(3 9 18 / .65); --jini-overlay-backdrop: blur(12px) saturate(140%); --jini-overlay-shadow: 0 16px 56px rgb(0 0 0 / .4);
+  --jini-control-bg: #182030; --jini-control-border: #8491a5;
+  --jini-control-shadow: 0 1px 3px rgb(0 0 0 / .2); --jini-control-shadow-hover: var(--jini-control-shadow);
+  --jini-control-shadow-pressed: inset 0 1px 3px rgb(0 0 0 / .3); --jini-control-shadow-inset: var(--jini-control-shadow-pressed);
+  --jini-metric-bg: rgb(17 24 39 / .85); --jini-metric-text: var(--jini-text); --jini-metric-muted: var(--jini-muted); --jini-metric-border: var(--jini-panel-border);
+  --jini-nav-active-bg: var(--jini-primary); --jini-nav-active-text: var(--jini-primary-ink); --jini-nav-active-shadow: var(--jini-control-shadow); --jini-nav-active-indicator: transparent;
+  --jini-tab-bg: var(--jini-surface); --jini-tab-active-bg: var(--jini-primary); --jini-tab-active-text: var(--jini-primary-ink); --jini-tab-radius: 999px;
+  --jini-border-width: 1px; --jini-radius: 20px; --jini-radius-sm: 10px; --jini-radius-lg: 24px; --jini-radius-nav: 14px; --jini-radius-pill: 999px; --jini-radius-circle: 50%;
+  --jini-font-body: "DM Sans Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --jini-font-heading: "Space Grotesk Variable", var(--jini-font-body); --jini-font-mono: "SF Mono", Menlo, Consolas, monospace;
+  --jini-font-size-xs: .6875rem; --jini-font-size-sm: .8125rem; --jini-font-size-base: .875rem; --jini-font-size-lg: 1rem; --jini-font-size-xl: 1.65rem; --jini-font-size-metric: 2.25rem;
+  --jini-font-weight-heading: 600; --jini-font-weight-metric: 300; --jini-tracking-heading: -.02em; --jini-tracking-eyebrow: .08em;
+  --jini-density: 1; --jini-space-gutter: 44px; --jini-space-panel: 24px; --jini-sidebar-width: 232px; --jini-sidebar-rail-width: 60px;
+  --jini-shadow-xs: var(--jini-control-shadow); --jini-shadow-sm: var(--jini-panel-shadow); --jini-shadow-md: var(--jini-overlay-shadow); --jini-shadow-lg: var(--jini-overlay-shadow);
+  --jini-chat-bg: var(--jini-panel-bg); --jini-chat-panel: var(--jini-panel-bg); --jini-chat-text: var(--jini-text); --jini-chat-muted: var(--jini-muted);
+  --jini-chat-border: var(--jini-border); --jini-chat-accent: var(--jini-accent); --jini-chat-subtle: var(--jini-surface); --jini-chat-radius: var(--jini-radius);
+  --jini-focus-width: 2px; --jini-duration-fast: 140ms; --jini-ease-out: ease-out;
+}
+/* Both fallback conditions use the same opaque materials and remove every backdrop filter. */
+@supports not (backdrop-filter: blur(1px)) {
+  :root[data-admin-theme="glass"][data-color-scheme="light"] {
+    --jini-app-bg: #e8eef6; --jini-panel-bg: #f4f7fb; --jini-rail-bg: #f4f7fb; --jini-metric-bg: #f4f7fb; --jini-control-bg: #ffffff;
+    --jini-panel-backdrop: none; --jini-rail-backdrop: none; --jini-overlay-backdrop: none;
+  }
+  :root[data-admin-theme="glass"][data-color-scheme="dark"] {
+    --jini-app-bg: #0b1020; --jini-panel-bg: #182030; --jini-rail-bg: #182030; --jini-metric-bg: #182030; --jini-control-bg: #182030;
+    --jini-panel-backdrop: none; --jini-rail-backdrop: none; --jini-overlay-backdrop: none;
+  }
+}
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  :root[data-admin-theme="glass"][data-color-scheme="light"] {
+    --jini-app-bg: #e8eef6; --jini-panel-bg: #f4f7fb; --jini-rail-bg: #f4f7fb; --jini-metric-bg: #f4f7fb; --jini-control-bg: #ffffff;
+    --jini-panel-backdrop: none; --jini-rail-backdrop: none; --jini-overlay-backdrop: none;
+  }
+  :root[data-admin-theme="glass"][data-color-scheme="dark"] {
+    --jini-app-bg: #0b1020; --jini-panel-bg: #182030; --jini-rail-bg: #182030; --jini-metric-bg: #182030; --jini-control-bg: #182030;
+    --jini-panel-backdrop: none; --jini-rail-backdrop: none; --jini-overlay-backdrop: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-admin-theme="glass"][data-color-scheme="light"] { --jini-duration-fast: 0ms; --jini-duration-base: 0ms; --jini-duration-slow: 0ms; }
+  :root[data-admin-theme="glass"][data-color-scheme="dark"] { --jini-duration-fast: 0ms; --jini-duration-base: 0ms; --jini-duration-slow: 0ms; }
+}

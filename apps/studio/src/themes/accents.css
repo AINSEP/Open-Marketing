@@ -1,0 +1,25 @@
+/* Same specificity as themes, loaded last. Scheme changes need no inline-style cleanup. */
+:root[data-accent="green"][data-color-scheme="light"] {
+  --jini-primary: #00c896; --jini-primary-ink: #073e2e;
+  --jini-accent-strong: #006b47; --jini-accent-soft: #e3f3eb;
+}
+:root[data-accent="green"][data-color-scheme="dark"] {
+  --jini-primary: #34d399; --jini-primary-ink: #052e1f;
+  --jini-accent-strong: #6ee7b7; --jini-accent-soft: #153e30;
+}
+:root[data-accent="blue"][data-color-scheme="light"] {
+  --jini-primary: #2563eb; --jini-primary-ink: #ffffff;
+  --jini-accent-strong: #174ea6; --jini-accent-soft: #e5edfc;
+}
+:root[data-accent="blue"][data-color-scheme="dark"] {
+  --jini-primary: #60a5fa; --jini-primary-ink: #0b1020;
+  --jini-accent-strong: #93c5fd; --jini-accent-soft: #1b304c;
+}
+:root[data-accent="violet"][data-color-scheme="light"] {
+  --jini-primary: #7c3aed; --jini-primary-ink: #ffffff;
+  --jini-accent-strong: #5b21b6; --jini-accent-soft: #eee7fc;
+}
+:root[data-accent="violet"][data-color-scheme="dark"] {
+  --jini-primary: #a78bfa; --jini-primary-ink: #0b1020;
+  --jini-accent-strong: #c4b5fd; --jini-accent-soft: #32244e;
+}
