@@ -9,7 +9,7 @@ const root = resolve(import.meta.dirname, '../..');
 const owner = workspacePackages({ root }).find(pkg => pkg.absolute === process.cwd());
 if (!owner) throw new Error('Build cwd is not an active workspace package');
 const command = owner.name === '@open-marketing/studio' ? 'vite' : 'tsc';
-const args = command === 'vite' ? ['build','--sourcemap','--emptyOutDir'] : ['-p','tsconfig.build.json','--listEmittedFiles'];
+const args = command === 'vite' ? ['build','--sourcemap','--emptyOutDir'] : ['-p','tsconfig.json','--listEmittedFiles'];
 const built = spawnSync(command, args, { encoding: 'utf8' });
 if (built.status !== 0) { console.error(built.stdout + built.stderr); process.exit(built.status ?? 1); }
 if (command === 'vite') console.log(built.stdout);

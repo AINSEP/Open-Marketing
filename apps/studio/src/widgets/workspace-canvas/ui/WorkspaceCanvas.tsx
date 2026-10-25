@@ -15,7 +15,7 @@ export function WorkspaceCanvas(props: WorkspaceCanvasProps): ReactElement {
     <div className="preview-notice"><span aria-hidden="true">◈</span><p>{props.snapshot.mode === "sample" ? "Preview workspace. All content and approvals are samples; no external call or spend will run." : "Review server results before taking the next step."}</p></div>
     {props.target === "workspaces" && <div className="metrics-grid">{canvas.metrics.map(renderMetric)}</div>}
     {props.target === "campaigns" && <div>{canvas.launches.map(renderLaunch)}</div>}
-    {props.target === "workspaces" ? <><div className="section-heading"><h2>{canvas.heading}</h2><span className="muted">{props.snapshot.mode === "sample" ? "SAMPLE CONTENT" : "WORKSPACE CONTENT"}</span></div><div className="canvas-grid">{canvas.rows.map(renderRow)}</div></> : canvas.emptyState ? props.target === "campaigns" && canvas.launches.length > 0 ? null : <CanvasEmptyState model={canvas.emptyState} onOpenChat={props.onOpenChat} /> : <DomainCanvas model={canvas} target={props.target} />}
+    {props.target === "workspaces" ? <><div className="section-heading"><h2>Workspace overview</h2><span className="muted">{props.snapshot.mode === "sample" ? "SAMPLE CONTENT" : "WORKSPACE CONTENT"}</span></div><div className="canvas-grid">{canvas.rows.map(renderRow)}</div></> : canvas.emptyState ? props.target === "campaigns" && canvas.launches.length > 0 ? null : <CanvasEmptyState model={canvas.emptyState} onOpenChat={props.onOpenChat} /> : <DomainCanvas model={canvas} target={props.target} />}
   </section>;
 }
 function DomainCanvas(props: { readonly model: WorkspaceCanvasModel; readonly target: Exclude<NavigationTarget, "workspaces"> }): ReactElement {

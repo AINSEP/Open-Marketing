@@ -130,7 +130,7 @@ Supported `RunEvent.payload` display envelopes are:
 { type: "status", text: string }               // not trusted as completion evidence
 ```
 
-`ended`, `cancelled` and `error` are terminal run kinds. Unexpected stream EOF is unavailable. The API event adapter should delegate reconnect behavior to `createEventClient`, injecting its SSE transport, observer, clock, timers and abort factory. It requires the authenticated versioned run event route `/api/agent/v1/runs/<runId>/events`, a cursor and bounded retry delays. Approval responses copy card ID, operation ID and arguments digest; displayed arguments are parsed clones and never redacted/reconstructed before approval.
+`ended`, `cancelled` and `error` are terminal run kinds. Unexpected stream EOF is unavailable. The active `createHttpStudioApi.events` transport polls the owner route `/api/runs/<runId>/events?after=<cursor>`, using the injected runtime for cancellation, 15-second request deadlines and one-second polling intervals. Failed pages are not retried automatically. Approval responses copy card ID, operation ID and arguments digest; displayed arguments are parsed clones and never redacted/reconstructed before approval.
 
 Navigation applies only shared allowlisted targets. Its promise resolves `completed` after the Shell confirms that target's committed canvas. No-browser, failed write, timeout, changed replay and superseded/detached cases resolve `failed`. The session acknowledges this actual result through `acknowledgeNavigation`.
 

@@ -44,7 +44,6 @@ export function createSampleStudioApi(required: { runtime: StudioRuntime }): Stu
     addons: sampleAddons({ runtime: required.runtime }),
     async conversations() { return unavailable(); },
     async conversation() { return unavailable(); },
-    async createConversation() { return unavailable(); },
     async settings() { return unavailable(); },
     async setSettings() { return unavailable(); },
     async snapshot() { return parseStudioSnapshot({ input: snapshot }); },

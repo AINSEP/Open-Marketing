@@ -31,7 +31,7 @@ export interface OperationsModel extends Omit<Pages["operations"], "reports"> { 
 /** Page copy and destinations for the three first-use canvas states. */
 export interface CanvasEmptyStateModel { readonly message: string; readonly linkLabel: string; readonly href: string; readonly assistantLabel: string }
 export interface WorkspaceCanvasModel {
-  readonly rows: readonly StudioRow[]; readonly metrics: readonly StudioMetric[]; readonly heading: string;
+  readonly rows: readonly StudioRow[]; readonly metrics: readonly StudioMetric[];
   readonly creative: CreativeMediaModel | null; readonly campaigns: CampaignSafetyModel | null; readonly operations: OperationsModel | null;
   readonly emptyState: CanvasEmptyStateModel | null; readonly launches: readonly CampaignLaunchReviewProps[];
 }
@@ -63,7 +63,6 @@ export function useWorkspaceCanvas(required: WorkspaceCanvasProps): WorkspaceCan
   return {
     launches: deployments.filter(item => !draftCards.has(item.cardId)).map(item => ({ operationId: item.operationId, approval: approvalProps({ id: item.cardId, cards, props: required }), api: required.api, runtime: required.runtime })),
     rows: required.snapshot.rows[required.target] ?? [], metrics: required.snapshot.metrics.map(metric => ({ ...metric, value: metric.value.replace(/^0+(?=\d+$)/, "") })),
-    heading: canvasHeading({ target: required.target }),
     emptyState: canvasEmptyState({ target: required.target, pages }),
     creative: pages ? creativeView({ area: pages.creative, cards, props: required }) : null,
     campaigns: pages ? campaignView({ area: pages.campaigns, cards, operations, props: required }) : null,
@@ -134,13 +133,6 @@ function campaignView(required: { area: Pages["campaigns"]; cards: ReadonlyMap<s
 function operationsView(required: { area: Pages["operations"] }): OperationsModel {
   return { ...required.area, reports: required.area.reports.map(item => ({ ...item, sourceText: sourceLabels[item.source], cacText: item.cac === null ? "Unavailable" : formatMoney({ money: item.cac }), restatementText: item.restates ? "Restates " + item.restates : "No restatement recorded" })) };
 }
-function canvasHeading(required: { target: NavigationTarget }): string {
-  if (required.target === "workspaces") return "Workspace overview";
-  if (required.target === "creative") return "Creative";
-  if (required.target === "media-library") return "Media library";
-  return "In this workspace";
-}
-
 const operationStatusText = { pending: 'Awaiting server outcome', cancelled: 'Cancelled', interrupted: 'Interrupted · request a fresh review', unknown: 'Unknown · reconciling' };
 const referenceSchema = z.union([z.array(z.string().min(1).max(256)).max(500), z.record(z.string().max(256), z.string().min(1).max(256)).refine(value => Object.keys(value).length <= 500)]);
 const launchEvidenceSchema = z.object({ complete: z.boolean(),

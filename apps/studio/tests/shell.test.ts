@@ -3,10 +3,10 @@ import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, it, expect, vi } from "vitest";
 import { createElement } from "react";
 import type { ComponentProps, ReactElement, ReactNode } from "react";
-import { act, render, screen, cleanup, waitFor } from "@testing-library/react";
+import { act, render, renderHook, screen, cleanup, waitFor } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { Shell } from "../src/app/shell/Shell.js";
-import { parseNavCommand } from "../src/widgets/om-chat/index.js";
+import { usePortSnapshot } from "../src/shared/ui/index.js";
 import { testStudio } from "./support/studio.js";
 import type { StudioApiPort } from "../src/shared/api/index.js";
 import { bindSidebarEmptyClickToggle, isEmptySidebarClick } from "../src/app/shell/sidebar-blank-click.hooks.js";
@@ -32,6 +32,7 @@ it("left navigation changes the center canvas and labels every route as sample d
   try {
     const user = userEvent.setup(); render(createElement(Shell, host.props));
     await screen.findByText("Preview workspace. All content and approvals are samples; no external call or spend will run.");
+    expect(screen.getByRole("heading", { name: "Workspace overview", level: 2 })).toBeDefined();
     expect(screen.getByRole("navigation", { name: "Features" })).toBeDefined();
     expect(screen.getByRole("main", { name: "Workspace canvas" })).toBeDefined();
     for (const label of ["Creative", "Media", "Campaigns", "Measure", "Connections", "Plugins", "Activity", "Settings"]) expect(screen.getByRole("link", { name: label })).toBeDefined();
@@ -43,11 +44,25 @@ it("left navigation changes the center canvas and labels every route as sample d
     expect(host.route()).toBe("campaigns");
   } finally { host.dispose(); }
 });
-it("preserved command recognition never accepts an unsupported route", () => {
-  expect(parseNavCommand({ command: "app-control navigate --target campaigns" })).toBe("campaigns");
-  expect(parseNavCommand({ command: "navigate design-systems" })).toBeNull();
+it("reads subscription-time changes, keeps a stable subscription and releases replaced stores", () => {
+  let snapshot = "workspaces";
+  const listeners = new Set<() => void>();
+  const unsubscribe = vi.fn(() => listeners.clear());
+  const port: Parameters<typeof usePortSnapshot<string>>[0] = { getSnapshot: () => snapshot, subscribe: vi.fn((input: { listener: () => void }) => {
+    snapshot = "campaigns"; listeners.add(input.listener); return unsubscribe;
+  }) };
+  const view = renderHook(usePortSnapshot<string>, { initialProps: port });
+  expect(view.result.current).toBe("campaigns");
+  act(() => { snapshot = "creative"; for (const listener of listeners) listener(); });
+  expect(view.result.current).toBe("creative");
+  view.rerender({ ...port }); expect(port.subscribe).toHaveBeenCalledTimes(1);
+  const nextUnsubscribe = vi.fn();
+  const next = { getSnapshot: () => "activity", subscribe: vi.fn((_input: { listener: () => void }) => nextUnsubscribe) };
+  view.rerender(next);
+  expect(view.result.current).toBe("activity"); expect(unsubscribe).toHaveBeenCalledTimes(1);
+  expect(listeners.size).toBe(0); expect(next.subscribe).toHaveBeenCalledTimes(1);
+  view.unmount(); expect(nextUnsubscribe).toHaveBeenCalledTimes(1);
 });
-
 it.each([
   ["connected", "Connected", "Server connected"],
   ["sample", "Sample data", "Local sandbox · preview"],

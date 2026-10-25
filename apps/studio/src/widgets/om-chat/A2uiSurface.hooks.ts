@@ -8,7 +8,7 @@ import type { ChartProviderRegistry } from '@jini-ai/ui/charts';
 import type { A2uiAgentActionOutcome, A2uiSurfaceCardProps } from '@jini-ai/chat/react';
 import { a2uiSurfacePayloadSchema, toolCallSchema } from '@open-marketing/contracts';
 import type { A2uiSurfacePayload, ConfirmationCard, SurfaceAcknowledgement, ToolResult } from '@open-marketing/contracts';
-import { snapshotStudioChartRegistry } from '../../features/chart-providers/index.js';
+import { createChartInteractiveRegistry } from '@jini-ai/ui/charts/react';
 import type { StudioApiPort, StudioRuntime } from '../../shared/api/index.js';
 
 export interface A2uiSurfaceProps {
@@ -72,7 +72,7 @@ export function useA2uiSurface(required: { props: A2uiSurfaceProps; providers?: 
     const root = useRef<HTMLDivElement>(null);
     const [notice, setNotice] = useState('');
     const fallback = useMemo(() => createChartProviderRegistry({ providers: [] }), []);
-    const registry = useMemo(() => snapshotStudioChartRegistry({
+    const registry = useMemo(() => createChartInteractiveRegistry({
         registry: new InteractiveUiRegistry({ entries: DEFAULT_INTERACTIVE_UI_REGISTRY.list() }), providers: required.providers ?? fallback,
     }), [required.providers, fallback]);
     const revision = useRef(0);

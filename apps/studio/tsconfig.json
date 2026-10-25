@@ -2,17 +2,10 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "src",
-    "outDir": "dist",
-    "lib": [
-      "ES2024",
-      "DOM"
-    ]
+    "outDir": "dist"
   },
   "include": [
     "src/**/*.ts",
     "src/**/*.tsx"
-  ],
-  "exclude": [
-    "src/platform/jini-compat/db/tests"
   ]
 }

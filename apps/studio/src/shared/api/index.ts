@@ -1,6 +1,4 @@
 /** Public presentation boundary; domain work remains behind the server API. */
-export { createEventClient } from "./events.js";
-export type { JsonTransportPort, SseTransportPort, EventClient, StreamInput } from "./events.js";
 export { createSampleStudioApi } from "./sample.js";
 export { createHttpStudioApi } from "./http.js";
 export { parseStudioSnapshot, parseStudioEvent, isSafeUiValue } from "./validation.js";

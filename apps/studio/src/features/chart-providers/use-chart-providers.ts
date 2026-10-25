@@ -8,7 +8,7 @@ import type { StudioChartHost } from './browser.js';
 
 /** Load authenticated inventory, then register lazy provider effects in Jini's neutral registry.
  * Increment revision after plugin enable/disable/install; cleanup revokes previous charts/CSS.
- * Assistant A5 consumes providers via snapshotStudioChartRegistry for its A2UI renderer.
+ * The A2UI renderer consumes providers through Jini's createChartInteractiveRegistry.
  * @example const { providers } = useStudioChartProviders({ host, revision });
  * @returns A table-fallback registry while loading/failed/empty, plus an explicit load error.
  * @complexity O(providers), <=100 per snapshot; late responses never replace current state.

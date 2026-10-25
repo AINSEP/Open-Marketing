@@ -120,7 +120,6 @@ export interface StudioApiPort {
   };
   conversations?(required: { signal?: AbortSignal; trace?: StudioTrace; cursor?: string }): Promise<Outcome<ConversationList>>;
   conversation?(required: { conversationId: string; signal?: AbortSignal; trace?: StudioTrace; cursor?: string }): Promise<Outcome<Conversation>>;
-  createConversation?(required: { signal?: AbortSignal; trace?: StudioTrace }): Promise<Outcome<ConversationSummary>>;
   settings?(required: { signal?: AbortSignal; trace?: StudioTrace }): Promise<Outcome<AssistantSettingsStatus>>;
   setSettings?(required: { settings: AssistantSettings; signal?: AbortSignal; trace?: StudioTrace }): Promise<Outcome<AssistantSettingsStatus>>;
   snapshot(required: { signal?: AbortSignal; trace?: StudioTrace }): Promise<Outcome<StudioSnapshot>>;

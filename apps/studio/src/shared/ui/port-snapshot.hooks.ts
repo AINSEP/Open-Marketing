@@ -1,12 +1,6 @@
-import { useEffect, useState } from "react";
-/** Object-shaped store subscription; subscribe then read closes the render/effect update gap. */
+import { useCallback, useSyncExternalStore } from "react";
+/** Adapt the object-shaped port to React's subscription lifecycle and snapshot consistency checks. */
 export function usePortSnapshot<T>(required: { getSnapshot: () => T; subscribe: (input: { listener: () => void }) => () => void }): T {
-  const [snapshot, setSnapshot] = useState(required.getSnapshot);
-  useEffect(() => {
-    const refresh = (): void => setSnapshot(required.getSnapshot());
-    const unsubscribe = required.subscribe({ listener: refresh });
-    refresh();
-    return unsubscribe;
-  }, [required.getSnapshot, required.subscribe]);
-  return snapshot;
+  const subscribe = useCallback((listener: () => void) => required.subscribe({ listener }), [required.subscribe]);
+  return useSyncExternalStore(subscribe, required.getSnapshot);
 }

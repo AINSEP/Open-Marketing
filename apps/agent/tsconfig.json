@@ -7,8 +7,5 @@
   "include": [
     "src/**/*.ts",
     "src/**/*.tsx"
-  ],
-  "exclude": [
-    "src/platform/jini-compat/db/tests"
   ]
 }

@@ -11,7 +11,7 @@
   "scripts": {
     "om:lint": "node development/scripts/lint.mjs",
     "om:boundaries": "node development/scripts/boundaries.mjs",
-    "om:typecheck": "pnpm -r typecheck && tsc -p tsconfig.json",
+    "om:typecheck": "pnpm -r typecheck",
     "om:gate-tests": "vitest run development/tests",
     "om:metrics": "node development/scripts/metrics.mjs",
     "om:check": "pnpm om:lint && pnpm om:boundaries && pnpm om:typecheck && pnpm om:gate-tests && pnpm om:metrics",

@@ -40,7 +40,6 @@ export interface ChatSession {
   refresh(): Promise<void>;
   selectConversation(required: { conversationId: string }): Promise<void>;
   newConversation(): Promise<void>;
-  selectModel(required: { model: string }): Promise<void>;
   selectRuntime(required: { provider: AssistantProvider; model: string; effort?: string }): Promise<void>;
   send(required: { text: string }): Promise<void>;
   cancel(): Promise<void>;
@@ -360,18 +359,6 @@ export function createChatSession(required: Dependencies): ChatSession {
       if (disposed || isActive({ status: state.status })) return;
       historyController?.abort();
       update({ transcriptVersion: state.transcriptVersion + 1, conversationId: null, surfaces: [], messages: [], cards: [], tools: [], status: 'idle', mode: null, notice: 'New conversation.' });
-    },
-    async selectModel(input) {
-      if (disposed || state.settingsPending || isActive({ status: state.status }) || !required.api.setSettings) return;
-      if (input.model !== 'sandbox' && !state.settings?.models?.some(model => model.id === input.model)) return;
-      const settings = { ...state.settings?.settings, mode: input.model === 'sandbox' ? 'sandbox' as const : 'model' as const,
-        model: input.model === 'sandbox' ? state.settings?.settings.model ?? '' : input.model,
-        connectionId: state.settings?.settings.connectionId ?? null };
-      const result = await required.api.setSettings({ settings });
-      if (disposed) return;
-      const parsed = result.ok ? parseBoundary({ schema: assistantSettingsStatusSchema, input: result.value }) : result;
-      if (!parsed.ok) { update({ notice: 'Assistant settings could not be saved.' }); return; }
-      update({ settings: parsed.value, notice: parsed.value.ready ? 'Assistant settings saved.' : 'Connect the selected provider in Add-ons / Integrations, or choose Sandbox.' });
     },
     /** Save only advertised selections; pending writes block another selection and run acceptance. */
     async selectRuntime(input) {

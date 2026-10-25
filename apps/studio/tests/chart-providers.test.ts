@@ -4,9 +4,10 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { createElement } from 'react';
 import { act, cleanup, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { InteractiveUiRegistry } from '@jini-ai/ui/interactive-ui';
+import { createChartInteractiveRegistry } from '@jini-ai/ui/charts/react';
 import type { ChartMountOptions, ChartProvider, ChartProviderRegistry, ChartSpec } from '@jini-ai/ui/charts';
 import type { ChartProviderDescriptor, Outcome } from '@open-marketing/contracts';
-import { createBrowserChartHost, useStudioChartProviders, loadStudioChartProviders, mountChart, snapshotStudioChartRegistry } from '../src/features/chart-providers/index.js';
+import { createBrowserChartHost, useStudioChartProviders, loadStudioChartProviders, mountChart } from '../src/features/chart-providers/index.js';
 import type { StudioChartHost } from '../src/features/chart-providers/index.js';
 import type { StudioRuntime } from '../src/shared/api/index.js';
 
@@ -157,7 +158,7 @@ it('rejects malformed, duplicate, oversized or mismatched inventory before any I
 
 it('uses the same A2UI wire/schema snapshot for provider selection and the table fallback', async () => {
     const f = fixture(); const providers = registry({ result: await f.load({ descriptors: [] }) });
-    const snapshot = snapshotStudioChartRegistry({ registry: new InteractiveUiRegistry({ entries: [] }), providers });
+    const snapshot = createChartInteractiveRegistry({ registry: new InteractiveUiRegistry({ entries: [] }), providers });
     const entry = snapshot.resolveById({ id: 'recharts.bar-chart' });
     expect(entry?.provider).toBe('core.table');
     const props = { data: [{ name: '<fixture>', value: 12 }], categoryKey: 'name', valueKey: 'value' };
@@ -170,7 +171,7 @@ it('uses the same A2UI wire/schema snapshot for provider selection and the table
 
 it('exposes enabled chart providers to the existing A2UI registry and renders through their ABI', async () => {
     const f = fixture(); const providers = registry({ result: await f.load() });
-    const snapshot = snapshotStudioChartRegistry({ registry: new InteractiveUiRegistry({ entries: [] }), providers });
+    const snapshot = createChartInteractiveRegistry({ registry: new InteractiveUiRegistry({ entries: [] }), providers });
     const entry = snapshot.resolveById({ id: 'recharts.bar-chart' });
     expect(entry?.provider).toBe(descriptor.id);
     if (!entry) throw new Error('Missing chart entry');

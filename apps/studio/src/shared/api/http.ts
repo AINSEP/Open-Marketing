@@ -2,7 +2,7 @@ import { captureEventSchema, recentEventsSchema, assistantUsageSchema, confirmat
 /** Cookie-authenticated owner transport. Server state is validated before reaching presentation. */
 import { z } from 'zod';
 import { addonListRequestSchema, addonListSchema, addonSummarySchema, addonUninstallReceiptSchema, installAddonSchema, setAddonEnabledSchema, uninstallAddonSchema, integrationListSchema, integrationSummarySchema, connectIntegrationTokenSchema, disconnectIntegrationSchema, pageQuerySchema } from '@open-marketing/contracts';
-import { assistantRunRequestSchema, assistantSettingsSchema, assistantSettingsStatusSchema, conversationListSchema, conversationSchema, conversationSummarySchema, appErrorSchema, approvalResponseSchema, epochSchema, idSchema, runEventSchema, parseBoundary } from '@open-marketing/contracts';
+import { assistantRunRequestSchema, assistantSettingsSchema, assistantSettingsStatusSchema, conversationListSchema, conversationSchema, appErrorSchema, approvalResponseSchema, epochSchema, idSchema, runEventSchema, parseBoundary } from '@open-marketing/contracts';
 import type { AppError, ObserverPort, Outcome } from '@open-marketing/contracts';
 import type { StudioApiPort, StudioRuntime, StudioTrace } from './types.js';
 import { oauthClientSetSchema, oauthClientStatusSchema, oauthStatusQuerySchema, oauthStatusSchema, developerTokenQuerySchema, developerTokenSetSchema, developerTokenStatusSchema, isSafeUiValue, parseStudioSnapshot } from './validation.js';
@@ -203,8 +203,6 @@ export function createHttpStudioApi(required: Dependencies): StudioApiPort {
             parse: value => parseBoundary({ schema: conversationListSchema, input: value.input }) }),
         conversation: input => request({ dependencies: required, origin, path: '/api/conversations/' + encodeURIComponent(input.conversationId) + '?limit=100' + (input.cursor ? '&cursor=' + encodeURIComponent(input.cursor) : ''), method: 'GET', signal: input.signal, trace: input.trace,
             parse: value => parseBoundary({ schema: conversationSchema, input: value.input }) }),
-        createConversation: input => request({ dependencies: required, origin, path: '/api/conversations', method: 'POST', body: {}, signal: input.signal, trace: input.trace,
-            parse: value => parseBoundary({ schema: conversationSummarySchema, input: value.input }) }),
         settings: input => request({ dependencies: required, origin, path: '/api/assistant/settings', method: 'GET', signal: input.signal, trace: input.trace,
             parse: value => parseBoundary({ schema: assistantSettingsStatusSchema, input: value.input }) }),
         async setSettings(input) {

@@ -4,7 +4,6 @@ import type { ChartProviderDescriptor, Outcome } from '@open-marketing/contracts
 import { createChartProviderRegistry } from '@jini-ai/ui/charts';
 import type { ChartInstance, ChartProvider, ChartProviderRegistry } from '@jini-ai/ui/charts';
 import { loadChartProvider } from '@jini-ai/ui/charts/browser';
-import { createChartInteractiveRegistry } from '@jini-ai/ui/charts/react';
 
 export interface StudioChartDependencies {
     /** Abort the previous snapshot on disable/replacement/unmount. Host owns any load deadline. */
@@ -33,13 +32,6 @@ export async function loadStudioChartProviders(required: { descriptors: unknown;
             load: () => pending ??= loadProvider({ ...required, descriptor }) };
     });
     return { ok: true, value: createChartProviderRegistry({ providers }) };
-}
-
-/** Use the same chart snapshot for A2UI validation/catalog and rendering, including legacy ids.
- * @example snapshotStudioChartRegistry({ registry: baseInteractiveRegistry, providers });
- */
-export function snapshotStudioChartRegistry(required: Parameters<typeof createChartInteractiveRegistry>[0]): ReturnType<typeof createChartInteractiveRegistry> {
-    return createChartInteractiveRegistry(required);
 }
 
 /** A stylesheet is released on load failure or snapshot abort; late completions cannot mount. */
