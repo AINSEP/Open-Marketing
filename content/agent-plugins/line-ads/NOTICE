@@ -1,0 +1,5 @@
+Open Marketing — LINE Ads agent plugin
+Copyright Open Marketing contributors. Apache-2.0.
+Packaging and adapter style follow OM's LinkedIn Ads plugin.
+LINE is a trademark of LY Corporation; this project is independent of LY Corporation.
+No vendor SDK, Jini or Tovu source is distributed in this package.

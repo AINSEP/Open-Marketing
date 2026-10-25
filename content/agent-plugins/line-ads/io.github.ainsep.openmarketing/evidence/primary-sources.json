@@ -1,0 +1,16 @@
+{
+  "version": 1, "checkedAt": "2026-10-24",
+  "scope": "R1 reads/auth documentation; no live vendor acceptance or host admission",
+  "sources": [
+    {"id":"version","url":"https://ads.line.me/public-docs/pages/v3/3.12.3/reporting-general-partner/","quote":"Version : 3.12.3","status":"verified-documentation","fact":"Newer than planning revision 3.12.0.1; /api base and v3 routes. Latest revision unconfirmed."},
+    {"id":"auth","url":"https://ads.line.me/public-docs/pages/v3/3.12.0.1/reporting-general-partner/#_authentication","quote":"Only \"HS256\" can be specified","status":"verified-documentation","fact":"Group access/secret keys; padded URL-safe Base64, HMAC-SHA256 JWS over header.payload. GET signs empty-body hash, empty content type, UTC YYYYMMDD, path without query. Date RFC1123 within ±15 minutes. Bearer signature. No Ads OAuth/scopes/refresh/loopback verified."},
+    {"id":"reads","url":"https://ads.line.me/public-docs/pages/v3/3.12.0.1/reporting-general-partner/#_resources","quote":"Read adaccounts.","status":"verified-documentation","fact":"GET group adaccounts and account campaigns; page/size. Online campaign reports use since/until. Responses: datas, paging; reports add timeRange and adaccount/campaign/statistics; currency,cost,imp,click,cv. Account country/currency/timezone; configuredStatus ACTIVE/PAUSED/REMOVED. Optional/missing evidence fails closed or remains null."},
+    {"id":"rate","url":"https://ads.line.me/public-docs/pages/v3/3.12.0.1/reporting-general-partner/#_rate_limits","quote":"2 request / sec","status":"verified-documentation","fact":"Per API user; online-report concurrency cap 30. Adapter surfaces 429 without retry; shared scheduling belongs to host."},
+    {"id":"eligibility","url":"https://developers.line.biz/en/docs/line-ads-api/about/","quote":"can only be used by corporate users","status":"verified-documentation","fact":"Application and account authorization required; no live entitlement verified."},
+    {"id":"japan-shutdown","url":"https://www.lycbiz.com/jp/news/line-ads/20260925/","quote":"2026年10月26日（月）予定","status":"verified-documentation","fact":"Japan creation/editing/delivery stop scheduled October 26, 2026; owner limits JP to reads."},
+    {"id":"japan-retirement","url":"https://developers.line.biz/en/news/tags/line-ads/1/","quote":"End of March 2027","status":"verified-documentation","fact":"Japan API retirement scheduled; exact day unspecified."},
+    {"id":"openapi","url":"https://github.com/line/line-openapi","quote":"api.line.me","status":"verified-documentation","fact":"Listed host coverage excludes ads.line.me; not an Ads Management codec source."}
+  ],
+  "unverified": ["Latest documentation revision/sunset revision policy","Taiwan/Thailand current regional entitlement and lifecycle: country bindings denied regardless of admission","Management create idempotency: no writes in R1","OAuth token lifetime, refresh, scopes and loopback: no OAuth in R1","Conversions and paused deployment deferred to separately authorized scope"],
+  "blockedPages": [{"url":"https://ads.line.me/public-docs/certificated-ad-tech-general-partner","reason":"Empty rendered content; versioned static documentation worked."}]
+}

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.1.0/plugin.schema.json",
+  "name": "line-ads",
+  "version": "0.1.0",
+  "description": "LINE Ads account/campaign listing and campaign report pages; disabled until server admission.",
+  "license": "Apache-2.0",
+  "extensions": {"io.github.ainsep.openmarketing": {
+    "version": 1, "enabled": false, "admitted": false,
+    "capabilities": [
+      {"capabilityId":"campaign.read.v1","version":1,"pluginId":"line-ads","schemaFingerprint":"22ac8b7a6b3b5f31cf2c982584a401081c636e7cd72f46422410a102ce564467","admitted":false,"effects":["read"]},
+      {"capabilityId":"report.account-spend.v1","version":1,"pluginId":"line-ads","schemaFingerprint":"22ac8b7a6b3b5f31cf2c982584a401081c636e7cd72f46422410a102ce564467","admitted":false,"effects":["read"]}
+    ]
+  }}
+}
