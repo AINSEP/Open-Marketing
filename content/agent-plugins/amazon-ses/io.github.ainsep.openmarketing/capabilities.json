@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "admitted": false,
+  "capabilities": [{"capabilityId": "email.account-read.v1", "version": 1, "pluginId": "amazon-ses", "schemaFingerprint": "521c94c2b0f58114f1ca2c13c7bd95ebd5d968164ca82b80e1ccfa5cf6220886", "admitted": false, "effects": ["read"]}, {"capabilityId": "email.identity-read.v1", "version": 1, "pluginId": "amazon-ses", "schemaFingerprint": "521c94c2b0f58114f1ca2c13c7bd95ebd5d968164ca82b80e1ccfa5cf6220886", "admitted": false, "effects": ["read"]}],
+  "tools": [{"name": "account_status", "effects": ["read"], "capabilityId": "email.account-read.v1"}, {"name": "domain_identity_status", "effects": ["read"], "capabilityId": "email.identity-read.v1"}],
+  "fingerprintBasis": "SHA-256 of src/commands.ts; compatibility metadata only, never a plugin trust allowlist."
+}

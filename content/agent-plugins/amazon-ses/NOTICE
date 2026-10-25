@@ -1,0 +1,5 @@
+Open Marketing — Amazon SES agent plugin
+Copyright Open Marketing contributors. Apache-2.0.
+Adapter/packaging pattern: Open Marketing LinkedIn Ads agent plugin.
+Uses published @jini-ai/platform (Apache-2.0); no Jini/Tovu source copied.
+Amazon Web Services and Amazon SES are Amazon trademarks. Independent integration.

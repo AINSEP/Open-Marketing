@@ -1,0 +1,30 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.1.0/plugin.schema.json",
+  "name": "amazon-ses",
+  "version": "0.1.0",
+  "description": "Read-only SES account quota and domain/DKIM status; disabled until host admission.",
+  "license": "Apache-2.0",
+  "extensions": { "io.github.ainsep.openmarketing": {
+    "version": 1, "enabled": false, "admitted": false,
+    "capabilities": [
+      {"capabilityId": "email.account-read.v1", "version": 1, "pluginId": "amazon-ses", "schemaFingerprint": "521c94c2b0f58114f1ca2c13c7bd95ebd5d968164ca82b80e1ccfa5cf6220886", "admitted": false, "effects": ["read"]},
+      {"capabilityId": "email.identity-read.v1", "version": 1, "pluginId": "amazon-ses", "schemaFingerprint": "521c94c2b0f58114f1ca2c13c7bd95ebd5d968164ca82b80e1ccfa5cf6220886", "admitted": false, "effects": ["read"]}
+    ],
+    "credentialCards": [{
+      "target": "amazon-ses",
+      "title": "Amazon SES",
+      "label": "IAM access key",
+      "category": "Email",
+      "intro": "Paste least-privilege IAM user keys and the SES region. Never use root keys.",
+      "usedFor": ["Regional sending quota", "Domain verification and DKIM"],
+      "helpUrl": "https://docs.aws.amazon.com/ses/latest/dg/setting-up.html",
+      "helpLabel": "SES setup",
+      "baseUrl": "https://aws.amazon.com",
+      "saveKind": "app-credentials",
+      "saveTarget": "amazon-ses",
+      "fields": [{"name": "region", "label": "AWS region", "required": true}],
+      "secretFields": [{"name": "accessKeyId", "label": "IAM access key ID", "required": true}, {"name": "secretAccessKey", "label": "IAM secret access key", "required": true}],
+      "permissions": ["ses:GetAccount", "ses:GetEmailIdentity"]
+    }]
+  }}
+}
