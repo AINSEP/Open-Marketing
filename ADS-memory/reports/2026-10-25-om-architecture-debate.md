@@ -135,3 +135,8 @@ Raw votes: `runs/om-arch-2026-10-25/r3/{opus,codex,gemini}.md`.
 | Q8 spam after sharing | accept (Meta has no retraction API, so P3 is mainly Google) | accept | accept | **3–0** |
 | Q9 missing macros | accept; prefer account/campaign-level templates; warn that Meta ad edits trigger review | accept | accept | **3–0** |
 | Q10 identity fallback | local_token bound to the owner's device, never issuable to the agent | accept, separate from agent credentials | accept | **3–0** |
+
+## Owner decisions (2026-10-25)
+- **Accepted:** all 3–0 items (S1–S4 and Q4–Q10, with the participants' amendments): reporting in `measure` with enforced lint separation; a P2 `brand` slice; alerts as a server module + recurring outbox job; 5 additive base metrics with optional period reach; the pacing guards; 30-day last paid touch; alert email 20/day under a one-time grant; exact cards for agent lead-stage changes; spam retraction P2 local / P3 vendor; template updates via exact card; device-bound local_token fallback.
+- **S6:** nobody uses OM yet, so **no backward compatibility**: launch v2 replaces v1 outright.
+- **S5 money units:** **integer micros** of the account currency (owner: whole numbers are simplest for math). Use bigint past the safe-integer range; ratios are computed in code.

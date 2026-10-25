@@ -15,8 +15,12 @@ The full plan is in `ADS-memory/reports/2026-10-24-om-roadmap-phases.md`. The de
     - metrics structure;
     - v2-only launches.
   - **2–1:** reporting in `measure`; a P2 `brand` slice; alerts as a server module.
-  - **Owner questions:** listed at the end of the report.
-- [ ] **Owner decision first:** do vendor metrics go in a new `performance` slice or in `measure`? The 10-24 debate split 2–2; on 10-25 it went 2–1 for `measure`.
+  - **OWNER DECIDED (10-25):** accepted all of it.
+    - Reporting in `measure`.
+    - Money in integer micros.
+    - No v1 compatibility: launch v2 replaces v1.
+    - **NEXT:** P0-1 contracts.
+- [x] **Owner decision:** reporting goes in `measure` (2026-10-25; the vote was 3–0 in round 3).
 - [ ] **P0 Contracts.** Freeze these before the new plugins are wired:
   - approver/actor contract;
   - `report.metrics.v1` (per-campaign, per-day);
