@@ -9,7 +9,7 @@ import Database from 'better-sqlite3';
 import type { CredentialSqlPort } from '@open-marketing/credentials';
 import { bindServerAddons, createNodeAddonEffects } from '../src/composition/addons.js';
 import { loadAddonModule } from '../src/composition/serve.js';
-import { addonManagementTools, integrationConnectHelp, invokeAddonManagementTool, invokeAddonTool, loadAddonToolSources } from '../src/addon-tools.js';
+import { addonManagementTools, addonToolSchemas, integrationConnectHelp, invokeAddonManagementTool, invokeAddonTool, loadAddonToolSources } from '../src/addon-tools.js';
 import { createExternalMcpStore } from '../src/external-mcp.js';
 import type { ExternalMcpConnection } from '../src/external-mcp.js';
 import type { AddonToolDependencies } from '../src/addon-tools.js';
@@ -100,7 +100,19 @@ function tools(required: { addons: AddonToolDependencies['addons'] }): AddonTool
     } };
 }
 
-it('discovers one source per enabled package, preserves ad_spend plus unknown write, loads instructions on selection', async () => {
+it('shares the Google developer-token status schema and returns only configuration status', async () => {
+    const f = await fixture({}); const dependencies = tools({ addons: f.binding.addons });
+    const contexts: CallContext[] = [];
+    dependencies.integrations.developerTokenStatus = async input => { contexts.push(input.context); return { ok: true, value: { configured: true } }; };
+    try {
+        expect(addonToolSchemas.integrations_developer_token_status.safeParse({ pluginId: 'google-ads' }).success).toBe(true);
+        expect(await invokeAddonManagementTool({ context, dependencies, name: 'integrations_developer_token_status', input: { pluginId: 'google-ads' } })).toEqual({ ok: true, value: { configured: true } });
+        expect(await invokeAddonManagementTool({ context, dependencies, name: 'integrations_developer_token_status', input: { pluginId: 'google-ads', token: 'never-chat' } })).toMatchObject({ ok: false });
+        expect(contexts).toEqual([context]);
+    } finally { await f.dispose(); }
+});
+
+it('discovers read-only instructions even for spend contributions and loads them on selection', async () => {
     const f = await fixture({});
     try {
         const addon = value({ result: await f.binding.addons.install({ context, request: { upload: upload({ kind: 'agent-plugin', spend: true }) } }) });
@@ -109,7 +121,7 @@ it('discovers one source per enabled package, preserves ad_spend plus unknown wr
         value({ result: await f.binding.addons.setEnabled({ context, request: { kind: addon.kind, id: addon.id, enabled: true } }) });
         const sources = value({ result: await loadAddonToolSources({ context, dependencies }) });
         expect(sources).toHaveLength(1);
-        expect(sources[0].effects).toEqual(expect.arrayContaining(['ad_spend', 'write']));
+        expect(sources[0].effects).toEqual(['read']);
         expect(sources[0].name).toBe(sources[0].id);
         expect(JSON.stringify(sources)).not.toContain('Fixture-only instructions');
         expect(JSON.stringify(sources)).not.toContain(f.root);
@@ -141,7 +153,7 @@ it('management tools use the same lifecycle and never execute contribution handl
         const addon = value({ result: await invokeAddonManagementTool({ context, dependencies, name: 'addons_install', input: { upload: upload({ kind: 'plugin' }) } }) }) as AddonSummary;
         value({ result: await invokeAddonManagementTool({ context, dependencies, name: 'addons_set_enabled', input: { kind: addon.kind, id: addon.id, enabled: true } }) });
         const source = value({ result: await loadAddonToolSources({ context, dependencies }) })[0];
-        expect(source.effects).toEqual(['write']);
+        expect(source.effects).toEqual(['read']);
         const described = value({ result: await invokeAddonTool({ context, dependencies, sourceId: source.id, revision: source.revision, input: {} }) });
         expect(described).toMatchObject({ tools: [{ name: 'report' }] });
         expect(described).not.toHaveProperty('fixture');

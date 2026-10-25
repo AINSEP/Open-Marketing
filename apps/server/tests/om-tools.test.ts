@@ -34,6 +34,15 @@ import { runOmCli, type CliRuntime } from '../src/cli/index.js';
 import { createContactService, createMemoryContactRepo } from '@open-marketing/contacts';
 import type { AddonToolDependencies } from '../src/addon-tools.js';
 import { removeStateRoot } from './state-root.js';
+import { createSqliteChatStore } from '@jini-ai/chat/store/sqlite';
+import { createDurableRunStore, createChatRunLedger } from '@jini-ai/chat/store/runtime';
+import type { StorageKernel } from '@jini-ai/db/kernel';
+import { createAssistantRuns, type AssistantDatabase } from '../src/runs.js';
+import { createLocalAgent } from '../src/composition/agent.js';
+import { bindCatalogMedia, createCatalogMediaEffects } from '../src/composition/catalog.js';
+import { createAuditService, createMemoryAuditRepo, createMemoryAuditRedactor } from '@open-marketing/audit';
+import { createConversations } from '../src/conversations.js';
+import { createMediaLibrary, createMemoryJiniDependencies, createMemoryJiniMedia, createMemoryMediaRepo, createMemoryBlobStore, createMemoryGuardedAssetImport, createMemoryImageTransform, createMemoryMediaAudit } from '@open-marketing/media-library';
 
 const owner: CallContext = { scope: { ownerId: 'owner', workspaceId: 'workspace' }, principal: { kind: 'owner', ownerId: 'owner' }, correlationId: 'correlation', traceId: 'trace' };
 const agent: CallContext = { ...owner, runId: 'run', principal: { kind: 'agent', runId: 'run', agentInstanceId: 'instance' } };
@@ -71,6 +80,204 @@ function fixture(_required: Record<string, never>) {
         advance() { now = 301001; }, async revoke() { active = false; await tools.cancel({ context: owner, runId: 'run' }); }, endRun() { active = false; },
         replace() { revision = '2'; }, remove() { enabled = false; }, definition };
 }
+
+/** Existing SQLite history and public media doubles behind the production catalog/dispatcher. */
+function at1Fixture() {
+    const f = fixture({});
+    const native = new Database(':memory:');
+    native.exec(readFileSync(new URL('../migrations/0001_assistant.sql', import.meta.url), 'utf8'));
+    const database = bindServerDatabase({ native, context: owner, observer: f.observer });
+    const kernel = database.kernel as unknown as StorageKernel<AssistantDatabase>;
+    const conversations = createConversations({ ...f, db: { query: input => database.unit.transaction({ work: ({ session }) => session.query(input) }) },
+        stores: ({ scope }) => createSqliteChatStore({ kernel, scope }, { clock: { nowMs: () => 1000 } }), integrations: addonFixture().integrations });
+    const persistence = createAssistantRuns({ ...f, kernel, conversations,
+        durable: createDurableRunStore({ kernel, isDaemonRunId: () => true }), ledger: createChatRunLedger({ kernel, isDaemonRunId: () => true }) });
+    const dependencies = createMemoryJiniDependencies(f);
+    const bytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aQx8AAAAASUVORK5CYII=', 'base64');
+    const sourceUrl = 'https://fixture.example.test/image.png';
+    const repo = createMemoryMediaRepo({ scope: owner.scope });
+    const media = createMediaLibrary({ ...f, repo, media: createMemoryJiniMedia({ scope: owner.scope, dependencies }),
+        blobs: createMemoryBlobStore({ scope: owner.scope }), audit: createMemoryMediaAudit({ scope: owner.scope }),
+        importer: createMemoryGuardedAssetImport({ scope: owner.scope, dependencies, fixtures: [{ sourceUrl, bytes, image: { width: 1, height: 1, frames: 1 } }] }),
+        transforms: createMemoryImageTransform({ scope: owner.scope, dependencies }) });
+    const services: OwnerServices & OmFeatureServices = { ...f.services, conversations, media,
+        async handleChartRequest() { return { status: 200, body: { ok: true, value: { providers: [] } } }; } };
+    const tools = createOmTools({ ...f, confirmations: f.services.confirmations, authorize: () => ({ ok: true, value: undefined }),
+        definitions: input => buildOmToolDefinitions({ ...input, services }) });
+    const provenance = { operationId: 'import', source: 'upload', prompt: null, model: null, seed: null, cost: null, vendorTerms: null,
+        rights: { evidenceId: 'rights', license: 'owned', permittedUses: ['advertising'] } };
+    const request = { sourceUrl, operationId: 'import', expectedDigest: createHash('sha256').update(bytes).digest('hex'), provenance };
+    const call = (input: { name: string; input: ToolCall['input']; operationId?: string; context?: CallContext }) => tools.dispatch({ context: input.context ?? agent,
+        call: { name: input.name, input: input.input, operationId: input.operationId ?? input.name } });
+    /** Reuse the existing exact-card continuation; assert the service result after owner approval. */
+    async function approve(input: { name: string; input: ToolCall['input']; context?: CallContext }) {
+        expect(await call(input)).toMatchObject({ value: { status: 'pending' } });
+        const card = value({ result: await tools.card({ context: owner, operationId: input.name }) })!;
+        expect(card.arguments).toEqual({ tool: input.name, input: input.input });
+        await tools.answer({ context: owner, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } });
+        return value({ result: await tools.operation({ context: owner, operationId: input.name }) });
+    }
+    return { ...f, services, tools, conversations, persistence, native, repo, request, call, approve, async close() { await tools.dispose({}); await f.tools.dispose({}); native.close(); } };
+}
+
+it('routes all ten AT1 capabilities through existing service results and one write card', async () => {
+    const f = at1Fixture(); const cancelRun = vi.fn(async ({ runId }: { runId: string }) => ({ ok: true as const, value: { runId, status: 'cancelled' as const } }));
+    f.services.runs = { async start() { throw new Error('Recursive run creation'); }, cancel: cancelRun,
+        async events({ runId }) { return { ok: true, value: { runId, status: 'completed', events: [] } }; } };
+    try {
+        expect(await f.call({ name: 'om_conversations_list', input: { limit: 10 } })).toMatchObject({ value: { status: 'completed', output: { items: [] } } });
+        expect((await f.conversations.list({ context: owner, query: { limit: 10 } })).ok).toBe(true);
+        expect(await f.approve({ name: 'om_conversations_create', input: {} })).toMatchObject({ status: 'completed', output: { title: 'New chat' } });
+        const conversation = value({ result: await f.conversations.list({ context: owner, query: { limit: 10 } }) }).items[0];
+        expect(await f.call({ name: 'om_conversations_get', input: { id: conversation.conversationId, limit: 1 } })).toMatchObject({ value: { output: { conversation, messages: [] } } });
+        expect(await f.call({ name: 'om_runs_events', input: { runId: 'other', after: 0 } })).toMatchObject({ value: { output: { runId: 'other', events: [] } } });
+        expect(await f.call({ name: 'om_chart_providers_list', input: {} })).toMatchObject({ value: { output: { providers: [] } } });
+        expect(await f.call({ name: 'om_media_list', input: { limit: 5 } })).toMatchObject({ value: { output: { items: [], cursor: null } } });
+        expect(await f.approve({ name: 'om_media_import', input: { request: f.request } })).toMatchObject({ status: 'completed', output: { provenance: f.request.provenance } });
+        const assets = value({ result: await f.services.media!.list({ context: owner, query: { limit: 5 } }) });
+        expect(assets.items).toHaveLength(1);
+        const assetId = assets.items[0].record.id;
+        expect(await f.approve({ name: 'om_media_crop', input: { request: { assetId, placement: 'ad-square', presetVersion: 1 } } })).toMatchObject({ status: 'completed', output: { assetId } });
+        expect(await f.approve({ name: 'om_media_record_provenance', input: { link: { provenance: f.request.provenance, assetId } } })).toMatchObject({ status: 'completed', output: { recorded: true, operationId: 'import' } });
+        expect(value({ result: await f.repo.evidence({ context: owner, operationId: 'import' }) }).provenance).toHaveLength(2);
+        expect(cancelRun).not.toHaveBeenCalled();
+        expect(await f.approve({ name: 'om_runs_cancel', input: { runId: 'other' } })).toMatchObject({ status: 'completed', output: { runId: 'other', status: 'cancelled' } });
+        expect(cancelRun).toHaveBeenCalledWith({ context: { ...agent, principal: owner.principal }, runId: 'other' });
+        expect(await f.call({ name: 'om_media_import', operationId: 'import-replay', input: { request: f.request } })).toMatchObject({ value: { status: 'pending' } });
+    } finally { await f.close(); }
+});
+
+it('rejects foreign history, malformed media inputs and oversized history without exposing it', async () => {
+    const f = at1Fixture();
+    try {
+        const conversation = value({ result: await f.conversations.create({ context: owner }) });
+        const foreign = { ...agent, scope: { ...owner.scope, workspaceId: 'foreign' } };
+        expect(await f.call({ context: foreign, name: 'om_conversations_get', input: { id: conversation.conversationId, limit: 1 } })).toMatchObject({ ok: false, error: { code: 'forbidden' } });
+        expect(await f.call({ name: 'om_media_import', input: { request: { ...f.request, sourceUrl: 'invalid' } } })).toMatchObject({ ok: false, error: { code: 'invalid_input' } });
+        expect(await f.call({ name: 'om_runs_events', input: { runId: 'run', after: -1 } })).toMatchObject({ ok: false });
+        await f.conversations.store({ context: owner }).appendMessage({ conversationId: conversation.conversationId, message: { id: 'large', role: 'user', content: 'x'.repeat(65000), createdAt: 1000 } });
+        expect(await f.call({ name: 'om_conversations_get', input: { id: conversation.conversationId, limit: 1 } })).toMatchObject({ ok: false });
+        expect(value({ result: await f.services.confirmations.list({ context: owner, query: { limit: 100 } }) }).items).toEqual([]);
+    } finally { await f.close(); }
+});
+
+it('bounds event prefixes without skipping oversized events', async () => {
+    const f = at1Fixture();
+    const events = Array.from({ length: 3 }, (_, index) => ({ protocolVersion: 1 as const, eventId: 'event-' + index, runId: 'run', sequence: index + 1,
+        kind: 'delta' as const, correlationId: 'correlation', traceId: 'trace', payload: { text: 'x'.repeat(30000) } }));
+    f.services.runs = { async start() { throw new Error('Recursive run creation'); }, async cancel() { throw new Error('Read fixture'); },
+        async events({ after }) { return { ok: true, value: { runId: 'run', status: 'completed', events: events.filter(event => event.sequence > after) } }; } };
+    try {
+        const result = await f.call({ name: 'om_runs_events', input: { runId: 'run', after: 0 } });
+        expect(result).toMatchObject({ value: { output: { status: 'running', events: [events[0]] } } });
+        expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThan(65536);
+        expect(await f.call({ name: 'om_runs_events', operationId: 'next', input: { runId: 'run', after: 1 } })).toMatchObject({ value: { output: { events: [events[1]] } } });
+        events[0].payload.text = 'x'.repeat(61000);
+        expect(await f.call({ name: 'om_runs_events', operationId: 'oversized', input: { runId: 'run', after: 0 } })).toMatchObject({ ok: false, error: { code: 'limit_exceeded' } });
+    } finally { await f.close(); }
+});
+
+it('self-cancellation persists the controller event even when its tool cannot complete', async () => {
+    const f = at1Fixture(); let accepted: import('@open-marketing/contracts').StartRunRequest | undefined;
+    const local = createLocalAgent({ ...f, persistence: f.persistence, randomToken: () => 'fixture-token'.padEnd(64, 'x'),
+        onRevoked: input => f.tools.cancel(input), effects: {
+            async launch() { return { ok: true, value: { origin: 'http://127.0.0.1:31000', pid: 1, async stop() { return { ok: true, value: undefined }; } } }; },
+            runtime: { ids: f.ids, env: {}, deadline: { create: () => ({ signal: new AbortController().signal, dispose() {} }) },
+                async fetch(url, options) {
+                    const path = new URL(String(url)).pathname;
+                    if (path.endsWith('/health')) return Response.json({ ok: true, value: { protocolVersion: 1, ready: true, runtime: 'available' } });
+                    if (path.endsWith('/cancel')) return Response.json({ ok: true, value: { runId: path.split('/')[4], status: 'cancelled' } });
+                    accepted = JSON.parse(String(options?.body)) as typeof accepted;
+                    return Response.json({ ok: true, value: { runId: accepted!.runId, status: 'pending' } });
+                } },
+        } });
+    f.services.runs = local.owner;
+    try {
+        value({ result: await local.start({ serverUrl: 'http://127.0.0.1:32000' }) });
+        const { runId } = value({ result: await local.owner.start({ context: owner, prompt: 'Cancellation fixture' }) });
+        const started = { protocolVersion: 1 as const, eventId: 'started', runId, sequence: 1, kind: 'started' as const,
+            correlationId: owner.correlationId, traceId: owner.traceId, payload: {} };
+        value({ result: await local.callbacks.record({ grant: accepted!.grant, event: started }) });
+        expect(await f.approve({ context: accepted!.context, name: 'om_runs_cancel', input: { runId } })).toMatchObject({ status: 'unknown', error: { code: 'cancelled', retryable: false } });
+        const tail = value({ result: await f.persistence.events({ context: owner, runId, after: 1 }) });
+        expect(tail).toMatchObject({ status: 'cancelled', events: [{ runId, sequence: 2, kind: 'cancelled', payload: {}, correlationId: owner.correlationId, traceId: owner.traceId }] });
+        const stored = f.native.prepare('SELECT event_json FROM om_assistant_events WHERE run_id=? AND sequence=2').get(runId) as { event_json: string };
+        expect(JSON.parse(stored.event_json)).toEqual(tail.events[0]);
+        expect(await f.persistence.record({ context: owner, event: { ...started, eventId: 'late', sequence: 3, kind: 'ended' } })).toMatchObject({ ok: false, error: { code: 'expired' } });
+    } finally { await local.stop({}); await f.close(); }
+});
+
+it('reserves complete result envelope headroom at the 64-KiB output boundary', async () => {
+    const f = fixture({});
+    let output = '"'.repeat(32255); // Serialized payload is exactly 64,512 bytes, before wrappers.
+    f.definition.effects = ['read']; f.definition.policy = 'read';
+    f.definition.invoke = async () => ({ ok: true, value: output });
+    try {
+        expect(await f.tools.dispatch({ context: agent, call: f.call })).toEqual({ ok: true, value: { status: 'completed', output } });
+        output += '"';
+        expect(await f.tools.dispatch({ context: agent, call: { ...f.call, operationId: 'over-bound' } })).toMatchObject({ ok: false });
+    } finally { await f.tools.dispose({}); }
+});
+
+it('binds durable canonical media, crop cache and evidence through all four catalog tools', async () => {
+    const f = at1Fixture(); const directory = await fs.mkdtemp(join(tmpdir(), 'om-at1-media-'));
+    f.native.exec(readFileSync(new URL('../../../features/media-library/migrations/0001_media_evidence.sql', import.meta.url), 'utf8'));
+    f.native.exec(readFileSync(new URL('../migrations/0004_media.sql', import.meta.url), 'utf8'));
+    const database = bindServerDatabase({ native: f.native, context: owner, observer: f.observer });
+    const db = { query: <Row extends Record<string, unknown>>(input: { text: string; values?: unknown[] }) => database.unit.transaction({ work: ({ session }) => session.query<Row>(input) }) };
+    const audit = createAuditService({ ...f, repo: createMemoryAuditRepo(f), redactor: createMemoryAuditRedactor({}) });
+    const bytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aQx8AAAAASUVORK5CYII=', 'base64');
+    const cropped = Buffer.from('fixture-codec-webp-output');
+    const send = vi.fn(async () => ({ status: 200, headers: {}, bodyText: '', bodyBytes: bytes, finalUrl: f.request.sourceUrl }));
+    const transform = vi.fn(async (_input: { bytes: Uint8Array; params: unknown }) => ({ bytes: cropped, contentType: 'image/webp' }));
+    const nativeEffects = createCatalogMediaEffects({ stateRoot: directory, clock: f.clock });
+    const effects = { ...nativeEffects, httpClient: { send }, outboundGuard: { send }, imageTransformer: { transform },
+        // The injected fixture codec proves binding/geometry checks, not real pixel decoding.
+        async decode(input: { bytes: Uint8Array }) { return Buffer.from(input.bytes).equals(cropped) ? { width: 1080, height: 1080, frames: 1 } : { width: 1, height: 1, frames: 1 }; } };
+    const bind = () => bindCatalogMedia({ ...f, db, context: owner, audit, effects });
+    f.services.media = bind();
+    try {
+        const definitions = value({ result: await buildOmToolDefinitions({ context: owner, services: f.services }) });
+        expect(generateOmToolCoverage({ definitions }).filter(row => row.needs === 'MEDIA_DEPENDENCY_COMPOSITION')).toEqual([]);
+        expect(await f.approve({ name: 'om_media_import', input: { request: f.request } })).toMatchObject({ status: 'completed', output: { provenance: f.request.provenance } });
+        const asset = value({ result: await f.services.media.list({ context: owner, query: { limit: 5 } }) }).items[0];
+        const request = { assetId: asset.record.id, placement: 'ad-square', presetVersion: 1 };
+        expect(await f.approve({ name: 'om_media_crop', input: { request } })).toMatchObject({ status: 'completed', output: { assetId: asset.record.id } });
+        expect(transform).toHaveBeenCalledWith({ bytes: expect.any(Uint8Array), params: { width: 1080, height: 1080, fit: 'cover', format: 'webp' } });
+        expect(Buffer.from(transform.mock.calls[0][0].bytes)).toEqual(bytes);
+        expect(await f.approve({ name: 'om_media_record_provenance', input: { link: { assetId: asset.record.id, provenance: f.request.provenance } } })).toMatchObject({ status: 'completed', output: { recorded: true } });
+        expect(f.native.prepare("SELECT COUNT(*) AS count FROM server_media_record WHERE kind='media'").get()).toEqual({ count: 1 });
+        expect(f.native.prepare('SELECT COUNT(*) AS count FROM om_media_evidence').get()).toEqual({ count: 3 });
+        f.services.media = bindCatalogMedia({ ...f, db, context: owner, audit,
+            effects: { ...effects, blobStore: createCatalogMediaEffects({ stateRoot: directory, clock: f.clock }).blobStore } });
+        expect(await f.call({ name: 'om_media_list', input: { limit: 5 } })).toMatchObject({ value: { output: { items: [asset] } } });
+        expect(await f.services.media.importAsset({ context: owner, request: f.request })).toMatchObject({ ok: true, value: { record: asset.record } });
+        expect(await f.services.media.createCrop({ context: owner, request })).toMatchObject({ ok: true, value: { assetId: asset.record.id } });
+        expect(send).toHaveBeenCalledTimes(1); expect(transform).toHaveBeenCalledTimes(1);
+        expect(Buffer.from(await effects.blobStore.get({ storageKey: asset.blob.storageKey }))).toEqual(bytes);
+        const foreign = { ...owner, scope: { ...owner.scope, workspaceId: 'foreign' } };
+        expect(await f.services.media.list({ context: foreign, query: { limit: 5 } })).toMatchObject({ ok: false, error: { code: 'forbidden' } });
+        const definition = f.native.prepare("SELECT owner_id,workspace_id,record_key,payload FROM server_media_record WHERE kind='transform'").get() as { owner_id: string; workspace_id: string; record_key: string; payload: string };
+        expect(() => f.native.prepare("UPDATE server_media_record SET payload=? WHERE kind='transform'").run(definition.payload)).toThrow();
+        expect(() => f.native.prepare("DELETE FROM server_media_record WHERE kind='transform'").run()).toThrow();
+    } finally { await f.close(); await fs.rm(directory, { recursive: true, force: true }); }
+});
+
+it('uses guarded production ingress to reject a private destination before canonical storage', async () => {
+    const f = at1Fixture(); const directory = await fs.mkdtemp(join(tmpdir(), 'om-at1-guard-'));
+    f.native.exec(readFileSync(new URL('../../../features/media-library/migrations/0001_media_evidence.sql', import.meta.url), 'utf8'));
+    f.native.exec(readFileSync(new URL('../migrations/0004_media.sql', import.meta.url), 'utf8'));
+    const database = bindServerDatabase({ native: f.native, context: owner, observer: f.observer });
+    const db = { query: <Row extends Record<string, unknown>>(input: { text: string; values?: unknown[] }) => database.unit.transaction({ work: ({ session }) => session.query<Row>(input) }) };
+    const audit = createAuditService({ ...f, repo: createMemoryAuditRepo(f), redactor: createMemoryAuditRedactor({}) });
+    f.services.media = bindCatalogMedia({ ...f, db, context: owner, audit, effects: createCatalogMediaEffects({ stateRoot: directory, clock: f.clock }) });
+    try {
+        expect(await f.services.media.importAsset({ context: owner, request: { ...f.request, sourceUrl: 'https://127.0.0.1/image.png' } })).toMatchObject({ ok: false });
+        expect(await f.services.media.list({ context: owner, query: { limit: 5 } })).toEqual({ ok: true, value: { items: [], cursor: null } });
+        expect(f.native.prepare('SELECT COUNT(*) AS count FROM server_media_record').get()).toEqual({ count: 0 });
+        expect(await fs.readdir(directory)).toEqual([]);
+    } finally { await f.close(); await fs.rm(directory, { recursive: true, force: true }); }
+});
 
 for (const surface of ['direct', 'owner-http', 'mcp'] as const) describe('one OM dispatcher / ' + surface, () => {
     it('freezes reviewed arguments, waits for an owner card and returns the actual output without replay', async () => {
@@ -247,10 +454,12 @@ it('generates checked route/capability coverage from declarations, with explicit
     const f = fixture({}); const definitions = value({ result: await buildOmToolDefinitions({ context: owner, services: f.services }) });
     const rows = generateOmToolCoverage({ definitions });
     expect(Object.keys(ownerRouteDisposition).sort()).toEqual(Object.keys(routes).sort());
+    expect(ownerRouteDisposition).toMatchObject({ integrationDeveloperTokenStatus: 'catalog', chartProviders: 'catalog' });
     for (const route of Object.values(routes)) expect(rows.some(row => row.http === route.path)).toBe(true);
     expect(rows.filter(row => row.tool).map(row => row.tool)).toEqual([...definitions, ...discoveryTools].map(tool => tool.name));
     expect(definitions.every(tool => toolDescriptorSchema.safeParse({ name: tool.name, description: tool.description, effects: tool.effects, inputSchema: tool.inputSchema }).success)).toBe(true);
-    expect(definitions.some(tool => /om_(runs|conversations)_/.test(tool.name))).toBe(false);
+    expect(definitions.some(tool => tool.name === 'om_runs_create' || tool.name === 'om_runs_start')).toBe(false);
+    expect(definitions.map(tool => tool.name)).toEqual(expect.arrayContaining(['om_conversations_list', 'om_conversations_get', 'om_conversations_create', 'om_runs_events', 'om_runs_cancel']));
     expect(rows.some(row => row.status === 'NEEDS' && row.capability === 'Meta ads hosted binding')).toBe(true);
     expect(rows.find(row => row.capability === 'Paused/draft campaign creation')?.policy).toBe('write');
     expect(rows.find(row => row.capability === 'Campaign launch')?.policy).toBe('spend');
@@ -318,7 +527,8 @@ it('lists a seeded bundled agent-plugin source in the catalog after real boot re
         const tools = await response.json() as { value: { name: string }[] };
         const expected = 'addon_agent_plugin_' + createHash('sha256').update(seeded.id).digest('hex').slice(0, 32);
         expect(tools.value.some(tool => tool.name === expected)).toBe(true);
-        for (const name of ['om_contacts_resolve', 'om_forms_publish', 'om_web_events_touches', 'om_privacy_status', 'om_jobs_list', 'om_workspaces_list',
+        for (const name of ['om_media_list', 'om_media_import', 'om_media_crop', 'om_media_record_provenance',
+            'om_contacts_resolve', 'om_forms_publish', 'om_web_events_touches', 'om_privacy_status', 'om_jobs_list', 'om_workspaces_list',
             'om_campaign_create_paused', 'om_creative_generate', 'om_audit_list', 'om_measure_report_cac', 'om_paid_sending_allowance_get']) {
             expect(tools.value.some(tool => tool.name === name)).toBe(true);
         }
@@ -495,7 +705,7 @@ it('keeps the catalog and healthy add-on usable when another package description
         const definitions = value({ result: await buildOmToolDefinitions({ context: owner, services: f.services, addons: dependencies }) });
         expect(definitions.some(tool => tool.name === 'om_status')).toBe(true);
         const healthy = definitions.find(tool => tool.name.startsWith('addon_plugin_'))!;
-        expect(healthy.policy).toBe('write');
+        expect(healthy.policy).toBe('read');
         expect(value({ result: await healthy.invoke({ context: owner, input: {} }) })).toMatchObject({ instructions: 'Fixture contribution' });
         const unavailable = definitions.find(tool => tool.name.startsWith('addon_agent_plugin_'))!;
         expect(unavailable.unavailableReason).toContain('unavailable');
@@ -512,16 +722,23 @@ it('consumes D2 management/source schemas and redacts structured third-party fai
     try {
         const addons = addonFixture();
         const definitions = value({ result: await buildOmToolDefinitions({ context: owner, services: f.services, addons }) });
-        expect(definitions.filter(tool => tool.name.startsWith('addons_') || tool.name.startsWith('integrations_'))).toHaveLength(8);
+        expect(definitions.filter(tool => tool.name.startsWith('addons_') || tool.name.startsWith('integrations_'))).toHaveLength(9);
+        const statusContexts: CallContext[] = [];
+        addons.integrations.developerTokenStatus = async input => { statusContexts.push(input.context); return { ok: true, value: { configured: true } }; };
+        const tools = createOmTools({ ...f, confirmations: f.services.confirmations, definitions: async () => ({ ok: true, value: definitions }), authorize: () => ({ ok: true, value: undefined }) });
+        try {
+            expect(await tools.dispatch({ context: agent, call: { name: 'integrations_developer_token_status', input: { pluginId: 'google-ads' }, operationId: 'developer-status' } })).toMatchObject({ value: { status: 'completed', output: { configured: true } } });
+            expect(statusContexts).toEqual([{ ...agent, principal: owner.principal }]);
+        } finally { await tools.dispose({}); }
         const source = definitions.find(tool => tool.name.startsWith('addon_plugin_'))!;
-        expect(source.policy).toBe('write'); expect(value({ result: await source.invoke({ context: owner, input: {} }) })).toMatchObject({ instructions: 'Fixture contribution' });
+        expect(source.policy).toBe('read'); expect(value({ result: await source.invoke({ context: owner, input: {} }) })).toMatchObject({ instructions: 'Fixture contribution' });
         const failing = await definitions.find(tool => tool.name === 'integrations_disconnect')!.invoke({ context: owner, input: { connectionId: 'connection' } });
         expect(failing).toMatchObject({ ok: false, error: { code: 'unavailable', retryable: true } });
         expect(JSON.stringify(failing)).not.toContain('sk-fixture');
         const badDiscovery = await buildOmToolDefinitions({ context: owner, services: f.services, addons: addonFixture({ failure: true }) });
         expect(JSON.stringify(badDiscovery)).not.toContain('sk-fixture'); expect(badDiscovery.ok).toBe(false);
         const rows = generateOmToolCoverage({ definitions });
-        expect(rows.find(row => row.tool === source.name)).toMatchObject({ status: 'connected', policy: 'write', cli: 'om tools list/show/call' });
+        expect(rows.find(row => row.tool === source.name)).toMatchObject({ status: 'connected', policy: 'read', cli: 'om tools list/show/call' });
         expect(rows.filter(row => row.status === 'NEEDS').every(row => !!row.reason && !!row.needs)).toBe(true);
     } finally { await f.tools.dispose({}); }
 });
@@ -625,18 +842,17 @@ it('reserves financial identity before verification and cancellation cannot reop
     } finally { release.resolve(); await f.tools.dispose({}); }
 });
 
-it('re-resolves installed D2 sources and invalidates a pending card when its package is removed', async () => {
+it('reads instructions without a card and re-resolves removal before another invocation', async () => {
     const f = fixture({}); const addons = addonFixture();
     const tools = createOmTools({ clock: f.clock, observer: f.observer, confirmations: f.services.confirmations as ReturnType<typeof createMemoryConfirmationExchange>,
         authorize: () => ({ ok: true, value: undefined }), definitions: input => buildOmToolDefinitions({ ...input, services: f.services, addons }) });
     try {
         const catalog = value({ result: await tools.list({ context: owner, limit: 100 }) });
         const source = catalog.find(tool => tool.name.startsWith('addon_plugin_'))!;
-        value({ result: await tools.dispatch({ context: agent, call: { name: source.name, operationId: 'addon-operation', input: {} } }) });
-        const card = value({ result: await tools.card({ context: agent, operationId: 'addon-operation' }) })!;
+        expect(await tools.dispatch({ context: agent, call: { name: source.name, operationId: 'addon-operation', input: {} } })).toMatchObject({ value: { status: 'completed', output: { instructions: 'Fixture contribution' } } });
+        expect(value({ result: await f.services.confirmations.list({ context: owner, query: { limit: 100 } }) }).items).toEqual([]);
         addons.addons.list = async () => ({ ok: true, value: { items: [], cursor: null } });
-        expect(await tools.answer({ context: owner, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } })).toMatchObject({ ok: false, error: { code: 'conflict' } });
-        expect(value({ result: await tools.operation({ context: agent, operationId: 'addon-operation' }) }).status).toBe('interrupted');
+        expect(await tools.dispatch({ context: agent, call: { name: source.name, operationId: 'after-removal', input: {} } })).toMatchObject({ ok: false });
         expect(value({ result: await tools.list({ context: owner, limit: 100 }) }).some(tool => tool.name === source.name)).toBe(false);
     } finally { await tools.dispose({}); await f.tools.dispose({}); }
 });

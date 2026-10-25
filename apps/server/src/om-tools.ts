@@ -1,13 +1,12 @@
 /** One OM catalog and dispatcher. SDK/HTTP adapters share these exact operations. */
 import { z } from 'zod';
-import { oauthStartSchema, oauthStatusQuerySchema } from './integration-oauth-contracts.js';
 import { buildUiToolDefinitions } from './ui-tools.js';
 import { assistantSettingsSchema, boundedJsonSchema, callContextSchema, generationAllowanceSettingsSchema, idSchema, pageQuerySchema, timeWindowSchema, digestSchema, moneySchema,
-    parseBoundary, toolCallSchema, toolDescriptorSchema, toolSearchSchema, addonToolEffectsSchema, addonListRequestSchema, installAddonSchema, setAddonEnabledSchema, uninstallAddonSchema, disconnectIntegrationSchema } from '@open-marketing/contracts';
+    parseBoundary, toolCallSchema, toolDescriptorSchema, toolSearchSchema, addonToolEffectsSchema } from '@open-marketing/contracts';
 import type { ApprovalResponse, CallContext, ClockPort, ConfirmationCard, Outcome, ToolCall, ToolDescriptor, ToolOperation, ToolResult } from '@open-marketing/contracts';
 import { digestArguments } from '@open-marketing/safety';
 import type { DispatchPermit, EffectRequest, FrozenDispatchRequest, ConfirmationExchangePort, SafetyService } from '@open-marketing/safety';
-import { addonManagementTools, integrationOAuthTools, loadAddonToolSources, invokeAddonManagementTool, invokeAddonTool } from './addon-tools.js';
+import { addonManagementTools, addonToolSchemas, integrationOAuthTools, loadAddonToolSources, invokeAddonManagementTool, invokeAddonTool } from './addon-tools.js';
 import type { AddonToolDependencies } from './addon-tools.js';
 import { addonBoundary } from './addons.js';
 import type { ObserverPort } from '@open-marketing/contracts';
@@ -28,6 +27,7 @@ import type { ScopedJobs } from '@open-marketing/jobs';
 import { paidSendingAllowanceSchema } from '@open-marketing/safety';
 import type { PaidSendingAllowances } from '@open-marketing/safety';
 import type { AuditService } from '@open-marketing/audit';
+import type { MediaLibrary } from '@open-marketing/media-library';
 import { creativeToolInputSchema } from './om-tool-types.js';
 import type { GenerationStatus } from '@open-marketing/creative';
 import type { ToolOperationStore } from './tool-operations.js';
@@ -43,6 +43,10 @@ type Dependencies = { definitions(required: { context: CallContext }): Promise<O
     /** Omitted only by existing ephemeral callers; boot always injects durable storage. */
     store?: ToolOperationStore;
     authorize(required: { context: CallContext }): Outcome<void> };
+
+// Reserve 1 KiB for ToolResult/Outcome fields and MCP's escaped text wrapper (128 KiB wire cap).
+const toolOutputSchema = boundedJsonSchema.refine(value => Buffer.byteLength(JSON.stringify(value)) <= 64512,
+    'Tool output exceeds the envelope allowance');
 
 /** Known irreversible effects win over unknown declarations, which always contribute write.
  * @complexity O(e) time/space, e <=10 after wire validation; no authority is inferred here.
@@ -292,7 +296,7 @@ export function createOmTools(required: Dependencies): OmTools {
                 correlationId: operation.context.correlationId, traceId: operation.context.traceId };
             const result = await invokeDefinition({ ...input, context });
             if (operation.state.status !== 'pending') return;
-            const parsed = result.ok ? parseBoundary({ schema: boundedJsonSchema, input: result.value }) : result;
+            const parsed = result.ok ? parseBoundary({ schema: toolOutputSchema, input: result.value }) : result;
             operation.state = parsed.ok ? { status: 'completed', operationId: operation.call.operationId, output: parsed.value }
                 : { status: 'unknown', operationId: operation.call.operationId, error: { ...parsed.error, retryable: false } };
         } catch {
@@ -583,6 +587,9 @@ const readBindings: readonly ReadBinding[] = [
     { name: 'om_approvals_get', capability: 'Scoped exact approval', route: 'approval', schema: z.strictObject({ id: idSchema }) },
     { name: 'om_allowance_view', capability: 'Generation allowance view', route: 'allowance', schema: z.strictObject({}) },
     { name: 'om_assistant_settings_get', capability: 'Assistant selection', route: 'assistantSettings', schema: z.strictObject({}) },
+    { name: 'om_conversations_list', capability: 'Conversation list', route: 'conversations', schema: pageQuerySchema.extend({ limit: z.number().int().min(1).max(10) }) },
+    { name: 'om_conversations_get', capability: 'Conversation history (64 KiB output; reduce limit if exceeded)', route: 'conversation', schema: pageQuerySchema.extend({ id: idSchema, limit: z.number().int().min(1).max(5) }) },
+    { name: 'om_chart_providers_list', capability: 'Chart provider inventory', route: 'chartProviders', schema: z.strictObject({}) },
 ];
 
 /** Validate Zod's generated schema with the bounded JSON object contract before exposing it.
@@ -603,14 +610,14 @@ export const discoveryTools: readonly ToolDescriptor[] = [
         effects: ['write'], inputSchema: toolInputSchema({ schema: toolCallSchema }) },
 ];
 
-/** Current enabled add-on sources are reloaded on discovery and again at dispatch/continuation.
- * Their unknown effects remain write. Source callbacks use D2's exact invocation seam.
+/** Current enabled instruction sources are reloaded on discovery and again at dispatch.
+ * Source callbacks only disclose instructions; executable tools keep their verified effects.
  * A failed package description marks only that source unavailable; catalog-list failures propagate.
  * @complexity Fixed read bindings plus D2's bounded source loading; no second plugin registry.
  */
 export async function buildOmToolDefinitions(required: { context: CallContext; services: OwnerServices & OmFeatureServices; addons?: AddonToolDependencies }): Promise<Outcome<readonly OmToolDefinition[]>> {
     const definitions: OmToolDefinition[] = readBindings.map(binding => ownerDefinition({ ...required, binding }));
-    definitions.push(ownerSettingsDefinition(required), ...coreDefinitions(required), ...featureDefinitions(required),
+    definitions.push(ownerSettingsDefinition(required), ...assistantDefinitions(required), ...mediaDefinitions({ media: required.services.media }), ...coreDefinitions(required), ...featureDefinitions(required),
         ...buildUiToolDefinitions({ runtime: required.services.ui?.runtime ?? null, frontend: required.services.ui?.frontend }));
     if (!required.addons) return { ok: true, value: definitions };
     const unavailableSources = new Set<string>();
@@ -624,10 +631,9 @@ export async function buildOmToolDefinitions(required: { context: CallContext; s
     if (!loaded.ok) return redactAddonOutcome({ outcome: loaded });
     definitions.push(...addonDefinitions({ dependencies: required.addons }));
     for (const source of loaded.value) definitions.push({ ...source, capability: 'Installed ' + source.kind + ': ' + source.addonId,
-        policy: toolPolicy({ effects: source.effects }),
+        policy: 'read',
         unavailableReason: unavailableSources.has(source.kind + ':' + source.addonId) ? 'Installed add-on unavailable; check its package metadata'
-            : ['spend', 'generation', 'internal'].includes(toolPolicy({ effects: source.effects }))
-            ? 'NEEDS I-2: add-on source describes contributions; verified financial/typed backend tools are not connected' : undefined, parse: input => parseBoundary({ schema: z.strictObject({ skill: idSchema.optional() }), input: input.input }),
+            : undefined, parse: input => parseBoundary({ schema: z.strictObject({ skill: idSchema.optional() }), input: input.input }),
         invoke: async input => redactAddonOutcome({ outcome: await invokeAddonTool({ ...input, sourceId: source.id, revision: source.revision, dependencies: required.addons! }, { signal: input.signal }) }) });
     return { ok: true, value: definitions };
 }
@@ -657,6 +663,7 @@ function ownerSettingsDefinition(required: { services: OwnerServices }): OmToolD
  * Missing services produce named coverage NEEDS rather than callable stubs.
  */
 export interface OmFeatureServices {
+    media?: MediaLibrary;
     creative?: CreativeToolBinding;
     contacts?: ContactService;
     forms?: FormsService;
@@ -692,6 +699,73 @@ function serviceDefinition<T>(required: { name: string; capability: string; sche
 /** Fixed owner read projections share the already-authenticated workspace, retaining run/trace IDs. */
 function scopedReadContext(required: { context: CallContext }): CallContext {
     return { ...required.context, principal: { kind: 'owner', ownerId: required.context.scope.ownerId } };
+}
+
+/** Existing owner services supply history/run control. Cancellation may end the calling run
+ * before its tool result returns; run events, rather than a completion claim, are the evidence.
+ * @complexity O(1) service calls; events are capped at 128 by the owning service.
+ */
+function assistantDefinitions(required: { services: OwnerServices }): OmToolDefinition[] {
+    const services = required.services;
+    const run = z.strictObject({ runId: idSchema });
+    return [
+        serviceDefinition({ name: 'om_conversations_create', capability: 'Create conversation', policy: 'write', schema: z.strictObject({}), ownerRoute: 'createConversation',
+            invoke: async ({ context }) => services.conversations?.create({ context }) ?? localFailure({ message: 'Conversation storage unavailable' }) }),
+        serviceDefinition({ name: 'om_runs_events', capability: 'Run events; continue after the last returned sequence', policy: 'read', schema: run.extend({ after: z.number().int().nonnegative().safe() }), ownerRoute: 'runEvents',
+            invoke: async ({ context, value }) => runEventsOutput({ outcome: await (services.runs?.events({ context, ...value }) ?? localFailure({ message: 'Run storage unavailable' })) }) }),
+        serviceDefinition({ name: 'om_runs_cancel', capability: 'Cancel run; self-cancellation can end this turn before a result returns', policy: 'write', schema: run, ownerRoute: 'cancelRun',
+            invoke: async ({ context, value }) => services.runs?.cancel({ context, ...value }) ?? localFailure({ message: 'Run control unavailable' }) }),
+    ];
+}
+
+/** Keep a contiguous event prefix within the tool envelope, preserving sequence cursors.
+ * An individually oversized event fails explicitly; no event is silently skipped or altered.
+ * @complexity O(event bytes), <=128 events; O(64 KiB) output and no further I/O.
+ */
+function runEventsOutput(required: { outcome: Outcome<z.infer<typeof routes.runEvents.schema>> }): Outcome<unknown> {
+    if (!required.outcome.ok) return required.outcome;
+    const page = required.outcome.value;
+    const events: typeof page.events = [];
+    let bytes = 0;
+    for (const event of page.events) {
+        bytes += Buffer.byteLength(JSON.stringify(event)) + 1;
+        if (bytes > 60000) break;
+        events.push(event);
+    }
+    if (page.events.length && !events.length) return localFailure({ code: 'limit_exceeded', message: 'Run event exceeds the tool output bound' });
+    return { ok: true, value: { ...page, events, status: events.length < page.events.length ? 'running' : page.status } };
+}
+
+/** Tool-boundary schemas mirror the public media DTOs; the owning service still validates
+ * rights, digest equality, placement and guarded ingress. No storage or transport is built here.
+ */
+const mediaProvenanceSchema = z.strictObject({
+    operationId: idSchema, source: z.string().min(1).max(2048), prompt: z.string().max(16000).nullable(),
+    model: idSchema.nullable(), seed: z.number().int().safe().nullable(), cost: moneySchema.nullable(),
+    vendorTerms: z.strictObject({ url: z.url().max(2048), digest: digestSchema, observedAt: z.number().int().nonnegative().safe() }).nullable(),
+    rights: z.strictObject({ evidenceId: idSchema, license: z.string().min(1).max(1024), permittedUses: idSchema.array().max(100) }),
+    generationId: idSchema.optional(), quoteId: idSchema.optional(), providerJobId: idSchema.optional(), reservationId: idSchema.optional(),
+});
+/** Four thin wrappers over the injected public MediaLibrary; absent composition advertises no
+ * callable media stubs. Provenance success is a JSON receipt instead of Outcome<void>.
+ * @complexity O(1) calls; inputs and dispatcher outputs are bounded to 64 KiB.
+ */
+function mediaDefinitions(required: { media?: MediaLibrary }): OmToolDefinition[] {
+    const media = required.media;
+    if (!media) return [];
+    return [
+        serviceDefinition({ name: 'om_media_list', capability: 'Media list', policy: 'read', schema: pageQuerySchema.extend({ limit: z.number().int().min(1).max(5) }),
+            invoke: ({ context, value: query, signal }) => media.list({ context, query }, { signal }) }),
+        serviceDefinition({ name: 'om_media_import', capability: 'Import media with rights and expected digest', policy: 'write', schema: z.strictObject({ request: z.strictObject({ sourceUrl: z.url().max(2048), operationId: idSchema, expectedDigest: digestSchema, provenance: mediaProvenanceSchema }) }),
+            invoke: ({ context, value, signal }) => media.importAsset({ context, ...value }, { signal }) }),
+        serviceDefinition({ name: 'om_media_crop', capability: 'Non-destructive media placement crop', policy: 'write', schema: z.strictObject({ request: z.strictObject({ assetId: idSchema, placement: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/), presetVersion: z.number().int().min(1).max(10000) }) }),
+            invoke: ({ context, value, signal }) => media.createCrop({ context, ...value }, { signal }) }),
+        serviceDefinition({ name: 'om_media_record_provenance', capability: 'Append media provenance', policy: 'write', schema: z.strictObject({ link: z.strictObject({ provenance: mediaProvenanceSchema, assetId: idSchema.optional() }) }),
+            invoke: async ({ context, value, signal }) => {
+                const result = await media.recordProvenance({ context, ...value }, { signal });
+                return result.ok ? { ok: true, value: { recorded: true, operationId: value.link.provenance.operationId } } : result;
+            } }),
+    ];
 }
 
 /** Repository-owned safety operations are available in the existing boot. Halt records local
@@ -871,17 +945,15 @@ function creativeStatusOutput(required: { outcome: Outcome<GenerationStatus> }):
         asyncOperationId: status.asyncOperationId, assetIds: status.assetIds, actualCost: status.actualCost } };
 }
 
-const addonSchemas = { addons_list: addonListRequestSchema, addons_install: installAddonSchema, addons_set_enabled: setAddonEnabledSchema,
-    addons_uninstall: uninstallAddonSchema, integrations_list: pageQuerySchema, integrations_disconnect: disconnectIntegrationSchema,
-    integrations_oauth_start: oauthStartSchema, integrations_oauth_status: oauthStatusQuerySchema };
 const addonRoutes = { addons_list: 'addons', addons_install: 'addonInstall', addons_set_enabled: 'addonSetEnabled',
     addons_uninstall: 'addonUninstall', integrations_list: 'integrations', integrations_disconnect: 'integrationDisconnect',
+    integrations_developer_token_status: 'integrationDeveloperTokenStatus',
     integrations_oauth_start: 'integrationOAuthStart', integrations_oauth_status: 'integrationOAuthStatus' } as const;
 /** D2 owns installation/lifecycle and credential custody; all management calls use its one seam. */
 function addonDefinitions(required: { dependencies: AddonToolDependencies }): OmToolDefinition[] {
     return [...addonManagementTools, ...integrationOAuthTools].map(tool => {
-        const name = tool.name as keyof typeof addonSchemas;
-        const schema: z.ZodType = addonSchemas[name];
+        const name = tool.name as keyof typeof addonToolSchemas;
+        const schema: z.ZodType = addonToolSchemas[name];
         return { ...tool, effects: addonToolEffectsSchema.parse(tool.effects), inputSchema: toolDescriptorSchema.shape.inputSchema.parse(tool.inputSchema), revision: '1',
             capability: 'Add-on management: ' + name, policy: toolPolicy({ effects: tool.effects }), ownerRoute: addonRoutes[name],
             parse: input => parseBoundary({ schema, input: input.input }),

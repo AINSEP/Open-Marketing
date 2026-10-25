@@ -1,7 +1,7 @@
-import { addonListSchema, addonSummarySchema, addonUninstallReceiptSchema, integrationListSchema, integrationSummarySchema } from '@open-marketing/contracts';
+import { addonListSchema, addonSummarySchema, addonUninstallReceiptSchema, chartProviderListSchema, integrationListSchema, integrationSummarySchema } from '@open-marketing/contracts';
 /** Owner HTTP mapping shared by the server and CLI. */
 import { z } from "zod";
-import { oauthClientStatusSchema, oauthStartResultSchema, oauthStatusSchema } from '../integration-oauth-contracts.js';
+import { developerTokenStatusSchema, oauthClientStatusSchema, oauthStartResultSchema, oauthStatusSchema } from '../integration-oauth-contracts.js';
 import {
   assistantSettingsStatusSchema, conversationListSchema, conversationSchema, appErrorSchema, chatMessageSchema, confirmationCardSchema, epochSchema, idSchema, moneySchema, navigationTargetSchema, parseBoundary, runEventSchema,
   toolDescriptorSchema, toolOperationSchema, toolResultSchema,
@@ -35,6 +35,8 @@ export const routes = {
   addonSetEnabled: { method: 'POST', path: '/api/addons/v1/set-enabled', schema: addonSummarySchema },
   addonUninstall: { method: 'POST', path: '/api/addons/v1/uninstall', schema: addonUninstallReceiptSchema },
   integrations: { method: 'GET', path: '/api/addons/v1/integrations', schema: integrationListSchema },
+  integrationDeveloperTokenStatus: { method: 'GET', path: '/api/addons/v1/integrations/developer-token', schema: developerTokenStatusSchema },
+  chartProviders: { method: 'GET', path: '/api/addons/v1/chart-providers', schema: chartProviderListSchema },
   integrationConnect: { method: 'POST', path: '/api/addons/v1/integrations/token', schema: integrationSummarySchema },
   integrationDisconnect: { method: 'POST', path: '/api/addons/v1/integrations/disconnect', schema: integrationSummarySchema },
   integrationOAuthStart: { method: 'POST', path: '/api/addons/v1/integrations/oauth/start', schema: oauthStartResultSchema },

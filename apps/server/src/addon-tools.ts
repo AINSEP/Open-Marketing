@@ -1,7 +1,7 @@
 /** Additive sources consumed by the assistant's ONE catalog/dispatcher; no policy or tool registry. */
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import { addonListRequestSchema, addonToolEffectsSchema, addonToolSourceSchema, boundedJsonSchema,
+import { addonListRequestSchema, addonToolSourceSchema, boundedJsonSchema,
     disconnectIntegrationSchema, idSchema, installAddonSchema, pageQuerySchema, parseBoundary,
     setAddonEnabledSchema, uninstallAddonSchema } from '@open-marketing/contracts';
 import type { AddonSummary, AddonToolSource, CallContext, CallOptions, ObserverPort, Outcome } from '@open-marketing/contracts';
@@ -12,7 +12,8 @@ import { developerTokenQuerySchema } from './integration-oauth-contracts.js';
 import { oauthStartSchema, oauthStatusQuerySchema } from './integration-oauth-contracts.js';
 
 export type AddonToolDependencies = { addons: Addons; integrations: Pick<Integrations, 'list' | 'disconnect'> & Partial<Pick<Integrations, 'startOAuth' | 'oauthStatus' | 'developerTokenStatus'>>; observer: ObserverPort };
-const definitionSchemas = {
+/** Shared input schemas for management descriptors and the server catalog parser. */
+export const addonToolSchemas = {
     addons_list: addonListRequestSchema,
     addons_install: installAddonSchema,
     addons_set_enabled: setAddonEnabledSchema,
@@ -23,7 +24,7 @@ const definitionSchemas = {
     integrations_oauth_start: oauthStartSchema,
     integrations_oauth_status: oauthStatusQuerySchema,
 } as const;
-export type AddonManagementToolName = keyof typeof definitionSchemas;
+export type AddonManagementToolName = keyof typeof addonToolSchemas;
 
 /** Six ordinary tools; assistant applies its existing read/write/destructive policy before invoke.
  * Installation accepts only uploaded bytes; no URL/file-system path or credentials enter chat.
@@ -36,14 +37,14 @@ export const addonManagementTools = [
     { name: 'addons_uninstall', description: 'Disable an add-on, close its sessions and remove its installed bytes.', effects: ['destructive'] },
     { name: 'integrations_list', description: 'List saved integrations without tokens or server configuration.', effects: ['read'] },
     { name: 'integrations_disconnect', description: 'Disconnect a saved integration.', effects: ['destructive'] },
-].map(definition => ({ ...definition, inputSchema: z.toJSONSchema(definitionSchemas[definition.name as AddonManagementToolName], { io: 'input' }) }));
+].map(definition => ({ ...definition, inputSchema: z.toJSONSchema(addonToolSchemas[definition.name as AddonManagementToolName], { io: 'input' }) }));
 
 /** Browser sign-in tools expose challenges and progress, never callback codes or tokens. */
 export const integrationOAuthTools = [
     { name: 'integrations_developer_token_status', description: 'Check whether the optional Google developer token is configured. Paste secrets in owner settings or CLI stdin, never chat.', effects: ['read'] },
     { name: 'integrations_oauth_start', description: 'Start browser sign-in for a configured Google or LinkedIn app. Returns a URL and transaction ID; unavailable apps need server configuration. Never request codes in chat.', effects: ['write'] },
     { name: 'integrations_oauth_status', description: 'Check sign-in progress by transactionId, or client configuration by pluginId (configured and clientId only). Paste client secrets in owner settings or CLI stdin, never chat.', effects: ['read'] },
-].map(definition => ({ ...definition, inputSchema: z.toJSONSchema(definitionSchemas[definition.name as AddonManagementToolName], { io: 'input' }) }));
+].map(definition => ({ ...definition, inputSchema: z.toJSONSchema(addonToolSchemas[definition.name as AddonManagementToolName], { io: 'input' }) }));
 
 /** Connection help is a pointer, deliberately excluded from the six callable management tools. */
 export const integrationConnectHelp = { page: '/addons/integrations', cli: 'om integrations connect --token-stdin' } as const;
@@ -85,8 +86,8 @@ async function parseAndInvoke<T>(required: { schema: z.ZodType<T>; input: unknow
     return parsed.ok ? required.invoke({ value: parsed.value }) : parsed;
 }
 
-/** One progressive-disclosure source per enabled package. Effects are conservative metadata only;
- * the dispatcher still applies policy to each underlying tool. No grants are created here.
+/** One read-only instruction source per enabled package; executable contributions retain their
+ * own verified effects in the dispatcher. No handlers or grants are created here.
  * @example await loadAddonToolSources({ context, dependencies });
  * @complexity <=1000 packages and ten pages. Activation rechecks read the bounded catalog twice
  * per enabled source (O(packages squared) row decoding); no full instructions are read here.
@@ -99,10 +100,9 @@ export async function loadAddonToolSources(required: { context: CallContext; dep
         for (const addon of addons.value.filter(row => row.enabled)) {
             const described = await required.dependencies.addons.describe({ context: required.context, ...sourceReference({ addon }) }, optional);
             if (!described.ok) return described;
-            const effects = combinedEffects({ description: described.value });
             const parsed = parseBoundary({ schema: addonToolSourceSchema, input: { id: sourceName({ addon }), name: sourceName({ addon }),
                 kind: addon.kind, addonId: addon.id, description: addon.description || addon.name,
-                revision: addon.revision, effects, inputSchema: { type: 'object', properties: { skill: { type: 'string', maxLength: 256 } }, additionalProperties: false } } });
+                revision: addon.revision, effects: ['read'], inputSchema: { type: 'object', properties: { skill: { type: 'string', maxLength: 256 } }, additionalProperties: false } } });
             if (!parsed.ok) return parsed;
             sources.push(parsed.value);
         }
@@ -141,13 +141,6 @@ async function allAddons(required: { context: CallContext; dependencies: AddonTo
         cursor = listed.value.cursor;
     }
     return addonFailure({ code: 'limit_exceeded' });
-}
-
-/** Each declaration retains known effects; a missing/unknown declaration contributes write. */
-function combinedEffects(required: { description: import('./addons.js').AddonDescription }): string[] {
-    const groups = [required.description.effects, ...(required.description.tools ?? []).map(tool => tool.effects)];
-    return [...new Set(groups.flatMap(effects => Array.isArray(effects)
-        ? effects.flatMap(effect => addonToolEffectsSchema.parse([effect])) : addonToolEffectsSchema.parse(effects)))];
 }
 
 function sourceReference(required: { addon: AddonSummary }) { return { kind: required.addon.kind, id: required.addon.id, revision: required.addon.revision }; }

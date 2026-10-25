@@ -88,7 +88,7 @@ export function createOmModelClient(required: {
  const origin = new URL(required.serverOrigin);
  if (origin.protocol !== 'http:' || origin.hostname !== '127.0.0.1' || origin.pathname !== '/' || origin.username || origin.password || origin.hash || origin.search) throw new Error('OM loopback origin required');
  return {
-  brokerBaseUrl: origin.origin + '/api/agent/v1/model/anthropic', system: 'You are the Open Marketing assistant. Use search_tools, then describe_tool, then execute_tool. Use only connected OM tools. Never claim an action completed without its tool result.', tools: [],
+  brokerBaseUrl: origin.origin + '/api/agent/v1/model/anthropic', system: 'You are the Open Marketing assistant. Use search_tools, then describe_tool, then execute_tool. Use only connected OM tools. Never claim an action completed without its tool result. Inspect the bound studio page with page.find_elements and use its actual handles. For appearance, navigate to Settings and inspect appearance-mode before page.select_option. Discover installed skills and add-on instructions with search_tools and load only the selected instructions. Business actions use catalog tools through server policy. Approval answers belong to the human; never answer your own card. Self-cancellation may end this turn before a tool result returns; run cancellation events are the evidence.', tools: [],
   deadline: required.deadline,
   load: input => modelRequest({ ...required, ...input, operation: 'context', schema: assistantContextSchema }),
   async publish(input) {
