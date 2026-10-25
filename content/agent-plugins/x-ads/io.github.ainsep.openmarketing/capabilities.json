@@ -1,0 +1,13 @@
+{
+  "version": 1, "admitted": false,
+  "capabilities": [
+    { "capabilityId": "campaign.read.v1", "version": 1, "pluginId": "x-ads", "schemaFingerprint": "f34816fb9d3b38f06283d4a174d5cbfb953959c6e5b5bf91686355c924a00942", "admitted": false, "effects": ["read"] },
+    { "capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "x-ads", "schemaFingerprint": "08d1b5acc188196fbf7714b75b7a9124ba4c1d0fc0174d1131768a2629568a04", "admitted": false, "effects": ["read"] }
+  ],
+  "tools": [
+    { "name": "list_accounts", "effects": ["read"], "capabilityId": "campaign.read.v1" },
+    { "name": "list_campaigns", "effects": ["read"], "capabilityId": "campaign.read.v1" },
+    { "name": "report", "effects": ["read"], "capabilityId": "report.account-spend.v1" }
+  ],
+  "fingerprintBasis": "SHA-256 of src/commands.ts for campaign.read.v1 and src/reporting.ts for report.account-spend.v1. Compatibility metadata only, never a trust allowlist."
+}

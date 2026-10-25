@@ -1,0 +1,16 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.1.0/plugin.schema.json",
+  "name": "x-ads",
+  "version": "0.1.0",
+  "description": "X Ads v12 account/campaign reads and bounded synchronous analytics using pasted OAuth credentials; disabled until server admission.",
+  "license": "Apache-2.0",
+  "extensions": {
+    "io.github.ainsep.openmarketing": {
+      "version": 1, "enabled": false, "admitted": false,
+      "capabilities": [
+        { "capabilityId": "campaign.read.v1", "version": 1, "pluginId": "x-ads", "schemaFingerprint": "f34816fb9d3b38f06283d4a174d5cbfb953959c6e5b5bf91686355c924a00942", "admitted": false, "effects": ["read"] },
+        { "capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "x-ads", "schemaFingerprint": "08d1b5acc188196fbf7714b75b7a9124ba4c1d0fc0174d1131768a2629568a04", "admitted": false, "effects": ["read"] }
+      ]
+    }
+  }
+}

@@ -1,0 +1,49 @@
+# X Ads — R1F
+
+Server-loaded, inert plugin for X Ads API v12. Implements `list_accounts`, `list_campaigns` (including drafts), and `report` for ACCOUNT or CAMPAIGN. Installation stays disabled/unadmitted. Server catalog/HTTP/CLI wiring and studio presentation are integrator/DS2 work; this folder alone does not expose a usable OM integration.
+
+Credentials: use an Ads-approved developer app and a user with access to the advertiser account. Paste this JSON into the existing server-sealed token entry once the X connection binding lands:
+
+```json
+{"consumerKey":"YOUR_API_KEY","consumerSecret":"YOUR_API_SECRET","accessToken":"YOUR_USER_TOKEN","accessTokenSecret":"YOUR_USER_TOKEN_SECRET"}
+```
+
+The four keys are required; extra keys and control/space characters reject. These are OAuth credentials, never the user's X login password. They stay inside the server plugin, outside assistant arguments, results, metadata, and observations. Vendor 401 asks for reconnection. No refresh-token flow is implemented. Browser sign-in needs O2's OAuth 1.0a extension; OAuth 2 descriptors do not apply to Ads.
+
+`invokeXAds({ context, operationId, command, dependencies }, { signal })` is the only invocation function. Inject configuration (scope, connectionId, accountId, currency, pluginDigest, bindingId, admitted), credential access, the server gateway, fetch, clock, timeoutSignal, IDs, and observer. The required `timeoutSignal({ timeoutMs })` dependency must return a host-timed abort signal; the plugin requests 15000 ms and has no ambient timer fallback. Gateway dispatch MUST recheck current admission, scope/account/connection and hold OM's existing policy fence through execute after credential resolution. Its callback may execute once. Imports perform no I/O.
+
+Example report command: `{ kind: "report", entity: "CAMPAIGN", entityIds: ["campaign_id"], window: { start, end }, placement: "ALL_ON_TWITTER" }`. Window values are UTC epoch milliseconds aligned to whole hours, end-exclusive and at most seven days. At most twenty distinct IDs; ACCOUNT requires exactly the bound account ID. CAMPAIGN metrics are TOTAL impressions, clicks, and spend in local currency micros, requested with ENGAGEMENT/BILLING. ACCOUNT requests only ENGAGEMENT and reports impressions; unsupported clicks and spend are always null, even if unexpected provider fields arrive. Supported null metrics stay null; missing rows never imply zero. One explicit placement (ALL_ON_TWITTER, SPOTLIGHT, or TREND) is a subtotal, never a combined account total. Currency comes from the authoritative server binding. Provider data can be restated.
+
+Listings return one page, at most 100 rows, and an opaque cursor for explicit continuation. Fixed OM limits: 64 KiB input, 1 MiB streamed response, 15 seconds through body consumption, no redirects, zero retries. Rate headers prefer account limits and expose resetAtSeconds for host pacing; 429 stops the call. No scheduler or local store is added.
+
+Integrator NEEDS: resolve/install exact `oauth-1.0a@2.2.6` (no install performed here), add X catalog/invoke binding in `agent-plugin-backends.ts`, forward existing IDs from composition, supply the required host `timeoutSignal({ timeoutMs })` dependency, and append root `om:build-plugins`. Shared manifests/lockfile remain untouched. Instantiate `dispatchSuite` from `tests/fixtures.ts` around the real host binding for the same acceptance assertions as the memory gateway. Run fixture tests/build/host acceptance centrally. Package scripts mirror LinkedIn; no Jini dependency or upgrade.
+
+Deferred to R2: grouped paused deployment/readback and documented server-only conversions. No activation, editing, media upload, post publishing, public line-item/ad tools, runtime.json, contracts, migrations, registry or second outbox. Production deployment remains blocked on verified account/creative/funding binding.
+
+Evidence is in `io.github.ainsep.openmarketing/evidence/primary-sources.json`. Official GitHub documentation source resolved the planner's oversized rendered campaign-reference blocker; no live vendor requests or real credentials were used.
+
+Architecture audit: PASS for static ownership/boundary inspection only. Files stay in the new X lane; public feature imports use only `@open-marketing/contracts`. Vendor signing/codecs stay here, all runtime dependencies are injected, and no policy, outbox, contract, migration or composition owner is duplicated. LinkedIn's approved schema → credential → gateway → bounded fetch pattern governs this implementation. No additional layers were introduced. Public index exports and effect boundaries are documented; obvious private error constructors inherit parent documentation.
+
+Reuse: credential custody and final admission/policy checks remain in the existing server seams illustrated by LinkedIn `ports.ts`/`transport.ts` and `agent-plugin-backends.ts`. X-specific request/result encoding is separate because its OAuth signing and analytics wire schema differ. OAuth parameter normalization uses `oauth-1.0a`, HMAC uses Node crypto, and boundary parsing uses the existing Zod pin. No local sibling source dependency.
+
+Function assessment (static review only; execution evidence is INCONCLUSIVE because this dispatch prohibits tests/builds). Every branch has a direct fixture seam; no coverage, cognitive/cyclomatic metrics or NLOC measurements were run or claimed. Signing's two-string hash callback and zero-argument gateway callback are foreign ABIs; owned boundaries use object arguments. Adversarial cases include duplicate/foreign IDs, mixed-invalid pages, post-credential admission withdrawal, unsafe metrics, and repeated execute.
+
+| Units | Disposition | Findings | Local correction |
+| --- | --- | --- | --- |
+| invokeXAds, prepare, dispatch, resolveCredential | INCONCLUSIVE | Runtime/host acceptance pending | Snapshot inputs before awaits; redact broker diagnostics |
+| authorization, signingInputs | INCONCLUSIVE | Signer dependency resolution and fixture execution pending | Override hidden nonce/time; validate injected inputs |
+| sendRequest, readBody, boundedJson | INCONCLUSIVE | Execution evidence pending | Split signing preflight; bound streamed bytes before JSON parse |
+| decodeData, rateLimit, httpFailure | INCONCLUSIVE | Execution evidence pending | Account echo/duplicate checks; seconds explicit in reset field |
+| encodeCommand, reportQuery, metricGroups | INCONCLUSIVE | Execution evidence pending | Closed URLs/query fields; entity-specific groups; one page/placement |
+| decodeReport, projectRow, matchesRequest, invalidReport | INCONCLUSIVE | Execution evidence pending | Entity-specific schemas/projection; reject mismatched echo, duplicate IDs and unsafe metrics atomically |
+| observe, failure | INCONCLUSIVE | Execution evidence pending | Typed redaction; isolated observer exceptions |
+
+Static skepticism pass checked variable meanings (especially micros versus seconds/milliseconds), null/empty semantics, aggregate rejection, mutation isolation, imports and secret handling. R1F corrects the returned review findings: ACCOUNT groups/projection now follow the vendor support table, and streamed reads explicitly cancel on the injected deadline or caller signal. Static inspection does not establish test success. No tests were deleted or weakened, and no live runtime validation was attempted under the dispatch's load rules. Integrator is the next routing owner.
+
+R1 prior typecheck (before this fix): ran `corepack pnpm run typecheck` once from `content/agent-plugins/x-ads` (script: `tsc --noEmit -p tsconfig.json`), exit 2. Sole compiler diagnostic: `src/transport.ts(3,19): TS2307 Cannot find module 'oauth-1.0a' or its corresponding type declarations.` Dependency is declared at exact 2.2.6 but is not installed; pnpm also warned that local node_modules is missing. No installation, shim, compiler suppression, or second typecheck was attempted. Tests/builds/om:check were not run. Overall handoff: PARTIAL, pending dependency resolution and integrator validation.
+
+R1F regression fixtures (written, not run): valid ACCOUNT query and response without billing/click fields, unsupported-field stripping, incorrect/duplicate group echoes, and caller/deadline abort during a pending body read after complete JSON but before EOF. Abort cases assert typed failure, no retry, stream cancellation and lock release; they use controlled abort signals without real timers. Existing tests are retained. Numerical complexity/nesting checks, coverage and real-host acceptance remain unverified under the dispatch load rules.
+
+R1F typecheck: ran `corepack pnpm run typecheck` exactly once from this plugin folder (`tsc --noEmit -p tsconfig.json`), exit 2. Sole diagnostic: `io.github.ainsep.openmarketing/src/transport.ts(3,19): TS2307 Cannot find module 'oauth-1.0a' or its corresponding type declarations.` pnpm also reported missing local node_modules. No lane type errors besides the unresolved declared dependency were reported. Installation is prohibited in this run; no shim, suppression or second typecheck was added. Integrator handoff remains PARTIAL until signer dependency resolution, host wiring (including timeoutSignal) and fixture/real-host validation. No shared contracts, migrations, composition, installs, commits, or pushes.
+
+R1F static audit: PASS for the reviewed lane/public-import/credential/policy ownership boundaries; the only dependency-surface change is the documented required host timeoutSignal function. Original R1 files and unrelated work are preserved. Source/test sizes are 317/250 lines, within the approved 400/250 caps. The pre-completion review matched both P2 findings to retained regression cases and checked null semantics, entity-specific groups, abort-before-EOF rejection and cleanup; runtime outcome remains INCONCLUSIVE until tests and real-host acceptance run centrally.
