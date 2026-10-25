@@ -39,3 +39,6 @@ playwright-report/
 
 # pnpm store created locally by sandboxed installs (regenerable)
 /.pnpm-store/
+
+# Peer-dispatch scratch (local only)
+/ADS-memory/tmp/

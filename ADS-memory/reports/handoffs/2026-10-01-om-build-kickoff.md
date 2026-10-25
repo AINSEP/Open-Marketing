@@ -80,3 +80,30 @@
 - How to run: `corepack pnpm om:serve`, open the printed OM_READY URL; CLI: `OM_STATE_ROOT=~/... node apps/server/dist/composition/cli.js status` (bin `om` declared in apps/server).
 - Notes for the owner: plugin packages under content/agent-plugins are not pnpm workspace members (higgsfield's hand-made node_modules link broke once; consider adding them to the workspace). Codex's sandbox has no network and blocks loopback listeners: installs and socket tests are Coordinator-run. Studio chat → agent runs, real model execution, vendor OAuth/admission, durable approvals, dispatch barrier, ServiceGrant runtime and packaging remain deferred. Desktop Electron app not launched live (tests only).
 - Next candidates (owner decides): post-MVP Wave 0 (Debate B), real agent runtime, studio chat wiring, vendor account setup (Google Cloud/Data Manager, Meta app + test ad account, Higgsfield).
+
+## 2026-10-13/14 overnight batch 2 (owner asleep; autonomous; caffeinate 16h)
+- Decisions: ADS-memory/.local-artifacts/codex-runs/2026-10-13-owner-decisions.md (green #00C896, desktop persists theme via persist: partition + fixed OM_PORT, Anthropic key on server, model loop in agent via server broker, A2UI Jini v1.0, charts = plugins only, plugins unrestricted, assistant does everything).
+- Inputs: 2026-10-13-tovu-dive-merged.md, 2026-10-13-tovu-answers-{84,54}.md, inputs-2026-10-13.md.
+- Installed @jini-ai/desktop-host 0.4.2 (apps/desktop).
+- Running: ui-theme T1 build; plans for 2026-10-14-{assistant,addons,linkedin-ads,tiktok-ads,instagram} (vendor plans use Codex web search: run-phase-retry.sh WEB=1).
+- Flow: plan -> subagent over-engineering review -> build, lanes sequenced for shared server/studio files.
+- Committed so far: d306d86 ui-theme T1, 7098427 Jini deps, f2d7f79 instagram, a80ae85 ui-theme T2, 3b4eb60 contracts I-0, 777253c tiktok-ads, 4f8dc3f assistant A1 (broker spike; both halves verified over real sockets), 12d9546 addons D1 (paste-token credentials), e017d6c linkedin-ads.
+- Verification by subagent build-verifier (typecheck, package tests, om:lint, om:boundaries per build); cycle fixes went back to Codex (F1 runs).
+- Running: assistant A2 || addons D2. Then strictly: D3 -> A3 -> A4 -> D4 -> A5, then I-2 (composition/agent-plugin-backends.ts binding meta/instagram, linkedin, tiktok, higgsfield to tool sources).
+- Not visually checked: the redesign (screen locked overnight).
+- More commits: af5ebdc deps (diagnostics 0.5.2, platform 0.5.6, yaml 2.8.1) + boundaries exception (only server serve.ts may import plugin code by computed URL), 421ded2 assistant A2 + addons D2 (end-to-end agent Jini -> real server broker -> fixture upstream PROVEN), 8bae639 addons D3 (pages, nav, CLI, boot wiring).
+- Verifier replaced once (context limit): build-verifier-2. Classifier blocked it twice (lint rerun after editing my script; deleting leftover read-only temp dirs) — not worked around; leftover /var/folders/.../T/om-i2-p7NvC3 predates runs.
+- Running: assistant A3 (catalog/dispatcher/MCP route). Then A4 -> D4 -> A5 -> I-2.
+- More commits: a21a63e A3 (catalog/dispatcher/MCP; unknown outcomes never retried), 8788a5f A4 (policy-gated writes, om tools CLI), bf7969a A4b (catalog wired to real services; expired quotes refused), aa62a69 deps (Jini UI peers; .pnpmfile.cjs gives Jini ui/agentic/chat zod 3), 346e3d5 D4 (Recharts plugin; OM admits chart providers itself — decision #11 for owner review), fa21da0 (studio main.ts may load chart bundles; micromark-extension-gfm), bcbadcd A5 (A2UI, charts in chat, page driving).
+- Verifiers: build-verifier-3 now; batch-reviewer finished (context full).
+- Running: I-2 R1 (vendor plugins -> catalog, admitted:false = no network). Then I-2 R2 (typed halt stop, conversions, coverage), then final verification.
+
+## 2026-10-17 — open-marketing-6b took over from bb (Codex-credit day; no tests run by owner request)
+Committed (each Codex plan → review → implement → Codex read-only review → fix → typecheck → commit):
+- bb40598, 018b9a2 I-2 R1/R2: vendor plugins in the catalog; typed halt stop; conversion binding; per-binding MCP isolation; bundle-byte revision fence; halt-barrier + lifecycle/binding rechecks.
+- c6948cb P1: `om:package` → unsigned x64 .app/.dmg with bundled official Node 24.2.0 (not yet built; needs the Node tarball + fresh builds).
+- dab8c16, 9175867 S1: durable confirmations/tool operations (migrations v19/v20); $5/day paid-send budget; privacy block-then-persist; transactional egress admission. ServiceGrant deferred.
+- 9b6226b, 7b9d6f9 O1: Google + LinkedIn OAuth (HTTP/CLI/assistant), client ID/secret pasted and sealed (no env). Meta/TikTok sign-in open.
+- 90590dd, e088d2f C1: neutral campaign drafts, plugin translators, one grouped exact launch card.
+- 37a3947, 2abf90b C2: PAUSED/DRAFT deployment + readback (Google/Meta/LinkedIn), read-only reconciliation, optional sealed Google developer token (Google sunset tokens 2026-09-09).
+Held: DS1 design (reviewed, codex-runs/2026-10-17-design; theme architecture from tovu-67 binding). Open: TikTok deploy, Meta/TikTok OAuth, Higgsfield pricing, API version upgrades, studio UI for all of the above, full test pass.
