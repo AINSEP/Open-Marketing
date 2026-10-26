@@ -29,6 +29,7 @@
 - server/studio wiring NEEDS listed in each B1.md.
 
 **Then:**
+0. **OWNER REMINDER:** when the Codex jobs finish, review every job's changes with **Opus 5.5** for over-engineering and bugs BEFORE committing or merging.
 1. Commit each job's files (untested).
 2. ONE cloud test run (Claude cloud env "Open Marketing", setup installs Node 24.2.0 + pnpm 10.24.0; build all packages first).
 3. Codex fixes from the report.
