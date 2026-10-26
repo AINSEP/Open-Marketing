@@ -6,7 +6,7 @@ import { campaignDeploymentPlanSchema, tiktokDeploymentSchemaFingerprint, tiktok
 
 const root = new URL("../../", import.meta.url);
 const capabilitySchema = capabilityEnvelopeSchema.omit({ pluginDigest: true });
-const extensionSchema = z.strictObject({ version: z.literal(1), enabled: z.literal(false), admitted: z.literal(false), capabilities: z.array(capabilitySchema).length(13) });
+const extensionSchema = z.strictObject({ version: z.literal(1), enabled: z.literal(false), admitted: z.literal(false), capabilities: z.array(capabilitySchema).length(13), credentialCards: z.array(z.record(z.string(), z.unknown())).max(32), credentialAssets: z.record(z.string(), z.string().regex(/^[a-f0-9]{64}$/)) });
 const manifestSchema = z.strictObject({ $schema: z.literal("https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"), name: z.literal("tiktok-ads"), version: z.literal("0.1.0"), description: z.string(), license: z.literal("Apache-2.0"), extensions: z.strictObject({ "io.github.ainsep.openmarketing": extensionSchema }) });
 
 function readJson(required: { path: string }): unknown {

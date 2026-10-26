@@ -1,9 +1,9 @@
 {
   "version": 1, "admitted": false,
   "capabilities": [
-    {"capabilityId": "campaign.read.v1", "version": 1, "pluginId": "apple-search-ads", "schemaFingerprint": "0fb783574573c8d6b3c17acd5b124fa5d6093b7684c870445715deb1b8e431ac", "admitted": false, "effects": ["read"]},
-    {"capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "apple-search-ads", "schemaFingerprint": "0fb783574573c8d6b3c17acd5b124fa5d6093b7684c870445715deb1b8e431ac", "admitted": false, "effects": ["read"]},
-    {"capabilityId": "campaign.create-draft.v1", "version": 1, "pluginId": "apple-search-ads", "schemaFingerprint": "7d60ab48dbd46edb554ef0c40c0661090e6c014063154ab1ff59f30c88c97b0a", "admitted": false, "effects": ["write"]}
+    {"capabilityId": "campaign.read.v1", "version": 1, "pluginId": "apple-search-ads", "schemaFingerprint": "f7d989b4773f8d74a1e4c2b9c2fed1b4768aa82c4ff302aa231ae4bb4c4579c3", "admitted": false, "effects": ["read"]},
+    {"capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "apple-search-ads", "schemaFingerprint": "f7d989b4773f8d74a1e4c2b9c2fed1b4768aa82c4ff302aa231ae4bb4c4579c3", "admitted": false, "effects": ["read"]},
+    {"capabilityId": "campaign.create-draft.v1", "version": 1, "pluginId": "apple-search-ads", "schemaFingerprint": "0adec0d0a495235cca61763eb4aab15da55a72da76a44c1ad8adbccf62075341", "admitted": false, "effects": ["write"]}
   ],
   "tools": [
     {"name": "list_accounts", "effects": ["read"], "capabilityId": "campaign.read.v1"},

@@ -12,7 +12,12 @@ export const tiktokStatus = { disabled: "DISABLE", enabled: "ENABLE" } as const;
 const name = z.string().trim().min(1).max(256);
 const budget = z.number().positive().max(1000000000).multipleOf(0.01);
 const mediaId = z.string().min(1).max(256).regex(/^[A-Za-z0-9_-]+$/);
-export const tiktokUrlSchema = z.url().max(2048).refine(value => { const url = new URL(value); return url.protocol === "https:" && !url.username && !url.password && !url.hash; });
+/** HTTPS landing URLs exclude credentials/fragments; Zod's value callback must not throw on malformed input. */
+export const tiktokUrlSchema = z.url().max(2048).refine(value => {
+  if (!URL.canParse(value)) return false;
+  const url = new URL(value);
+  return url.protocol === "https:" && !url.username && !url.password && !url.hash;
+});
 const entity = { entityType: z.enum(["campaign", "adgroup", "ad"]), entityId: vendorIdSchema };
 const variants = {
   "get-advertiser": z.strictObject({ kind: z.literal("get-advertiser") }),

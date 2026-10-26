@@ -9,7 +9,7 @@ const root = new URL("../../", import.meta.url);
 /** Fixture reader consumes the files the plugin host actually installs. */
 function readJson(required: { path: string }): unknown { return JSON.parse(readFileSync(new URL(required.path, root), "utf8")) as unknown; }
 const capability = capabilityEnvelopeSchema.omit({ pluginDigest: true });
-const manifestSchema = z.object({ $schema: z.literal("https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"), name: z.literal("linkedin-ads"), version: z.literal("0.1.0"), license: z.literal("Apache-2.0"), extensions: z.strictObject({ "io.github.ainsep.openmarketing": z.strictObject({ version: z.literal(1), enabled: z.literal(false), admitted: z.literal(false), capabilities: z.array(capability) }) }) });
+const manifestSchema = z.object({ $schema: z.literal("https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"), name: z.literal("linkedin-ads"), version: z.literal("0.1.0"), license: z.literal("Apache-2.0"), extensions: z.strictObject({ "io.github.ainsep.openmarketing": z.strictObject({ version: z.literal(1), enabled: z.literal(false), admitted: z.literal(false), capabilities: z.array(capability), credentialCards: z.array(z.record(z.string(), z.unknown())).max(32), credentialAssets: z.record(z.string(), z.string().regex(/^[a-f0-9]{64}$/)) }) }) });
 /** Source file whose bytes back a capability's schema fingerprint. */
 function fingerprintSource(required: { effect: string | undefined; capabilityId: string }): string {
   if (required.capabilityId === "campaign.create-draft.v1") return "campaign-deployment.ts";

@@ -105,6 +105,7 @@ for (const kind of ["memory", "fetch"] as const) describe(kind + " paused deploy
     { ...plan, ad: { ...plan.ad, identityType: "AUTH_CODE" } },
     { ...plan, ad: { ...plan.ad, landingPageUrl: undefined } },
     { ...plan, ad: { ...plan.ad, landingPageUrl: "" } },
+    { ...plan, ad: { ...plan.ad, landingPageUrl: "not-a-url" } },
   ])("returns typed unsupported with no effects for an unsupported plan: %j", async unsupportedPlan => {
     const f = setup({ kind });
     const input = { ...f.input, plan: unsupportedPlan };
