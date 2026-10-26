@@ -2,7 +2,7 @@
 import type Database from 'better-sqlite3';
 import { sqliteKernel } from '@jini-ai/db/kernel/sqlite';
 import type { CallContext, ObserverPort, Scope, SqlSession, UnitOfWork } from '@open-marketing/contracts';
-import type { WorkspaceSqlDatabase, WorkspaceSqlSession } from '@open-marketing/workspaces';
+import type { WorkspaceSqlDatabase } from '@open-marketing/workspaces';
 import { z } from 'zod';
 import { createCheckedSqliteClient, createSqlitePool, withTransaction, type PgObserver } from '../platform/jini-compat/db/src/index.js';
 
@@ -20,16 +20,10 @@ export function bindServerDatabase(required: { native: Database.Database; observ
     const unit: UnitOfWork = {
         transaction: ({ work }) => withTransaction({ pool, work: session => work({ session }) }, { observer: observe }),
     };
-    const workspace: WorkspaceSqlDatabase = {
+    const workspace: SqlSession = { ...unit,
         query: input => unit.transaction({ work: ({ session }) => session.query(input) }),
-        transaction: ({ run }) => unit.transaction({ work: ({ session }) => run(workspaceSession({ session })) }),
     };
     return { kernel, pool, unit, workspace, observe };
-}
-
-/** Foreign workspaces run(session) callback is positional; its query shape already matches OM. */
-function workspaceSession(required: { session: SqlSession }): WorkspaceSqlSession {
-    return { query: input => required.session.query(input) };
 }
 
 /** Persist the trusted local scope using the workspaces adapter, once. A different owner for the
@@ -37,7 +31,7 @@ function workspaceSession(required: { session: SqlSession }): WorkspaceSqlSessio
  * Native/row failures propagate to the typed boot boundary. @complexity O(1) indexed queries.
  */
 export async function provisionWorkspace(required: { database: WorkspaceSqlDatabase; scope: Scope }): Promise<void> {
-    await required.database.transaction({ run: async session => {
+    await required.database.transaction({ work: async ({ session }) => {
         await session.query({ text: 'INSERT INTO workspace (owner_id, workspace_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
             values: [required.scope.ownerId, required.scope.workspaceId] });
         const result = await session.query({ text: 'SELECT owner_id, workspace_id FROM workspace WHERE workspace_id=$1 LIMIT 1', values: [required.scope.workspaceId] });

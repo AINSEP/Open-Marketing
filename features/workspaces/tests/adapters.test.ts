@@ -35,10 +35,10 @@ describe("adapter failure boundaries", () => {
     expect(await badClock.verify({ session: { sessionId: "expires" } })).toMatchObject({ ok: false, error: { code: "unavailable" } });
   });
   it("SQL exceptions and malformed database rows return typed unavailable", async () => {
-    const db: WorkspaceSqlDatabase = { async query() { throw new Error("secret-db-detail"); }, async transaction({ run }) { return run(this); } };
+    const db: WorkspaceSqlDatabase = { async query() { throw new Error("secret-db-detail"); }, async transaction({ work }) { return work({ session: this }); } };
     const repo = createSqlWorkspaceRepo({ db, identity: createMemoryIdentity({ sessions }), ids: createIds({}) });
     expect(await repo.resolve({ session: { sessionId: "session-a" }, workspaceId: ownerScope.workspaceId })).toMatchObject({ ok: false, error: { code: "unavailable" } });
-    const malformed: WorkspaceSqlDatabase = { async query() { return { rows: [{ found: "unexpected" }] }; }, async transaction({ run }) { return run(this); } };
+    const malformed: WorkspaceSqlDatabase = { async query<Row extends Record<string, unknown>>() { return { rows: [{ found: "unexpected" }] as unknown as Row[], rowCount: null }; }, async transaction({ work }) { return work({ session: this }); } };
     const invalid = createSqlWorkspaceRepo({ db: malformed, identity: createMemoryIdentity({ sessions }), ids: createIds({}) });
     expect(await invalid.resolve({ session: { sessionId: "session-a" }, workspaceId: ownerScope.workspaceId })).toMatchObject({ ok: false, error: { code: "unavailable" } });
     const context = { scope: binding.scope, principal: { kind: "owner" as const, ownerId: binding.scope.ownerId }, correlationId: "c", traceId: "t" };

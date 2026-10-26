@@ -22,7 +22,7 @@ export function createSqlTrackedLink(required: { database: MeasureSqlDatabase; i
       if (!id.ok) return id;
       const link = prepareTrackedLink({ linkId: id.value, request: request.value, baseUrl: required.baseUrl, allowedOrigins: required.allowedOrigins, allowedQueryKeys: required.allowedQueryKeys });
       if (!link.ok) return link;
-      return sqlBoundary({ context: context.value, operation: "measure.sql.createLink", observer: optional?.observer, work: () => required.database.transaction({ work: async transaction => {
+      return sqlBoundary({ context: context.value, operation: "measure.sql.createLink", observer: optional?.observer, work: () => required.database.transaction({ work: async ({ session: transaction }) => {
         const values = [scopeKey({ scope: context.value.scope }), link.value.linkId];
         const existing = await transaction.query({ text: "SELECT link_id FROM measure_tracked_link WHERE scope_key=$1 AND link_id=$2", values });
         if (existing.rows[0]) return unwrap({ outcome: failure({ code: "conflict", message: "Tracked link ID collision" }) });

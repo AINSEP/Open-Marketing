@@ -49,16 +49,16 @@ export function createSqlScopedJobs(required: { database: JobsSqlDatabase; clock
         get(input, optional) { return boundary({ ...required, context: input.context, operation: "jobs.get", work: async () => {
             const parsed = parseBoundary({ schema: getSchema, input });
             if (!parsed.ok) return parsed;
-            return required.database.transaction({ context: input.context, execute: async ({ session }) => {
-                const rows = await session.query({ sql: "SELECT * FROM job WHERE tenant_id=$1 AND id=$2", parameters: [jobTenant(input), input.jobId] });
+            return required.database.transaction({ work: async ({ session }) => {
+                const rows = await session.query({ text: "SELECT * FROM job WHERE tenant_id=$1 AND id=$2", values: [jobTenant(input), input.jobId] });
                 return { ok: true, value: rows.rows[0] ? project({ job: sqlJob({ row: rows.rows[0] }) }) : null };
             } });
         } }, optional); },
         list(input, optional) { return boundary({ ...required, context: input.context, operation: "jobs.list", work: async () => {
             const parsed = parseBoundary({ schema: listSchema, input });
             if (!parsed.ok) return parsed;
-            return required.database.transaction({ context: input.context, execute: async ({ session }) => {
-                const rows = await session.query({ sql: "SELECT * FROM job WHERE tenant_id=$1 AND id>$2 ORDER BY id LIMIT $3", parameters: [jobTenant(input), input.query.cursor ?? "", input.query.limit + 1] });
+            return required.database.transaction({ work: async ({ session }) => {
+                const rows = await session.query({ text: "SELECT * FROM job WHERE tenant_id=$1 AND id>$2 ORDER BY id LIMIT $3", values: [jobTenant(input), input.query.cursor ?? "", input.query.limit + 1] });
                 const items = rows.rows.slice(0, input.query.limit).map(row => project({ job: sqlJob({ row }) }));
                 return { ok: true, value: { items, cursor: rows.rows.length > input.query.limit ? items.at(-1)!.jobId : null } };
             } });
@@ -66,8 +66,8 @@ export function createSqlScopedJobs(required: { database: JobsSqlDatabase; clock
         cancel(input, optional) { return boundary<{ readonly cancelled: boolean }>({ ...required, context: input.context, operation: "jobs.cancel", work: async () => {
             const parsed = parseBoundary({ schema: getSchema, input });
             if (!parsed.ok) return parsed;
-            return required.database.transaction({ context: input.context, execute: async ({ session }) => {
-                const rows = await session.query({ sql: "UPDATE job SET state='cancelled' WHERE tenant_id=$1 AND id=$2 AND state='pending' AND attempts=0 RETURNING *", parameters: [jobTenant(input), input.jobId] });
+            return required.database.transaction({ work: async ({ session }) => {
+                const rows = await session.query({ text: "UPDATE job SET state='cancelled' WHERE tenant_id=$1 AND id=$2 AND state='pending' AND attempts=0 RETURNING *", values: [jobTenant(input), input.jobId] });
                 if (!rows.rows[0]) return { ok: true, value: { cancelled: false } };
                 const job = sqlJob({ row: rows.rows[0] });
                 await appendTransition({ session, job, event: "cancel", now: required.clock.now({}) });

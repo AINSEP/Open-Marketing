@@ -18,7 +18,7 @@ export function createSqlConversionDeliveryState(required: { database: MeasureSq
       const parsed = parseBoundary({ schema: dispatchRecordSchema, input: input.record });
       if (!parsed.ok) return parsed;
       if (parsed.value.status !== "dispatching") return failure({ code: "invalid_input", message: "Claim must begin dispatching" });
-      return sqlBoundary({ context: asCallContext({ context: input.context }), operation: "measure.sql.claimDelivery", observer: optional?.observer, work: () => required.database.transaction({ work: async transaction => {
+      return sqlBoundary({ context: asCallContext({ context: input.context }), operation: "measure.sql.claimDelivery", observer: optional?.observer, work: () => required.database.transaction({ work: async ({ session: transaction }) => {
         const previous = await latestRecord({ transaction, context: input.context, deliveryId: parsed.value.deliveryId });
         if (previous) {
           if (previous.record.identity !== parsed.value.identity || previous.record.subjectId !== parsed.value.subjectId || previous.record.eventId !== parsed.value.eventId) return unwrap({ outcome: failure({ code: "conflict", message: "Delivery ID already binds another payload" }) });
@@ -33,7 +33,7 @@ export function createSqlConversionDeliveryState(required: { database: MeasureSq
       if (!context.ok) return context;
       const parsed = parseBoundary({ schema: dispatchRecordSchema, input: input.record });
       if (!parsed.ok) return parsed;
-      return sqlBoundary({ context: asCallContext({ context: input.context }), operation: "measure.sql.appendDelivery", observer: optional?.observer, work: () => required.database.transaction({ work: async transaction => {
+      return sqlBoundary({ context: asCallContext({ context: input.context }), operation: "measure.sql.appendDelivery", observer: optional?.observer, work: () => required.database.transaction({ work: async ({ session: transaction }) => {
         const previous = await latestRecord({ transaction, context: input.context, deliveryId: parsed.value.deliveryId });
         unwrap({ outcome: validateDeliveryTransition({ previous: previous?.record, record: parsed.value }) });
         await insertRecord({ transaction, context: input.context, record: parsed.value, version: (previous?.version ?? 0) + 1 });

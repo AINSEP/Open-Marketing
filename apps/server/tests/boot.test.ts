@@ -72,9 +72,7 @@ it('commits owner identity and audit together through boot HTTP, rejecting agent
             principal: { kind: 'owner', ownerId: credentials.value.ownerId }, correlationId: 'identity-correlation', traceId: 'identity-trace' };
         const native = f.handles[0];
         const { unit } = bindServerDatabase({ native, context, observer: f.observer });
-        const cards = createSqlConfirmationExchange({ ...f, db: { transaction: ({ execute }) => unit.transaction({ work: ({ session }) => execute({ session: {
-            query: ({ sql, parameters }) => session.query({ text: sql, values: [...parameters] }),
-        } }) }) }, async recordAnswer() { throw new Error('Seed-only adapter cannot answer'); } });
+        const cards = createSqlConfirmationExchange({ ...f, db: unit, async recordAnswer() { throw new Error('Seed-only adapter cannot answer'); } });
         const args = { action: 'fixture_write' };
         const digest = digestArguments({ arguments: args });
         if (!digest.ok) throw new Error(digest.error.message);
@@ -279,7 +277,7 @@ it('workspace transaction adapter joins supplied sessions, rolls back denials an
             scope: { ownerId: 'fixture-owner', workspaceId: randomUUID() }, principal: { kind: 'owner', ownerId: 'fixture-owner' }, correlationId: 'test-correlation', traceId: 'test-trace',
         } });
         native.exec('CREATE TABLE probe (value INTEGER)');
-        const denied = await database.workspace.transaction({ run: async session => {
+        const denied = await database.workspace.transaction({ work: async ({ session }) => {
             await session.query({ text: 'INSERT INTO probe VALUES ($1)', values: [1] });
             return { ok: false as const, error: { code: 'conflict' as const, message: 'fixture rejection', retryable: false } };
         } });

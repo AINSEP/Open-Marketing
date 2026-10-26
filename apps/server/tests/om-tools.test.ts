@@ -1205,9 +1205,7 @@ function durableFixture(input: { backend: 'memory' | 'sql' }) {
     for (const path of ['../../../features/safety/migrations/0002_confirmations.sql', '../migrations/0003_tool_operations.sql'])
         native.exec(readFileSync(new URL(path, import.meta.url), 'utf8'));
     const { unit } = bindServerDatabase({ native, context: owner, observer: base.observer });
-    const db: SafetySqlDatabase = { transaction: ({ execute }) => unit.transaction({ work: ({ session }) => execute({ session: {
-        query: ({ sql, parameters }) => session.query({ text: sql, values: [...parameters] }),
-    } }) }) };
+    const db: SafetySqlDatabase = unit;
     const memory = createMemoryToolOperationStore({});
     const memoryCards = createMemoryConfirmationExchange({ ...base, ...answerAudit() });
     let agentActive = true;

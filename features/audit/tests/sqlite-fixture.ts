@@ -1,6 +1,5 @@
 import Database from "better-sqlite3";
 import { readFileSync } from "node:fs";
-import type { CallContext, CallOptions } from "@open-marketing/contracts";
 import type { AuditSqlDatabase, AuditSqlSession } from "../index.js";
 
 /** Real SQLite fixture only: migration execution is confined to disposable databases created by tests. */
@@ -14,18 +13,18 @@ export function sqliteHarness(required: { filename?: string; migrate?: boolean }
     native.exec(readFileSync(new URL("../migrations/0002_audit_sqlite_immutability.sql", import.meta.url), "utf8"));
   }
   const session: AuditSqlSession = {
-    async query(input) {
+    transaction: ({ work }) => work({ session }),
+    async query<Row extends Record<string, unknown>>(input: { text: string; values?: unknown[] }) {
       const statement = native.prepare(input.text);
-      const parameters = Object.fromEntries(input.values.map((item, index) => [String(index + 1), item]));
-      if (statement.reader) return { rows: statement.all(parameters) as Record<string, unknown>[] };
-      statement.run(parameters);
-      return { rows: [] };
+      const parameters = Object.fromEntries((input.values ?? []).map((item, index) => [String(index + 1), item]));
+      if (statement.reader) return { rows: statement.all(parameters) as Row[], rowCount: null };
+      return { rows: [] as Row[], rowCount: statement.run(parameters).changes };
     },
   };
   let pending: Promise<unknown> = Promise.resolve();
   const db: AuditSqlDatabase = {
-    transaction<T>(input: { context: CallContext; execute(required: { session: AuditSqlSession }): Promise<T> }, optional?: CallOptions): Promise<T> {
-      const task = pending.then(() => runTransaction({ native, session, input }, optional));
+    transaction<T>(input: { work(required: { session: AuditSqlSession }): Promise<T> }): Promise<T> {
+      const task = pending.then(() => runTransaction({ native, session, input }));
       pending = task.catch(() => undefined);
       return task;
     },
@@ -36,13 +35,12 @@ export function sqliteHarness(required: { filename?: string; migrate?: boolean }
 /** Foreign SQLite transaction ABI is kept in tests; no feature runtime imports a driver. */
 async function runTransaction<T>(required: {
   native: Database.Database; session: AuditSqlSession;
-  input: { context: CallContext; execute(required: { session: AuditSqlSession }): Promise<T> };
-}, optional?: CallOptions): Promise<T> {
-  if (optional?.signal?.aborted) throw new Error("Cancelled acquisition");
+  input: { work(required: { session: AuditSqlSession }): Promise<T> };
+}): Promise<T> {
   required.native.exec("BEGIN IMMEDIATE");
   try {
-    const result = await required.input.execute({ session: required.session });
-    required.native.exec("COMMIT");
+    const result = await required.input.work({ session: required.session });
+    required.native.exec(typeof result === "object" && result !== null && "ok" in result && result.ok === false ? "ROLLBACK" : "COMMIT");
     return result;
   } catch (cause) {
     required.native.exec("ROLLBACK");
@@ -60,19 +58,19 @@ export function memorySqlHarness(required: {
   let current: string[] = [];
   let pending: Promise<unknown> = Promise.resolve();
   const session: AuditSqlSession = {
-    async query(input) {
-      const result = required.respond(structuredClone(input));
+    transaction: ({ work }) => work({ session }),
+    async query<Row extends Record<string, unknown>>(input: { text: string; values?: unknown[] }) {
+      const result = required.respond(structuredClone({ ...input, values: input.values ?? [] }));
       current.push(input.text);
-      return structuredClone(result);
+      return structuredClone({ ...result, rowCount: null }) as { rows: Row[]; rowCount: number | null };
     },
   };
   const db: AuditSqlDatabase = {
-    transaction(input, optional) {
+    transaction(input) {
       const task = pending.then(async () => {
-        if (optional?.signal?.aborted) throw new Error("Cancelled acquisition");
         current = [];
-        const result = await input.execute({ session });
-        committed.push(...current);
+        const result = await input.work({ session });
+        if (!(typeof result === "object" && result !== null && "ok" in result && result.ok === false)) committed.push(...current);
         return result;
       });
       pending = task.catch(() => undefined);

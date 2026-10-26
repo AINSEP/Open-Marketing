@@ -1,4 +1,4 @@
-import type { CallContext, CallOptions, ObserverPort, Outcome } from "@open-marketing/contracts";
+import type { CallContext, CallOptions, ObserverPort, Outcome, SqlSession, UnitOfWork } from "@open-marketing/contracts";
 import type { AuditEntry, AuditPage, AuditQuery, AuditReceipt } from "./types.js";
 
 /** Trusted server repository. Corrections require an existing same-scope, same-operation receipt.
@@ -18,20 +18,7 @@ export interface AuditRedactorPort {
 /** Diagnostics carry fixed labels and injected correlation IDs, never entries. */
 export type AuditObserverPort = ObserverPort;
 
-/** Removable Jini-shaped query seam: bound $n values, no driver construction.
- * @example await session.query({ text: "SELECT entry_id FROM audit_entry WHERE entry_id = $1", values: [id] });
- */
-export interface AuditSqlSession {
-  query(required: { text: string; values: unknown[] }): Promise<{ rows: readonly Readonly<Record<string, unknown>>[] }>;
-}
-/** Composition owns connections, busy timeout and lifecycle. Transactions serialize writers
- * (SQLite BEGIN IMMEDIATE), commit before returning and roll back callback exceptions.
- * Never retry uncertain commits. Forward signal to acquisition/query cancellation where supported.
- * @example await db.transaction({ context, execute: ({ session }) => session.query({ text, values }) });
- */
-export interface AuditSqlDatabase {
-  transaction<T>(required: {
-    context: CallContext;
-    execute: (required: { session: AuditSqlSession }) => Promise<T>;
-  }, optional?: CallOptions): Promise<T>;
-}
+/** Canonical leased SQL session; audit validates tainted rows before use. */
+export type AuditSqlSession = SqlSession;
+/** Server owns serialized transactions, rollback and session lifetime. */
+export type AuditSqlDatabase = UnitOfWork;

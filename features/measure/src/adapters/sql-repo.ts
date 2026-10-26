@@ -19,7 +19,7 @@ export function createSqlMeasureRepo(required: RepoDependencies, optional?: { ob
       if (!parsed.ok) return parsed;
       const subjectId = parseBoundary({ schema: idSchema, input: input.subjectId });
       if (!subjectId.ok) return subjectId;
-      return sqlBoundary({ context: parsed.value, operation: "measure.sql.purgeSubject", observer: optional?.observer, work: () => required.database.transaction({ work: async transaction => {
+      return sqlBoundary({ context: parsed.value, operation: "measure.sql.purgeSubject", observer: optional?.observer, work: () => required.database.transaction({ work: async ({ session: transaction }) => {
         // Only the reloadable order reference is cleared; the original semantic digest stays immutable.
         await transaction.query({ text: "UPDATE measure_conversion_event SET event_json=json_remove(event_json,'$.orderRef') WHERE scope_key=$1 AND subject_id=$2", values: [scopeKey({ scope: parsed.value.scope }), subjectId.value] });
       } }) }, options);
@@ -28,19 +28,19 @@ export function createSqlMeasureRepo(required: RepoDependencies, optional?: { ob
       const parsed = parseSourceEvent({ input });
       if (!parsed.ok) return parsed;
       const value = parsed.value;
-      return sqlBoundary({ context: ingestionContext(value), operation: "measure.sql.appendConversion", observer: optional?.observer, work: () => required.database.transaction({ work: transaction => commitConversion({ ...required, transaction, ...value }, options) }) }, options);
+      return sqlBoundary({ context: ingestionContext(value), operation: "measure.sql.appendConversion", observer: optional?.observer, work: () => required.database.transaction({ work: ({ session: transaction }) => commitConversion({ ...required, transaction, ...value }, options) }) }, options);
     },
     async appendSnapshot(input, options) {
       const context = parseBoundary({ schema: callContextSchema, input: input.context });
       if (!context.ok) return context;
       const parsed = parseBoundary({ schema: snapshotSchema, input: input.snapshot });
       if (!parsed.ok) return parsed;
-      return sqlBoundary({ context: context.value, operation: "measure.sql.appendSnapshot", observer: optional?.observer, work: () => required.database.transaction({ work: transaction => commitSnapshot({ transaction, context: context.value, snapshot: parsed.value }) }) }, options);
+      return sqlBoundary({ context: context.value, operation: "measure.sql.appendSnapshot", observer: optional?.observer, work: () => required.database.transaction({ work: ({ session: transaction }) => commitSnapshot({ transaction, context: context.value, snapshot: parsed.value }) }) }, options);
     },
     async appendAttribution(input, options) {
       const parsed = parseBoundary({ schema: attributionInputSchema, input });
       if (!parsed.ok) return parsed;
-      return sqlBoundary({ context: parsed.value.context, operation: "measure.sql.appendAttribution", observer: optional?.observer, work: () => required.database.transaction({ work: transaction => commitAttribution({ ...parsed.value, transaction }) }) }, options);
+      return sqlBoundary({ context: parsed.value.context, operation: "measure.sql.appendAttribution", observer: optional?.observer, work: () => required.database.transaction({ work: ({ session: transaction }) => commitAttribution({ ...parsed.value, transaction }) }) }, options);
     },
     async readAttribution(input, options) {
       const context = parseBoundary({ schema: callContextSchema, input: input.context });

@@ -37,16 +37,17 @@ export function createSqlFixture(required: Record<string, never>): SqlFixture {
     if (statement.reader) return { rows: statement.all(bindings) as Row[], rowCount: null };
     return { rows: [] as Row[], rowCount: statement.run(bindings).changes };
   };
-  const transaction: MeasureSqlDatabase["transaction"] = async <T>(input: { work: (transaction: MeasureSqlQueryable) => Promise<T> }) => {
+  const transaction: MeasureSqlDatabase["transaction"] = async <T>(input: { work: (required: { session: MeasureSqlDatabase }) => Promise<T> }) => {
     const previous = tail;
     const completed = new EventEmitter();
     tail = once(completed, "release").then(() => undefined);
     await previous;
     handle.exec("BEGIN IMMEDIATE");
-    try { const value = await input.work({ query }); handle.exec("COMMIT"); return value; }
+    try { const value = await input.work({ session }); handle.exec(typeof value === "object" && value !== null && "ok" in value && value.ok === false ? "ROLLBACK" : "COMMIT"); return value; }
     catch (error) { handle.exec("ROLLBACK"); throw error; }
     finally { completed.emit("release"); }
   };
+  const session: MeasureSqlDatabase = { query, transaction: ({ work }) => work({ session }) };
   const database: MeasureSqlDatabase = { query, transaction };
   const ids = createIds({ prefix: "sql-job" });
   const jobs: MeasureTransactionalJobPort = {

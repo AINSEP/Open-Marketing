@@ -12,11 +12,6 @@ import { decodeJob } from "./schema.js";
 export interface DomainIntentSqlWriter {
     write(required: { session: JobsSqlSession; context: CallContext; intentId: string; job: JobRequest; receipt: JobReceipt }): Promise<Outcome<void>>;
 }
-/** Typed callback failure forces rollback even though the injected domain writer returns an Outcome. */
-class IntentRollback extends Error {
-    readonly outcome: Outcome<JobReceipt>;
-    constructor(required: { outcome: Outcome<JobReceipt> }) { super("Domain intent transaction rolled back"); this.outcome = required.outcome; }
-}
 /** Domain intent and enqueue use one serialized DB transaction/connection. Failed writer/insert/journal rolls both back.
  * @example createDomainIntentTransaction({ database, writer, clock, ids })
  * @complexity Bounded JSON validation plus enqueue SQL and injected domain SQL in one transaction.
@@ -35,17 +30,16 @@ export function createDomainIntentTransaction(required: { database: JobsSqlDatab
             const job = decodeJob(pending);
             const context = pending.context!;
             try {
-                return await required.database.transaction({ context, execute: async ({ session }) => {
+                return await required.database.transaction({ work: async ({ session }) => {
                     const result = await enqueueSqlJob({ session, job: pending, maxJobs });
-                    if (result.kind === "conflict") throw new IntentRollback({ outcome: jobFailure({ code: "conflict", message: "Idempotency key already binds another intent" }) });
+                    if (result.kind === "conflict") return jobFailure({ code: "conflict", message: "Idempotency key already binds another intent" });
                     const receipt: JobReceipt = { jobId: result.job.id, operationId: job.operationId, status: result.kind === "inserted" ? "enqueued" : "existing" };
                     const persisted = await required.writer.write({ context, intentId, job, session, receipt });
-                    if (!persisted.ok) throw new IntentRollback({ outcome: persisted });
-                    if (optional?.signal?.aborted) throw new IntentRollback({ outcome: jobFailure({ code: "cancelled", message: "Domain intent commit cancelled" }) });
+                    if (!persisted.ok) return persisted;
+                    if (optional?.signal?.aborted) return jobFailure({ code: "cancelled", message: "Domain intent commit cancelled" });
                     return { ok: true, value: receipt } as const;
                 } });
             } catch (error) {
-                if (error instanceof IntentRollback) return error.outcome;
                 return storeFailure({ error });
             }
         },

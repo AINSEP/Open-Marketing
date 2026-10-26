@@ -14,7 +14,7 @@ function readCard(required: { row: Readonly<Record<string, unknown>> }): StoredC
 }
 /** Scoped indexed lookup; the transaction caller owns serialization. @complexity O(b) payload parsing. */
 async function loadCard(required: { session: SafetySqlSession; context: CallContext; cardId: string }): Promise<StoredCard | undefined> {
- const result = await required.session.query({ sql: "SELECT payload FROM safety_confirmations WHERE owner_id=$1 AND workspace_id=$2 AND card_id=$3", parameters: [required.context.scope.ownerId, required.context.scope.workspaceId, required.cardId] });
+ const result = await required.session.query({ text: "SELECT payload FROM safety_confirmations WHERE owner_id=$1 AND workspace_id=$2 AND card_id=$3", values: [required.context.scope.ownerId, required.context.scope.workspaceId, required.cardId] });
  return result.rows[0] ? readCard({ row: result.rows[0] }) : undefined;
 }
 /** Immutable answers and scoped revocation share the memory adapter's validation.
@@ -28,7 +28,7 @@ export function createSqlConfirmationExchange(required: { db: SafetySqlDatabase;
  async function transact<T>(input: { context: CallContext; ownerOnly?: boolean; execute(required: { session: SafetySqlSession }): Promise<Outcome<T>> }, options?: CallOptions): Promise<Outcome<T>> {
   if (!validContext(input)) return failure({ message: "Invalid confirmation scope" });
   if (options?.signal?.aborted) return failure({ code: "cancelled", message: "Confirmation cancelled" });
-  try { return await required.db.transaction(input); }
+  try { return await required.db.transaction({ work: input.execute }); }
   catch { return failure({ code: "unavailable", message: "Confirmation storage unavailable; no authority granted" }); }
  }
  return {
@@ -37,7 +37,7 @@ export function createSqlConfirmationExchange(required: { db: SafetySqlDatabase;
    if (!parsed.ok) return parsed;
    const { context, query } = parsed.value;
    return transact<Page<ConfirmationCard>>({ context, ownerOnly: true, execute: async ({ session }) => {
-    const result = await session.query({ sql: "SELECT payload FROM safety_confirmations WHERE owner_id=$1 AND workspace_id=$2 AND status='pending' AND expires_at>$3 AND card_id>$4 ORDER BY card_id LIMIT $5", parameters: [context.scope.ownerId, context.scope.workspaceId, required.clock.now({}), query.cursor ?? "", query.limit + 1] });
+    const result = await session.query({ text: "SELECT payload FROM safety_confirmations WHERE owner_id=$1 AND workspace_id=$2 AND status='pending' AND expires_at>$3 AND card_id>$4 ORDER BY card_id LIMIT $5", values: [context.scope.ownerId, context.scope.workspaceId, required.clock.now({}), query.cursor ?? "", query.limit + 1] });
     const cards = result.rows.map(row => readCard({ row }).card);
     const items = cards.slice(0, query.limit);
     return success({ value: { items, cursor: cards.length > query.limit ? items.at(-1)!.cardId : null } });
@@ -58,11 +58,11 @@ export function createSqlConfirmationExchange(required: { db: SafetySqlDatabase;
    const payload = JSON.stringify(stored);
    if (payload.length > 262144) return failure({ code: "limit_exceeded", message: "Card storage bound exceeded" });
    return transact<ConfirmationCard>({ context: input.context, execute: async ({ session }) => {
-    const count = await session.query({ sql: "SELECT COUNT(*) AS total FROM safety_confirmations WHERE owner_id=$1 AND workspace_id=$2", parameters: [input.context.scope.ownerId, input.context.scope.workspaceId] });
+    const count = await session.query({ text: "SELECT COUNT(*) AS total FROM safety_confirmations WHERE owner_id=$1 AND workspace_id=$2", values: [input.context.scope.ownerId, input.context.scope.workspaceId] });
     const total = Number(count.rows[0]?.total);
     if (!Number.isSafeInteger(total) || total < 0) return failure({ code: "unavailable", message: "Invalid confirmation capacity" });
     if (total >= 10000) return failure({ code: "limit_exceeded", message: "Confirmation capacity reached" });
-    await session.query({ sql: "INSERT INTO safety_confirmations (owner_id, workspace_id, card_id, status, expires_at, payload) VALUES ($1,$2,$3,'pending',$4,$5)", parameters: [input.context.scope.ownerId, input.context.scope.workspaceId, stored.card.cardId, stored.card.expiresAt, payload] });
+    await session.query({ text: "INSERT INTO safety_confirmations (owner_id, workspace_id, card_id, status, expires_at, payload) VALUES ($1,$2,$3,'pending',$4,$5)", values: [input.context.scope.ownerId, input.context.scope.workspaceId, stored.card.cardId, stored.card.expiresAt, payload] });
     return success({ value: stored.card });
    } }, options);
   },
@@ -78,7 +78,7 @@ export function createSqlConfirmationExchange(required: { db: SafetySqlDatabase;
     const answer = makeAnswer({ response, approver, answeredAt: now });
     if (!answer.ok) return answer;
     stored!.answer = answer.value;
-    const updated = await session.query({ sql: "UPDATE safety_confirmations SET status='answered', payload=$1 WHERE owner_id=$2 AND workspace_id=$3 AND card_id=$4 RETURNING card_id", parameters: [JSON.stringify(stored), context.scope.ownerId, context.scope.workspaceId, response.cardId] });
+    const updated = await session.query({ text: "UPDATE safety_confirmations SET status='answered', payload=$1 WHERE owner_id=$2 AND workspace_id=$3 AND card_id=$4 RETURNING card_id", values: [JSON.stringify(stored), context.scope.ownerId, context.scope.workspaceId, response.cardId] });
     if (updated.rows.length !== 1 || updated.rows[0]?.card_id !== response.cardId) return failure({ code: "unavailable", message: "Approval answer update failed" });
     return required.recordAnswer({ session, ...structuredClone({ context, answer: answer.value }) });
    } }, options);
@@ -90,7 +90,7 @@ export function createSqlConfirmationExchange(required: { db: SafetySqlDatabase;
   revoke: (input, options) => transact<void>({ context: input.context, execute: async ({ session }) => {
    const parsed = parseBoundary({ schema: cardReadSchema, input });
    if (!parsed.ok) return parsed;
-   await session.query({ sql: "DELETE FROM safety_confirmations WHERE owner_id=$1 AND workspace_id=$2 AND card_id=$3", parameters: [input.context.scope.ownerId, input.context.scope.workspaceId, input.cardId] });
+   await session.query({ text: "DELETE FROM safety_confirmations WHERE owner_id=$1 AND workspace_id=$2 AND card_id=$3", values: [input.context.scope.ownerId, input.context.scope.workspaceId, input.cardId] });
    return success({ value: undefined });
   } }, options),
  };

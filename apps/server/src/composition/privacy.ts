@@ -6,7 +6,7 @@ import type { FormSubjectPort } from '@open-marketing/forms';
 import type { MeasurePrivacyPort } from '@open-marketing/measure';
 import type { bindIdentity } from './identity.js';
 import { localFailure } from './local-auth.js';
-import { formRetryPolicy, jobsDatabase } from './forms.js';
+import { formRetryPolicy } from './forms.js';
 import type { createSubjectLane } from './subject-lane.js';
 
 type Identity = ReturnType<typeof bindIdentity>;
@@ -85,7 +85,7 @@ export function bindPrivacy(required: {
                 if (!root.ok) return root;
                 if (!root.value) return localFailure({ message: 'Erasure subject unavailable' });
                 const subjectIds = [...new Set([root.value.subjectId, ...root.value.lineage.map(item => item.sourceSubjectId)])];
-                const jobs = createSqlJobRepo({ database: jobsDatabase({ unit: session }), clock: required.clock, ids: required.ids, retryPolicy: formRetryPolicy });
+                const jobs = createSqlJobRepo({ database: session, clock: required.clock, ids: required.ids, retryPolicy: formRetryPolicy });
                 await jobs.outbox.cancelBySubject({ tenantId: jobTenant(input), subjectIds, now: required.clock.now({}) });
                 return { ok: true, value: undefined };
             } }) } });

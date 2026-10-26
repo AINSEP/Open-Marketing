@@ -6,7 +6,7 @@ import { createJobHandlerRegistry, createOutbox, createSqlJobRepo, createSqlOutb
 import { digestArguments } from '@open-marketing/safety';
 import type { AccountDispatchLockPort, HaltReceipt, SafetyService } from '@open-marketing/safety';
 import type { HttpEffects } from '../inbound/http.js';
-import { formJobDigest, formRetryPolicy, jobsDatabase, type bindForms } from './forms.js';
+import { formJobDigest, formRetryPolicy, type bindForms } from './forms.js';
 import type { CreativeToolBinding } from '../om-tool-types.js';
 import { localFailure } from './local-auth.js';
 
@@ -94,7 +94,7 @@ export function createFormWorkers(required: {
         } });
         if (!registeredCreative.ok) throw new Error('Creative worker registration failed');
     }
-    const store = createSqlOutboxStore({ database: jobsDatabase({ unit: required.unit }) });
+    const store = createSqlOutboxStore({ database: required.unit });
     const outbox = createOutbox({ inputPolicy: formRetryPolicy, ports: {
         store, clock: required.clock, generateId: () => required.ids.next({}),
         async authorize(request) { try { const input = decode({ request, context: required.context }); return workerEnabled({ handler: input.job.handler, creative: !!required.creative, halt: !!required.halt }); } catch { return false; } },
@@ -181,7 +181,7 @@ export function bindAgentPluginHaltJobs(required: {
     targets(input: { context: CallContext; receipt: HaltReceipt }): Promise<Outcome<readonly z.infer<typeof stopPayloadSchema>[]>>;
     stop(input: { context: CallContext; pluginId: string; permit: HaltStopPermit }): Promise<Outcome<unknown>>;
 }) {
-    const repo = createSqlJobRepo({ database: jobsDatabase(required), clock: required.clock, ids: required.ids, retryPolicy: formRetryPolicy });
+    const repo = createSqlJobRepo({ database: required.unit, clock: required.clock, ids: required.ids, retryPolicy: formRetryPolicy });
     return {
         async halt(input: Parameters<SafetyService['haltAccount']>[0]): Promise<Outcome<HaltReceipt>> {
             const halted = await required.safety.haltAccount(input);

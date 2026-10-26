@@ -12,10 +12,15 @@ export function unwrap<T>(required: { outcome: Outcome<T> }): T {
   if (!required.outcome.ok) throw new MeasureRollback({ outcome: required.outcome });
   return required.outcome.value;
 }
-/** Transaction errors preserve typed domain denials; driver throws become unavailable. */
+/** Restore typed denials only after successful body rollback. Commit/rollback/release failures
+ * remain unavailable, preserving uncertainty. @complexity O(1) wrapper around bounded injected work. */
 export async function sqlBoundary<T>(required: { context: CallContext; operation: string; observer?: MeasureObserverPort; work: () => Promise<T> }, optional?: CallOptions): Promise<Outcome<T>> {
   return runBoundary<T>({ ...required, work: async (): Promise<Outcome<T>> => {
     try { return { ok: true, value: await required.work() }; }
-    catch (error) { if (error instanceof MeasureRollback) return error.outcome; throw error; }
+    catch (error) {
+      const body = error instanceof Error && "code" in error && error.code === "transaction_failed" ? error.cause : error;
+      if (body instanceof MeasureRollback) return body.outcome;
+      throw error;
+    }
   } }, optional);
 }

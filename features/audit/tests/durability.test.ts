@@ -70,7 +70,7 @@ describe("durable SQL audit", () => {
   it("rolls back partial writes when the injected transaction body fails", async () => {
     const fixture = sqliteHarness();
     try {
-      await expect(fixture.db.transaction({ context: context(), execute: async ({ session }) => {
+      await expect(fixture.db.transaction({ work: async ({ session }) => {
         await session.query({
           text: "INSERT INTO audit_entry (entry_id, owner_id, workspace_id, sequence, operation_id, kind, arguments_digest, recorded_at, payload, context_json) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
           values: ["failed-write", "owner-1", "workspace-1", 1, "operation-1", "intent", "a".repeat(64), 1234, JSON.stringify(entry()), JSON.stringify(context())],
@@ -93,6 +93,38 @@ function storedRow(required: { sequence?: number; context?: ReturnType<typeof co
 }
 
 describe("tainted SQL seam", () => {
+  it.each(["SQLite", "scripted"])("cancels repository work while waiting for %s acquisition, before any SQL", async backend => {
+    const fixture = backend === "SQLite" ? sqliteHarness() : memorySqlHarness({ respond() { throw new Error("Cancelled work reached SQL"); } });
+    const entered = Promise.withResolvers<void>();
+    const held = Promise.withResolvers<void>();
+    const first = fixture.db.transaction({ work: async () => { entered.resolve(); await held.promise; } });
+    await entered.promise;
+    const controller = new AbortController();
+    const repo = createSqlAuditRepo({ ...dependencies(), db: fixture.db, observer: createMemoryAuditObserver({}) });
+    const append = repo.append({ context: context(), entry: entry() }, { signal: controller.signal });
+    const list = repo.list({ context: context(), query: { limit: 1, cursor: "missing" } }, { signal: controller.signal });
+    controller.abort();
+    held.resolve();
+    try {
+      await first;
+      expect(await append).toMatchObject({ ok: false, error: { code: "cancelled" } });
+      expect(await list).toMatchObject({ ok: false, error: { code: "cancelled" } });
+      if ("native" in fixture) expect(fixture.native.prepare("SELECT COUNT(*) AS count FROM audit_entry").get()).toEqual({ count: 0 });
+      else expect(fixture.committed({})).toEqual([]);
+    } finally { if ("native" in fixture) fixture.native.close(); }
+  });
+  it.each(["transaction_failed", "commit_failed", "rollback_failed", "release_after_failure"])("unwraps validation failure only after successful rollback: %s", async code => {
+    const harness = memorySqlHarness({ respond() { return { rows: [storedRow({ payload: "{" })] }; } });
+    const repo = createSqlAuditRepo({ ...dependencies(), observer: createMemoryAuditObserver({}), db: {
+      async transaction(input) {
+        try { return await harness.db.transaction(input); }
+        catch (cause) { throw Object.assign(new Error("Checked transaction failure", { cause }), { code }); }
+      },
+    } });
+    expect(await repo.list({ context: context(), query: { limit: 1 } }))
+      .toMatchObject({ ok: false, error: { code: code === "transaction_failed" ? "protocol_mismatch" : "unavailable" } });
+    expect(harness.committed({})).toEqual([]);
+  });
   it("does not return a page cancelled during the final SQL read", async () => {
     const controller = new AbortController();
     const harness = memorySqlHarness({ respond() { controller.abort(); return { rows: [] }; } });
@@ -111,9 +143,9 @@ describe("tainted SQL seam", () => {
     let transactions = 0;
     const fixture = sqliteHarness();
     try {
-      const repo = createSqlAuditRepo({ ...dependencies(), observer: createMemoryAuditObserver({}), db: { async transaction(input, optional) {
+      const repo = createSqlAuditRepo({ ...dependencies(), observer: createMemoryAuditObserver({}), db: { async transaction(input) {
         transactions += 1;
-        await fixture.db.transaction(input, optional);
+        await fixture.db.transaction(input);
         throw new Error("uncertain commit acknowledgement");
       } } });
       expect(await repo.append({ context: context(), entry: entry() })).toMatchObject({ ok: false, error: { code: "unavailable" } });

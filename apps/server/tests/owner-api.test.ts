@@ -44,9 +44,7 @@ async function ownerFixture(_required: Record<string, never>) {
     const campaignDb: CampaignSqlPort = { query: <Row extends Record<string, unknown>>(input: { text: string; values?: unknown[] }) =>
         db.unit.transaction({ work: ({ session }) => session.query<Row>(input) }) };
     const campaigns = createSqlCampaignRepo({ db: campaignDb }, { observer });
-    const safety = createSqlSafetyRepo({ db: { transaction: ({ execute }) => db.unit.transaction({ work: ({ session }) => execute({ session: {
-        query: ({ sql, parameters }) => session.query({ text: sql, values: [...parameters] }),
-    } }) }) }, clock, ids, observer, ownerTimezone: 'UTC' });
+    const safety = createSqlSafetyRepo({ db: db.unit, clock, ids, observer, ownerTimezone: 'UTC' });
     const answers: unknown[] = [];
     const confirmations = createMemoryConfirmationExchange({ clock, ids, async recordAnswer(input) { answers.push(structuredClone(input)); return { ok: true, value: undefined }; } });
     const approver = localApprover({ credentials: { ...context.scope, token: "a".repeat(64) } });

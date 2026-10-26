@@ -5,7 +5,7 @@ import { z } from 'zod';
 import type { CallContext, ClockPort, IdPort, ObserverPort, Outcome, SqlSession, UnitOfWork } from '@open-marketing/contracts';
 import { epochSchema, idSchema } from '@open-marketing/contracts';
 import { acceptFormSubmission, createFormsService, createSqlFormsStorage, type FormAcceptancePort, type FormPublication } from '@open-marketing/forms';
-import { createSqlJobRepo, type JobsSqlDatabase } from '@open-marketing/jobs';
+import { createSqlJobRepo } from '@open-marketing/jobs';
 import { createSqlContactRepo, identifierDigest, normalizeEmail } from '@open-marketing/contacts';
 import { bindIdentity, processingAllowed } from './identity.js';
 import type { bindServerDatabase } from './database.js';
@@ -17,12 +17,6 @@ export const formRetryPolicy = { maxAttempts: 5, baseDelayMs: 1000, maxDelayMs: 
 /** Canonical ID-only job digest; property insertion order cannot change retry identity. */
 export function formJobDigest(required: { publicationId: string; submissionId: string }): string {
     return createHash('sha256').update(JSON.stringify([required.publicationId, required.submissionId])).digest('hex');
-}
-/** Narrow jobs execute({session}) ABI translated over the exact supplied transaction owner. */
-export function jobsDatabase(required: { unit: UnitOfWork }): JobsSqlDatabase {
-    return { transaction: ({ execute }) => required.unit.transaction({ work: ({ session }) => execute({
-        session: { query: ({ sql, parameters }) => session.query({ text: sql, values: [...parameters] }) },
-    }) }) };
 }
 function value<T>(required: { result: Outcome<T> }): T {
     if (!required.result.ok) throw new Error('Local forms composition unavailable');
@@ -104,7 +98,7 @@ export function bindForms(required: {
     }
     const forms = createFormsService({ definitions, submissions, ...storage, acceptance, unitOfWork: required.database.unit, clock: required.clock, ids: required.ids,
         jobs: { async enqueue(input) {
-            const repo = createSqlJobRepo({ database: jobsDatabase({ unit: input.session }), clock: required.clock, ids: required.ids, retryPolicy: formRetryPolicy });
+            const repo = createSqlJobRepo({ database: input.session, clock: required.clock, ids: required.ids, retryPolicy: formRetryPolicy });
             const payload = { submissionId: input.submissionId, publicationId: input.publicationId };
             const result = await repo.enqueue({ context: input.context, job: { handler: 'forms.accept', operationId: input.submissionId,
                 idempotencyKey: input.submissionId, argumentsDigest: formJobDigest(payload), payload } });

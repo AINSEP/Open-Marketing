@@ -11,7 +11,7 @@ import type { CampaignConstituent, ConfirmationExchangePort, DispatchPermit, Eff
 import { digestArguments, effectRequestSchema } from '@open-marketing/safety';
 import type { AuditService } from '@open-marketing/audit';
 import { catalogAuditPort } from './catalog.js';
-import { jobsDatabase, formRetryPolicy } from './forms.js';
+import { formRetryPolicy } from './forms.js';
 import { localFailure } from './local-auth.js';
 import { bindAgentPluginJobs } from './agent-plugin-backends.js';
 import { toolInputSchema } from '../om-tools.js';
@@ -24,20 +24,20 @@ const jobFinishSchema = jobKeySchema.extend({ status: z.enum(['submitted', 'unkn
 type Input = Parameters<CampaignJobPort['get']>[0];
 /** Journals each campaign transition in the existing append-only jobs attempt table. */
 async function journal(required: { session: JobsSqlSession; id: string; tenantId: string; event: string; state: string; now: number }): Promise<void> {
-    await required.session.query({ sql: 'INSERT INTO job_attempt (job_id, sequence, tenant_id, attempt, event_type, state, observed_at, evidence_id) SELECT $1, COALESCE(MAX(sequence),0)+1, $2, 1, $3, $4, $5, NULL FROM job_attempt WHERE job_id=$1',
-        parameters: [required.id, required.tenantId, required.event, required.state, required.now] });
+    await required.session.query({ text: 'INSERT INTO job_attempt (job_id, sequence, tenant_id, attempt, event_type, state, observed_at, evidence_id) SELECT $1, COALESCE(MAX(sequence),0)+1, $2, 1, $3, $4, $5, NULL FROM job_attempt WHERE job_id=$1',
+        values: [required.id, required.tenantId, required.event, required.state, required.now] });
 }
 /** Creation intent is the job's immutable payload. Enqueue and reserved lease commit atomically;
  * the generic worker cannot take this inline campaign operation. Expired claims reconcile.
  * No launch enqueue is authorized in this local binding. @complexity Constant bounded queries. */
 export function bindCampaignJobs(required: { unit: UnitOfWork; repo: CampaignRepoPort; clock: ClockPort; ids: IdPort; observer: ObserverPort }): CampaignJobPort {
-    const database = jobsDatabase(required);
+    const database = required.unit;
     const outbox = createSqlJobRepo({ database, clock: required.clock, ids: required.ids, retryPolicy: formRetryPolicy }).outbox;
     /** Strict scoped-key read; rejects extra fields before I/O. Returns immutable intent or null.
      * @complexity Constant bounded queries and O(n) bounded intent bytes/space. */
     async function get(input: Input): Promise<Outcome<CampaignJob | null>> {
         if (!jobKeySchema.safeParse(input).success) return localFailure({ code: 'invalid_input', message: 'Invalid campaign job key' });
-        const rows = await database.transaction({ execute: ({ session }) => session.query({ sql: 'SELECT id FROM job WHERE tenant_id=$1 AND idempotency_key=$2 AND operation=$3', parameters: [jobTenant(input), 'campaign:' + input.operationId, 'campaign.create'] }) });
+        const rows = await database.transaction({ work: ({ session }) => session.query({ text: 'SELECT id FROM job WHERE tenant_id=$1 AND idempotency_key=$2 AND operation=$3', values: [jobTenant(input), 'campaign:' + input.operationId, 'campaign.create'] }) });
         const row = z.array(z.object({ id: idSchema })).max(1).parse(rows.rows)[0];
         if (!row) return { ok: true, value: null };
         const stored = await outbox.get({ tenantId: jobTenant(input), id: row.id });
@@ -63,13 +63,13 @@ export function bindCampaignJobs(required: { unit: UnitOfWork; repo: CampaignRep
             // Campaign jobs bind SHA-256 of schema-ordered draft JSON, independently of safety's tool digest.
             const digest = createHash('sha256').update(JSON.stringify(input.intent.draft)).digest('hex');
             if (digest !== input.argumentsDigest || input.intent.draft.operationId !== input.operationId) return localFailure({ code: 'conflict', message: 'Campaign creation identity mismatch' });
-            return database.transaction({ context: input.context, execute: async ({ session }) => {
-                const joined = createSqlJobRepo({ database: { transaction: ({ execute }) => execute({ session }) }, clock: required.clock, ids: required.ids, retryPolicy: formRetryPolicy });
+            return database.transaction({ work: async ({ session }) => {
+                const joined = createSqlJobRepo({ database: session, clock: required.clock, ids: required.ids, retryPolicy: formRetryPolicy });
                 const queued = await joined.enqueue({ context: input.context, job: { handler: 'campaign.create', operationId: input.operationId,
                     idempotencyKey: 'campaign:' + input.operationId, argumentsDigest: input.argumentsDigest, payload: { intent: input.intent } } });
                 if (!queued.ok) throw new JobStoreError({ code: queued.error.code, message: "Campaign enqueue failed" });
-                const reserved = await session.query({ sql: "UPDATE job SET state='leased', attempts=1, lease_token=$1, lease_expires_at=$2 WHERE id=$3 AND tenant_id=$4 AND state='pending' AND attempts=0 RETURNING id",
-                    parameters: [required.ids.next({}), required.clock.now({}) + 60000, queued.value.jobId, jobTenant(input)] });
+                const reserved = await session.query({ text: "UPDATE job SET state='leased', attempts=1, lease_token=$1, lease_expires_at=$2 WHERE id=$3 AND tenant_id=$4 AND state='pending' AND attempts=0 RETURNING id",
+                    values: [required.ids.next({}), required.clock.now({}) + 60000, queued.value.jobId, jobTenant(input)] });
                 if (reserved.rows.length) await journal({ session, id: queued.value.jobId, tenantId: jobTenant(input), event: 'claim', state: 'leased', now: required.clock.now({}) });
                 return { ok: true, value: { jobId: queued.value.jobId } };
             } });
@@ -87,10 +87,10 @@ export function bindCampaignJobs(required: { unit: UnitOfWork; repo: CampaignRep
             const current = await get({ context: input.context, operationId: input.operationId });
             if (!current.ok) return current;
             if (!current.value || current.value.status === 'queued') return localFailure({ code: 'conflict', message: 'Unclaimed campaign cannot finish' });
-            return database.transaction({ context: input.context, execute: async ({ session }) => {
+            return database.transaction({ work: async ({ session }) => {
                 const state = input.status === 'submitted' ? 'succeeded' : 'reconcile';
-                const saved = await session.query({ sql: "UPDATE job SET state=$1, lease_token=NULL, lease_expires_at=NULL WHERE id=$2 AND tenant_id=$3 AND state IN ('dispatching','reconcile','succeeded') RETURNING id",
-                    parameters: [state, current.value!.jobId, jobTenant(input)] });
+                const saved = await session.query({ text: "UPDATE job SET state=$1, lease_token=NULL, lease_expires_at=NULL WHERE id=$2 AND tenant_id=$3 AND state IN ('dispatching','reconcile','succeeded') RETURNING id",
+                    values: [state, current.value!.jobId, jobTenant(input)] });
                 if (!saved.rows.length) return localFailure({ code: 'conflict', message: 'Campaign claim changed' });
                 await journal({ session, id: current.value!.jobId, tenantId: jobTenant(input), event: 'complete', state, now: required.clock.now({}) });
                 return { ok: true, value: undefined };

@@ -52,11 +52,11 @@ export function sqliteFixture(required: Record<string, never> = {}) {
  db.exec(readFileSync(new URL("../migrations/0001_safety.sql", import.meta.url), "utf8"));
  db.exec(readFileSync(new URL("../migrations/0002_confirmations.sql", import.meta.url), "utf8"));
  let failJournal = false;
- const session: SafetySqlSession = { async query(input) {
-  if (failJournal && input.sql.startsWith("INSERT INTO safety_journal")) throw new Error("journal fault");
-  const statement = db.prepare(input.sql);
-  const parameters = Object.fromEntries(input.parameters.map((value, index) => [`$${index + 1}`, value]));
-  return { rows: statement.all(parameters as Record<string, string | number | null>) };
+ const session: SafetySqlSession = { transaction: ({ work }) => work({ session }), async query<Row extends Record<string, unknown>>(input: { text: string; values?: unknown[] }) {
+  if (failJournal && input.text.startsWith("INSERT INTO safety_journal")) throw new Error("journal fault");
+  const statement = db.prepare(input.text);
+  const parameters = Object.fromEntries((input.values ?? []).map((value, index) => [`$${index + 1}`, value]));
+  return { rows: statement.all(parameters as Record<string, string | number | null>) as Row[], rowCount: null };
  } };
  let tail = Promise.resolve();
  const port: SafetySqlDatabase = { async transaction(input) {
@@ -66,7 +66,7 @@ export function sqliteFixture(required: Record<string, never> = {}) {
   await previous;
   db.exec("BEGIN IMMEDIATE");
   try {
-   const result = await input.execute({ session });
+   const result = await input.work({ session });
    const denied = typeof result === "object" && result !== null && "ok" in result && result.ok === false;
    db.exec(denied ? "ROLLBACK" : "COMMIT");
    return result;

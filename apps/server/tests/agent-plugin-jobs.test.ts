@@ -2,7 +2,7 @@ import { createSqlContactRepo } from '@open-marketing/contacts';
 import { createSqlJobRepo, jobTenant } from '@open-marketing/jobs';
 import { bindIdentity, createVisitTokens } from '../src/composition/identity.js';
 import { createSubjectLane } from '../src/composition/subject-lane.js';
-import { jobsDatabase, formRetryPolicy } from '../src/composition/forms.js';
+import { formRetryPolicy } from '../src/composition/forms.js';
 /** R2 fixtures use real safety/measure/jobs services and plugin codecs; all egress is injected. */
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -51,7 +51,7 @@ async function fixture(required: { pluginId?: 'linkedin-ads' | 'tiktok-ads'; clo
     const subjectLane = createSubjectLane({ resolveSubject: contactRepo.get });
     const identity = bindIdentity({ unit: database.unit, clock: fixtureClock, ids, observer, digestKey: new Uint8Array([1]),
         tokens: createVisitTokens({ key: new Uint8Array([1]), clock: fixtureClock, ids }).tokens, subjectLane });
-    const jobs = createSqlJobRepo({ database: jobsDatabase({ unit: database.unit }), clock: fixtureClock, ids, retryPolicy: formRetryPolicy });
+    const jobs = createSqlJobRepo({ database: database.unit, clock: fixtureClock, ids, retryPolicy: formRetryPolicy });
     const locks = createMemoryAccountDispatchLock({ ids });
     const repo = createMemorySafetyRepo({ clock: fixtureClock, ids, ownerTimezone: 'UTC' });
     const calls: { url: string; options?: RequestInit }[] = [];
@@ -184,7 +184,7 @@ async function conversions(required: { f: Awaited<ReturnType<typeof fixture>>; l
         const identity = required.f.identity.forTransaction({ unit });
         const audit = createSqlMeasureAudit({ database: {
             query: input => unit.transaction({ work: ({ session }) => session.query(input) }),
-            transaction: ({ work }) => unit.transaction({ work: ({ session }) => work(session) }),
+            transaction: unit.transaction,
         }, clock, ids: required.f.ids }, { observer });
         const loadEvidence: Parameters<typeof createMeasurementShareabilityAdapter>[0]['loadEvidence'] = async input => {
             await required.beforeAssess?.();

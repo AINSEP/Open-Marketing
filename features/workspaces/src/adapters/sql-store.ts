@@ -49,7 +49,7 @@ export function createSqlStore(required: { db: WorkspaceSqlDatabase }): Workspac
       return z.array(existsRowSchema).max(1).parse(result.rows).length === 1;
     },
     async bind({ binding }) {
-      return required.db.transaction({ run: session => bindTransaction({ db: session, binding }) });
+      return required.db.transaction({ work: ({ session }) => bindTransaction({ db: session, binding }) });
     },
     async find(input) { return findBinding({ db: required.db, ...input }); },
   };

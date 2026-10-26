@@ -118,9 +118,9 @@ function settle(required: { current: State; settlement: z.infer<typeof settlemen
  * @complexity O(r+o) bounded serialization and constant SQL queries per operation. */
 export function createSqlPaidSendingAllowances(required: { db: SafetySqlDatabase; clock: ClockPort; observer: ObserverPort; timezone: string }): PaidSendingAllowances {
     const initial = defaults(required);
-    return service({ ...required, store: { access: input => required.db.transaction({ context: input.context, execute: async ({ session }) => {
+    return service({ ...required, store: { access: input => required.db.transaction({ work: async ({ session }) => {
         const scopeKey = key(input);
-        const rows = await session.query({ sql: "SELECT payload FROM safety_state WHERE scope_key=$1", parameters: [scopeKey] });
+        const rows = await session.query({ text: "SELECT payload FROM safety_state WHERE scope_key=$1", values: [scopeKey] });
         const row = z.array(z.object({ payload: z.string().max(4_194_304) })).max(1).parse(rows.rows)[0];
         const current = stateSchema.parse(row ? JSON.parse(row.payload) : initial);
         const revision = current.revision;
@@ -130,11 +130,11 @@ export function createSqlPaidSendingAllowances(required: { db: SafetySqlDatabase
         current.revision++;
         const payload = JSON.stringify(current);
         if (payload.length > 4_194_304) return failure({ code: "limit_exceeded", message: "Paid sending storage bound exceeded" });
-        await session.query({ sql: "INSERT INTO safety_state (scope_key, version, payload) VALUES ($1,0,$2) ON CONFLICT (scope_key) DO NOTHING", parameters: [scopeKey, JSON.stringify(initial)] });
-        const saved = await session.query({ sql: "UPDATE safety_state SET version=$1, payload=$2 WHERE scope_key=$3 AND version=$4 RETURNING version", parameters: [current.revision, payload, scopeKey, revision] });
+        await session.query({ text: "INSERT INTO safety_state (scope_key, version, payload) VALUES ($1,0,$2) ON CONFLICT (scope_key) DO NOTHING", values: [scopeKey, JSON.stringify(initial)] });
+        const saved = await session.query({ text: "UPDATE safety_state SET version=$1, payload=$2 WHERE scope_key=$3 AND version=$4 RETURNING version", values: [current.revision, payload, scopeKey, revision] });
         if (saved.rows.length !== 1) throw new Error("Paid sending CAS lost");
         const kind = input.operation === "set" ? "paid_sending_setting_changed" : "paid_sending_" + input.operation;
-        await session.query({ sql: "INSERT INTO safety_journal (scope_key, sequence, kind, operation_id, payload) VALUES ($1,$2,$3,$4,$5)", parameters: [scopeKey, current.revision, kind, input.operationId,
+        await session.query({ text: "INSERT INTO safety_journal (scope_key, sequence, kind, operation_id, payload) VALUES ($1,$2,$3,$4,$5)", values: [scopeKey, current.revision, kind, input.operationId,
             JSON.stringify({ before, after: settings({ current }), evidence: input.evidence, recordedAt: required.clock.now({}), context: input.context })] });
         return result;
     } }) } });

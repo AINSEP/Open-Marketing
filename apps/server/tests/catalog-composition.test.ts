@@ -52,17 +52,17 @@ async function fixture() {
     const agent: CallContext = { ...owner, runId: 'run', principal: { kind: 'agent', runId: 'run', agentInstanceId: 'instance' } };
     const database = bindServerDatabase({ native, observer, context: owner });
     await provisionWorkspace({ database: database.workspace, scope: owner.scope });
-    const safetyDb = { transaction: <T>(input: { execute: (required: { session: { query(required: { sql: string; parameters: readonly unknown[] }): Promise<{ rows: readonly Readonly<Record<string, unknown>>[] }> } }) => Promise<T> }) => database.unit.transaction({ work: ({ session }) => input.execute({ session: { query: ({ sql, parameters }) => session.query({ text: sql, values: [...parameters] }) } }) }) };
+    const safetyDb = database.unit;
     const confirmations = createMemoryConfirmationExchange({ ...answerAudit(), clock, ids });
     const safety = createSqlSafetyRepo({ db: safetyDb, clock, ids, observer, ownerTimezone: 'UTC' });
-    const campaignDb = { query: <Row extends Record<string, unknown>>(input: { text: string; values?: unknown[] }) => database.unit.transaction({ work: ({ session }) => session.query<Row>(input) }) };
+    const campaignDb = database.workspace;
     const campaigns = createSqlCampaignRepo({ db: campaignDb });
     const visits = createVisitTokens({ key: new Uint8Array([1, 2, 3]), clock, ids });
     const subjectLane = createSubjectLane({ resolveSubject: createSqlContactRepo({ uow: database.unit }).get });
     const identity = bindIdentity({ unit: database.unit, subjectLane, tokens: visits.tokens, clock, ids, observer, digestKey: new Uint8Array([1, 2, 3]) });
     const forms = bindForms({ database, subjectLane, clock, ids, observer, digestKey: new Uint8Array([1, 2, 3]), tokens: visits.tokens });
     await seedSandboxForm({ binding: forms, context: owner, clock, ids });
-    const measureDb: MeasureSqlDatabase = { query: campaignDb.query, transaction: ({ work }) => database.unit.transaction({ work: ({ session }) => work(session) }) };
+    const measureDb: MeasureSqlDatabase = database.workspace;
     const measureRepo = createSqlMeasureRepo({ database: measureDb, jobs: { async enqueue() { return { ok: false, error: { code: 'forbidden', message: 'Fixture conversion denied', retryable: false } }; } } });
     const links = createSqlTrackedLink({ database: measureDb, ids, baseUrl: 'https://sandbox.example.test/l/', allowedOrigins: ['https://sandbox.example.test'] });
     const privacy = bindPrivacy({ unit: database.unit, subjectLane, identity, subjects: forms.subjects, measure: measureRepo, clock, ids, observer });
@@ -252,6 +252,34 @@ describe('shared generation completion', () => {
 });
 
 describe('real feature catalog composition', () => {
+    it.each([null, 'commit_failed', 'rollback_failed', 'release_after_failure'])('preserves measure denials only after checked rollback: %s', async code => {
+        const f = await fixture();
+        try {
+            const repo = createSqlMeasureRepo({ database: { ...f.database.workspace, async transaction(input) {
+                try { return await f.database.workspace.transaction(input); }
+                catch (error) {
+                    if (!code) throw error;
+                    throw Object.assign(new Error('Uncertain cleanup', { cause: error instanceof Error ? error.cause : error }), { code });
+                }
+            } }, jobs: { async enqueue() {
+                return { ok: false, error: { code: 'forbidden', message: 'Fixture conversion denied', retryable: false } };
+            } } });
+            const event = { eventId: 'denied', definitionId: 'signup', subjectId: 'subject', occurredAt: 100,
+                destination: 'account:google', purpose: 'conversion_measurement', identifierDigests: { click_id: 'a'.repeat(64) } };
+            expect(await repo.appendConversion({ source: { sourceId: 'fixture', scope: f.owner.scope, authenticationRevision: 1, context: f.owner }, event }))
+                .toMatchObject({ ok: false, error: { code: code ? 'unavailable' : 'forbidden' } });
+            expect(f.native.prepare('SELECT COUNT(*) AS count FROM measure_conversion_event').get()).toEqual({ count: 0 });
+            const result = await f.database.unit.transaction({ work: async ({ session }) => {
+                await session.query({ text: 'INSERT INTO workspace_connection_scope(owner_id,workspace_id,connection_id) VALUES($1,$2,$3)', values: [f.owner.scope.ownerId, f.owner.scope.workspaceId, 'rolled-back'] });
+                return session.transaction({ work: async ({ session: joined }) => {
+                    expect(joined).toBe(session);
+                    return { ok: false as const, error: { code: 'conflict' as const, message: 'Denied', retryable: false } };
+                } });
+            } });
+            expect(result.ok).toBe(false);
+            expect(f.native.prepare('SELECT connection_id FROM workspace_connection_scope').all()).toEqual([]);
+        } finally { await f.close(); }
+    });
     it('saves and retrieves a multi-destination neutral draft locally without remote creation or outbox intent', async () => {
         const f = await fixture();
         try {

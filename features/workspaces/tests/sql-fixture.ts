@@ -20,23 +20,23 @@ export function createSqlHarness(required: Record<string, never>): {
   for (const scope of workspaces) database.prepare("INSERT INTO workspace (owner_id, workspace_id) VALUES (?, ?)").run(scope.ownerId, scope.workspaceId);
   for (const connection of connections) database.prepare("INSERT INTO workspace_connection_scope (owner_id, workspace_id, connection_id) VALUES (?, ?, ?)").run(connection.scope.ownerId, connection.scope.workspaceId, connection.connectionId);
   const session: WorkspaceSqlSession = {
-    async query({ text, values = [] }) {
+    transaction: ({ work }) => work({ session }),
+    async query<Row extends Record<string, unknown>>({ text, values = [] }: { text: string; values?: unknown[] }) {
       // Production shim uses the same portable numbered-placeholder convention.
       const statement = database.prepare(text.replace(/\$\d+/g, "?"));
-      if (statement.reader) return { rows: statement.all(...values) };
-      statement.run(...values);
-      return { rows: [] };
+      if (statement.reader) return { rows: statement.all(...values) as Row[], rowCount: null };
+      return { rows: [] as Row[], rowCount: statement.run(...values).changes };
     },
   };
   let transactionTail: Promise<unknown> = Promise.resolve();
   const db: WorkspaceSqlDatabase = {
     ...session,
-    async transaction({ run }) {
+    async transaction({ work }) {
       const result = transactionTail.then(async () => {
         database.exec("BEGIN IMMEDIATE");
         try {
-          const value = await run(session);
-          database.exec("COMMIT");
+          const value = await work({ session });
+          database.exec(typeof value === "object" && value !== null && "ok" in value && value.ok === false ? "ROLLBACK" : "COMMIT");
           return value;
         } catch (error) {
           database.exec("ROLLBACK");

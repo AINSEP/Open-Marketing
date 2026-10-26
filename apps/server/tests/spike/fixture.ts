@@ -11,7 +11,7 @@ import { isHoneypotTripped, submitForm, type FormDefinitionRecord } from '@jini-
 import { formDefinitionRepoFor, formSubmissionRepoFor } from '@jini-ai/cms/forms/sql';
 import type { CallContext, Outcome, SqlSession, UnitOfWork } from '@open-marketing/contracts';
 import type { FormAcceptancePort, FormPublication, PublicSubmissionResult, SubmissionReceipt } from '@open-marketing/forms';
-import { createOutbox, createSqlJobRepo, createSqlOutboxStore, type JobsSqlDatabase } from '@open-marketing/jobs';
+import { createOutbox, createSqlJobRepo, createSqlOutboxStore } from '@open-marketing/jobs';
 import { digestArguments } from '@open-marketing/safety';
 import { loadMigrations } from '../../src/composition/migrations.js';
 import { createCheckedSqliteClient, createSqlitePool, runMigrations } from '../../src/platform/jini-compat/db/src/index.js';
@@ -35,14 +35,6 @@ const publicationSchema = z.object({ publicationId: z.string(), formDefinitionId
 /** Failures are synthetic typed values, never inferred from vendor errors. */
 function denied<T>({ code = 'conflict' }: { code?: 'conflict' | 'unavailable' }): Outcome<T> {
     return { ok: false, error: { code, message: 'Injected spike denial', retryable: false } };
-}
-
-/** Translate the foreign jobs SQL callback ABI; nested operations use this request's session.
- * @complexity O(1) adapter overhead, with one query per injected operation. */
-function jobsDatabase({ unit }: { unit: UnitOfWork }): JobsSqlDatabase {
-    return { transaction: ({ execute }) => unit.transaction({ work: ({ session }) => execute({ session: {
-        query: ({ sql, parameters }) => session.query({ text: sql, values: [...parameters] }),
-    } }) }) };
 }
 
 /** Read/parse durable replay evidence inside the submission transaction. */
@@ -153,7 +145,7 @@ export async function createSpikeFixture(_required: Record<string, never>) {
             if (!isHoneypotTripped({ hp: input.body._hp })) prior = await findReceipt({ session, workspaceId: input.context.scope.workspaceId, publicationId: input.publicationId, attemptId: input.attemptId });
             if (prior) return replay({ prior, digest: hashed.value });
             let receipt: SubmissionReceipt | undefined;
-            const repo = createSqlJobRepo({ database: jobsDatabase({ unit: session }), clock, ids, retryPolicy });
+            const repo = createSqlJobRepo({ database: session, clock, ids, retryPolicy });
             await submitForm({ input: { workspaceId: input.context.scope.workspaceId, slug: 'lead', body: input.body, sourceIp: '192.0.2.1' }, deps: {
                 definitionRepo: binding.definitions, submissionRepo: binding.submissions,
                 clock: { nowMs: () => now }, idGen: { newId: () => ids.next({}) }, rateLimiter: { check: () => ({ allowed: true }) }, logger: { warn() {} },
@@ -182,7 +174,7 @@ export async function createSpikeFixture(_required: Record<string, never>) {
     /** The real jobs worker reloads IDs; synthetic acceptance is SQL-atomic and idempotent.
      * lostAck probes replay AFTER committed acceptance. Unknown idempotent outcomes may retry safely. */
     async function processOne(required: { failure?: Failure; lostAck?: boolean }) {
-        const store = createSqlOutboxStore({ database: jobsDatabase({ unit: binding.pool }), observe: event => events.push(event.operation + ':' + event.outcome) });
+        const store = createSqlOutboxStore({ database: binding.pool, observe: event => events.push(event.operation + ':' + event.outcome) });
         const worker = createOutbox({ inputPolicy: retryPolicy, ports: { store, clock, generateId: () => ids.next({}), authorize: async () => true,
             transport: { idempotent: true, async dispatch(request) {
                 const envelope = z.object({ payload: jobPayloadSchema }).parse(JSON.parse(request.payload));

@@ -120,7 +120,7 @@ it("rolls answer and append back together on failed Outcomes and thrown audit/up
  const time = timing();
  let fault: "outcome" | "throw" | "none" = "outcome";
  const port = createSqlConfirmationExchange({ ...time, db: sqlite.port, async recordAnswer({ session, answer }) {
-  await session.query({ sql: "INSERT INTO approval_evidence (payload) VALUES ($1)", parameters: [JSON.stringify(answer)] });
+  await session.query({ text: "INSERT INTO approval_evidence (payload) VALUES ($1)", values: [JSON.stringify(answer)] });
   if (fault === "throw") throw new Error("fixture audit fault");
   if (fault === "outcome") return { ok: false, error: { code: "unavailable", message: "Audit unavailable", retryable: false } };
   return { ok: true, value: undefined };

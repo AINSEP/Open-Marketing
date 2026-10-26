@@ -27,7 +27,7 @@ class AuditStorageError extends Error {
   }
 }
 
-/** Durable append-only adapter over a server-owned Jini-shaped DB seam. Construction does no I/O.
+/** Durable append-only adapter over a server-owned canonical transaction port. Construction does no I/O.
  * Native lock/query deadlines and serialized transactions are composition responsibilities.
  * @example createSqlAuditRepo({ db, clock, ids, observer });
  * @returns Success only after commit; failed/uncertain commits are unavailable and never retried here.
@@ -52,7 +52,8 @@ export function createSqlAuditRepo(required: SqlDependencies): AuditRepoPort {
   };
 }
 
-/** Observe the committed result, not an intermediate write. Exceptions contain no operational data.
+/** Observe the final result and check cancellation after acquisition, before SQL.
+ * Only successfully rolled-back body failures restore typed validation errors; cleanup failures remain unavailable.
  * @complexity One injected transaction; body bounded by adapter operations.
  */
 async function transaction<T>(required: {
@@ -61,9 +62,13 @@ async function transaction<T>(required: {
 }, optional?: CallOptions): Promise<Outcome<T>> {
   let result: Outcome<T>;
   try {
-    result = await required.db.transaction({ context: structuredClone(required.context), execute: required.execute }, optional);
+    result = await required.db.transaction({ work: input => {
+      if (optional?.signal?.aborted) return Promise.resolve(failure<T>({ code: "cancelled" }));
+      return required.execute(input);
+    } });
   } catch (cause) {
-    result = failure({ code: cause instanceof AuditStorageError ? cause.code : "unavailable" });
+    const body = cause instanceof Error && "code" in cause && cause.code === "transaction_failed" ? cause.cause : cause;
+    result = failure({ code: body instanceof AuditStorageError ? body.code : "unavailable" });
   }
   observe({ ...required, outcome: result });
   return result;

@@ -25,8 +25,8 @@ DomainIntentSuite({ name: "SQLite", create: required => {
         async write(input): Promise<Outcome<void>> {
             const tenantId = jobTenant(input);
             const payload = canonicalJson({ value: input.job });
-            await input.session.query({ sql: "INSERT INTO test_domain_intent (tenant_id, intent_id, job_id, operation_id, payload) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (tenant_id,intent_id) DO NOTHING", parameters: [tenantId, input.intentId, input.receipt.jobId, input.job.operationId, payload] });
-            const saved = await input.session.query({ sql: "SELECT payload FROM test_domain_intent WHERE tenant_id = $1 AND intent_id = $2", parameters: [tenantId, input.intentId] });
+            await input.session.query({ text: "INSERT INTO test_domain_intent (tenant_id, intent_id, job_id, operation_id, payload) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (tenant_id,intent_id) DO NOTHING", values: [tenantId, input.intentId, input.receipt.jobId, input.job.operationId, payload] });
+            const saved = await input.session.query({ text: "SELECT payload FROM test_domain_intent WHERE tenant_id = $1 AND intent_id = $2", values: [tenantId, input.intentId] });
             required.abortWriter?.abort();
             if (required.throwWriter) throw new Error("Injected domain writer failure after write");
             if (required.reject || saved.rows[0]?.payload !== payload) return { ok: false, error: { code: "conflict", message: "Intent rejected", retryable: false } };

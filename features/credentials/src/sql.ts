@@ -1,3 +1,4 @@
+import type { SqlSession } from "@open-marketing/contracts";
 import { z } from "zod";
 import { callContextSchema, idSchema, pageQuerySchema } from "@open-marketing/contracts";
 import type { CallContext, CallOptions, ClockPort, IdPort, Outcome, Page, PageQuery } from "@open-marketing/contracts";
@@ -8,9 +9,7 @@ import { boundary, failure, lookupSchema, recordSchema, sameScope, storeSchema, 
 /** Structural @jini-ai/db-shaped seam. Server supplies its leased/scheduled query adapter.
  * Feature code never constructs or imports a driver. Query failures are redacted.
  */
-export interface CredentialSqlPort {
-  query<Row extends Record<string, unknown> = Record<string, unknown>>(required: { text: string; values?: unknown[] }): Promise<{ rows: Row[]; rowCount: number | null }>;
-}
+export type CredentialSqlPort = Pick<SqlSession, "query">;
 const identityWhere = "owner_id = $1 AND workspace_id = $2 AND connection_id = $3";
 const summaryColumns = "owner_id, workspace_id, connection_id, plugin_id, status";
 const dbSummarySchema = z.object({ owner_id: z.string(), workspace_id: z.string(), connection_id: z.string(), plugin_id: z.string(), status: z.enum(["connected", "revoked", "reconnect_required"]) });

@@ -10,12 +10,12 @@ export function sqliteFixture(required: { path?: string }): { database: JobsSqlD
     native.exec(readFileSync(new URL("../migrations/0001_jobs.sql", import.meta.url), "utf8"));
     let tail: Promise<void> = Promise.resolve();
     const session: JobsSqlSession = {
-        async query(input) {
-            const statement = native.prepare(input.sql);
-            const parameters = Object.fromEntries(input.parameters.map((value, index) => [String(index + 1), value]));
-            if (statement.reader) return { rows: statement.all(parameters) as Record<string, unknown>[] };
-            statement.run(parameters);
-            return { rows: [] };
+        transaction: ({ work }) => work({ session }),
+        async query<Row extends Record<string, unknown>>(input: { text: string; values?: unknown[] }) {
+            const statement = native.prepare(input.text);
+            const parameters = Object.fromEntries((input.values ?? []).map((value, index) => [String(index + 1), value]));
+            if (statement.reader) return { rows: statement.all(parameters) as Row[], rowCount: null };
+            return { rows: [] as Row[], rowCount: statement.run(parameters).changes };
         },
     };
     const database: JobsSqlDatabase = {
@@ -23,8 +23,8 @@ export function sqliteFixture(required: { path?: string }): { database: JobsSqlD
             const result = tail.then(async () => {
                 native.exec("BEGIN IMMEDIATE");
                 try {
-                    const value = await input.execute({ session });
-                    native.exec("COMMIT");
+                    const value = await input.work({ session });
+                    native.exec(typeof value === "object" && value !== null && "ok" in value && value.ok === false ? "ROLLBACK" : "COMMIT");
                     return value;
                 } catch (error) {
                     native.exec("ROLLBACK");

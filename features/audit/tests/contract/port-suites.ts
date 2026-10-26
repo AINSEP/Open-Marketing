@@ -206,32 +206,23 @@ export function AuditSqlPortSuite(required: {
     it("returns a bound value from a session through a committed transaction", async () => {
       const fixture = required.create({});
       try {
-        const result = await fixture.db.transaction({ context: context(), execute: ({ session }) => session.query({ text: "SELECT $1 AS value", values: ["opaque-value"] }) });
+        const result = await fixture.db.transaction({ work: ({ session }) => session.query({ text: "SELECT $1 AS value", values: ["opaque-value"] }) });
         expect(result.rows).toEqual([{ value: "opaque-value" }]);
       } finally { fixture.dispose({}); }
     });
     it("propagates callback failure without claiming transaction success", async () => {
       const fixture = required.create({});
       try {
-        await expect(fixture.db.transaction({ context: context(), execute: async () => { throw new Error("test rollback"); } })).rejects.toThrow("test rollback");
+        await expect(fixture.db.transaction({ work: async () => { throw new Error("test rollback"); } })).rejects.toThrow("test rollback");
         expect((await fixture.session.query({ text: "SELECT $1 AS value", values: ["after-failure"] })).rows).toEqual([{ value: "after-failure" }]);
-      } finally { fixture.dispose({}); }
-    });
-    it("does not execute a transaction cancelled before acquisition", async () => {
-      const fixture = required.create({});
-      let executed = false;
-      try {
-        await expect(fixture.db.transaction({ context: context(), execute: async () => { executed = true; return "unexpected"; } }, { signal: AbortSignal.abort() }))
-          .rejects.toThrow("Cancelled acquisition");
-        expect(executed).toBe(false);
       } finally { fixture.dispose({}); }
     });
     it("serializes concurrent transaction callbacks until the first completes", async () => {
       const fixture = required.create({});
       const started: string[] = [];
       const { promise: barrier, resolve: release } = Promise.withResolvers<void>();
-      const first = fixture.db.transaction({ context: context(), execute: async () => { started.push("first"); await barrier; return 1; } });
-      const second = fixture.db.transaction({ context: context(), execute: async () => { started.push("second"); return 2; } });
+      const first = fixture.db.transaction({ work: async () => { started.push("first"); await barrier; return 1; } });
+      const second = fixture.db.transaction({ work: async () => { started.push("second"); return 2; } });
       try {
         await Promise.resolve();
         expect(started).toEqual(["first"]);

@@ -1,9 +1,9 @@
 /** Sandbox generation with durable creative intent and canonical, guarded media imports. */
 import { createHash } from 'node:crypto';
 import { generationCostQuoteSchema } from '@open-marketing/contracts';
-import type { CallContext, ClockPort, GenerationCostQuote, IdPort, ObserverPort, Outcome, SqlSession, UnitOfWork } from '@open-marketing/contracts';
+import type { CallContext, ClockPort, GenerationCostQuote, IdPort, ObserverPort, Outcome, UnitOfWork } from '@open-marketing/contracts';
 import { createCreativeService, createSqlCreativeRepo, createTransactionalCreativeJob, createMemoryGenerationCapability, digestGenerationRequest } from '@open-marketing/creative';
-import type { CreativeAssetPort, CreativeSqlDatabase, CreativeSqlSession, GenerationRequest, GenerationProvenance, CreativeSpendPort } from '@open-marketing/creative';
+import type { CreativeAssetPort, GenerationRequest, GenerationProvenance, CreativeSpendPort } from '@open-marketing/creative';
 import type { AssetProvenance, MediaLibrary } from '@open-marketing/media-library';
 import { createSafetyService, createMemoryAccountDispatchLock, digestArguments } from '@open-marketing/safety';
 import type { EffectRequest, SafetyRepoPort, ConfirmationExchangePort, VerifiedEffectResolverPort } from '@open-marketing/safety';
@@ -12,7 +12,7 @@ import { createSqlJobRepo } from '@open-marketing/jobs';
 import { creativeToolInputSchema } from '../om-tool-types.js';
 import type { CreativeToolBinding, CreativeToolInput } from '../om-tool-types.js';
 import { catalogAuditPort } from './catalog.js';
-import { jobsDatabase, formRetryPolicy } from './forms.js';
+import { formRetryPolicy } from './forms.js';
 import { localFailure } from './local-auth.js';
 
 const fixtureDigest = createHash('sha256').update('om.sandbox.generation.v1').digest('hex');
@@ -40,31 +40,6 @@ function effectFor(required: { input: CreativeToolInput; operationId: string }):
         envelope: { operationId: required.operationId, connectionId: 'sandbox-generation', accountId: null, effects: ['generation'], argumentsDigest: digest.value, moneyExposure: null, requiredLimit: null },
         generation: { request: { operationId: required.operationId, connectionId: 'sandbox-generation', argumentsDigest: digest.value, configurationDigest: fixtureDigest },
             quote: fixtureQuote({ argumentsDigest: digest.value, deadlineAt: required.input.deadlineAt, operationId: required.operationId }) } } };
-}
-/** Map the existing '?' creative SQL ABI to the kernel's portable numbered parameters. */
-function creativeSession(required: { session: SqlSession }): CreativeSqlSession {
-    return { async query(input) { return (await required.session.query(sqlInput(input))).rows; },
-        async execute(input) { return { changes: (await required.session.query(sqlInput(input))).rowCount ?? 0 }; } };
-}
-function sqlInput(required: { sql: string; parameters: readonly (string | number | null)[] }) {
-    let index = 0;
-    return { text: required.sql.replace(/\?/g, () => '$' + ++index), values: [...required.parameters] };
-}
-/** A failed outcome throws through the existing transaction owner to roll back all participants. */
-class CreativeRollback extends Error {
-    readonly outcome: Outcome<never>;
-    constructor(required: { outcome: Outcome<never> }) { super('Creative transaction rejected'); this.outcome = required.outcome; }
-}
-async function atomic<T>(required: { unit: UnitOfWork; work: (required: { session: SqlSession }) => Promise<Outcome<T>> }): Promise<Outcome<T>> {
-    try { return await required.unit.transaction({ work: async input => {
-        const result = await required.work(input);
-        if (!result.ok) throw new CreativeRollback({ outcome: result });
-        return result;
-    } }); } catch (error) { return error instanceof CreativeRollback ? error.outcome : localFailure({ message: 'Creative transaction unavailable' }); }
-}
-/** Creative and jobs adapters join the same transaction; no new DB or outbox is constructed. */
-function creativeDatabase(required: { unit: UnitOfWork }): CreativeSqlDatabase {
-    return { transaction: ({ run }) => atomic({ unit: required.unit, work: ({ session }) => run({ session: creativeSession({ session }) }) }) };
 }
 /** Fixed generation-only resolver binds the request deadline and checks expiry against the
  * injected clock on assessment/dispatch. Expiry and provenance failures return typed errors.
@@ -94,7 +69,7 @@ function fixtureResolver(required: { clock: ClockPort }): VerifiedEffectResolver
  * @example bindSandboxCreative({ unit, media, safetyRepo, confirmations, clock, ids, observer, audit })
  * @complexity O(1) construction; media owns guarded URL/byte-storage effects at invocation. */
 export function bindSandboxCreative(required: { unit: UnitOfWork; media: MediaLibrary; safetyRepo: SafetyRepoPort; confirmations: ConfirmationExchangePort; clock: ClockPort; ids: IdPort; observer: ObserverPort; audit: AuditService }): CreativeToolBinding {
-    const repo = createSqlCreativeRepo({ database: creativeDatabase(required) });
+    const repo = createSqlCreativeRepo({ database: required.unit });
     const audit = catalogAuditPort(required);
     const safety = createSafetyService({ repo: required.safetyRepo, confirmations: required.confirmations, clock: required.clock, ids: required.ids, audit,
         effects: fixtureResolver({ clock: required.clock }), accountLocks: createMemoryAccountDispatchLock({ ids: required.ids }),
@@ -118,10 +93,10 @@ export function bindSandboxCreative(required: { unit: UnitOfWork; media: MediaLi
         return required.safetyRepo.settleGeneration({ context, settlement: { reservationId, observationId: cost.observationId, actual: cost.amount,
             ...(cost.correctionOf ? { correctsObservationId: cost.correctionOf } : {}) } });
     } };
-    const jobs = createTransactionalCreativeJob({ transaction: input => atomic({ unit: required.unit, work: ({ session }) => input.run({
-        repo: createSqlCreativeRepo({ database: { transaction: ({ run }) => run({ session: creativeSession({ session }) }) } }),
+    const jobs = createTransactionalCreativeJob({ transaction: input => required.unit.transaction({ work: ({ session }) => input.run({
+        repo: createSqlCreativeRepo({ database: session }),
         enqueue: async request => {
-            const joined = createSqlJobRepo({ database: jobsDatabase({ unit: session }), clock: required.clock, ids: required.ids, retryPolicy: formRetryPolicy });
+            const joined = createSqlJobRepo({ database: session, clock: required.clock, ids: required.ids, retryPolicy: formRetryPolicy });
             const result = await joined.enqueue({ context: request.context, job: { handler: 'creative.generate', operationId: request.operationId, idempotencyKey: 'creative:' + request.operationId,
                 argumentsDigest: request.argumentsDigest, payload: { generationId: request.generationId } } });
             return result.ok ? { ok: true, value: { jobId: result.value.jobId } } : result;

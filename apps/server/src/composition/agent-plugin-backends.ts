@@ -18,7 +18,7 @@ import type { PolicyService } from '@open-marketing/policy';
 import type { Integrations } from '../integrations.js';
 import { toolPolicy } from '../om-tools.js';
 import type { OmToolDefinition } from '../om-tools.js';
-import { jobsDatabase, formRetryPolicy } from './forms.js';
+import { formRetryPolicy } from './forms.js';
 import { localFailure } from './local-auth.js';
 import { processingAllowed } from './identity.js';
 import type { createSubjectLane } from './subject-lane.js';
@@ -221,7 +221,7 @@ type ConversionDispatchInput = Parameters<ReturnType<typeof createConversionDisp
 async function conversionJob(required: { unit: UnitOfWork; dependencies: Dependencies; input: ConversionDispatchInput }): Promise<Outcome<{ outbox: ManagedOutboxStore; fence: LeaseFence; context: CallContext }>> {
     const { serviceId, ...trace } = required.input.context;
     const context: CallContext = { ...trace, principal: { kind: 'service', serviceId } };
-    const outbox = createSqlOutboxStore({ database: jobsDatabase(required) });
+    const outbox = createSqlOutboxStore({ database: required.unit });
     const claim = parseBoundary({ schema: conversionClaimSchema, input: required.input.claim });
     if (!claim.ok) return claim;
     const fence = { id: claim.value.jobId, tenantId: jobTenant({ context }), token: claim.value.leaseToken, now: required.dependencies.clock.now({}) };
@@ -237,7 +237,7 @@ async function conversionJob(required: { unit: UnitOfWork; dependencies: Depende
 /** Commit final state and redacted evidence together; an earlier committed denial is preserved. */
 async function finishConversion(required: { unit: UnitOfWork; bindAuthority: ConversionAuthorityFactory; context: CallContext; input: ConversionDispatchInput; fence: LeaseFence; result: Outcome<{ status: 'delivered' | 'unknown' }> }): Promise<Outcome<boolean>> {
     return required.unit.transaction({ work: async ({ session }): Promise<Outcome<boolean>> => {
-        const outbox = createSqlOutboxStore({ database: jobsDatabase({ unit: session }) });
+        const outbox = createSqlOutboxStore({ database: session });
         const job = await outbox.get({ tenantId: required.fence.tenantId, id: required.fence.id });
         if (job?.state === 'denied') return { ok: true, value: false };
         const result = required.result;
@@ -722,19 +722,19 @@ function hash(required: { value: unknown }): string { return createHash('sha256'
  * @complexity Fixed indexed queries per write; immutable payload <=64 KiB, no token persistence.
  */
 export function bindAgentPluginJobs(required: { unit: UnitOfWork; clock: ClockPort; ids: IdPort; observer: ObserverPort }) {
-    const database = jobsDatabase(required);
+    const database = required.unit;
     const repo = createSqlJobRepo({ database, clock: required.clock, ids: required.ids, retryPolicy: formRetryPolicy });
     async function dispatch(input: { context: CallContext; pluginId: string; input: Selection; execute(required: { jobId: string }): Promise<Outcome<unknown>> }): Promise<Outcome<unknown>> {
         const digest = digestArguments({ arguments: { pluginId: input.pluginId, input: input.input } });
         if (!digest.ok) return digest;
         const token = required.ids.next({});
-        const claim = await database.transaction({ context: input.context, execute: async ({ session }) => {
-            const joined = createSqlJobRepo({ database: { transaction: ({ execute }) => execute({ session }) }, clock: required.clock, ids: required.ids, retryPolicy: formRetryPolicy });
+        const claim = await database.transaction({ work: async ({ session }) => {
+            const joined = createSqlJobRepo({ database: session, clock: required.clock, ids: required.ids, retryPolicy: formRetryPolicy });
             const queued = await joined.enqueue({ context: input.context, job: { operationId: input.input.operationId, handler: 'agent-plugin.invoke',
                 idempotencyKey: 'agent-plugin:' + hash({ value: input.input.operationId }), argumentsDigest: digest.value, payload: { pluginId: input.pluginId, input: input.input } } });
             if (!queued.ok) return queued;
-            const claimed = await session.query({ sql: "UPDATE job SET state='leased', attempts=1, lease_token=$1, lease_expires_at=$2 WHERE id=$3 AND tenant_id=$4 AND state='pending' AND attempts=0 RETURNING id",
-                parameters: [token, required.clock.now({}) + 300000, queued.value.jobId, jobTenant(input)] });
+            const claimed = await session.query({ text: "UPDATE job SET state='leased', attempts=1, lease_token=$1, lease_expires_at=$2 WHERE id=$3 AND tenant_id=$4 AND state='pending' AND attempts=0 RETURNING id",
+                values: [token, required.clock.now({}) + 300000, queued.value.jobId, jobTenant(input)] });
             if (!claimed.rows.length) return localFailure<{ jobId: string }>({ code: 'conflict', message: 'Plugin operation already claimed; reconcile before retrying' });
             await journalClaim({ session, id: queued.value.jobId, tenantId: jobTenant(input), now: required.clock.now({}) });
             return queued;
@@ -755,24 +755,24 @@ export function bindAgentPluginJobs(required: { unit: UnitOfWork; clock: ClockPo
     async function checkpoint(input: { context: CallContext; jobId: string; event: string; evidence: Record<string, unknown> }): Promise<Outcome<void>> {
         const evidence = boundedJsonSchema.safeParse(input.evidence);
         if (!evidence.success) return localFailure({ code: 'limit_exceeded', message: 'Campaign evidence exceeds bounds' });
-        return database.transaction({ context: input.context, execute: async ({ session }) => {
-            const job = await session.query({ sql: 'SELECT state FROM job WHERE id=$1 AND tenant_id=$2', parameters: [input.jobId, jobTenant(input)] });
+        return database.transaction({ work: async ({ session }) => {
+            const job = await session.query({ text: 'SELECT state FROM job WHERE id=$1 AND tenant_id=$2', values: [input.jobId, jobTenant(input)] });
             if (!job.rows.length) return localFailure({ code: 'forbidden', message: 'Owning job unavailable' });
             if (input.evidence.phase === 'dispatch') {
-                const prior = await session.query({ sql: 'SELECT evidence_id FROM job_attempt WHERE job_id=$1 AND tenant_id=$2 AND event_type=$3 LIMIT 129', parameters: [input.jobId, jobTenant(input), input.event] });
+                const prior = await session.query({ text: 'SELECT evidence_id FROM job_attempt WHERE job_id=$1 AND tenant_id=$2 AND event_type=$3 LIMIT 129', values: [input.jobId, jobTenant(input), input.event] });
                 if (job.rows[0]!.state !== 'dispatching' || prior.rows.length >= 128 || prior.rows.some(row => JSON.parse(String(row.evidence_id)).phase === 'dispatch')) return localFailure({ code: 'conflict', message: 'Campaign step already dispatched or job ended' });
             }
-            await session.query({ sql: 'INSERT INTO job_attempt (job_id,sequence,tenant_id,attempt,event_type,state,observed_at,evidence_id) SELECT $1,COALESCE(MAX(sequence),0)+1,$2,1,$3,$4,$5,$6 FROM job_attempt WHERE job_id=$1',
-                parameters: [input.jobId, jobTenant(input), input.event, job.rows[0]!.state, required.clock.now({}), JSON.stringify(evidence.data)] });
+            await session.query({ text: 'INSERT INTO job_attempt (job_id,sequence,tenant_id,attempt,event_type,state,observed_at,evidence_id) SELECT $1,COALESCE(MAX(sequence),0)+1,$2,1,$3,$4,$5,$6 FROM job_attempt WHERE job_id=$1',
+                values: [input.jobId, jobTenant(input), input.event, job.rows[0]!.state, required.clock.now({}), JSON.stringify(evidence.data)] });
             return { ok: true, value: undefined };
         } });
     }
     /** Scoped immutable intent plus bounded append history for read-only recovery. No claim/replay. */
     async function history(input: { context: CallContext; operationId: string }): Promise<Outcome<{ jobId: string; payload: unknown; evidence: Record<string, unknown>[] }>> {
-        return database.transaction({ context: input.context, execute: async ({ session }) => {
-            const found = await session.query({ sql: 'SELECT id,payload FROM job WHERE tenant_id=$1 AND idempotency_key=$2', parameters: [jobTenant(input), 'agent-plugin:' + hash({ value: input.operationId })] });
+        return database.transaction({ work: async ({ session }) => {
+            const found = await session.query({ text: 'SELECT id,payload FROM job WHERE tenant_id=$1 AND idempotency_key=$2', values: [jobTenant(input), 'agent-plugin:' + hash({ value: input.operationId })] });
             if (!found.rows[0]) return localFailure({ code: 'forbidden', message: 'Campaign job unavailable in scope' });
-            const rows = await session.query({ sql: 'SELECT evidence_id FROM job_attempt WHERE job_id=$1 AND tenant_id=$2 AND evidence_id IS NOT NULL ORDER BY sequence LIMIT 129', parameters: [found.rows[0].id, jobTenant(input)] });
+            const rows = await session.query({ text: 'SELECT evidence_id FROM job_attempt WHERE job_id=$1 AND tenant_id=$2 AND evidence_id IS NOT NULL ORDER BY sequence LIMIT 129', values: [found.rows[0].id, jobTenant(input)] });
             if (rows.rows.length > 128) return localFailure({ code: 'limit_exceeded', message: 'Campaign history exceeds recovery bound' });
             return { ok: true, value: { jobId: String(found.rows[0].id), payload: boundedJsonSchema.parse(JSON.parse(String(found.rows[0].payload))), evidence: rows.rows.map(row => z.record(z.string(), boundedJsonSchema).parse(JSON.parse(String(row.evidence_id)))) } };
         } });
@@ -798,6 +798,6 @@ async function pluginJobBoundary<T>(required: { context: CallContext; observer: 
     return result;
 }
 async function journalClaim(required: { session: JobsSqlSession; id: string; tenantId: string; now: number }): Promise<void> {
-    await required.session.query({ sql: "INSERT INTO job_attempt (job_id,sequence,tenant_id,attempt,event_type,state,observed_at,evidence_id) SELECT $1,COALESCE(MAX(sequence),0)+1,$2,1,'claim','leased',$3,NULL FROM job_attempt WHERE job_id=$1",
-        parameters: [required.id, required.tenantId, required.now] });
+    await required.session.query({ text: "INSERT INTO job_attempt (job_id,sequence,tenant_id,attempt,event_type,state,observed_at,evidence_id) SELECT $1,COALESCE(MAX(sequence),0)+1,$2,1,'claim','leased',$3,NULL FROM job_attempt WHERE job_id=$1",
+        values: [required.id, required.tenantId, required.now] });
 }

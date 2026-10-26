@@ -1,6 +1,6 @@
 import { createSqlContactRepo } from '@open-marketing/contacts';
 import { createSqlJobRepo, jobTenant } from '@open-marketing/jobs';
-import { formRetryPolicy, jobsDatabase } from '../src/composition/forms.js';
+import { formRetryPolicy } from '../src/composition/forms.js';
 import { createSubjectLane } from '../src/composition/subject-lane.js';
 /** Written-only I3 integration: Coordinator builds feature dist exports before running. */
 import { expect, it } from 'vitest';
@@ -81,7 +81,7 @@ async function fixture(_input: Record<string, never>) {
         composed = compose({ database });
         await seedSandboxForm({ binding: composed.forms, context, clock, ids });
         const campaigns = composed.campaigns;
-        const safety = createSqlSafetyRepo({ db: { transaction: ({ execute }) => database.unit.transaction({ work: ({ session }) => execute({ session: { query: ({ sql, parameters }) => session.query({ text: sql, values: [...parameters] }) } }) }) }, clock, ids, ownerTimezone: 'UTC', observer });
+        const safety = createSqlSafetyRepo({ db: database.unit, clock, ids, ownerTimezone: 'UTC', observer });
         const confirmations = createMemoryConfirmationExchange({ ...answerAudit(), clock, ids });
         const listener = createNodeHttpListener({ effects: io, host: '127.0.0.1', port: 0, ids, observer });
         const auth = createLocalAuth({ credentials, clock, bootstrapToken: io.randomToken({}) });
@@ -109,13 +109,12 @@ async function fixture(_input: Record<string, never>) {
         const subjectLane = createSubjectLane({ resolveSubject: createSqlContactRepo({ uow: database.unit }).get });
         const identity = bindIdentity({ unit: database.unit, subjectLane, clock, ids, observer, digestKey, tokens: visits.tokens });
         const forms = bindForms({ database, subjectLane, clock, ids, observer, digestKey, tokens: visits.tokens });
-        const measureDb: MeasureSqlDatabase = { query: input => database.unit.transaction({ work: ({ session }) => session.query(input) }),
-            transaction: ({ work }) => database.unit.transaction({ work: ({ session }) => work(session) }) };
+        const measureDb: MeasureSqlDatabase = database.workspace;
         const measure = createSqlMeasureRepo({ database: measureDb, jobs: { async enqueue() { throw new Error('No conversions'); } } });
         const campaigns = createSqlCampaignRepo({ db: { query: input => database.unit.transaction({ work: ({ session }) => session.query(input) }) } });
         const links = createSqlTrackedLink({ database: measureDb, ids, baseUrl: 'https://sandbox.example.test/l/', allowedOrigins: ['https://sandbox.example.test'] });
         return { forms, identity, visits, database, campaigns, links, subjectLane,
-            jobs: createSqlJobRepo({ database: jobsDatabase({ unit: database.unit }), clock, ids, retryPolicy: formRetryPolicy }),
+            jobs: createSqlJobRepo({ database: database.unit, clock, ids, retryPolicy: formRetryPolicy }),
             privacy: bindPrivacy({ unit: database.unit, subjectLane, identity, subjects: forms.subjects, measure, clock, ids, observer }) };
     }
     try { await start(); } catch (error) { if (native?.open) native.close(); await removeStateRoot({ path: directory }); throw error; }

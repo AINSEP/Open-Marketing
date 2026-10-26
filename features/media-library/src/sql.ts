@@ -1,3 +1,4 @@
+import type { SqlSession } from "@open-marketing/contracts";
 import { z } from 'zod';
 import type { CallContext, Outcome, Scope } from '@open-marketing/contracts';
 import type { MediaObserverPort, MediaRepoPort } from './ports.js';
@@ -6,9 +7,7 @@ import { createEvidenceRepo } from './evidence-repo.js';
 import { fail, success } from './validation.js';
 
 /** Structural @jini-ai/db-shaped query seam; host owns SQLite client and transactions. */
-export interface MediaSqlPort {
-  query<Row extends Record<string, unknown> = Record<string, unknown>>(required: { text: string; values?: unknown[] }): Promise<{ rows: Row[]; rowCount: number | null }>;
-}
+export type MediaSqlPort = Pick<SqlSession, "query">;
 const rowSchema = z.strictObject({ kind: z.enum(['provenance', 'link', 'cost', 'crop']), key: z.string(), operationId: z.string(), payload: z.string().max(100000) });
 const selectColumns = 'kind, record_key AS "key", operation_id AS "operationId", payload';
 /** Durable OM-only metadata via parameterized portable SQL. Factory never runs DDL or starts services.

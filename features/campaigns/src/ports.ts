@@ -1,3 +1,4 @@
+import type { SqlSession } from "@open-marketing/contracts";
 import type { Outcome, CallContext, CallOptions, ObserverPort, Page, PageQuery } from "@open-marketing/contracts";
 import type { CampaignDraft, CampaignReceipt, LaunchProposal, ApprovedLaunchRequest, LaunchReceipt, ObservedCampaignState, CampaignReadback, CampaignRecord, CampaignIntent, CampaignJob } from "./types.js";
 import type { NeutralCampaignLaunch, NeutralCampaignRecord } from "./neutral-launch.js";
@@ -51,6 +52,4 @@ export interface CampaignAuditPort {
 }
 export type CampaignObserverPort = ObserverPort;
 /** Server-owned SQL query shape; composition adapts its DB port. No driver or shim import. */
-export interface CampaignSqlPort {
-  query<Row extends Record<string, unknown> = Record<string, unknown>>(required: { text: string; values?: unknown[] }): Promise<{ rows: Row[]; rowCount: number | null }>;
-}
+export type CampaignSqlPort = Pick<SqlSession, "query">;

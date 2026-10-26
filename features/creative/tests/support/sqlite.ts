@@ -10,8 +10,13 @@ export function sqliteFixture(required: Record<string, never>) {
   native.exec(readFileSync(new URL("../../migrations/0001_creative.sql", import.meta.url), "utf8"));
   native.exec("CREATE TABLE fixture_jobs_outbox (operation_key TEXT PRIMARY KEY, digest TEXT NOT NULL, generation_id TEXT NOT NULL)");
   const session: CreativeSqlSession = {
-    async query(input) { return native.prepare(input.sql).all(...input.parameters); },
-    async execute(input) { return { changes: native.prepare(input.sql).run(...input.parameters).changes }; },
+    transaction: ({ work }) => work({ session }),
+    async query<Row extends Record<string, unknown>>(input: { text: string; values?: unknown[] }) {
+      const statement = native.prepare(input.text);
+      const bindings = Object.fromEntries((input.values ?? []).map((value, index) => [String(index + 1), value]));
+      if (statement.reader) return { rows: statement.all(bindings) as Row[], rowCount: null };
+      return { rows: [] as Row[], rowCount: statement.run(bindings).changes };
+    },
   };
   let tail: Promise<void> = Promise.resolve();
   const database: CreativeSqlDatabase = {
@@ -20,8 +25,8 @@ export function sqliteFixture(required: Record<string, never>) {
       const pending = tail.then(async () => {
         native.exec("BEGIN IMMEDIATE");
         try {
-          const result = await input.run({ session });
-          native.exec(result.ok ? "COMMIT" : "ROLLBACK");
+          const result = await input.work({ session });
+          native.exec(typeof result === "object" && result !== null && "ok" in result && result.ok === false ? "ROLLBACK" : "COMMIT");
           return result;
         } catch (error) { native.exec("ROLLBACK"); throw error; }
       });
@@ -31,9 +36,8 @@ export function sqliteFixture(required: Record<string, never>) {
   };
   const repo = createSqlCreativeRepo({ database });
   let rejectEnqueue = false;
-  const transaction: CreativeJobTransaction = input => database.transaction({ run: async scope => {
-    const transactionDatabase: CreativeSqlDatabase = { async transaction(input) { return input.run(scope); } };
-    const transactionalRepo = createSqlCreativeRepo({ database: transactionDatabase });
+  const transaction: CreativeJobTransaction = input => database.transaction({ work: async ({ session }) => {
+    const transactionalRepo = createSqlCreativeRepo({ database: session });
     const enqueue: CreativeTransactionalEnqueue = async job => {
       if (rejectEnqueue) return failure({ code: "unavailable", message: "Scripted SQL outbox failure" });
       const operationKey = JSON.stringify([job.context.scope.ownerId, job.context.scope.workspaceId, job.operationId]);

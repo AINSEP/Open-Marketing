@@ -9,7 +9,6 @@ import type { SafetySqlDatabase } from '@open-marketing/safety';
 import { createMeasureService } from '@open-marketing/measure';
 import type { MeasureRepoPort, TrackedLinkPort, PlatformReportingPort } from '@open-marketing/measure';
 import { digestArguments } from '@open-marketing/safety';
-import { jobsDatabase } from './forms.js';
 import type { bindServerDatabase } from './database.js';
 import { localFailure } from './local-auth.js';
 import { join } from 'node:path';
@@ -31,9 +30,7 @@ type MediaEffects = Pick<JiniMediaDependencies, 'blobStore' | 'imageTransformer'
 /** Durable append-only audit with the existing conservative local reference redactor.
  * @complexity O(1) construction; SQL methods inherit bounded owning queries. */
 export function bindCatalogAudit(required: { unit: UnitOfWork; clock: ClockPort; ids: IdPort; observer: ObserverPort }): AuditService {
-    return createAuditService({ clock: required.clock, ids: required.ids, repo: createSqlAuditRepo({ ...required, db: {
-        transaction: ({ execute }) => required.unit.transaction({ work: ({ session }) => execute({ session }) }),
-    } }), redactor: createMemoryAuditRedactor({}) }, { observer: required.observer });
+    return createAuditService({ clock: required.clock, ids: required.ids, repo: createSqlAuditRepo({ ...required, db: required.unit }), redactor: createMemoryAuditRedactor({}) }, { observer: required.observer });
 }
 /** Lifecycle adapters record through the owning audit service; no second evidence store. */
 export function catalogAuditPort(required: { audit: AuditService }) {
@@ -50,7 +47,7 @@ export function bindCatalogScope(required: { database: ReturnType<typeof bindSer
     const repo = createSqlWorkspaceRepo({ db: required.database.workspace, ids: required.ids,
         identity: { async verify() { return localFailure({ code: 'forbidden', message: 'Session resolution is not a catalog capability' }); } } }, { observer: required.observer });
     return { accountBindings: repo, workspaces: createSqlWorkspaceListing({ db: required.database.workspace, observer: required.observer }),
-        jobs: createSqlScopedJobs({ database: jobsDatabase({ unit: required.database.unit }), clock: required.clock, observer: required.observer }),
+        jobs: createSqlScopedJobs({ database: required.database.unit, clock: required.clock, observer: required.observer }),
         paidSending: createSqlPaidSendingAllowances({ db: required.safetyDb, clock: required.clock, observer: required.observer, timezone: required.timezone }) };
 }
 /** Explicit zero-spend sandbox report, never a fabricated live vendor observation. Account ID

@@ -11,7 +11,7 @@ export function createSqlMeasureJob(required: { database: MeasureSqlDatabase; jo
       const parsed = parseSourceEvent({ input });
       if (!parsed.ok) return parsed;
       const context = ingestionContext(parsed.value);
-      return sqlBoundary({ context, operation: "measure.sql.enqueue", observer: optional?.observer, work: () => required.database.transaction({ work: async transaction => unwrap({ outcome: await required.jobs.enqueue({ transaction, context, source: parsed.value.source, event: parsed.value.event }, options) }) }) }, options);
+      return sqlBoundary({ context, operation: "measure.sql.enqueue", observer: optional?.observer, work: () => required.database.transaction({ work: async ({ session: transaction }) => unwrap({ outcome: await required.jobs.enqueue({ transaction, context, source: parsed.value.source, event: parsed.value.event }, options) }) }) }, options);
     },
   };
 }

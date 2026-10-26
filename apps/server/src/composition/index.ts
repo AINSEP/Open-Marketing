@@ -42,7 +42,7 @@ import { createLocalAgent, createNodeAgentEffects, type AgentEffects } from './a
 import { createFrontendSessions, type FrontendSessions } from '../inbound/frontend.js';
 import { join } from 'node:path';
 import type Database from 'better-sqlite3';
-import type { CallContext, ClockPort, IdPort, ObserverPort, Outcome, SqlSession, UnitOfWork } from '@open-marketing/contracts';
+import type { CallContext, ClockPort, IdPort, ObserverPort, Outcome, UnitOfWork } from '@open-marketing/contracts';
 import { z } from 'zod';
 import { createSqlCampaignRepo, type CampaignSqlPort } from '@open-marketing/campaigns';
 import { createMemoryAccountDispatchLock, createSqlConfirmationExchange, createSafetyService, createSqlSafetyRepo, type AccountDispatchLockPort, type ConfirmationExchangePort, type SafetySqlDatabase } from '@open-marketing/safety';
@@ -256,27 +256,16 @@ export async function bootServer(required: {
         phase = 'HTTP listener';
         const listener = createNodeHttpListener({ ...config.value, effects: required.io, ids: required.ids, observer: required.observer });
         const auth = createLocalAuth({ credentials: credentials.value, clock: required.clock, bootstrapToken: required.io.randomToken({}) });
-        const safetyDb: SafetySqlDatabase = { transaction: ({ execute }) => database.unit.transaction({ work: ({ session }) => execute({
-            session: { query: ({ sql, parameters }) => session.query({ text: sql, values: [...parameters] }) },
-        }) }) };
+        const safetyDb: SafetySqlDatabase = database.unit;
         resources.confirmations = createSqlConfirmationExchange({ db: safetyDb, clock: required.clock, ids: required.ids,
             recordAnswer: async ({ session, context, answer }) => {
-                // Borrow the confirmation transaction: audit must never open a root transaction here.
-                const borrowed: SqlSession = { transaction: ({ work }) => work({ session: borrowed }),
-                    query: async <Row extends Record<string, unknown>>({ text, values }: { text: string; values?: unknown[] }) => {
-                        const result = await session.query({ sql: text, parameters: values ?? [] });
-                        return { rows: [...result.rows] as Row[], rowCount: result.rows.length };
-                    } };
-                const audit = bindCatalogAudit({ ...required, unit: borrowed });
+                const audit = bindCatalogAudit({ ...required, unit: session });
                 const recorded = await audit.record({ context, entry: { kind: 'approval', operationId: answer.response.operationId,
                     argumentsDigest: answer.response.argumentsDigest, references: [answer.response.cardId],
                     approval: { response: answer.response, approver: answer.approver } } });
                 return recorded.ok ? { ok: true, value: undefined } : recorded;
             } });
-        const campaignDb: CampaignSqlPort = {
-            query: <Row extends Record<string, unknown>>(input: { text: string; values?: unknown[] }) =>
-                database.unit.transaction({ work: ({ session }) => session.query<Row>(input) }),
-        };
+        const campaignDb: CampaignSqlPort = database.workspace;
         const integrations = bindServerIntegrations({ db: campaignDb, clock: required.clock, ids: required.ids,
             observer: required.observer, io: required.io, stateRoot: config.value.stateRoot, masterHex: required.env.OM_CREDENTIAL_KEY,
             providers: await loadOAuthProviders({ io: required.io }),
@@ -300,10 +289,7 @@ export async function bootServer(required: {
         const identity = bindIdentity({ unit: database.unit, clock: required.clock, ids: required.ids, observer: required.observer, digestKey, tokens: visits.tokens, subjectLane });
         const forms = bindForms({ database, clock: required.clock, ids: required.ids, observer: required.observer, digestKey, tokens: visits.tokens, subjectLane });
         await seedSandboxForm({ binding: forms, context, clock: required.clock, ids: required.ids });
-        const measureDb: MeasureSqlDatabase = {
-            query: input => database.unit.transaction({ work: ({ session }) => session.query(input) }),
-            transaction: ({ work }) => database.unit.transaction({ work: ({ session }) => work(session) }),
-        };
+        const measureDb: MeasureSqlDatabase = database.workspace;
         const measure = createSqlMeasureRepo({ database: measureDb, jobs: { async enqueue() { return localFailure({ code: 'forbidden', message: 'Conversions denied in local sandbox' }); } } }, { observer: required.observer });
         resources.privacy = bindPrivacy({ unit: database.unit, identity, subjects: forms.subjects, measure, clock: required.clock, ids: required.ids, observer: required.observer, subjectLane });
         const publicServices = { forms, identity, visits, clock: required.clock, campaigns: services.campaigns,

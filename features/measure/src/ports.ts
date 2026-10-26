@@ -1,4 +1,4 @@
-import type { CallContext, CallOptions, TimeWindow, ObserverPort, Outcome, ServiceContext } from "@open-marketing/contracts";
+import type { CallContext, CallOptions, TimeWindow, ObserverPort, Outcome, ServiceContext, SqlSession } from "@open-marketing/contracts";
 import type { AttributionTouch, MeasureGrant, ResolvedConversionInput, AttributionResult, AttributionSummary, CacQuery, ConversionDispatchRecord, ConversionInput, ConversionReceipt, PlatformMetricSnapshot, TrackedLink, TrackedLinkRequest, VerifiedConversionSource } from "./types.js";
 
 /** Caller owns current contacts/erasure lookup. A missing/erased subject is a typed failure.
@@ -67,14 +67,10 @@ export interface ConversionDeliveryStatePort {
   begin(required: { context: ServiceContext; record: ConversionDispatchRecord }, optional?: CallOptions): Promise<Outcome<{ readonly acquired: boolean; readonly record: ConversionDispatchRecord }>>;
   append(required: { context: ServiceContext; record: ConversionDispatchRecord }, optional?: CallOptions): Promise<Outcome<ConversionDispatchRecord>>;
 }
-/** Portable DB-shaped seam; the server adapts its SQLite OM DB port. */
-export interface MeasureSqlQueryable {
-  query<Row extends Record<string, unknown> = Record<string, unknown>>(required: { text: string; values?: unknown[] }): Promise<{ rows: Row[]; rowCount: number | null }>;
-}
-/** Serialize writers and roll back all changes when work throws. */
-export interface MeasureSqlDatabase extends MeasureSqlQueryable {
-  transaction<T>(required: { work: (transaction: MeasureSqlQueryable) => Promise<T> }): Promise<T>;
-}
+/** Query-only view of the canonical SQL session. */
+export type MeasureSqlQueryable = Pick<SqlSession, "query">;
+/** Server owns serialized transaction and root query lifecycle. */
+export type MeasureSqlDatabase = SqlSession;
 /** Bind the jobs outbox to this EXACT transaction; failed enqueue rolls back intent.
  * Persist source/event IDs only; workers reload committed evidence at dispatch. */
 export interface MeasureTransactionalJobPort {
