@@ -28,13 +28,12 @@
 - final migration numbering check (v23–v26);
 - server/studio wiring NEEDS listed in each B1.md.
 
-**OVERNIGHT PLAN (owner asleep, 2026-10-25 → 26; b5 runs it autonomously and logs decisions here):**
-1. Opus 5.5 reviews the 13 finished jobs → `ADS-memory/reports/2026-10-25-opus-review-wave-part1.md` (launched).
-2. When all 25 Codex jobs finish (the watcher fires), Opus 5.5 reviews the remaining 12 → part2. If Claude usage runs out, wait for the 4 AM reset.
-3. Codex fix runs for every review blocker/major (GPT-6.1 Sol high, plan → build).
-4. Commit each job's files to om/cleanup-1025, labelled untested; push.
-5. After the 4 AM reset: one cloud test run (Claude cloud env "Open Marketing"), then Codex fixes, then merge into om/clean-slate only if green.
-- Decisions log: (append below as they happen)
+**OVERNIGHT (owner 2026-10-25 late):** let the Codex wave finish; NO Opus review and NO commits overnight (another agent is using the Claude credits).
+**MORNING (after the 4 AM reset), in order:**
+1. Opus 5.5 reviews all 25 jobs (over-engineering, bugs, Jini duplication) → `ADS-memory/reports/2026-10-26-opus-review-wave.md`.
+2. Codex fix runs for blockers/majors.
+3. Commit each job's files (untested) and push om/cleanup-1025.
+4. One cloud test run, then Codex fixes, then merge into om/clean-slate if green.
 
 **Then:**
 0. **OWNER REMINDER:** when the Codex jobs finish, review every job's changes with **Opus 5.5** for over-engineering, bugs, AND duplication of Jini (published 0.6.12 or the coming 0.6.15 list in codex-runs/ctx-wave.md) BEFORE committing or merging.
