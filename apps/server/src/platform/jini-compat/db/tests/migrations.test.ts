@@ -3,7 +3,7 @@ import Database from 'better-sqlite3';
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it, vi } from 'vitest';
 import { loadMigrations, migrationManifest } from '../../../../composition/migrations.js';
-import { createCheckedSqliteClient, createSqlitePool } from '../src/sqlite.js';
+import { createCheckedSqliteClient, createSqlitePool } from '@open-marketing/om-db';
 import { prepareMigrations, runMigrations } from '../src/migrations.js';
 
 describe('trusted migration scripts and catalogue', () => {

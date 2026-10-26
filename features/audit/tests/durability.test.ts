@@ -76,7 +76,7 @@ describe("durable SQL audit", () => {
           values: ["failed-write", "owner-1", "workspace-1", 1, "operation-1", "intent", "a".repeat(64), 1234, JSON.stringify(entry()), JSON.stringify(context())],
         });
         throw new Error("failure after insert");
-      } })).rejects.toThrow("failure after insert");
+      } })).rejects.toMatchObject({ code: "transaction_failed", cause: { message: "failure after insert" } });
       expect(fixture.native.prepare("SELECT COUNT(*) AS count FROM audit_entry").get()).toEqual({ count: 0 });
     } finally { fixture.native.close(); }
   });

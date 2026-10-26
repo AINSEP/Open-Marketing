@@ -24,9 +24,10 @@
     "@open-marketing/om-clock": "workspace:*"
   },
   "devDependencies": {
-    "vitest": "3.2.4",
-    "better-sqlite3": "13.0.3",
+    "@jini-ai/db": "0.6.12",
+    "@open-marketing/om-db": "workspace:*",
     "@types/better-sqlite3": "9.6.0",
-    "@jini-ai/db": "0.6.12"
+    "better-sqlite3": "13.0.3",
+    "vitest": "3.2.4"
   }
 }

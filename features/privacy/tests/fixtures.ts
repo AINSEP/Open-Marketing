@@ -1,7 +1,7 @@
-import Database from "better-sqlite3";
+import { createSqliteFixture } from "@open-marketing/om-db/testing";
 import { readFileSync } from "node:fs";
 import { createFakeClock } from "@open-marketing/om-clock";
-import type { CallContext, Outcome, SqlSession, UnitOfWork } from "@open-marketing/contracts";
+import type { CallContext, Outcome } from "@open-marketing/contracts";
 import { createErasureParticipantRegistry, createMemoryPrivacyRepo, createPrivacyService } from "../index.js";
 import type { ErasureParticipantPort, ErasurePhase, ErasureRequest, PrivacyProcessingBlockPort, PrivacyRepoPort, RetainedSuppressionDigest } from "../index.js";
 
@@ -74,44 +74,8 @@ export function serviceFixture(required: { repo?: PrivacyRepoPort; members?: Ret
   return { ...dependencies, service: createPrivacyService(dependencies), members, blocked, blockCalls, controls };
 }
 
-/** Real :memory: SQLite transaction owner; returned failed Outcomes and throws roll back.
- * Joined sessions expire at root completion; concurrent roots serialize through this fixture.
- * Only this test fixture applies the lane migration, exclusively to its own temporary database.
- */
+/** Feature migration over the shared checked SQLite transaction/session fixture. */
 export function sqliteFixture(_required: Record<string, never>) {
-  const db = new Database(":memory:");
-  db.exec(readFileSync(new URL("../migrations/0001_privacy.sql", import.meta.url), "utf8"));
-  let tail: Promise<unknown> = Promise.resolve();
-  const unitOfWork: UnitOfWork = { async transaction({ work }) {
-    const result = tail.then(async () => {
-      db.exec("BEGIN IMMEDIATE");
-      const lifetime = { active: true };
-      const session = sqliteSession({ db, lifetime });
-      try {
-        const value = await work({ session });
-        const failed = typeof value === "object" && value !== null && "ok" in value && value.ok === false;
-        db.exec(failed ? "ROLLBACK" : "COMMIT");
-        return value;
-      } catch (error) { db.exec("ROLLBACK"); throw error; }
-      finally { lifetime.active = false; }
-    });
-    tail = result.catch(() => undefined);
-    return result;
-  } };
-  return { db, unitOfWork, close: () => db.close() };
-}
-/** Narrow foreign driver ABI: numbered OM placeholders bind in statement order. */
-function sqliteSession(required: { db: Database.Database; lifetime: { active: boolean } }): SqlSession {
-  return {
-    async query<Row extends Record<string, unknown>>(input: { text: string; values?: unknown[] }) {
-      if (!required.lifetime.active) throw new Error("Session released");
-      const statement = required.db.prepare(input.text.replace(/\$\d+/g, "?"));
-      if (statement.reader) return { rows: statement.all(...(input.values ?? [])) as Row[], rowCount: null };
-      return { rows: [] as Row[], rowCount: statement.run(...(input.values ?? [])).changes };
-    },
-    async transaction({ work }) {
-      if (!required.lifetime.active) throw new Error("Session released");
-      return work({ session: this });
-    },
-  };
+  const fixture = createSqliteFixture({ migrations: [readFileSync(new URL("../migrations/0001_privacy.sql", import.meta.url), "utf8")] });
+  return { db: fixture.native, unitOfWork: fixture.database, close: fixture.close };
 }

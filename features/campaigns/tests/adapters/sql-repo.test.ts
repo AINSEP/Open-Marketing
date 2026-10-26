@@ -1,34 +1,18 @@
-import Database from "better-sqlite3";
+import type Database from "better-sqlite3";
+import { createSqliteFixture } from "@open-marketing/om-db/testing";
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
-import type { CampaignSqlPort } from "../../index.js";
 import { createSqlCampaignRepo } from "../../index.js";
 import { CampaignRepoPortSuite } from "../contract/port-suites.js";
 import { context, draft, proposal, value } from "../fixtures.js";
 
 const handles: Database.Database[] = [];
 afterEach(() => { handles.splice(0).forEach(database => database.close()); });
-/** In-memory SQLite test binding for the server-owned query port; never opens a file DB. */
-function sqliteFixture(required: { database: Database.Database }): CampaignSqlPort {
-  return {
-    async query<Row extends Record<string, unknown>>(input: { text: string; values?: unknown[] }) {
-      const statement = required.database.prepare(input.text);
-      const parameters = Object.fromEntries((input.values ?? []).map((entry, index) => [String(index + 1), entry]));
-      if (statement.reader) {
-        const rows = statement.all(parameters) as Row[];
-        return { rows, rowCount: rows.length };
-      }
-      return { rows: [] as Row[], rowCount: statement.run(parameters).changes };
-    },
-  };
-}
+/** Campaign-owned migration over the shared checked SQLite query adapter. */
 function createSqlFixture() {
-  const database = new Database(":memory:");
-  handles.push(database);
-  database.pragma("foreign_keys = ON");
-  database.exec(readFileSync(new URL("../../migrations/0001_campaigns.sql", import.meta.url), "utf8"));
-  const db = sqliteFixture({ database });
-  return { database, db, repo: createSqlCampaignRepo({ db }) };
+  const fixture = createSqliteFixture({ migrations: [readFileSync(new URL("../../migrations/0001_campaigns.sql", import.meta.url), "utf8")] });
+  handles.push(fixture.native);
+  return { database: fixture.native, db: fixture.database, repo: createSqlCampaignRepo({ db: fixture.database }) };
 }
 CampaignRepoPortSuite({ create: () => createSqlFixture().repo });
 

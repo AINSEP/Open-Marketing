@@ -213,7 +213,11 @@ export function AuditSqlPortSuite(required: {
     it("propagates callback failure without claiming transaction success", async () => {
       const fixture = required.create({});
       try {
-        await expect(fixture.db.transaction({ work: async () => { throw new Error("test rollback"); } })).rejects.toThrow("test rollback");
+        const failure = new Error("test rollback");
+        const rejected = fixture.db.transaction({ work: async () => { throw failure; } }).catch(error => error);
+        const error = await rejected;
+        if (error !== failure) expect(error).toMatchObject({ code: "transaction_failed", cause: failure });
+        else expect(error).toBe(failure);
         expect((await fixture.session.query({ text: "SELECT $1 AS value", values: ["after-failure"] })).rows).toEqual([{ value: "after-failure" }]);
       } finally { fixture.dispose({}); }
     });
@@ -221,10 +225,11 @@ export function AuditSqlPortSuite(required: {
       const fixture = required.create({});
       const started: string[] = [];
       const { promise: barrier, resolve: release } = Promise.withResolvers<void>();
-      const first = fixture.db.transaction({ work: async () => { started.push("first"); await barrier; return 1; } });
+      const entered = Promise.withResolvers<void>();
+      const first = fixture.db.transaction({ work: async () => { started.push("first"); entered.resolve(); await barrier; return 1; } });
       const second = fixture.db.transaction({ work: async () => { started.push("second"); return 2; } });
       try {
-        await Promise.resolve();
+        await entered.promise;
         expect(started).toEqual(["first"]);
         release();
         expect(await Promise.all([first, second])).toEqual([1, 2]);

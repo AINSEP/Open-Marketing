@@ -94,8 +94,6 @@ function failedOutcome(required: { value: unknown }): boolean {
  * @returns Original callback value after commit or successful denial rollback. Nested session calls join; the outer caller decides the final Outcome.
  * @throws PgFoundationError with a cause; commit_failed means the outcome may be committed.
  * @complexity O(q) driver calls for q body queries; constant wrapper space.
- *
- *
  */
 export async function withTransaction<T>({ pool, work }: {
     pool: PgPool;

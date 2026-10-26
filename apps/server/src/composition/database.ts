@@ -4,7 +4,7 @@ import { sqliteKernel } from '@jini-ai/db/kernel/sqlite';
 import type { CallContext, ObserverPort, Scope, SqlSession, UnitOfWork } from '@open-marketing/contracts';
 import type { WorkspaceSqlDatabase } from '@open-marketing/workspaces';
 import { z } from 'zod';
-import { createCheckedSqliteClient, createSqlitePool, withTransaction, type PgObserver } from '../platform/jini-compat/db/src/index.js';
+import { createCheckedSqliteClient, createSqlitePool, withTransaction, type PgObserver } from '@open-marketing/om-db';
 
 /** Bind inert transaction adapters; native lifetime stays with bootServer. Busy work fails through
  * the existing typed bridge; there is no additional queue, lease manager or transaction control.

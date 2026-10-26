@@ -1,23 +1,21 @@
-import Database from 'better-sqlite3';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { it, expect } from 'vitest';
 import { createSqlMediaRepo } from '../index.js';
 import { context, provenance, value } from './fixtures.js';
-import { sqlFixture, sqliteQuery } from './sql-fixture.js';
+import { sqlFixture } from './sql-fixture.js';
 
 it('SQL evidence survives closing and reopening an isolated temporary database', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'om-media-sql-')); const path = join(directory, 'evidence.sqlite');
-  let database = new Database(path);
+  let fixture = await sqlFixture({ filename: path });
   try {
-    database.exec(await readFile(new URL('../migrations/0001_media_evidence.sql', import.meta.url), 'utf8'));
-    const first = createSqlMediaRepo({ scope: context.scope, db: sqliteQuery({ database }) });
+    const first = createSqlMediaRepo({ scope: context.scope, db: fixture.db });
     expect(await first.appendProvenance({ context, link: { provenance } })).toEqual({ ok: true, value: undefined });
-    database.close(); database = new Database(path);
-    const reopened = createSqlMediaRepo({ scope: context.scope, db: sqliteQuery({ database }) });
+    await fixture.dispose(); fixture = await sqlFixture({ filename: path, migrate: false });
+    const reopened = createSqlMediaRepo({ scope: context.scope, db: fixture.db });
     expect(value({ outcome: await reopened.evidence({ context, operationId: 'operation' }) }).provenance).toEqual([{ provenance }]);
-  } finally { database.close(); await rm(directory, { recursive: true, force: true }); }
+  } finally { await fixture.dispose(); await rm(directory, { recursive: true, force: true }); }
 });
 it('SQL malformed persisted JSON fails as a typed unavailable outcome', async () => {
   const fixture = await sqlFixture();

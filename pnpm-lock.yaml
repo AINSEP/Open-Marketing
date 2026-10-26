@@ -173,6 +173,9 @@ importers:
       '@open-marketing/media-library':
         specifier: workspace:*
         version: link:../../features/media-library
+      '@open-marketing/om-db':
+        specifier: workspace:*
+        version: link:../../packages/om-db
       '@open-marketing/policy':
         specifier: workspace:*
         version: link:../../features/policy
@@ -303,6 +306,9 @@ importers:
         specifier: 4.1.13
         version: 4.1.13
     devDependencies:
+      '@open-marketing/om-db':
+        specifier: workspace:*
+        version: link:../../packages/om-db
       '@types/better-sqlite3':
         specifier: 9.6.0
         version: 9.6.0
@@ -322,6 +328,9 @@ importers:
         specifier: 4.1.13
         version: 4.1.13
     devDependencies:
+      '@open-marketing/om-db':
+        specifier: workspace:*
+        version: link:../../packages/om-db
       '@types/better-sqlite3':
         specifier: 9.6.0
         version: 9.6.0
@@ -344,6 +353,9 @@ importers:
         specifier: 4.1.13
         version: 4.1.13
     devDependencies:
+      '@open-marketing/om-db':
+        specifier: workspace:*
+        version: link:../../packages/om-db
       '@types/better-sqlite3':
         specifier: 9.6.0
         version: 9.6.0
@@ -366,6 +378,9 @@ importers:
         specifier: 4.1.13
         version: 4.1.13
     devDependencies:
+      '@open-marketing/om-db':
+        specifier: workspace:*
+        version: link:../../packages/om-db
       '@types/better-sqlite3':
         specifier: 9.6.0
         version: 9.6.0
@@ -391,6 +406,9 @@ importers:
         specifier: 4.1.13
         version: 4.1.13
     devDependencies:
+      '@open-marketing/om-db':
+        specifier: workspace:*
+        version: link:../../packages/om-db
       '@types/better-sqlite3':
         specifier: 9.6.0
         version: 9.6.0
@@ -441,6 +459,9 @@ importers:
       '@jini-ai/db':
         specifier: 0.6.12
         version: 0.6.12(@jini-ai/platform@0.6.12(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(better-sqlite3@13.0.3)(express@5.2.1)(kysely@0.29.6)
+      '@open-marketing/om-db':
+        specifier: workspace:*
+        version: link:../../packages/om-db
       '@types/better-sqlite3':
         specifier: 9.6.0
         version: 9.6.0
@@ -463,6 +484,9 @@ importers:
         specifier: 4.1.13
         version: 4.1.13
     devDependencies:
+      '@open-marketing/om-db':
+        specifier: workspace:*
+        version: link:../../packages/om-db
       '@types/better-sqlite3':
         specifier: 9.6.0
         version: 9.6.0
@@ -488,6 +512,9 @@ importers:
         specifier: 4.1.13
         version: 4.1.13
     devDependencies:
+      '@open-marketing/om-db':
+        specifier: workspace:*
+        version: link:../../packages/om-db
       '@types/better-sqlite3':
         specifier: 9.6.0
         version: 9.6.0
@@ -510,6 +537,9 @@ importers:
         specifier: 4.1.13
         version: 4.1.13
     devDependencies:
+      '@open-marketing/om-db':
+        specifier: workspace:*
+        version: link:../../packages/om-db
       '@types/better-sqlite3':
         specifier: 9.6.0
         version: 9.6.0
@@ -554,6 +584,9 @@ importers:
         specifier: 4.1.13
         version: 4.1.13
     devDependencies:
+      '@open-marketing/om-db':
+        specifier: workspace:*
+        version: link:../../packages/om-db
       '@types/better-sqlite3':
         specifier: 9.6.0
         version: 9.6.0
@@ -576,6 +609,9 @@ importers:
         specifier: 4.1.13
         version: 4.1.13
     devDependencies:
+      '@open-marketing/om-db':
+        specifier: workspace:*
+        version: link:../../packages/om-db
       '@types/better-sqlite3':
         specifier: 9.6.0
         version: 9.6.0
@@ -595,6 +631,9 @@ importers:
         specifier: 4.1.13
         version: 4.1.13
     devDependencies:
+      '@open-marketing/om-db':
+        specifier: workspace:*
+        version: link:../../packages/om-db
       fast-check:
         specifier: 4.3.0
         version: 4.3.0
@@ -611,6 +650,9 @@ importers:
         specifier: 4.1.13
         version: 4.1.13
     devDependencies:
+      '@open-marketing/om-db':
+        specifier: workspace:*
+        version: link:../../packages/om-db
       '@types/better-sqlite3':
         specifier: 9.6.0
         version: 9.6.0
@@ -630,6 +672,9 @@ importers:
         specifier: 4.1.13
         version: 4.1.13
     devDependencies:
+      '@open-marketing/om-db':
+        specifier: workspace:*
+        version: link:../../packages/om-db
       '@types/better-sqlite3':
         specifier: 9.6.0
         version: 9.6.0
@@ -647,6 +692,28 @@ importers:
         version: 4.1.13
 
   packages/om-clock: {}
+
+  packages/om-db:
+    dependencies:
+      '@jini-ai/db':
+        specifier: 0.6.12
+        version: 0.6.12(@jini-ai/platform@0.6.12(express@5.2.1)(hast-util-from-parse5@8.0.3)(hast-util-to-mdast@10.1.2)(mdast-util-gfm-table@2.0.0)(mdast-util-to-markdown@2.1.2)(parse5@7.3.0)(undici@7.30.0))(better-sqlite3@13.0.3)(express@5.2.1)(kysely@0.29.6)
+      '@open-marketing/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      better-sqlite3:
+        specifier: 13.0.3
+        version: 13.0.3
+    devDependencies:
+      '@types/better-sqlite3':
+        specifier: 9.6.0
+        version: 9.6.0
+      kysely:
+        specifier: 0.29.6
+        version: 0.29.6
+      vitest:
+        specifier: 3.2.4
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@24.10.1)(jiti@2.7.0)(jsdom@27.2.0)(tsx@4.20.6)(yaml@2.8.1)
 
 packages:
 

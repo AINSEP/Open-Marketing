@@ -1,8 +1,8 @@
-import { DatabaseSync } from "node:sqlite";
+import { createSqliteFixture } from "@open-marketing/om-db/testing";
 import { readFileSync } from "node:fs";
 import type { Outcome, CallContext, ClockPort, IdPort, ConfirmationCard, GenerationCostQuote } from "@open-marketing/contracts";
 import { createMemorySafetyRepo, createSqlSafetyRepo, createMemoryConfirmationExchange, createMemoryAccountDispatchLock, createMemoryPlatformLimitEvidence, createMemorySpendPolicy, createMemoryVerifiedEffectResolver, createMemorySafetyAudit, createSafetyService, digestArguments } from "../index.js";
-import type { ApprovalAnswer, SafetyRepoPort, EffectRequest, FrozenDispatchRequest, FrozenGenerationRequest, SafetySqlDatabase, SafetySqlSession, VerifiedStopFixture, SafetyService, PlatformLimitEvidence } from "../index.js";
+import type { ApprovalAnswer, SafetyRepoPort, EffectRequest, FrozenDispatchRequest, FrozenGenerationRequest, VerifiedStopFixture, SafetyService, PlatformLimitEvidence } from "../index.js";
 export const context: CallContext = { scope: { ownerId: "owner", workspaceId: "workspace" }, principal: { kind: "owner", ownerId: "owner" }, correlationId: "correlation", traceId: "trace", runId: "run" };
 export const approver = { kind: "local_token" as const, ownerId: context.scope.ownerId, deviceId: "fixture-device", tokenId: "fixture-token-reference" };
 export const otherContext: CallContext = { ...context, scope: { ownerId: "other", workspaceId: "workspace" }, principal: { kind: "owner", ownerId: "other" } };
@@ -48,33 +48,14 @@ export function generationRequest(required: { operationId?: string; amount?: num
 }
 /** Test-only SQLite in-memory driver; production code sees the db-shaped port, never this driver. */
 export function sqliteFixture(required: Record<string, never> = {}) {
- const db = new DatabaseSync(":memory:");
- db.exec(readFileSync(new URL("../migrations/0001_safety.sql", import.meta.url), "utf8"));
- db.exec(readFileSync(new URL("../migrations/0002_confirmations.sql", import.meta.url), "utf8"));
  let failJournal = false;
- const session: SafetySqlSession = { transaction: ({ work }) => work({ session }), async query<Row extends Record<string, unknown>>(input: { text: string; values?: unknown[] }) {
+ const fixture = createSqliteFixture({ migrations: [
+  readFileSync(new URL("../migrations/0001_safety.sql", import.meta.url), "utf8"),
+  readFileSync(new URL("../migrations/0002_confirmations.sql", import.meta.url), "utf8"),
+ ] }, { beforeQuery(input) {
   if (failJournal && input.text.startsWith("INSERT INTO safety_journal")) throw new Error("journal fault");
-  const statement = db.prepare(input.text);
-  const parameters = Object.fromEntries((input.values ?? []).map((value, index) => [`$${index + 1}`, value]));
-  return { rows: statement.all(parameters as Record<string, string | number | null>) as Row[], rowCount: null };
- } };
- let tail = Promise.resolve();
- const port: SafetySqlDatabase = { async transaction(input) {
-  const previous = tail;
-  const done = Promise.withResolvers<void>();
-  tail = done.promise;
-  await previous;
-  db.exec("BEGIN IMMEDIATE");
-  try {
-   const result = await input.work({ session });
-   const denied = typeof result === "object" && result !== null && "ok" in result && result.ok === false;
-   db.exec(denied ? "ROLLBACK" : "COMMIT");
-   return result;
-  }
-  catch (error) { db.exec("ROLLBACK"); throw error; }
-  finally { done.resolve(); }
- } };
- return { db, port, setJournalFailure(input: { fail: boolean }) { failJournal = input.fail; }, close() { db.close(); } };
+ } });
+ return { db: fixture.native, port: fixture.database, setJournalFailure(input: { fail: boolean }) { failJournal = input.fail; }, close: fixture.close };
 }
 export type Harness = ReturnType<typeof createHarness>;
 /** The same suite supplies a repository implementation; every other seam remains a scoped memory double. */

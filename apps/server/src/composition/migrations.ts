@@ -1,4 +1,4 @@
-import { PgFoundationError } from '../platform/jini-compat/db/src/ports.js';
+import { PgFoundationError } from '@open-marketing/om-db';
 import { prepareMigrations, type Migration } from '../platform/jini-compat/db/src/migrations.js';
 
 /** Global schema order. Append new identities; never renumber or insert historical spine SQL. */

@@ -23,8 +23,9 @@
     "zod": "4.1.13"
   },
   "devDependencies": {
-    "vitest": "3.2.4",
+    "@open-marketing/om-db": "workspace:*",
+    "@types/better-sqlite3": "9.6.0",
     "better-sqlite3": "13.0.3",
-    "@types/better-sqlite3": "9.6.0"
+    "vitest": "3.2.4"
   }
 }

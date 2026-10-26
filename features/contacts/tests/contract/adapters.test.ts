@@ -36,7 +36,7 @@ describe("SQL transaction and storage boundaries", () => {
       await expect(fixture.uow.transaction({ work: async ({ session }) => {
         await createSqlContactRepo({ uow: session }).upsert({ context, subject: subject({ id: "one" }), identifiers: [identifier({ subjectId: "one", id: "email" })] });
         throw new Error("fixture throw");
-      } })).rejects.toThrow("fixture throw");
+      } })).rejects.toMatchObject({ code: "transaction_failed", cause: { message: "fixture throw" } });
       expect(fixture.db.prepare("SELECT * FROM contact_identifier").all()).toHaveLength(0);
     } finally { fixture.close(); }
   });
@@ -45,11 +45,24 @@ describe("SQL transaction and storage boundaries", () => {
     try {
       const leased: { session?: SqlSession } = {};
       await fixture.uow.transaction({ work: async ({ session }) => { leased.session = session; return undefined; } });
-      await expect(leased.session!.query({ text: "SELECT 1" })).rejects.toThrow("Session released");
+      await expect(leased.session!.query({ text: "SELECT 1" })).rejects.toMatchObject({ code: "connection_released" });
       expect(await createSqlContactRepo({ uow: leased.session! }).get({ context, subjectId: "one" })).toMatchObject({ ok: false, error: { code: "unavailable" } });
       const broken = createSqlContactRepo({ uow: { async transaction() { throw new Error("secret driver detail"); } } });
       expect(await broken.get({ context, subjectId: "one" })).toEqual({ ok: false, error: { code: "unavailable", message: "Contacts storage unavailable", retryable: false } });
     } finally { fixture.close(); }
+  });
+  it.each(["transaction_failed", "commit_failed", "rollback_failed", "release_after_failure", "release_after_commit"])("preserves constraint redaction without unwrapping uncertain %s", async code => {
+    const native = Object.assign(new Error("private constraint detail"), { code: "SQLITE_CONSTRAINT_UNIQUE" });
+    const query = Object.assign(new Error("Checked query failed"), { code: "query_failed", cause: native });
+    const failure = Object.assign(new Error("Checked transaction failed"), { code, cause: query });
+    const repo = createSqlContactRepo({ uow: { async transaction() { throw failure; } } });
+    const output = await repo.get({ context, subjectId: "one" });
+    expect(output).toEqual({ ok: false, error: {
+      code: code === "transaction_failed" ? "conflict" : "unavailable",
+      message: code === "transaction_failed" ? "Contacts storage conflict" : "Contacts storage unavailable",
+      retryable: false,
+    } });
+    expect(JSON.stringify(output)).not.toContain("private constraint detail");
   });
   it("persists tombstone key versions and pointers across repository instances", async () => {
     const fixture = createSqlFixture({});

@@ -14,7 +14,8 @@ import type { FormAcceptancePort, FormPublication, PublicSubmissionResult, Submi
 import { createOutbox, createSqlJobRepo, createSqlOutboxStore } from '@open-marketing/jobs';
 import { digestArguments } from '@open-marketing/safety';
 import { loadMigrations } from '../../src/composition/migrations.js';
-import { createCheckedSqliteClient, createSqlitePool, runMigrations } from '../../src/platform/jini-compat/db/src/index.js';
+import { createCheckedSqliteClient, createSqlitePool } from '@open-marketing/om-db';
+import { runMigrations } from '../../src/platform/jini-compat/db/src/index.js';
 
 export const context: CallContext = {
     scope: { ownerId: 'spike-owner', workspaceId: 'd590965a-e81d-4560-a341-7396d8aa5ba3' },

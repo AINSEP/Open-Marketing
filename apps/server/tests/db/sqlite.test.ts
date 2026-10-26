@@ -1,7 +1,8 @@
 import { sqliteKernel } from '@jini-ai/db/kernel/sqlite';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createCheckedSqliteClient, createSqlitePool, withTransaction, runMigrations } from '../../src/platform/jini-compat/db/src/index.js';
+import { createCheckedSqliteClient, createSqlitePool, withTransaction } from '@open-marketing/om-db';
+import { runMigrations } from '../../src/platform/jini-compat/db/src/index.js';
 
 const handles: Database.Database[] = [];
 function fixture() {

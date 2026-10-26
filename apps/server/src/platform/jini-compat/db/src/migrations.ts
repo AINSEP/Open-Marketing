@@ -1,6 +1,5 @@
 import { sourceChecksum } from '@jini-ai/db/migrate';
-import { PgFoundationError, type PgPool, type PgQueryable } from './ports.js';
-import { withTransaction, type TransactionOptions } from './transaction.js';
+import { PgFoundationError, withTransaction, type PgPool, type PgQueryable, type TransactionOptions } from '@open-marketing/om-db';
 /** Trusted, transaction-compatible SQL only: no transaction control, concurrent indexes or external effects. */
 export interface Migration {
     version: number;

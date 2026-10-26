@@ -95,9 +95,12 @@ async function sqlCall<T>(required: { uow: UnitOfWork; work: (required: { sessio
     }
   } }, optional);
 }
-function constraintError(required: { error: unknown }): boolean {
-  if (typeof required.error !== "object" || required.error === null || !("code" in required.error)) return false;
-  return String(required.error.code).startsWith("SQLITE_CONSTRAINT") || required.error.code === "23505";
+/** Unwrap completed body/query failures only; cleanup uncertainty stays unavailable. @complexity O(1). */
+function constraintError({ error }: { error: unknown }): boolean {
+  for (const code of ["transaction_failed", "query_failed"]) {
+    if (error instanceof Error && "code" in error && error.code === code) error = error.cause;
+  }
+  return typeof error === "object" && error !== null && "code" in error && (String(error.code).startsWith("SQLITE_CONSTRAINT") || error.code === "23505");
 }
 
 /** Read roots without cross-scope joins; UNION deduplicates the lineage tree.

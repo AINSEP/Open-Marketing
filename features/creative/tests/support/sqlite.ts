@@ -1,39 +1,16 @@
-import Database from "better-sqlite3";
+import { createSqliteFixture } from "@open-marketing/om-db/testing";
 import { readFileSync } from "node:fs";
 import { createSqlCreativeRepo, createTransactionalCreativeJob } from "../../index.js";
-import type { CreativeSqlDatabase, CreativeSqlSession, CreativeJobTransaction, CreativeTransactionalEnqueue } from "../../index.js";
+import type { CreativeJobTransaction, CreativeTransactionalEnqueue } from "../../index.js";
 import { failure, success } from "../../src/rules.js";
 
 /** Native SQLite exists ONLY in this ephemeral fixture; source adapters use the injected query port. */
 export function sqliteFixture(required: Record<string, never>) {
-  const native = new Database(":memory:");
-  native.exec(readFileSync(new URL("../../migrations/0001_creative.sql", import.meta.url), "utf8"));
-  native.exec("CREATE TABLE fixture_jobs_outbox (operation_key TEXT PRIMARY KEY, digest TEXT NOT NULL, generation_id TEXT NOT NULL)");
-  const session: CreativeSqlSession = {
-    transaction: ({ work }) => work({ session }),
-    async query<Row extends Record<string, unknown>>(input: { text: string; values?: unknown[] }) {
-      const statement = native.prepare(input.text);
-      const bindings = Object.fromEntries((input.values ?? []).map((value, index) => [String(index + 1), value]));
-      if (statement.reader) return { rows: statement.all(bindings) as Row[], rowCount: null };
-      return { rows: [] as Row[], rowCount: statement.run(bindings).changes };
-    },
-  };
-  let tail: Promise<void> = Promise.resolve();
-  const database: CreativeSqlDatabase = {
-    async transaction(input) {
-      // Promise.then's foreign callbacks carry no positional values into owned logic.
-      const pending = tail.then(async () => {
-        native.exec("BEGIN IMMEDIATE");
-        try {
-          const result = await input.work({ session });
-          native.exec(typeof result === "object" && result !== null && "ok" in result && result.ok === false ? "ROLLBACK" : "COMMIT");
-          return result;
-        } catch (error) { native.exec("ROLLBACK"); throw error; }
-      });
-      tail = pending.then(() => undefined, () => undefined);
-      return pending;
-    },
-  };
+  const fixture = createSqliteFixture({ migrations: [
+    readFileSync(new URL("../../migrations/0001_creative.sql", import.meta.url), "utf8"),
+    "CREATE TABLE fixture_jobs_outbox (operation_key TEXT PRIMARY KEY, digest TEXT NOT NULL, generation_id TEXT NOT NULL)",
+  ] });
+  const { native, database } = fixture;
   const repo = createSqlCreativeRepo({ database });
   let rejectEnqueue = false;
   const transaction: CreativeJobTransaction = input => database.transaction({ work: async ({ session }) => {
@@ -49,5 +26,5 @@ export function sqliteFixture(required: Record<string, never>) {
     return input.run({ repo: transactionalRepo, enqueue });
   } });
   const jobs = createTransactionalCreativeJob({ transaction });
-  return { native, database, repo, jobs, close() { native.close(); }, failEnqueue(input: { reject: boolean }) { rejectEnqueue = input.reject; } };
+  return { native, database, repo, jobs, close: fixture.close, failEnqueue(input: { reject: boolean }) { rejectEnqueue = input.reject; } };
 }

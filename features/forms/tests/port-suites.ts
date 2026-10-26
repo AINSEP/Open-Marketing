@@ -91,11 +91,14 @@ export function formsStorageSuite(required: { name: string; create: () => Fixtur
       expect(await readReceipt()).toEqual({ ok: true, value: null });
     });
     it("thrown failure rolls back both OM inserts", async () => {
-      await expect(fixture.unitOfWork.transaction({ work: async ({ session }) => {
+      const failure = new Error("Injected rollback");
+      const error = await fixture.unitOfWork.transaction({ work: async ({ session }) => {
         await fixture.publications.append({ context, publication: publication(), session });
         await fixture.receipts.append({ context, receipt, session });
-        throw new Error("Injected rollback");
-      } })).rejects.toThrow("Injected rollback");
+        throw failure;
+      } }).catch(error => error);
+      if (error !== failure) expect(error).toMatchObject({ code: "transaction_failed", cause: failure });
+      else expect(error).toBe(failure);
       expect(await fixture.publications.find({ context, publicationId: receipt.publicationId })).toEqual({ ok: true, value: null });
       expect(await readReceipt()).toEqual({ ok: true, value: null });
     });

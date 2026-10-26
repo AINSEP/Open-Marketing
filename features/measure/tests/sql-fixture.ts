@@ -1,8 +1,8 @@
-import { EventEmitter, once } from "node:events";
-import Database from "better-sqlite3";
+import type Database from "better-sqlite3";
+import { createSqliteFixture } from "@open-marketing/om-db/testing";
 import { readFileSync } from "node:fs";
 import { afterEach } from "vitest";
-import type { MeasureSqlDatabase, MeasureSqlQueryable, MeasureTransactionalJobPort } from "../index.js";
+import type { MeasureSqlDatabase, MeasureTransactionalJobPort } from "../index.js";
 import { eventIdentity, scopeKey } from "../src/rules.js";
 import { createIds } from "./fixtures.js";
 const handles: Database.Database[] = [];
@@ -21,34 +21,17 @@ export interface SqlFixture {
 }
 
 export function createSqlFixture(required: Record<string, never>): SqlFixture {
-  const handle = new Database(":memory:");
-  handles.push(handle);
-  handle.exec(readFileSync(new URL("../migrations/0001_measure.sql", import.meta.url), "utf8"));
-  handle.exec(readFileSync(new URL("../migrations/0002_attribution_account.sql", import.meta.url), "utf8"));
-  handle.pragma("foreign_keys = ON");
-  handle.exec("CREATE TABLE fixture_jobs (scope_key TEXT NOT NULL, source_id TEXT NOT NULL, event_id TEXT NOT NULL, job_id TEXT NOT NULL, identity TEXT NOT NULL, context_json TEXT NOT NULL, PRIMARY KEY(scope_key,source_id,event_id))");
   let failInsert = false;
   let failEnqueue = false;
-  let tail = Promise.resolve();
-  const query: MeasureSqlQueryable["query"] = async <Row extends Record<string, unknown>>(input: { text: string; values?: unknown[] }) => {
+  const fixture = createSqliteFixture({ migrations: [
+    readFileSync(new URL("../migrations/0001_measure.sql", import.meta.url), "utf8"),
+    readFileSync(new URL("../migrations/0002_attribution_account.sql", import.meta.url), "utf8"),
+    "CREATE TABLE fixture_jobs (scope_key TEXT NOT NULL, source_id TEXT NOT NULL, event_id TEXT NOT NULL, job_id TEXT NOT NULL, identity TEXT NOT NULL, context_json TEXT NOT NULL, PRIMARY KEY(scope_key,source_id,event_id))",
+  ] }, { beforeQuery(input) {
     if (failInsert && input.text.startsWith("INSERT INTO measure_conversion_event")) { failInsert = false; throw new Error("Injected inbox insert failure"); }
-    const statement = handle.prepare(input.text);
-    const bindings = Object.fromEntries((input.values ?? []).map((value, index) => [String(index + 1), value]));
-    if (statement.reader) return { rows: statement.all(bindings) as Row[], rowCount: null };
-    return { rows: [] as Row[], rowCount: statement.run(bindings).changes };
-  };
-  const transaction: MeasureSqlDatabase["transaction"] = async <T>(input: { work: (required: { session: MeasureSqlDatabase }) => Promise<T> }) => {
-    const previous = tail;
-    const completed = new EventEmitter();
-    tail = once(completed, "release").then(() => undefined);
-    await previous;
-    handle.exec("BEGIN IMMEDIATE");
-    try { const value = await input.work({ session }); handle.exec(typeof value === "object" && value !== null && "ok" in value && value.ok === false ? "ROLLBACK" : "COMMIT"); return value; }
-    catch (error) { handle.exec("ROLLBACK"); throw error; }
-    finally { completed.emit("release"); }
-  };
-  const session: MeasureSqlDatabase = { query, transaction: ({ work }) => work({ session }) };
-  const database: MeasureSqlDatabase = { query, transaction };
+  } });
+  const { native: handle, database } = fixture;
+  handles.push(handle);
   const ids = createIds({ prefix: "sql-job" });
   const jobs: MeasureTransactionalJobPort = {
     async enqueue(input) {

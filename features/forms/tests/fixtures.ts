@@ -1,14 +1,13 @@
 /** Hermetic compositions: Jini repos plus OM ports, never real jobs/contact adapters or vendors. */
-import Database from "better-sqlite3";
+import { createSqliteFixture } from "@open-marketing/om-db/testing";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
-import { sqliteKernel } from "@jini-ai/db/kernel/sqlite";
 import { InMemoryFormDefinitionRepo, InMemoryFormSubmissionRepo } from "@jini-ai/cms/forms";
 import { formDefinitionRepoFor, formSubmissionRepoFor } from "@jini-ai/cms/forms/sql";
 import { createFakeClock } from "@open-marketing/om-clock";
-import type { CallContext, Outcome, SqlSession, UnitOfWork } from "@open-marketing/contracts";
+import type { CallContext, Outcome, UnitOfWork } from "@open-marketing/contracts";
 import { acceptFormSubmission, createFormsService, createMemoryFormsStorage, createSqlFormsStorage } from "../index.js";
 import type { FormAcceptancePort, FormDefinitionRepoPort, FormJobsPort, FormPublication, FormPublicationPort, FormReceiptPort, FormSubjectPort, FormSubmissionRepoPort, FormsService, SubmissionReceipt } from "../index.js";
 import { definitionView } from "../src/rules.js";
@@ -55,38 +54,9 @@ function failed(required: { value: unknown }): boolean {
 }
 function denial<T>(): Outcome<T> { return { ok: false, error: { code: "unavailable", message: "Injected fixture failure", retryable: true } }; }
 
-/** Real SQLite, one existing-handle Jini kernel, and request-bound sessions. Returned denials abort
- * the kernel root just like throws. Busy roots and expired sessions are rejected explicitly. */
-function sqlBinding(required: { handle: Database.Database }) {
-  const kernel = sqliteKernel(required.handle);
-  let busy = false;
-  const unitOfWork: UnitOfWork = { async transaction({ work }) {
-    if (busy) throw new Error("Fixture root busy");
-    busy = true;
-    let active = true;
-    const session: SqlSession = {
-      async query<Row extends Record<string, unknown>>(input: { text: string; values?: unknown[] }) {
-        if (!active) throw new Error("Fixture session expired");
-        return kernel.run(() => {
-          const statement = required.handle.prepare(input.text);
-          const bindings = Object.fromEntries((input.values ?? []).map((value, index) => [String(index + 1), value]));
-          if (statement.reader) return { rows: statement.all(bindings) as Row[], rowCount: null };
-          return { rows: [] as Row[], rowCount: statement.run(bindings).changes };
-        });
-      },
-      async transaction(input) { if (!active) throw new Error("Fixture session expired"); return input.work({ session }); },
-    };
-    try {
-      return await kernel.transaction(async () => {
-        const result = await work({ session });
-        if (failed({ value: result })) throw new Rollback({ result });
-        return result;
-      });
-    } catch (error) {
-      if (error instanceof Rollback) return error.result as Awaited<ReturnType<typeof work>>;
-      throw error;
-    } finally { active = false; busy = false; }
-  } };
+/** OM storage and Jini repositories borrow the fixture's exact checked kernel. */
+function sqlBinding(required: { fixture: ReturnType<typeof createSqliteFixture> }) {
+  const { kernel, database: unitOfWork } = required.fixture;
   const tables = { definitions: "om_form_definitions", submissions: "om_form_submissions" };
   return { unitOfWork, ...createSqlFormsStorage({ unitOfWork }), definitions: formDefinitionRepoFor({ kernel, tables }), submissions: formSubmissionRepoFor({ kernel, tables }) };
 }
@@ -145,14 +115,15 @@ export function createFixture(required: { kind: "memory" | "sql" }): Fixture {
   const memory = memoryBinding({ jobRows, accepted });
   const directory = required.kind === "sql" ? mkdtempSync(join(tmpdir(), "om-forms-")) : null;
   const file = directory ? join(directory, "forms.sqlite") : null;
-  let handle = file ? new Database(file) : null;
+  let sqlite = file ? createSqliteFixture({ migrations: [
+    "CREATE TABLE workspace (workspace_id TEXT PRIMARY KEY, owner_id TEXT NOT NULL); CREATE TABLE job (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, payload TEXT NOT NULL, context_json TEXT NOT NULL); CREATE TABLE fixture_acceptance (submission_id TEXT PRIMARY KEY, subject_id TEXT NOT NULL, capture_json TEXT);",
+    readFileSync(new URL("../migrations/0001_forms.sql", import.meta.url), "utf8"),
+  ] }, { filename: file }) : null;
+  let handle = sqlite?.native ?? null;
   if (handle) {
-    handle.pragma("foreign_keys = ON");
-    handle.exec("CREATE TABLE workspace (workspace_id TEXT PRIMARY KEY, owner_id TEXT NOT NULL); CREATE TABLE job (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, payload TEXT NOT NULL, context_json TEXT NOT NULL); CREATE TABLE fixture_acceptance (submission_id TEXT PRIMARY KEY, subject_id TEXT NOT NULL, capture_json TEXT);");
-    handle.exec(readFileSync(new URL("../migrations/0001_forms.sql", import.meta.url), "utf8"));
     for (const current of [context, otherContext]) handle.prepare("INSERT INTO workspace VALUES (?,?)").run(current.scope.workspaceId, current.scope.ownerId);
   }
-  let binding = handle ? sqlBinding({ handle }) : memory;
+  let binding = sqlite ? sqlBinding({ fixture: sqlite }) : memory;
   let serial = 0;
   const ids = { next: (_input: Record<string, never>) => `fixture-${String(++serial).padStart(6, "0")}` };
   const clock = createFakeClock({ initial: 1_792_000_000_123 });
@@ -206,7 +177,7 @@ export function createFixture(required: { kind: "memory" | "sql" }): Fixture {
       return (handle.prepare("SELECT capture_json FROM fixture_acceptance WHERE capture_json IS NOT NULL").all() as { capture_json: string }[]).map(row => JSON.parse(row.capture_json));
     },
     fail(input) { if (input.target === "jobs") jobsFailure = input.kind; else acceptanceFailure = input.kind; },
-    restart() { if (!file || !handle) return; handle.close(); handle = new Database(file); handle.pragma("foreign_keys = ON"); binding = sqlBinding({ handle }); },
+    restart() { if (!file || !sqlite) return; sqlite.close(); sqlite = createSqliteFixture({ migrations: [] }, { filename: file }); handle = sqlite.native; binding = sqlBinding({ fixture: sqlite }); },
     async erase(input) {
       if (handle) handle.prepare("UPDATE om_form_submissions SET deleted_at='erased',data_json='{}' WHERE id=?").run(input.submissionId);
       else {
@@ -223,7 +194,7 @@ export function createFixture(required: { kind: "memory" | "sql" }): Fixture {
         await memory.memorySubmissions.save({ ...saved, data: input.data });
       }
     },
-    close() { if (handle?.open) handle.close(); if (directory) rmSync(directory, { recursive: true, force: true }); },
+    close() { sqlite?.close(); if (directory) rmSync(directory, { recursive: true, force: true }); },
   };
   function count(input: { table: string }): number { return (handle!.prepare(`SELECT COUNT(*) AS count FROM ${input.table}`).get() as { count: number }).count; }
   return fixture;
