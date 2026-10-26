@@ -117,15 +117,21 @@ export function usePluginOMChatPane(required: OMChatPaneProps & { charts: NonNul
   const snapshot = useStudioChartProviders(required.charts);
   return useOMChatPane({ ...required, providers: snapshot.providers });
 }
-/** Convert validated history to Jini, keeping estimate/partial provenance in extension slots.
- * @complexity O(messages + cards + surfaces), bounded to the session's retained state.
+/** Convert validated history to Jini, including pending slots even before any assistant text.
+ * Returns a fresh presentation transcript; session history and authority are unchanged.
+ * @example savedMessages({ state, sample: false })
+ * @complexity O(messages + cards + surfaces) time/space, bounded to 200/50/20 retained items.
  */
 export function savedMessages(required: { state: ChatState; sample?: boolean }): JiniMessage[] {
   const messages = required.state.messages.map<JiniMessage>(message => ({ id: message.id, role: message.role, content: message.text,
     createdAt: message.createdAt, startedAt: message.startedAt, endedAt: message.endedAt,
     events: required.sample ? sampleUsage({ sample: true, message }) : message.usage ? [{ kind: 'text', text: message.text }, ...usageEvents({ usage: message.usage })] : undefined }));
+  const slots: AgentEvent[] = [...required.state.cards.map(card => ({ kind: 'ext' as const, name: 'om.approval', data: { id: card.cardId } })),
+    ...required.state.surfaces.map(surface => ({ kind: 'ext' as const, name: 'om.surface', data: { id: surface.runId + ':' + surface.surfaceId } }))];
+  if (!slots.length) return messages;
   const last = messages.findLast(message => message.role === 'assistant');
-  if (last) last.events = [...(last.events ?? [{ kind: 'text', text: last.content }]), ...required.state.cards.map(card => ({ kind: 'ext' as const, name: 'om.approval', data: { id: card.cardId } }))];
+  if (!last) return [...messages, { id: 'om-extensions', role: 'assistant', content: '', events: slots }];
+  last.events = [...(last.events ?? [{ kind: 'text', text: last.content }]), ...slots];
   return messages;
 }
 /** Sample presentation evidence is confined to sample mode; it never enters a server request. */

@@ -5,6 +5,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { applyAppearance, useAppearance } from "../src/shared/ui/index.js";
 import { browserStorage } from "../src/composition/adapters/browser.js";
 import { readFileSync } from "node:fs";
+import { URL as FileURL } from "node:url";
 import { THEMES, ACCENTS } from "../src/themes/registry.js";
 
 afterEach(cleanup);
@@ -122,22 +123,22 @@ it("persists only known per-theme choices and restores them on remount", () => {
 });
 it("keeps registry preview samples and accent dots equal to the shipped CSS", () => {
   for (const theme of THEMES) for (const scheme of ["light", "dark"] as const) {
-    const css = readFileSync(new URL(`../src/themes/${theme.id}.css`, import.meta.url), "utf8");
+    const css = readFileSync(new FileURL(`../src/themes/${theme.id}.css`, import.meta.url), "utf8");
     const block = css.split(`:root[data-admin-theme="${theme.id}"][data-color-scheme="${scheme}"] {`)[1]!.split("}")[0]!;
     const tokens = Object.fromEntries([...block.matchAll(/(--jini-[\w-]+):\s*([^;]+);/g)].map(match => [match[1], match[2]!.trim()]));
     const bg = tokens[`--jini-theme-${scheme}-bg`]!;
     expect(theme.preview[scheme]).toEqual({ bg: tokens["--jini-app-bg"]!.replace("var(--jini-bg)", bg), panel: tokens["--jini-panel-bg"]!.replace("var(--jini-bg)", bg), text: tokens[`--jini-theme-${scheme}-text`], accent: tokens[`--jini-theme-${scheme}-primary`] });
   }
-  const css = readFileSync(new URL("../src/themes/accents.css", import.meta.url), "utf8");
+  const css = readFileSync(new FileURL("../src/themes/accents.css", import.meta.url), "utf8");
   for (const accent of [ACCENTS.green, ACCENTS.blue, ACCENTS.violet]) for (const scheme of ["light", "dark"] as const) {
     const block = css.split(`:root[data-accent="${accent.id}"][data-color-scheme="${scheme}"] {`)[1]!.split("}")[0]!;
     expect(block).toContain(`--jini-primary: ${accent.swatch[scheme]};`);
   }
 });
 
-/** Read a shipped scheme block, with no browser, asset requests or stylesheet replica. */
+/** Read authored CSS through Node; bypass Vite's browser asset URL rewriting. */
 function cssTokens(required: { file: string; selector: string }): Record<string, string> {
-  const css = readFileSync(new URL(`../src/themes/${required.file}.css`, import.meta.url), "utf8");
+  const css = readFileSync(new FileURL(`../src/themes/${required.file}.css`, import.meta.url), "utf8");
   const block = css.split(required.selector + " {")[1]!.split("}")[0]!;
   return Object.fromEntries([...block.matchAll(/(--jini-[\w-]+):\s*([^;]+);/g)].map(match => [match[1], match[2]!.trim()]));
 }

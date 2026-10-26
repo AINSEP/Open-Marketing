@@ -61,7 +61,9 @@ it('one click/request/failure pair uses existing headers and preserves the respo
   const observability = { ...createNoopObservabilityPort({}), trackRequest() { return { end() { throw new Error('tracker'); } }; } };
   const { api, runtime: observed } = instrumentStudioApi({ api: raw, runtime, observability });
   observed.track('approval.clicked', { cardId: card.cardId, operationId: card.operationId, choice: 'allow', durationMs: 12 });
-  expect(await api.approve({ response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } })).toEqual(failed);
+  expect(await api.approve({ response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } })).toEqual({
+    ok: false, error: { code: 'unavailable', message: 'Write response unavailable; outcome unknown. Refresh before another submission.', retryable: false },
+  });
   expect(writes).toBe(1); expect(items.map(item => item.name)).toEqual(['approval.clicked', 'approval.submit_failed']);
   expect(items[0]).toMatchObject({ correlationId: headers.get('x-correlation-id'), traceId: headers.get('x-trace-id') });
   expect(items[1]).toMatchObject({ correlationId: headers.get('x-correlation-id'), traceId: headers.get('x-trace-id'), errorCode: 'unavailable' });

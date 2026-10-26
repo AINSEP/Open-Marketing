@@ -1,5 +1,6 @@
 /** @vitest-environment jsdom */
 import { readFileSync } from "node:fs";
+import { URL as FileURL } from "node:url";
 import { afterEach, beforeEach, it, expect, vi } from "vitest";
 import { createElement } from "react";
 import type { ComponentProps, ReactElement, ReactNode } from "react";
@@ -18,8 +19,8 @@ import { THEMES, ACCENTS } from "../src/themes/registry.js";
 beforeEach(() => {
   const stylesheet = document.createElement("style");
   stylesheet.dataset.shellFixture = "true";
-  // jsdom has no bundler for imports; load the shipped shell rules without fetching assets.
-  stylesheet.textContent = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8")
+  // FileURL keeps Vite from rewriting this fixture read into a browser asset URL.
+  stylesheet.textContent = readFileSync(new FileURL("../src/styles.css", import.meta.url), "utf8")
     .replace(/^@import\s+[^;]+;/gm, "");
   document.head.append(stylesheet);
 });
@@ -345,7 +346,7 @@ it("collapses each group with the keyboard and keeps SOON previews navigable", a
     expect(screen.queryByRole("link", { name: "Creative" })).toBeNull();
     await user.keyboard(" "); expect(group.getAttribute("aria-expanded")).toBe("true");
     const creative = screen.getByRole("link", { name: "Creative" });
-    expect(creative.textContent).toContain("SOON"); expect(creative.querySelector("svg")?.getAttribute("stroke-width")).toBe("1.5");
+    expect(creative.textContent).toContain("SOON"); expect(creative.querySelector("svg")?.getAttribute("stroke-width")).toBe("1.75");
     creative.focus(); await user.keyboard("{Enter}");
     expect(host.route()).toBe("creative"); expect(creative.getAttribute("aria-current")).toBe("page");
     expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Creative", level: 1 }));

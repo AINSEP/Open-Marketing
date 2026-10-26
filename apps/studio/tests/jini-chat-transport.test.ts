@@ -1,5 +1,5 @@
 /** Shared transport contract: memory API and injected HTTP fixtures; no vendor calls. */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { AgentEvent, RunHandlers } from '@jini-ai/chat';
 import type { RunEvent } from '@open-marketing/contracts';
 import { createChatSession } from '../src/features/chat-run/index.js';
@@ -67,14 +67,14 @@ describe.each(['memory', 'http'] as const)('%s session-backed Jini transport', k
       expect(r.completions()).toBe(1); expect(r.statuses.at(-1)).toBe('succeeded'); expect(r.errors).toEqual([]);
       expect(r.events).toContainEqual({ kind: 'usage', durationMs: 8000, inputTokens: undefined, outputTokens: undefined, costUsd: .07 });
       expect(r.events).toContainEqual({ kind: 'ext', name: 'om.usage-evidence', data: {} });
-      expect(f.starts()).toBe(1); expect(f.host.pending()).toBe(0);
+      expect(f.starts()).toBe(1); await vi.waitFor(() => expect(f.host.pending()).toBe(0));
     } finally { f.release(); f.session.dispose(); }
   });
   it('detaches without cancelling, then reattaches from the cursor without another start', async () => {
     const f = fixture({ kind }), first = recorder(), next = recorder(), controller = new AbortController();
     try {
       await f.session.transport.startRun({ ...f.input, signal: controller.signal }, first.handlers); await f.entered;
-      controller.abort(); expect(f.cancellations()).toBe(0); expect(f.host.pending()).toBe(0);
+      controller.abort(); expect(f.cancellations()).toBe(0); await vi.waitFor(() => expect(f.host.pending()).toBe(0));
       await f.session.transport.reattachRun('run', next.handlers, { signal: new AbortController().signal });
       f.release(); await next.done;
       expect(f.starts()).toBe(1); expect(first.completions()).toBe(0); expect(next.completions()).toBe(1);
@@ -137,7 +137,7 @@ it('selected add-ons add instructions; removing them removes the instruction and
 it('rejects unsupported image input before starting a run', async () => {
   const f = fixture({ kind: 'memory' });
   try {
-    await expect(f.session.transport.startRun({ ...f.input, attachments: [{ path: 'image', name: 'image.png', kind: 'image' }] }, recorder().handlers)).rejects.toThrow('coming soon');
+    await expect(f.session.transport.startRun({ ...f.input, attachments: [{ path: 'image', name: 'image.png', kind: 'image' }] }, recorder().handlers)).rejects.toThrow('This server does not accept image attachments. Your message was not sent.');
     expect(f.starts()).toBe(0);
   } finally { f.session.dispose(); }
 });

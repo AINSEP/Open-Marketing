@@ -149,7 +149,7 @@ it.each([
   const navigation = createNavigationController({ browser: browserRoutes({ host: window }), timers: host.timer.runtime.timers, timeoutMs: 5000 });
   try {
     const view = render(createElement(Shell, { ...host.props, navigation }));
-    const group = screen.getByRole('group', { name: 'ADD-ONS' });
+    const group = screen.getByRole('region', { name: 'ADD-ONS' });
     expect(group.querySelectorAll('a')).toHaveLength(4);
     const link = screen.getByRole('link', { name: label });
     expect(link.getAttribute('href')).toBe('#' + route);

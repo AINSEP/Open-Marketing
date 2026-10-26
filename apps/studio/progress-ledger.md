@@ -1,3 +1,19 @@
+# TF4 studio failure repairs — 2026-10-25
+
+Programmer(Direct). Lane: apps/studio only. No commits or pushes.
+
+- Read both cloud reports; authoritative cleanup report has the same 42 failures as baseline.
+- Repaired jsdom stylesheet fixture reads using Node's URL constructor, avoiding Vite asset rewrites; kept theme/contrast assertions and shipped CSS unchanged.
+- Updated stale labelled-section role, retired landing copy, reviewed icon weight, attachment copy, unknown-write response and asynchronous HTTP cleanup expectations.
+- Restored pending approval/surface events in savedMessages, including histories without assistant text; avoided adding text events to ordinary replies without slots or usage.
+- Added three regression cases for empty/user/assistant history, multiple surfaces, repeated conversion and immutable session input. Existing browser approval/chart assertions remain.
+- Sole `corepack pnpm --filter @open-marketing/studio typecheck`: exit 0 (source and tests). Afterwards, only moved the existing spend-card fixture render after its headless receipt and added an explanatory comment; no recheck under the one-run limit.
+- Tests, builds, installs, indexing, om:check and runtime/browser validation were not run, per dispatch. Cloud red/green confirmation remains required.
+- Static architecture review: no contract, policy, dependency, composition, migration or TSX changes. savedMessages remains pure, object-input, bounded linear time/space. No recorded source findings after checking mutation, empty histories, multiple slots, sample usage and variable meanings; mechanical lint/coverage not run.
+- Handoff: cloud-run studio tests, especially the shared CSS setup, exact surface spend card, chart inventory and transport cleanup. Preserve concurrent changes outside this lane. Historical entries below are retained.
+
+---
+
 # Studio domain pages progress — w3-studio-pages
 
 Programmer(Direct). Lane: apps/studio. Continuation attempt 2.

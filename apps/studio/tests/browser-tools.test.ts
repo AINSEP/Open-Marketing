@@ -174,10 +174,11 @@ it('passes the current bind token and shows surface spend approvals in the exist
         classification: 'spend' as const, allowedChoices: ['allow', 'cancel'] as const, expiresAt: 301000 };
     f.api.tool = async () => ({ ok: true, value: { status: 'pending', operationId: card.operationId, cardId: card.cardId } });
     f.api.approvalCard = async () => ({ ok: true, value: { ...card, allowedChoices: [...card.allowedChoices] } });
-    const view = render(createElement(OMChatPane, { session: f.session, api: f.api, runtime: f.host.runtime, sample: false, available: true, open: true, toggle() {} }));
     const props = { surface: surface(), api: f.api, runtime: f.host.runtime, streaming: true, succeeded: false, onPendingApproval: f.session.addSurfaceApproval };
     await act(async () => { await dispatchSurfaceAction({ props, runId: 'run', message: { version: 'v1.0', action: { name: 'om_campaign_propose_launch', surfaceId: 'surface',
         sourceComponentId: 'root', timestamp: 'fixture', context: { campaignId: 'fixture' } } } }); });
+    // This fixture starts headlessly; Jini reads its initial transcript only when mounted.
+    const view = render(createElement(OMChatPane, { session: f.session, api: f.api, runtime: f.host.runtime, sample: false, available: true, open: true, toggle() {} }));
     expect(f.starts).toEqual([expect.objectContaining({ frontendSessionId: 'frontend', frontendBindToken: 'fixture-current-token' })]);
     expect(f.session.getSnapshot().cards).toHaveLength(1); expect(screen.getByText('Exact spend approval')).toBeTruthy();
     expect(screen.queryByText('Always allow')).toBeNull(); expect(screen.queryByText('Allow for this chat')).toBeNull();

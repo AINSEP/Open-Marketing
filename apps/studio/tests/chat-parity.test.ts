@@ -183,3 +183,26 @@ it('confines fabricated timing and prices to sample transcript presentation', ()
     expect(savedMessages({ state, sample: true })[0].events).toContainEqual({ kind: 'usage', durationMs: 8000, costUsd: .07 });
   } finally { host.dispose(); }
 });
+
+it.each(['empty', 'user', 'assistant'] as const)('restores pending cards and surfaces with %s history without mutating session state', async role => {
+  const host = testStudio();
+  try {
+    const snapshot = await host.props.api.snapshot({});
+    if (!snapshot.ok) throw new Error('Fixture unavailable');
+    const card = snapshot.value.cards[0];
+    const surfaces = ['surface', 'second'].map(surfaceId => ({ type: 'a2ui' as const, version: 'v1.0' as const, surfaceId, invocationId: 'invocation-' + surfaceId, runId: 'run', frontendSessionId: 'frontend',
+      messages: [{ version: 'v1.0', updateComponents: { surfaceId, components: [{ id: 'root', component: 'Text', text: 'Fixture' }] } }] }));
+    const state = { ...host.props.session.getSnapshot(), messages: role === 'empty' ? [] : [{ id: 'message', role, text: 'Fixture' }], cards: [card], surfaces };
+    const before = structuredClone(state);
+    const messages = savedMessages({ state });
+    expect(messages.slice(0, state.messages.length).map(message => message.content)).toEqual(state.messages.map(message => message.text));
+    expect(messages.at(-1)?.role).toBe('assistant');
+    expect(messages.at(-1)?.events?.filter(event => event.kind === 'ext')).toEqual([
+      { kind: 'ext', name: 'om.approval', data: { id: card.cardId } },
+      { kind: 'ext', name: 'om.surface', data: { id: 'run:surface' } },
+      { kind: 'ext', name: 'om.surface', data: { id: 'run:second' } },
+    ]);
+    expect(state).toEqual(before);
+    expect(savedMessages({ state })).toEqual(messages);
+  } finally { host.dispose(); }
+});

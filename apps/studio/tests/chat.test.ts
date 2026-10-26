@@ -12,7 +12,7 @@ it("keyboard opens the global panel, Escape closes it, and focus returns to the 
   const host = testStudio();
   try {
     const user = userEvent.setup(); render(createElement(Shell, host.props));
-    await screen.findByText("A little clarity.", { exact: false });
+    await screen.findByRole("heading", { name: "Workspace overview", level: 2 });
     const fab = screen.getByRole("button", { name: "Assistant" });
     fab.focus(); await user.keyboard("{Enter}");
     expect(fab.getAttribute("aria-expanded")).toBe("true");
@@ -27,7 +27,7 @@ it("a sample chat requests native navigation and acknowledges only the rendered 
   const host = testStudio();
   try {
     const user = userEvent.setup(); render(createElement(Shell, host.props));
-    await screen.findByText("A little clarity.", { exact: false });
+    await screen.findByRole("heading", { name: "Workspace overview", level: 2 });
     await user.click(screen.getByRole("button", { name: "Assistant" }));
     await user.type(screen.getByPlaceholderText("Ask the assistant to do something…"), "open campaigns");
     await user.click(screen.getByRole("button", { name: "Send" }));
@@ -42,7 +42,7 @@ it('closing the dock preserves the Jini draft; New chat resets it', async () => 
   const host = testStudio();
   try {
     const user = userEvent.setup(); render(createElement(Shell, host.props));
-    await screen.findByText('A little clarity.', { exact: false });
+    await screen.findByRole('heading', { name: 'Workspace overview', level: 2 });
     await user.click(screen.getByRole('button', { name: 'Assistant' }));
     await user.type(screen.getByPlaceholderText('Ask the assistant to do something…'), 'Keep this draft');
     await user.click(screen.getByRole('button', { name: 'Close assistant' }));
@@ -68,7 +68,7 @@ it('loads the chosen server conversation into Jini and uses server model choices
   host.props.api.conversation = async () => ({ ok: true, value: { conversation: { conversationId: 'saved', title: 'Saved chat', createdAt: 1000, updatedAt: 1000 }, messages: [{ id: 'reply', role: 'assistant', text: 'Saved answer from the server' }], cursor: null } });
   try {
     const user = userEvent.setup(); render(createElement(Shell, host.props));
-    await screen.findByText('A little clarity.', { exact: false });
+    await screen.findByRole('heading', { name: 'Workspace overview', level: 2 });
     await act(() => host.props.session.refresh());
     await user.click(screen.getByRole('button', { name: 'Assistant' }));
     await user.click(screen.getByRole('button', { name: 'Chat history' }));
