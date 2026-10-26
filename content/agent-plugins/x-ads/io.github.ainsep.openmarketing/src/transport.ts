@@ -101,15 +101,19 @@ export async function resolveCredential(required: { dependencies: Pick<XDependen
 }
 
 /** Signing uses fixed validated nonce/time, overriding the library's hidden randomness/clock.
+ * Decode query values here: oauth-1.0a's URL parser leaves form-encoded '+' as a literal plus.
+ * RFC 5849 §3.4.1.3 includes query parameters, but excludes application/json bodies.
  * OAuth's two-string hash callback ABI is wrapped here; fixtures assert the actual Authorization header.
- * @complexity O(b log b) library parameter sort, b<=64KiB; no I/O.
+ * @complexity O(b log b) library parameter sort, O(b) storage, b<=64KiB; no I/O.
  */
 function authorization(required: { request: WireRequest; credential: Credential; nonce: string; now: number }): string {
   const c = required.credential;
   const signer = new OAuth({ consumer: { key: c.consumerKey, secret: c.consumerSecret }, signature_method: "HMAC-SHA1", hash_function: (base: string, key: string) => createHmac("sha1", key).update(base).digest("base64") });
   signer.getNonce = () => required.nonce;
   signer.getTimeStamp = () => Math.floor(required.now / 1000);
-  return signer.toHeader(signer.authorize({ ...required.request }, { key: c.accessToken, secret: c.accessTokenSecret })).Authorization;
+  const url = new URL(required.request.url);
+  const data = Object.fromEntries(url.searchParams);
+  return signer.toHeader(signer.authorize({ url: url.origin + url.pathname, method: required.request.method, data }, { key: c.accessToken, secret: c.accessTokenSecret })).Authorization;
 }
 
 /** Check signing inputs at the egress boundary; no implicit token lifetime or nonce fallback. @complexity O(1). */

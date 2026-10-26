@@ -39,6 +39,21 @@ describe("fixed traffic translation and paused deployment", () => {
     expect(new Headers(f.calls[0].init.headers).get("Authorization")).toContain('oauth_signature="' + encodeURIComponent(signature) + '"');
   });
   it.each([
+    ["Fixture + traffic", "Fixture%20%2B%20traffic"],
+    ["Fixture %20 & café=!*'()", "Fixture%20%2520%20%26%20caf%C3%A9%3D%21%2A%27%28%29"],
+  ])("signs decoded campaign query values without changing the wire name: %s", async (name, encodedName) => {
+    const f = deploymentFixture();
+    f.plan.campaign.name = name; f.rows.campaigns.name = name;
+    expect(await deployCampaignPaused(f)).toMatchObject({ ok: true, value: { status: "acknowledged" } });
+    expect(new URL(f.calls[0].url).searchParams.get("name")).toBe(name);
+    expect(f.calls[0].init.body).toBeUndefined();
+    // RFC 5849 §3.4.1.3: query values are decoded before OAuth percent encoding.
+    const normalized = "budget_optimization=LINE_ITEM&daily_budget_amount_local_micro=12340000&entity_status=PAUSED&funding_instrument_id=fund1&name=" + encodedName + "&oauth_consumer_key=consumer&oauth_nonce=nonce&oauth_signature_method=HMAC-SHA1&oauth_timestamp=" + Math.floor(now / 1000) + "&oauth_token=token&oauth_version=1.0";
+    const signatureBase = "POST&https%3A%2F%2Fads-api.x.com%2F12%2Faccounts%2Fabc1%2Fcampaigns&" + encodeURIComponent(normalized);
+    const signature = createHmac("sha1", "consumer-secret&token-secret").update(signatureBase).digest("base64");
+    expect(new Headers(f.calls[0].init.headers).get("Authorization")).toContain('oauth_signature="' + encodeURIComponent(signature) + '"');
+  });
+  it.each([
     ["campaigns", "entity_status", "ACTIVE"], ["campaigns", "servable", true], ["campaigns", "daily_budget_amount_local_micro", 1], ["campaigns", "funding_instrument_id", "foreign"],
     ["line_items", "campaign_id", "foreign"], ["line_items", "bid_amount_local_micro", 2], ["line_items", "start_time", "2020-01-01T00:00:00Z"],
     ["line_items", "placements", ["PUBLISHER_NETWORK"]], ["line_items", "currency", "EUR"],
