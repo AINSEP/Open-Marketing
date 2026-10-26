@@ -74,8 +74,8 @@ export function AgentPluginLayoutPortSuite(required: { create(required: { packag
       const fixture = await required.create({});
       expect(await fixture.port.validate({ source: { ...fixture.source, expectedDigest: "invalid" } })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
     });
-    it("rejects unsupported manifest versions in both memory and disk", async () => {
-      const fixture = await required.create({ package: packageFixture({}, { manifest: { $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json" } }) });
+    it.each(["1.1.0", "2.0.0"])("rejects unsupported manifest schema %s in both memory and disk", async version => {
+      const fixture = await required.create({ package: packageFixture({}, { manifest: { $schema: `https://agent-plugins.org/schemas/${version}/plugin.schema.json` } }) });
       expect(await fixture.port.validate({ source: fixture.source })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
     });
     it("unknown extensions remain inert while an invalid OM extension fails", async () => {

@@ -11,6 +11,20 @@ it('published Jini composition uses the injected epoch clock for canonical times
   expect(asset.blob.createdAt).toBe('1970-01-01T00:00:01.000Z');
 });
 
+it('preserves published canonical metadata and still rejects malformed or unknown fields', async () => {
+  const deps = dependencies(); const asset = await seedAsset({ deps });
+  const port = createJiniMediaAdapter({ scope: context.scope, dependencies: deps });
+  await deps.blobRepo.save({ ...asset.blob, documentOwned: true });
+  expect(await port.get({ context, assetId: asset.record.id })).toEqual({ ok: true, value: { ...asset, blob: { ...asset.blob, documentOwned: true } } });
+  for (const fields of [{ kind: 'unsupported' }, { originalFilename: 1 }, { unexpected: true }]) {
+    deps.mediaRepo.findById = vi.fn().mockResolvedValue({ ...asset.record, ...fields });
+    expect(await port.get({ context, assetId: asset.record.id })).toMatchObject({ ok: false, error: { code: 'unavailable' } });
+  }
+  deps.mediaRepo.findById = vi.fn().mockResolvedValue(asset.record);
+  deps.blobRepo.findByHash = vi.fn().mockResolvedValue({ ...asset.blob, documentOwned: 'true' });
+  expect(await port.get({ context, assetId: asset.record.id })).toMatchObject({ ok: false, error: { code: 'unavailable' } });
+});
+
 it('ambiguous partial byte writes never delete shared bytes and fail integrity checks', async () => {
   const store = new InMemoryBlobStore(); const remove = vi.spyOn(store, 'remove');
   const originalPut = store.putIfAbsent.bind(store);

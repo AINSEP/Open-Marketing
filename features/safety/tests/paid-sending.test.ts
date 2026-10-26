@@ -42,6 +42,21 @@ for (const adapter of ["memory", "sql"] as const) describe("paid sending account
         return { context, operationId: required.operationId, argumentsDigest, quote: { quoteId: "quote:" + required.operationId,
             argumentsDigest, estimated: amount, upperBound: amount, pricingEvidenceId: "pricing", expiresAt: required.now + 172800000, status: "known" as const } };
     }
+    /** Seed a valid persisted state near capacity; exercise the final accept/reject through the adapter.
+     * Avoid 1,000 growing SQL snapshot parses/writes in a five-second functional test. */
+    async function seedSqlCapacity(required: { fixture: ReturnType<typeof fixture>; now: number }) {
+        const sql = required.fixture.sql;
+        if (!sql) return;
+        const input = request({ operationId: "zero-0", amount: 0, now: required.now });
+        const reservation = unwrap({ outcome: await required.fixture.allowances.reserve(input) });
+        const row = sql.db.prepare("SELECT payload FROM safety_state").get() as { payload: string };
+        const state = JSON.parse(row.payload) as Record<string, unknown>;
+        state.reservations = Array.from({ length: 999 }, (_value, index) => ({
+            quote: { ...input.quote, quoteId: "quote:zero-" + index },
+            reservation: { ...reservation, operationId: "zero-" + index, reservationId: "zero-" + index }, actual: null, latestObservation: null,
+        }));
+        sql.db.prepare("UPDATE safety_state SET payload=?").run(JSON.stringify(state));
+    }
     it("serializes competing reserves, deduplicates operations and restores outstanding exposure", async () => {
         const f = fixture(); const now = f.time.clock.now({});
         const first = request({ operationId: "first", now }); const second = request({ operationId: "second", now });
@@ -119,7 +134,8 @@ for (const adapter of ["memory", "sql"] as const) describe("paid sending account
         } finally { f.close(); }
         const bounded = fixture();
         try {
-            for (let index = 0; index < 1000; index++) unwrap({ outcome: await bounded.allowances.reserve(request({ operationId: "zero-" + index, amount: 0, now })) });
+            await seedSqlCapacity({ fixture: bounded, now });
+            for (let index = bounded.sql ? 999 : 0; index < 1000; index++) unwrap({ outcome: await bounded.allowances.reserve(request({ operationId: "zero-" + index, amount: 0, now })) });
             expect(await bounded.allowances.reserve(request({ operationId: "overflow", amount: 0, now }))).toMatchObject({ ok: false, error: { code: "limit_exceeded" } });
         } finally { bounded.close(); }
     });

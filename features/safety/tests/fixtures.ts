@@ -20,7 +20,8 @@ export function timing(required: { now?: number; prefix?: string } = {}) {
  let next = 0;
  const answers: { context: CallContext; answer: ApprovalAnswer }[] = [];
  async function recordAnswer(input: { context: CallContext; answer: ApprovalAnswer }): Promise<Outcome<void>> {
-  answers.push(structuredClone(input));
+  // SQL callbacks also receive a live session; only detached audit evidence is recorded.
+  answers.push(structuredClone({ context: input.context, answer: input.answer }));
   return { ok: true, value: undefined };
  }
  const clock: ClockPort = { now() { return now; } };

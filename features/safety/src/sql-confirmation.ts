@@ -6,6 +6,10 @@ import type { SafetySqlDatabase, SafetySqlSession } from "./sql.js";
 import { cardListSchema, cardReadSchema, confirmInputSchema, makeAnswer, makeCard, storedCardSchema, validateAnswer, validateAuthority } from "./confirmation.js";
 import type { ApprovalAnswer, StoredCard } from "./confirmation.js";
 import { failure, success, validContext } from "./rules.js";
+import { z } from "zod";
+
+/** Retain a bounded driver code without exposing its SQL, parameters or raw message. */
+const storageErrorSchema = z.object({ code: z.string().regex(/^[A-Za-z0-9_]{1,64}$/) });
 
 /** Parse bounded database payloads before restoring authority. @complexity O(b), b <=256KiB. */
 function readCard(required: { row: Readonly<Record<string, unknown>> }): StoredCard {
@@ -29,7 +33,12 @@ export function createSqlConfirmationExchange(required: { db: SafetySqlDatabase;
   if (!validContext(input)) return failure({ message: "Invalid confirmation scope" });
   if (options?.signal?.aborted) return failure({ code: "cancelled", message: "Confirmation cancelled" });
   try { return await required.db.transaction({ work: input.execute }); }
-  catch { return failure({ code: "unavailable", message: "Confirmation storage unavailable; no authority granted" }); }
+  catch (cause) {
+   const codes = [cause, cause instanceof Error ? cause.cause : undefined]
+    .map(value => storageErrorSchema.safeParse(value)).filter(value => value.success).map(value => value.data.code);
+   const code = codes.length ? ` (${codes.join("/")})` : "";
+   return failure({ code: "unavailable", message: `Confirmation storage unavailable${code}; no authority granted` });
+  }
  }
  return {
   async list(input, options) {

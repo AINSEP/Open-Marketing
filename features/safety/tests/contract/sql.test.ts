@@ -66,6 +66,25 @@ it("a failed SQL observer still returns a typed boundary error", async () => {
 const confirmationFixtures: ReturnType<typeof sqliteFixture>[] = [];
 const reopeners = new WeakMap<object, () => ReturnType<typeof createSqlConfirmationExchange>>();
 afterEach(() => { for (const fixture of confirmationFixtures.splice(0)) fixture.close(); });
+it.each(["SQLITE_BUSY", "query_failed", "23505"])("preserves the storage error code %s without exposing driver messages", async code => {
+ const time = timing();
+ const port = createSqlConfirmationExchange({ ...time, db: { async transaction() {
+  throw Object.assign(new Error("secret SQL parameters"), { code });
+ } } });
+ const result = await port.present({ context, request: spendRequest() });
+ expect(result).toMatchObject({ ok: false, error: { code: "unavailable", message: `Confirmation storage unavailable (${code}); no authority granted`, retryable: false } });
+ expect(JSON.stringify(result)).not.toContain("secret SQL parameters");
+});
+it("preserves the wrapped SQLite error code and rolls back a failed card insert", async () => {
+ const sqlite = sqliteFixture(); confirmationFixtures.push(sqlite);
+ sqlite.db.exec("CREATE TRIGGER card_fault BEFORE INSERT ON safety_confirmations BEGIN SELECT RAISE(ABORT, 'secret SQL parameters'); END");
+ const time = timing();
+ const port = createSqlConfirmationExchange({ ...time, db: sqlite.port });
+ const result = await port.present({ context, request: spendRequest() });
+ expect(result).toMatchObject({ ok: false, error: { code: "unavailable", message: "Confirmation storage unavailable (query_failed/SQLITE_CONSTRAINT_TRIGGER); no authority granted", retryable: false } });
+ expect(JSON.stringify(result)).not.toContain("secret SQL parameters");
+ expect(sqlite.db.prepare("SELECT COUNT(*) AS count FROM safety_confirmations").get()).toEqual({ count: 0 });
+});
 ConfirmationExchangePortSuite({
  create(input) {
   const sqlite = sqliteFixture(); confirmationFixtures.push(sqlite);

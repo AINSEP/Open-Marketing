@@ -94,10 +94,13 @@ export async function readCredentialOAuthClient(required: ReaderDependencies, op
 }
 
 /** Read only the bound plugin/purpose; decrypt the broker's current version after refresh.
- * Missing/cleared records return null; malformed tagged payloads and dependency failures stay typed.
+ * Missing/cleared records return null; revoked or reconnect-required records return a denial.
  * @complexity Fixed audited broker/repository I/O; O(b) time/space for crypto/JSON, b<=64 KiB. */
 async function readTagged<T>(required: ReaderDependencies & { connectionId: string; prefix: string; schema: z.ZodType<T> }, optional?: CallOptions): Promise<Outcome<T | null>> {
   return boundary({ run: async () => {
+    const summary = await required.repo.get({ context: required.context, connectionId: required.connectionId }, optional);
+    if (!summary.ok) return summary;
+    if (summary.value && summary.value.status !== "connected") return failure({ code: "forbidden" });
     const loaded = await required.repo.getSecret({ context: required.context, connectionId: required.connectionId }, optional);
     if (!loaded.ok) return loaded;
     if (!loaded.value) return { ok: true, value: null };

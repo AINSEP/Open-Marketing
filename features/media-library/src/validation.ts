@@ -16,6 +16,7 @@ export const importSchema = z.strictObject({ sourceUrl: z.url().max(2048), opera
 const isoSchema = z.iso.datetime({ offset: true });
 const pixelsSchema = z.number().int().positive().max(8000).nullable();
 export const recordSchema = z.strictObject({
+  kind: z.enum(['media', 'document']).optional(), originalFilename: z.string().max(4096).nullable().optional(),
   id: idSchema, workspaceId: idSchema, createdBy: idSchema.nullable().optional(), title: z.string().max(2048), slug: z.string().min(1).max(256),
   alt: z.string().max(4096), caption: z.string().max(16000), credit: z.string().max(4096),
   source: z.strictObject({ sha256: digestSchema }), status: z.enum(['active', 'trashed']),
@@ -23,7 +24,7 @@ export const recordSchema = z.strictObject({
   width: pixelsSchema, height: pixelsSchema, cssClass: z.string().max(2048).nullable(), htmlAttributes: z.string().max(4096).nullable(),
 });
 export const blobSchema = z.strictObject({ id: idSchema, workspaceId: idSchema, sha256: digestSchema, storageKey: z.string().max(1024),
-  createdByPrincipal: idSchema, createdAt: isoSchema, status: z.enum(['active', 'tombstoned']), tombstonedAt: isoSchema.optional() });
+  createdByPrincipal: idSchema, createdAt: isoSchema, status: z.enum(['active', 'tombstoned']), tombstonedAt: isoSchema.optional(), documentOwned: z.boolean().optional() });
 export const assetSchema = z.strictObject({ record: recordSchema, blob: blobSchema, provenance: provenanceSchema.nullable() })
   .refine(value => value.record.workspaceId === value.blob.workspaceId && value.record.source.sha256 === value.blob.sha256)
   .refine(value => value.blob.storageKey === computeBlobStorageKey(value.blob));

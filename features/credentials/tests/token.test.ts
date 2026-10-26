@@ -175,6 +175,22 @@ it("fails the whole list on malformed or foreign-scope storage rows", async () =
 });
 
 describe.each(["memory", "sql"] as const)("Google developer-token purpose via %s", kind => {
+  it("denies a populated developer token after revocation without decrypting it", async () => {
+    const f = fixture({ kind }); const broker = createCredentialBroker(f);
+    const write = { ...f, context, connectionId: "developer-token.google-ads", pluginId: "google-ads", purpose: "developer-token" as const, plaintext: JSON.stringify("abcdefghijklmnopqrstuv") };
+    const read = { ...f, broker, context: hostContext, pluginId: "google-ads" };
+    try {
+      value({ outcome: await connectCredentialToken(write) });
+      expect(await readCredentialDeveloperToken(read)).toEqual({ ok: true, value: "abcdefghijklmnopqrstuv" });
+      const reference = value({ outcome: await f.repo.getSecret({ context: hostContext, connectionId: write.connectionId }) })!.reference;
+      value({ outcome: await f.repo.revoke({ context, connectionId: write.connectionId }) });
+      f.sealer.open = async () => { throw new Error("Revoked credentials must never be decrypted"); };
+      expect(await readCredentialDeveloperToken(read)).toMatchObject({ ok: false, error: { code: "forbidden" } });
+      expect(await f.repo.getSecret({ context: hostContext, connectionId: write.connectionId })).toEqual({ ok: true, value: null });
+      expect(await broker.use({ context: hostContext, reference, operationId: "after-revoke" })).toMatchObject({ ok: false });
+      expect((await connectCredentialToken(write)).ok).toBe(false);
+    } finally { f.dispose(); }
+  });
   it("seals, replaces and clears independently, skips OAuth refresh and excludes ordinary listing/access", async () => {
     const f = fixture({ kind }); let refreshes = 0;
     try {

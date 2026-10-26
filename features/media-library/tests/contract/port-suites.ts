@@ -67,6 +67,7 @@ export function JiniMediaPortSuite(required: { create: () => { port: JiniMediaPo
     it('reads canonical assets, keeps Jini dedupe and refuses source replacement', async () => {
       const { port, deps } = required.create();
       const original = await seedAsset({ deps });
+      expect(original.record).toMatchObject({ kind: 'media', originalFilename: null });
       const second = await seedAsset({ deps, filename: 'second.png' });
       expect(second.record.id).not.toBe(original.record.id);
       expect(second.blob).toEqual(original.blob);
