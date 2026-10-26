@@ -16,8 +16,5 @@
     "typecheck": "tsc --noEmit && tsc -p tsconfig.tests.json",
     "build": "node ../../development/scripts/build.mjs",
     "test": "vitest run tests"
-  },
-  "dependencies": {
-    "zod": "4.1.13"
   }
 }

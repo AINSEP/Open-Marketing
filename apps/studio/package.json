@@ -30,7 +30,6 @@
     "@jini-ai/ui": "0.6.12",
     "@mcp-ui/client": "7.1.1",
     "@open-marketing/contracts": "workspace:*",
-    "@open-marketing/om-clock": "workspace:*",
     "@radix-ui/react-checkbox": "1.4.1",
     "@radix-ui/react-label": "2.1.17",
     "@radix-ui/react-radio-group": "1.5.1",

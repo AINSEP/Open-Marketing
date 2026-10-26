@@ -21,9 +21,9 @@
     "om:serve": "pnpm --filter @open-marketing/server... --filter @open-marketing/studio... --filter @open-marketing/agent... build && pnpm om:build-plugins && node apps/server/dist/composition/serve.js"
   },
   "devDependencies": {
+    "@jini-ai/platform": "0.6.12",
     "@open-marketing/contracts": "workspace:*",
     "zod": "4.1.13",
-    "@eslint/js": "9.39.1",
     "@typescript-eslint/parser": "8.48.1",
     "eslint": "9.39.1",
     "eslint-plugin-sonarjs": "3.0.5",
@@ -33,13 +33,12 @@
     "yaml": "2.8.1",
     "vitest": "3.2.4",
     "@vitest/coverage-v8": "3.2.4",
-    "fast-check": "4.3.0",
     "@types/node": "24.10.1",
     "tsx": "4.20.6",
     "esbuild": "0.25.12",
-    "@playwright/test": "1.56.1",
     "@testing-library/react": "16.3.0",
     "@testing-library/user-event": "14.6.1",
-    "jsdom": "27.2.0"
+    "jsdom": "27.2.0",
+    "oauth-1.0a": "2.2.6"
   }
 }

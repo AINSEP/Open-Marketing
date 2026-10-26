@@ -20,11 +20,8 @@
   },
   "dependencies": {
     "@jini-ai/agent-runtime": "0.6.12",
-    "@jini-ai/core": "0.6.12",
     "@jini-ai/platform": "0.6.12",
-    "@jini-ai/protocol": "0.6.12",
     "@open-marketing/contracts": "workspace:*",
-    "@open-marketing/om-clock": "workspace:*",
     "zod": "4.1.13"
   }
 }

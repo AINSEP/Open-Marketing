@@ -43,7 +43,6 @@
     "@open-marketing/jobs": "workspace:*",
     "@open-marketing/measure": "workspace:*",
     "@open-marketing/media-library": "workspace:*",
-    "@open-marketing/om-clock": "workspace:*",
     "@open-marketing/policy": "workspace:*",
     "@open-marketing/privacy": "workspace:*",
     "@open-marketing/safety": "workspace:*",
