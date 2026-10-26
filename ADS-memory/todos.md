@@ -1,5 +1,65 @@
 # Open Marketing — todos
 
+## ⚡ STATUS 2026-10-25 night (b5) — READ FIRST
+**Branches:**
+- `om/clean-slate` (pushed 55cf681): P0 done, plus QW1–4, DC1 and OB2 R1.
+- `om/cleanup-1025` (pushed 4659d96, not yet merged): OB2 R2 shared `packages/om-db` fixture plus test fixes TF1–5. Typecheck-green; NOT cloud-tested.
+
+**In flight:** 25 Codex pipelines (plan → build; owner: no review, no Coordinator verification), in `ADS-memory/.local-artifacts/codex-runs/2026-10-25-w-*` (wave 1, 14 jobs) and `2026-10-25-w2-*` (wave 2, 11 jobs).
+- Each job dir has `stage`, `plan.md` and `B1.md`.
+- Driver: `pipeline-1025.sh`; lane locks in `locks-1025/` (coarse: server, studio, plugins-new16, migrations, …).
+- Builds edit the working tree of the main checkout on `om/cleanup-1025` (uncommitted until the Coordinator commits them, labelled untested).
+
+**Wave 1 jobs:**
+- cleanup batches 3–5: oe3-plugins-fed, oe4-jobs, oe5-schemas;
+- P1: p1-metrics-google-meta, p1-invoker, p1-web-events, p1-leads (migration v23), p1-alerts (v24);
+- plugins: vendor-cards-r2, messaging-r2;
+- studio: bw-theme, chat-polish;
+- content: chart-plugins (ECharts + Chart.js), ad-copy-skill.
+
+**Wave 2 jobs:**
+- p1-reporting (v25), brand (v26);
+- metrics-a/b/c (the remaining 13 ad plugins on report.metrics.v1);
+- gbp-plugin, skills2, topic-plugins (seo, email-lifecycle), offline-conv;
+- reports only: test-quality, tovu-jini-audit.
+
+**Known integrator follow-ups after the builds:**
+- package.json + lockfile importers for any new workspace packages (features/leads, features/brand; chart plugin deps);
+- final migration numbering check (v23–v26);
+- server/studio wiring NEEDS listed in each B1.md.
+
+**Then:**
+1. Commit each job's files (untested).
+2. ONE cloud test run (Claude cloud env "Open Marketing", setup installs Node 24.2.0 + pnpm 10.24.0; build all packages first).
+3. Codex fixes from the report.
+4. Merge into om/clean-slate.
+
+**Remaining after this wave (not started):**
+- observability trim (waits for Jini names);
+- switch to Jini 0.6.15 (waits for publish; outbox first, the SQLite adapter must pass `fencedOutboxConformance`);
+- the P1 real-account reconciliation gate (owner accounts);
+- plugin wiring of the 16 new plugins via the new invoker;
+- P2 launch translation for Meta/LinkedIn destinations, plus `campaign.validate.v1` pre-flight;
+- Google search-term report + negative keywords (P3 waste control);
+- organic publish contract (P4);
+- complexity/lint sweep (CX1);
+- full `om:check` in the cloud;
+- Mac .dmg (local).
+
+**Owner decisions pending:**
+- the 4 simplicity rules + 7 audit rules;
+- trademark search (OOSA name clash);
+- official vendor logos;
+- black/white theme as default;
+- delete /Users/la/Programming/autofix.log.
+
+**Rules learned today:**
+- never run tests on this machine (cloud only); Agent `isolation:"remote"` silently ran locally once;
+- never run a non-frozen pnpm install (hand-edit the lockfile importer, then frozen install);
+- Codex runs use `--ignore-user-config` (no MCP servers);
+- every Codex brief carries the Jini CAPABILITIES.md pointer and the P0 lessons (`ADS-memory/reports/2026-10-25-p0-lessons.md`).
+
+
 Updated 2026-10-25 by open-marketing-b5. Newest priorities first.
 
 ## HIGH PRIORITY — next Codex credits: roadmap Phases 0–4
