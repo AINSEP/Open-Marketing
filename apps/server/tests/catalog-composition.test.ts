@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomUUID } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
-import type { CallContext, ClockPort, IdPort, ObserverEvent, Outcome, ToolCall, ToolResult } from '@open-marketing/contracts';
+import type { CallContext, ClockPort, IdPort, NeutralCampaignLaunch, ObserverEvent, Outcome, ToolCall, ToolResult } from '@open-marketing/contracts';
 import { createMemoryConfirmationExchange, createSqlSafetyRepo, digestArguments } from '@open-marketing/safety';
 import { createSqlCampaignRepo, createMemoryCampaignJob } from '@open-marketing/campaigns';
 import { createSqlMeasureRepo, createSqlTrackedLink } from '@open-marketing/measure';
@@ -284,7 +284,7 @@ describe('real feature catalog composition', () => {
         const f = await fixture();
         try {
             const before = f.native.prepare('SELECT id FROM job').all();
-            const campaign = { operationId: 'local-neutral', name: 'Traffic', objective: 'traffic', schedule: { window: { start: 1792100000000, end: 1792200000000 }, timezone: 'UTC' }, audience: { countries: ['US'] }, creativeIds: ['asset'], creativeDigest: 'a'.repeat(64), targets: ['meta-ads', 'linkedin-ads'].map(pluginId => ({ pluginId, connectionId: 'unconnected', accountId: '123', dailyBudget: { minorUnits: 500, currency: 'USD' }, expectedExposure: { minorUnits: 2000, currency: 'USD' } })) };
+            const campaign: NeutralCampaignLaunch = { schemaVersion: 2, operationId: 'local-neutral', name: 'Traffic', objective: 'traffic', schedule: { window: { start: 1792100000000, end: 1792200000000 }, timezone: 'UTC' }, audience: { countries: ['US'] }, ads: [{ creativeId: 'asset', destinationUrl: 'https://sandbox.example.test/offer' }], creativeDigest: 'a'.repeat(64), targets: ['meta-ads', 'linkedin-ads'].map(pluginId => ({ pluginId, connectionId: 'unconnected', accountId: '123', dailyBudget: { minorUnits: 500, currency: 'USD' }, expectedExposure: { minorUnits: 2000, currency: 'USD' } })) };
             const result = await f.call({ name: 'om_campaign_save_local', input: campaign });
             expect(result.status).toBe('completed');
             const saved = (result as unknown as { output: { campaignId: string; campaign: unknown } }).output;

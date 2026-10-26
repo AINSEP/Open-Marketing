@@ -136,7 +136,7 @@ function at1Fixture() {
     native.exec(readFileSync(new URL('../migrations/0001_assistant.sql', import.meta.url), 'utf8'));
     const database = bindServerDatabase({ native, context: owner, observer: f.observer });
     const kernel = database.kernel as unknown as StorageKernel<AssistantDatabase>;
-    const conversations = createConversations({ ...f, db: { query: input => database.unit.transaction({ work: ({ session }) => session.query(input) }) },
+    const conversations = createConversations({ ...f, kernel: database.kernel, db: { query: input => database.unit.transaction({ work: ({ session }) => session.query(input) }) },
         stores: ({ scope }) => createSqliteChatStore({ kernel, scope }, { clock: { nowMs: () => 1000 } }), integrations: addonFixture().integrations });
     const persistence = createAssistantRuns({ ...f, kernel, conversations,
         durable: createDurableRunStore({ kernel, isDaemonRunId: () => true }), ledger: createChatRunLedger({ kernel, isDaemonRunId: () => true }) });
@@ -289,6 +289,9 @@ it('binds durable canonical media, crop cache and evidence through all four cata
         expect(generateOmToolCoverage({ definitions }).filter(row => row.needs === 'MEDIA_DEPENDENCY_COMPOSITION')).toEqual([]);
         expect(await f.approve({ name: 'om_media_import', input: { request: f.request } })).toMatchObject({ status: 'completed', output: { provenance: f.request.provenance } });
         const asset = value({ result: await f.services.media.list({ context: owner, query: { limit: 5 } }) }).items[0];
+        expect(asset.record).toMatchObject({ kind: 'media', originalFilename: null });
+        expect(JSON.parse((f.native.prepare("SELECT payload FROM server_media_record WHERE kind='media'").get() as { payload: string }).payload))
+            .toMatchObject({ kind: 'media', originalFilename: null });
         const request = { assetId: asset.record.id, placement: 'ad-square', presetVersion: 1 };
         expect(await f.approve({ name: 'om_media_crop', input: { request } })).toMatchObject({ status: 'completed', output: { assetId: asset.record.id } });
         expect(transform).toHaveBeenCalledWith({ bytes: expect.any(Uint8Array), params: { width: 1080, height: 1080, fit: 'cover', format: 'webp' } });

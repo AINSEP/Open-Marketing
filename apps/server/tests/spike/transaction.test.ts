@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { SqlSession } from '@open-marketing/contracts';
+import { migrationManifest } from '../../src/composition/migrations.js';
 import { body, context, createSpikeFixture, publicationId, type Failure } from './fixture.js';
 
 type Fixture = Awaited<ReturnType<typeof createSpikeFixture>>;
@@ -21,9 +22,10 @@ function counts({ fixture }: { fixture: Fixture }): number[] {
 afterEach(async () => { for (const value of fixtures.splice(0)) await value.close({}); });
 
 describe('A1: published Jini forms + one checked SQLite kernel + real OM jobs', () => {
-    it('applies thirteen global migrations and stores publication-bound ID-only jobs with trace context', async () => {
+    it('applies every global migration and stores publication-bound ID-only jobs with trace context', async () => {
         const value = await fixture({});
-        expect(value.native.prepare('SELECT version,name FROM om_schema_migrations ORDER BY version DESC LIMIT 1').get()).toEqual({ version: 18, name: 'server-2' });
+        expect(value.native.prepare('SELECT version,name FROM om_schema_migrations ORDER BY version').all()).toEqual(
+            migrationManifest.map(entry => ({ version: entry.version, name: `${entry.feature}-${entry.local}` })));
         const accepted = await value.submit({ attemptId: 'once' });
         expect(accepted).toMatchObject({ ok: true, value: { status: 'accepted' } });
         expect(counts({ fixture: value })).toEqual([1, 1, 1, 1, 0, 0, 0]);

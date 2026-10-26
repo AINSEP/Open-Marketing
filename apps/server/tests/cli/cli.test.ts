@@ -425,5 +425,7 @@ it('prints authoritative estimated usage after a completed ask', async () => {
  const event = { protocolVersion: 1, eventId: 'done', runId: 'run-8', sequence: 1, correlationId: 'correlation-7', traceId: 'trace-9', kind: 'ended', payload: {} };
  const f = fixture({ responses: [success({ value: { runId: 'run-8', status: 'pending' } }), success({ value: { runId: 'run-8', status: 'completed', events: [event], usage } })] });
  expect((await runOmCli({ argv: ['ask', 'fixture'], runtime: f.runtime })).ok).toBe(true);
- expect(f.stdout.join('')).toContain('[Usage estimate] ' + JSON.stringify(usage));
+ const usageLines = f.stdout.join('').split('\n').filter(line => line.startsWith('[Usage estimate] '));
+ expect(usageLines).toHaveLength(1);
+ expect(JSON.parse(usageLines[0].slice('[Usage estimate] '.length))).toEqual(usage);
 });

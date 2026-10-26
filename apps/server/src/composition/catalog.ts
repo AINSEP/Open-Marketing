@@ -92,13 +92,15 @@ export function bindCatalogMedia(required: { db: CampaignSqlPort; context: CallC
 }
 
 const mediaIso = z.iso.datetime({ offset: true });
-const mediaRecord = z.strictObject({ id: idSchema, workspaceId: idSchema, createdBy: idSchema.nullable().optional(),
+// Jini 0.6.12 emits kind/originalFilename on uploads; retain its documented metadata strictly.
+const mediaRecord = z.strictObject({ kind: z.enum(['media', 'document']).optional(), originalFilename: z.string().max(4096).nullable().optional(),
+    id: idSchema, workspaceId: idSchema, createdBy: idSchema.nullable().optional(),
     title: z.string().max(2048), slug: z.string().min(1).max(256), alt: z.string().max(4096), caption: z.string().max(16000), credit: z.string().max(4096),
     source: z.strictObject({ sha256: digestSchema }), status: z.enum(['active', 'trashed']), createdAt: mediaIso, updatedAt: mediaIso,
     version: z.number().int().positive(), width: z.number().int().positive().max(8000).nullable(), height: z.number().int().positive().max(8000).nullable(),
     cssClass: z.string().max(2048).nullable(), htmlAttributes: z.string().max(4096).nullable() });
 const mediaBlob = z.strictObject({ id: idSchema, workspaceId: idSchema, sha256: digestSchema, storageKey: z.string().max(1024),
-    createdByPrincipal: idSchema, createdAt: mediaIso, status: z.enum(['active', 'tombstoned']), tombstonedAt: mediaIso.optional() });
+    createdByPrincipal: idSchema, createdAt: mediaIso, status: z.enum(['active', 'tombstoned']), tombstonedAt: mediaIso.optional(), documentOwned: z.boolean().optional() });
 const mediaRendition = z.strictObject({ id: idSchema, workspaceId: idSchema, assetId: idSchema, transformName: idSchema,
     version: z.number().int().positive(), storageKey: z.string().max(1024), createdAt: mediaIso });
 const mediaTransform = z.strictObject({ id: idSchema, workspaceId: idSchema, name: idSchema, version: z.number().int().positive(),

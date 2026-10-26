@@ -19,7 +19,7 @@ export interface Conversations {
  setSettings(required: { context: CallContext; settings: AssistantSettings }): Promise<Outcome<AssistantSettingsStatus>>;
  modelContext(required: { context: CallContext; conversationId: string; settings: AssistantSettings }): Promise<Outcome<AssistantContext>>;
 }
-interface Dependencies { stores: ChatStoreFactory; db: CampaignSqlPort; ids: IdPort; observer: ObserverPort; integrations: Pick<Integrations, 'list'> }
+interface Dependencies { stores: ChatStoreFactory; db: CampaignSqlPort; kernel: Parameters<typeof readUsage>[0]['kernel']; ids: IdPort; observer: ObserverPort; integrations: Pick<Integrations, 'list'> }
 const models = modelChoices({ provider: 'anthropic' });
 const defaults: AssistantSettings = { mode: 'sandbox', model: models[0].id, connectionId: null };
 function summary(required: { conversation: ChatConversation }): ConversationSummary {
@@ -37,7 +37,7 @@ export async function conversationBoundary<T>(required: { context: CallContext; 
  return result;
 }
 /** Inert binding. Every store fixes workspace/owner once; Jini owns pagination and message identity.
- * @example const conversations = createConversations({ stores, db, ids, observer, integrations });
+ * @example const conversations = createConversations({ stores, db, kernel, ids, observer, integrations });
  * @complexity Bounded pages (<=100), model context <=40 messages/128 KiB; no key reads.
  */
 export function createConversations(required: Dependencies): Conversations {
@@ -53,7 +53,7 @@ export function createConversations(required: Dependencies): Conversations {
   } });
  }
  return { store, settings,
-  usage: input => boundary({ ...input, operation: 'assistant.usage.read', work: async () => ({ ok: true, value: await readUsage({ db: required.db, runId: input.runId, ...input.context.scope }) }) }),
+  usage: input => boundary({ ...input, operation: 'assistant.usage.read', work: async () => ({ ok: true, value: await readUsage({ kernel: required.kernel, runId: input.runId, ...input.context.scope }) }) }),
   create: input => boundary({ ...input, operation: 'assistant.conversations.create', work: async () => {
    const conversation = await store(input).create({ id: required.ids.next({}), title: 'New chat' });
    return { ok: true, value: summary({ conversation }) };
@@ -68,7 +68,7 @@ export function createConversations(required: Dependencies): Conversations {
    const page = await owned.pageMessages({ conversationId: input.conversationId }, input.query);
    return parseBoundary({ schema: conversationSchema, input: { conversation: summary({ conversation }),
     messages: await Promise.all(page.items.map(async message => ({ id: message.id, role: message.role, text: message.content, createdAt: message.createdAt, startedAt: message.startedAt, endedAt: message.endedAt,
-     ...(message.role === 'assistant' && message.runId && message.events?.some(event => event.kind === 'usage') ? { usage: await readUsage({ db: required.db, runId: message.runId, ...input.context.scope }) } : {}) }))), cursor: page.nextCursor ?? null } });
+     ...(message.role === 'assistant' && message.runId && message.events?.some(event => event.kind === 'usage') ? { usage: await readUsage({ kernel: required.kernel, runId: message.runId, ...input.context.scope }) } : {}) }))), cursor: page.nextCursor ?? null } });
   } }),
   setSettings: input => boundary({ ...input, operation: 'assistant.settings.write', work: async () => {
    const parsed = parseBoundary({ schema: assistantSettingsSchema, input: input.settings });

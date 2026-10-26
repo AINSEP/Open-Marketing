@@ -69,7 +69,7 @@ async function fixture(required: { adapter?: 'memory' | 'sqlite'; integrations?:
  const sql: Parameters<typeof createConversations>[0]['db'] = { query: input => db.unit.transaction({ work: ({ session }) => session.query(input) }) };
  const kernel = db.kernel as unknown as StorageKernel<AssistantDatabase>;
  const conversations = createConversations({ stores: required.adapter === 'memory' ? memoryStores({ now: () => 1000 }) : ({ scope }) => createSqliteChatStore({ kernel, scope }, { clock: { nowMs: () => 1000 } }),
-  db: { query: input => db.unit.transaction({ work: ({ session }) => session.query(input) }) }, ids, observer,
+  db: { query: input => db.unit.transaction({ work: ({ session }) => session.query(input) }) }, kernel, ids, observer,
   integrations: required.integrations ?? { async list() { return { ok: true, value: { items: [], cursor: null } }; } } });
  const runs = createAssistantRuns({ kernel, conversations, clock, ids, observer, durable: createDurableRunStore({ kernel, isDaemonRunId: () => true }), ledger: createChatRunLedger({ kernel, isDaemonRunId: () => true }) });
  return { conversations, runs, kernel, native, sql, advance() { now += 8000; }, close() { native.close(); } };
@@ -280,6 +280,25 @@ it('freezes one provider connection at acceptance, persists usage, and excludes 
   expect(value({ result: await f.conversations.usage({ context, runId: second.runId }) }).costUsd).toBeUndefined();
   expect(value({ result: await f.conversations.usage({ context: { ...context, scope: { ...context.scope, ownerId: 'foreign' } }, runId: first.runId }) }).totalCostUsd).toBeUndefined();
  } finally { f.close(); }
+});
+
+it('rolls back a terminal event when usage storage fails and permits the same event after recovery', async () => {
+ const f = await fixture({ integrations: { async list() { return { ok: true, value: { items: [{ pluginId: 'anthropic', connectionId: 'key', status: 'saved' }], cursor: null } }; } } });
+ const query = f.kernel.query;
+ try {
+  value({ result: await f.conversations.setSettings({ context, settings: { mode: 'model', model: 'claude-sonnet-5-5', connectionId: 'key' } }) });
+  const receipt = await accepted({ f });
+  const ended = event({ runId: receipt.runId, sequence: 1, kind: 'ended' });
+  f.kernel.query = async () => { throw new Error('Fixture usage read unavailable'); };
+  expect(await f.runs.record({ context, event: ended })).toMatchObject({ ok: false, error: { code: 'unavailable' } });
+  expect(f.native.prepare('SELECT status,retained_bytes FROM om_assistant_runs WHERE run_id=?').get(receipt.runId))
+   .toEqual({ status: 'running', retained_bytes: 0 });
+  expect(f.native.prepare('SELECT sequence FROM om_assistant_events WHERE run_id=?').all(receipt.runId)).toEqual([]);
+  f.kernel.query = query;
+  value({ result: await f.runs.record({ context, event: ended }) });
+  expect(value({ result: await f.runs.events({ context, runId: receipt.runId, after: 0 }) }))
+   .toMatchObject({ status: 'completed', events: [ended], usage: { complete: false, costBasis: 'unavailable' } });
+ } finally { f.kernel.query = query; f.close(); }
 });
 
 it('caps durable request intents at 25 and leaves interrupted outcomes unavailable', async () => {

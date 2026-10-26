@@ -1,5 +1,7 @@
 /** Server-owned request evidence. No agent-supplied number can establish a charge. */
 import { z } from 'zod';
+import { sql } from 'kysely';
+import type { StorageKernel } from '@jini-ai/db/kernel';
 import type { AssistantProvider, AssistantUsage, RunGrantMetadata } from '@open-marketing/contracts';
 import type { CampaignSqlPort } from '@open-marketing/campaigns';
 import { modelCatalogue, pricingDate } from './models.js';
@@ -83,24 +85,24 @@ export async function appendUsage(required: { db: CampaignSqlPort; grant: RunGra
 }
 /** One grouped SQL read across the conversation prefix, independent of history pagination.
  * Missing intents, receipts, or prices suppress dollars for that turn and every later total.
+ * The supplied kernel joins event persistence's transaction; no second pool lease is acquired.
  * @complexity O(r) indexed receipt aggregation for r requests; returns one summary row.
  */
-export async function readUsage(required: { db: CampaignSqlPort; runId: string; ownerId: string; workspaceId: string }): Promise<AssistantUsage> {
- const result = await required.db.query({ text: `WITH turns AS (
+export async function readUsage(required: { kernel: Pick<StorageKernel<unknown>, 'query'>; runId: string; ownerId: string; workspaceId: string }): Promise<AssistantUsage> {
+ const rows = await required.kernel.query(sql<Record<string, unknown>>`WITH turns AS (
  SELECT r.run_id, COUNT(CASE WHEN u.kind='intent' THEN 1 END) AS intents,
  COUNT(CASE WHEN u.kind='completion' THEN 1 END) AS receipts, COUNT(u.cost_usd) AS priced,
  SUM(u.input_tokens) AS input_tokens, SUM(u.output_tokens) AS output_tokens, SUM(u.cost_usd) AS cost, m.ended_at-COALESCE(m.started_at,m.created_at) AS duration
  FROM om_assistant_runs r JOIN ai_chat_messages m ON m.id=r.message_id
  LEFT JOIN om_model_usage u ON u.run_id=r.run_id AND u.owner_id=r.owner_id AND u.workspace_id=r.workspace_id
- WHERE r.owner_id=$2 AND r.workspace_id=$3 AND r.conversation_id=(SELECT conversation_id FROM om_assistant_runs WHERE run_id=$1 AND owner_id=$2 AND workspace_id=$3)
- AND m.position <= (SELECT position FROM ai_chat_messages WHERE run_id=$1 AND role='assistant')
+ WHERE r.owner_id=${required.ownerId} AND r.workspace_id=${required.workspaceId} AND r.conversation_id=(SELECT conversation_id FROM om_assistant_runs WHERE run_id=${required.runId} AND owner_id=${required.ownerId} AND workspace_id=${required.workspaceId})
+ AND m.position <= (SELECT position FROM ai_chat_messages WHERE run_id=${required.runId} AND role='assistant')
  AND r.settings_json LIKE '%"mode":"model"%' GROUP BY r.run_id,m.ended_at,m.started_at,m.created_at
  ), summaries AS (SELECT *, CASE WHEN intents>0 AND intents=receipts AND receipts=priced THEN 1 ELSE 0 END AS complete FROM turns)
- SELECT MAX(CASE WHEN run_id=$1 THEN complete ELSE 0 END) AS complete,
- MAX(CASE WHEN run_id=$1 THEN input_tokens END) AS input_tokens, MAX(CASE WHEN run_id=$1 THEN output_tokens END) AS output_tokens,
- MAX(CASE WHEN run_id=$1 THEN cost END) AS cost, MAX(CASE WHEN run_id=$1 THEN duration END) AS duration, MIN(complete) AS prefix_complete, SUM(cost) AS total_cost FROM summaries`,
- values: [required.runId, required.ownerId, required.workspaceId] });
- const row = result.rows[0];
+ SELECT MAX(CASE WHEN run_id=${required.runId} THEN complete ELSE 0 END) AS complete,
+ MAX(CASE WHEN run_id=${required.runId} THEN input_tokens END) AS input_tokens, MAX(CASE WHEN run_id=${required.runId} THEN output_tokens END) AS output_tokens,
+ MAX(CASE WHEN run_id=${required.runId} THEN cost END) AS cost, MAX(CASE WHEN run_id=${required.runId} THEN duration END) AS duration, MIN(complete) AS prefix_complete, SUM(cost) AS total_cost FROM summaries`);
+ const row = rows[0];
  const complete = Number(row?.complete) === 1;
  const prefixComplete = Number(row?.prefix_complete) === 1;
  return { kind: 'usage', complete: complete && prefixComplete, ...(row?.duration == null ? {} : { durationMs: Math.max(0, Number(row.duration)) }), costBasis: complete ? 'estimated' : 'unavailable',

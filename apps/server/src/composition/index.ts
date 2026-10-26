@@ -307,7 +307,7 @@ export async function bootServer(required: {
         });
         // Migration 17 supplies these table types on the existing kernel; this assertion opens no second kernel.
         const chatKernel = database.kernel as unknown as StorageKernel<AssistantDatabase>;
-        const conversations = createConversations({ db: campaignDb, ids: required.ids, observer: required.observer, integrations,
+        const conversations = createConversations({ db: campaignDb, kernel: chatKernel, ids: required.ids, observer: required.observer, integrations,
             stores: ({ scope }) => createSqliteChatStore({ kernel: chatKernel, scope }, { clock: { nowMs: () => required.clock.now({}) } }) });
         const persistence = createAssistantRuns({ kernel: chatKernel, conversations, clock: required.clock, ids: required.ids, observer: required.observer,
             durable: createDurableRunStore({ kernel: chatKernel, isDaemonRunId: () => true }),
