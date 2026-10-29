@@ -1,7 +1,7 @@
-import type { CallContext, Page } from "@open-marketing/contracts";
+import type { CallContext, Outcome, Page } from "@open-marketing/contracts";
 import type { LeadsRepoPort } from "./ports.js";
-import { appendSchema, checkAppend, checkCapture, failure, getSchema, historySchema, listSchema, parseInput, purgeSchema, repoCaptureSchema } from "./schemas.js";
-import type { Lead, LeadStageEvent } from "./schemas.js";
+import { appendSchema, checkAppend, checkCapture, cohortSchema, failure, getSchema, historySchema, listSchema, parseInput, purgeSchema, repoCaptureSchema } from "./schemas.js";
+import type { Lead, LeadCohortCounts, LeadCohortInput, LeadStageEvent } from "./schemas.js";
 
 /** Instance-owned reference adapter; synchronous mutation is atomic before the promise yields.
  * Reads/capture/purge scan O(n) stored rows; inbox sorting O(n log n), responses <=100.
@@ -67,7 +67,27 @@ export function createMemoryLeadsRepo(_required: Record<string, never>): LeadsRe
       }
       return { ok: true, value: undefined };
     },
+    async readCohort(input, options) {
+      const parsed = parseInput({ schema: cohortSchema, input }, options);
+      if (!parsed.ok) return parsed;
+      return cohortCounts({ input: parsed.value, leads: [...leads.values()].filter(lead => sameScope({ context: parsed.value.context, value: lead })) });
+    },
   };
+}
+/** Reference aggregation matching the SQL adapter: half-open creation time, spam excluded. O(n log n). */
+function cohortCounts(required: { input: LeadCohortInput; leads: readonly Lead[] }): Outcome<LeadCohortCounts> {
+  const { createdAt, pluginId, accountId } = required.input;
+  const counts = new Map<string, number>();
+  let unattributed = 0;
+  for (const lead of required.leads) {
+    if (lead.stage === "spam" || lead.createdAt < createdAt.start || lead.createdAt >= createdAt.end) continue;
+    const campaign = lead.attribution.campaign;
+    if (campaign === null) unattributed += 1;
+    else if (campaign.pluginId === pluginId && campaign.accountId === accountId) counts.set(campaign.vendorCampaignId, (counts.get(campaign.vendorCampaignId) ?? 0) + 1);
+  }
+  if (counts.size > 5000) return failure({ code: "limit_exceeded" });
+  const rows = [...counts].sort(([left], [right]) => left < right ? -1 : 1).map(([vendorCampaignId, count]) => ({ vendorCampaignId, count }));
+  return { ok: true, value: { counts: rows, unattributed } };
 }
 /** Tuple encoding avoids ambiguous scope/ID concatenation. */
 function key(required: { context: CallContext; id: string }): string { return JSON.stringify([required.context.scope.ownerId, required.context.scope.workspaceId, required.id]); }

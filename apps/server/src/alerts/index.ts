@@ -1,5 +1,5 @@
 /** Server-local alerts public API; construction and imports perform no I/O. */
-export { alertCandidates, alertEvidenceSchema, alertCandidateSchema, pacingEvidenceSchema, accountLocalDay, dailyPacingEvidence } from './rules.js';
+export { alertCandidates, alertEvidenceSchema, alertCandidateSchema, pacingEvidenceSchema, accountLocalDay, dailyPacingEvidence, lifetimePacingEvidence } from './rules.js';
 export type { AlertEvidence, AlertCandidate, PacingEvidence } from './rules.js';
 export { listAlerts, appendAlerts, acknowledgeAlert, alertNoticeSchema, alertQuerySchema } from './store.js';
 export type { AlertNotice } from './store.js';

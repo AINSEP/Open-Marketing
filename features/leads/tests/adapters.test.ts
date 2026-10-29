@@ -78,4 +78,30 @@ describe("SQL durability", () => {
     fixture.native.prepare("UPDATE lead SET attribution=?").run("private invalid json");
     expect(await repo.get({ context, leadId: "lead-1" })).toMatchObject({ ok: false, error: { code: "unavailable" } });
   });
+  /** Native bulk rows (fixture-only); campaign identity is a SQL expression over the row number. */
+  function insertBulk(required: { native: ReturnType<typeof sqliteFixture>["native"]; total: number; campaign: string }): void {
+    required.native.exec(`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<${required.total})
+      INSERT INTO lead(owner_id,workspace_id,lead_id,subject_id,source_kind,source_ref,occurred_at,created_at,attribution,stage,revision,last_event_id,erased)
+      SELECT 'owner','workspace','bulk-'||i,'subject-'||i,'form','bulk-'||i,200,1500,
+        json_object('campaign',json_object('pluginId','google-ads','accountId','account','vendorCampaignId',${required.campaign}),'touchId','touch','touchedAt',100,'modelVersion','last_paid_touch_30d.v1'),
+        'new',1,'event-'||i,0 FROM n`);
+  }
+  const cohortQuery = { context, pluginId: "google-ads", accountId: "account", createdAt: { start: 1000, end: 2000 } };
+  it("counts more than 5,000 leads in one campaign exactly inside SQL", async () => {
+    const fixture = setup();
+    insertBulk({ native: fixture.native, total: 5001, campaign: "'campaign'" });
+    expect(value(await createSqlLeadsRepo({ unitOfWork: fixture.database }).readCohort(cohortQuery))).toEqual({ counts: [{ vendorCampaignId: "campaign", count: 5001 }], unattributed: 0 });
+  });
+  it("fails 5,001 campaign groups with limit_exceeded instead of truncating", async () => {
+    const fixture = setup();
+    insertBulk({ native: fixture.native, total: 5001, campaign: "'campaign-'||i" });
+    expect(await createSqlLeadsRepo({ unitOfWork: fixture.database }).readCohort(cohortQuery)).toMatchObject({ ok: false, error: { code: "limit_exceeded" } });
+  });
+  it("returns redacted unavailable for a malformed stored campaign identity", async () => {
+    const fixture = setup();
+    insertBulk({ native: fixture.native, total: 1, campaign: "5" });
+    const result = await createSqlLeadsRepo({ unitOfWork: fixture.database }).readCohort(cohortQuery);
+    expect(result).toMatchObject({ ok: false, error: { code: "unavailable" } });
+    expect(JSON.stringify(result)).not.toContain("bulk-1");
+  });
 });

@@ -37,6 +37,7 @@ export function createLeadsService(required: { repo: LeadsRepoPort; clock: Clock
     list: (input, options) => repo.list(input, options),
     history: (input, options) => repo.history(input, options),
     purgeSubject: (input, options) => repo.purgeSubject(input, options),
+    readCohort: (input, options) => repo.readCohort(input, options),
   };
 }
 /** Bounded ID-only audit evidence from the authenticated context; no I/O. */

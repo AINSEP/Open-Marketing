@@ -86,6 +86,14 @@ it('fits maximum escaped IDs, full metric/ratio cells and seven maximum observat
     expect(weeklyReportSchema.safeParse({ ...candidate.report, campaigns: source.campaigns }).success).toBe(false);
 });
 
+it('carries the workspace-wide unattributed count, or its unavailable reason, and still parses older notices without it', () => {
+    expect(report({ results: { ...results(), workspaceUnattributed: { status: 'available', count: 2 } } }).report.workspaceUnattributed)
+        .toEqual({ status: 'available', count: 2 });
+    expect(report({ results: results() }).report.workspaceUnattributed).toEqual({ status: 'unavailable', reason: 'not_implemented' });
+    const { workspaceUnattributed: _omitted, ...older } = report({ results: results() }).report;
+    expect(alertCandidateSchema.safeParse({ kind: 'weekly_report', dedupKey: 'older', report: older }).success).toBe(true);
+});
+
 /** Real SQLite/outbox seam; explicit processing only, no timers or external I/O. */
 function fixture() {
     const directory = mkdtempSync(join(tmpdir(), 'om-weekly-report-')), path = join(directory, 'fixture.sqlite');

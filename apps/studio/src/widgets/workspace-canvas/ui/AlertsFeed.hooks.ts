@@ -4,14 +4,17 @@ import { z } from 'zod';
 import { epochSchema, idSchema, metricValuesSchema } from '@open-marketing/contracts';
 import type { StudioApiPort, StudioRuntime } from '../../../shared/api/index.js';
 
+/** OM-verified lead count, or the server's reason it is unavailable. */
+const leadCountSchema = z.discriminatedUnion('status', [z.object({ status: z.literal('available'), count: epochSchema }),
+  z.object({ status: z.literal('unavailable'), reason: z.string() })]);
 /** Minimal display projection; the server owns full row validation, source identity and byte bounds. */
 const weeklySchema = z.object({ days: z.object({ start: z.iso.date(), end: z.iso.date() }),
   currency: z.string().nullable(), timezone: z.string().nullable(), complete: z.boolean(), missingDays: z.array(z.iso.date()).max(31),
   observations: z.array(z.object({ day: z.iso.date(), retrievedAt: epochSchema, dataThrough: epochSchema,
     freshness: z.enum(['fresh', 'stale']), restated: z.boolean() })).max(31),
   campaigns: z.array(z.object({ campaign: z.object({ vendorCampaignId: idSchema }), metrics: metricValuesSchema,
-    verifiedLeads: z.discriminatedUnion('status', [z.object({ status: z.literal('available'), count: epochSchema }),
-      z.object({ status: z.literal('unavailable'), reason: z.string() })]) })).max(10), omittedCampaigns: z.number().int().nonnegative() });
+    verifiedLeads: leadCountSchema })).max(10), omittedCampaigns: z.number().int().nonnegative(),
+  workspaceUnattributed: leadCountSchema.optional() });
 /** Only displayed fields are projected; approver identities stay opaque. */
 const noticeSchema = z.object({ noticeId: idSchema, createdAt: epochSchema,
   candidate: z.discriminatedUnion('kind', [z.object({ kind: z.enum(['approval_waiting', 'ad_disapproved', 'pacing']) }),
@@ -37,6 +40,11 @@ export function scaledMetricText(required: { value?: string | null }): string {
   const digits = required.value.padStart(7, '0'), fraction = digits.slice(-6).replace(/0+$/, '');
   return digits.slice(0, -6) + (fraction ? '.' + fraction : '');
 }
+/** Older notices predate the field and show Unavailable, never 0. O(1). */
+function unattributedText(required: { value?: z.infer<typeof leadCountSchema> }): string {
+  if (required.value === undefined) return 'Unavailable';
+  return required.value.status === 'available' ? String(required.value.count) : `Unavailable (${required.value.reason})`;
+}
 /** Display only; no cross-campaign totals or OM/vendor arithmetic. O(rows + days), bounded by the notice. */
 function weeklyDisplay(required: { report: z.infer<typeof weeklySchema> }) {
   const report = required.report;
@@ -48,7 +56,7 @@ function weeklyDisplay(required: { report: z.infer<typeof weeklySchema> }) {
       clicks: metricText({ value: item.metrics.clicks }), impressions: metricText({ value: item.metrics.impressions }),
       conversions: scaledMetricText({ value: item.metrics.vendorConversions }),
       leads: item.verifiedLeads.status === 'available' ? String(item.verifiedLeads.count) : 'Unavailable' })),
-    omittedCampaigns: report.omittedCampaigns };
+    omittedCampaigns: report.omittedCampaigns, unattributed: unattributedText({ value: report.workspaceUnattributed }) };
 }
 
 /** One page per action, no polling. Refresh replaces loaded pages with current persisted state.

@@ -43,6 +43,8 @@ export const weeklyReportSchema = z.strictObject({
     observations: campaignResultsSchema.shape.observations,
     campaigns: z.array(campaignResultsSchema.shape.campaigns.element).max(3),
     omittedCampaigns: z.number().int().nonnegative(),
+    /** Workspace-wide unattributed enquiries for the same days; absent on notices stored before it existed. */
+    workspaceUnattributed: campaignResultsSchema.shape.workspaceUnattributed.optional(),
 });
 export type WeeklyReport = z.infer<typeof weeklyReportSchema>;
 export const alertCandidateSchema = z.discriminatedUnion('kind', [
@@ -67,7 +69,7 @@ function fingerprint({ parts }: { parts: unknown[] }): string {
 export function weeklyReportCandidate(required: { target: WeeklyReport['target']; days: WeeklyReport['days']; results: CampaignResults }): Outcome<AlertCandidate> {
     const parsed = parseBoundary({ schema: campaignResultsSchema, input: required.results });
     if (!parsed.ok) return parsed;
-    const { currency, timezone, complete, missingDays, observations } = parsed.value;
+    const { currency, timezone, complete, missingDays, observations, workspaceUnattributed } = parsed.value;
     // Array.sort's foreign two-positional-argument ABI; unavailable and unsupported spend both sort last.
     const campaigns = [...parsed.value.campaigns].sort((left, right) => {
         const a = BigInt(left.metrics.spend ?? '-1'), b = BigInt(right.metrics.spend ?? '-1');
@@ -77,7 +79,7 @@ export function weeklyReportCandidate(required: { target: WeeklyReport['target']
     return parseBoundary({ schema: alertCandidateSchema, input: { kind: 'weekly_report',
         dedupKey: fingerprint({ parts: ['weekly', required.target, required.days] }),
         report: { target: required.target, days: required.days, currency, timezone, complete, missingDays, observations,
-            campaigns: campaigns.slice(0, 3), omittedCampaigns: Math.max(0, campaigns.length - 3) } } });
+            campaigns: campaigns.slice(0, 3), omittedCampaigns: Math.max(0, campaigns.length - 3), workspaceUnattributed } } });
 }
 /** Compare only explicit complete spend in the budget's currency. O(1). */
 function comparable(required: { spend: z.infer<typeof spend> | null; currency: string }): boolean {
@@ -132,6 +134,66 @@ export function dailyPacingEvidence(required: { campaign: CampaignKey; observati
         today: { micros: spendMicros, currency: batch.currency, complete: batch.complete }, month: null, lifetime: null });
     return parsed.success ? parsed.data : null;
 }
+/** Flight history is read through at most ten 31-day pages; older flights stay unknown. */
+export const LIFETIME_HISTORY_DAYS = 310;
+const DAY_MS = 86400000;
+
+/** Calendar-date arithmetic on ISO dates; local dates carry no instant. O(1).
+ * @example shiftDay({ day: '2026-10-01', days: 31 }) // '2026-11-01'
+ */
+export function shiftDay(required: { day: string; days: number }): string {
+    return new Date(Date.parse(required.day) + required.days * DAY_MS).toISOString().slice(0, 10);
+}
+/** A stored history day counts only when complete and its exclusive data cutoff reaches the
+ * next account-local day; dataThrough 0 (unknown) never qualifies. O(1), no I/O. */
+export function historyDayCovered(required: { partition: MetricDay }): boolean {
+    const { day, batch } = required.partition;
+    return batch.complete && (accountLocalDay({ timezone: batch.timezone, now: batch.dataThrough }) ?? '') > day;
+}
+/** One covered day's explicit campaign spend in the reference batch's currency/timezone. O(rows). */
+function historyDaySpend(required: { campaign: CampaignKey; partitions: readonly MetricDay[]; reference: MetricDay['batch']; day: string }): bigint | null {
+    const partition = required.partitions.find(item => item.day === required.day);
+    if (!partition || !historyDayCovered({ partition })) return null;
+    if (partition.batch.timezone !== required.reference.timezone || partition.batch.currency !== required.reference.currency) return null;
+    const row = partition.batch.rows.find(item => item.entity.grain === 'campaign' && item.entity.vendorCampaignId === required.campaign.vendorCampaignId);
+    return typeof row?.metrics.spend === 'string' ? BigInt(row.metrics.spend) : null;
+}
+/** Sum every completed flight day before today; any missing day or row means unknown.
+ * @complexity O(days * (partitions + rows)), <=310 days; exact bigint micros. */
+function flightHistorySpend(required: { campaign: CampaignKey; partitions: readonly MetricDay[]; reference: MetricDay['batch']; flightStart: number; today: string }): bigint | null {
+    const first = accountLocalDay({ timezone: required.reference.timezone, now: required.flightStart });
+    if (first === null || first > required.today || first < shiftDay({ day: required.today, days: -LIFETIME_HISTORY_DAYS })) return null;
+    let total = 0n;
+    for (let day = first; day < required.today; day = shiftDay({ day, days: 1 })) {
+        const spent = historyDaySpend({ ...required, day });
+        if (spent === null) return null;
+        total += spent;
+    }
+    return total;
+}
+/** Project a current lifetime budget from complete flight-to-date stored spend; unknown stays null.
+ * Every account-local flight day before today needs a covered partition and an explicit campaign row;
+ * today counts only through the fresh-partition rule. elapsedMicros is the floor of the linear share at now.
+ * @example lifetimePacingEvidence({ campaign, observation, observedAt, partitions, now })
+ * @complexity O(days * (partitions + rows)), <=310 days; exact bigint micros, no I/O or input mutation.
+ */
+export function lifetimePacingEvidence(required: { campaign: CampaignKey; observation: CampaignStatusOutput['campaigns'][number];
+    observedAt: number; partitions: readonly MetricDay[]; now: number }): PacingEvidence | null {
+    const budget = required.observation.currentBudget;
+    if (budget?.kind !== 'lifetime' || required.observedAt > required.now) return null;
+    const { start, end } = budget.flight;
+    if (required.now < start || required.now >= end) return null;
+    const selected = todayCampaignSpend(required);
+    if (!selected) return null;
+    const { partition: { day, batch } } = selected;
+    const history = flightHistorySpend({ ...required, reference: batch, flightStart: start, today: day });
+    if (history === null) return null;
+    const elapsedMicros = BigInt(budget.amountMicros) * BigInt(required.now - start) / BigInt(end - start);
+    const parsed = pacingEvidenceSchema.safeParse({ campaign: required.campaign, localDay: day, timezone: batch.timezone, budgetCurrent: true,
+        budget: { kind: 'lifetime', currency: budget.currency, totalMicros: budget.amountMicros, elapsedMicros: String(elapsedMicros), flightStart: start, flightEnd: end },
+        today: null, month: null, lifetime: { micros: String(history + BigInt(selected.micros)), currency: batch.currency, complete: batch.complete } });
+    return parsed.success ? parsed.data : null;
+}
 /** Strict daily thresholds; MTD floor is the plan's proposed ten account-currency units.
  * O(1) bounded bigint operations. Missing comparisons do not become zero spend. */
 function dailyRules(required: { evidence: PacingEvidence; budget: z.infer<typeof dailyBudget> }): ('today' | 'month')[] {
@@ -144,15 +206,15 @@ function dailyRules(required: { evidence: PacingEvidence; budget: z.infer<typeof
     if (month >= 10000000n && month * 10n > BigInt(budget.elapsedMonthMicros) * 11n) rules.push('month');
     return rules;
 }
-/** Lifetime evidence requires an explicit flight and elapsed allocation; whole-budget overspend
- * still qualifies when the elapsed allocation is unavailable. O(1) bigint operations. */
+/** Whole-budget overspend inside the flight always qualifies. Otherwise spend strictly above the
+ * elapsed linear share projects past the total; that projection needs one full elapsed day. O(1) bigint. */
 function lifetimeRules(required: { evidence: PacingEvidence; budget: z.infer<typeof lifetimeBudget>; now: number }): 'lifetime'[] {
     const { evidence, budget } = required;
     if (required.now < budget.flightStart || required.now >= budget.flightEnd || !comparable({ spend: evidence.lifetime, currency: budget.currency })) return [];
     const spent = BigInt(evidence.lifetime!.micros);
     if (spent > BigInt(budget.totalMicros)) return ['lifetime'];
-    if (budget.elapsedMicros !== null && spent * 10n > BigInt(budget.elapsedMicros) * 11n) return ['lifetime'];
-    return [];
+    if (budget.elapsedMicros === null || required.now - budget.flightStart < DAY_MS) return [];
+    return spent > BigInt(budget.elapsedMicros) ? ['lifetime'] : [];
 }
 /** One notice per campaign/local day, even when both daily rules fire. O(1). */
 function pacingCandidate(required: { evidence: PacingEvidence; now: number }): AlertCandidate[] {

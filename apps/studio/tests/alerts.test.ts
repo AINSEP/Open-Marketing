@@ -87,3 +87,15 @@ it('renders weekly vendor metrics separately from OM leads and keeps unavailable
   expect(screen.getByText(/2026-10-19: stale; retrieved .*; restated/)).toBeDefined();
   expect(screen.getByText('7 additional campaigns omitted')).toBeDefined();
 });
+
+it('shows the workspace-wide unattributed count, and Unavailable for older weekly notices without it', async () => {
+  const f = fixture();
+  const report = { days: { start: '2026-10-19', end: '2026-10-26' }, currency: 'USD', timezone: 'UTC', complete: true, missingDays: [],
+    observations: [], campaigns: [], omittedCampaigns: 0 };
+  f.tool.mockResolvedValue({ ok: true, value: { status: 'completed', output: { items: [
+    { noticeId: 'current', createdAt: 2000, candidate: { kind: 'weekly_report', report: { ...report, workspaceUnattributed: { status: 'available', count: 2 } } }, acknowledgement: null },
+    { noticeId: 'older', createdAt: 1000, candidate: { kind: 'weekly_report', report }, acknowledgement: null }], cursor: null } } });
+  render(createElement(AlertsFeed, { api: f.api, runtime: f.runtime }));
+  expect(await screen.findByText('Unattributed enquiries (workspace-wide): 2')).toBeDefined();
+  expect(screen.getByText('Unattributed enquiries (workspace-wide): Unavailable')).toBeDefined();
+});

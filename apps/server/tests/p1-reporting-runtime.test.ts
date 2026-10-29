@@ -8,14 +8,14 @@ import { metricBatchSchema } from '@open-marketing/contracts';
 import type { CallContext, ObserverEvent, Outcome } from '@open-marketing/contracts';
 import { createSqlJobRepo } from '@open-marketing/jobs';
 import { metricSyncRequestSchema } from '@open-marketing/measure';
-import { leadSchema, type Lead, type LeadsService } from '@open-marketing/leads';
+import type { LeadsService } from '@open-marketing/leads';
 import { createMemoryCampaignRepo } from '@open-marketing/campaigns';
 import { createMemoryConfirmationExchange, createMemorySafetyRepo } from '@open-marketing/safety';
 import { buildOmToolDefinitions } from '../src/om-tools.js';
 import { generateOmToolCoverage } from '../src/om-tool-coverage.js';
 import { bindServerDatabase } from '../src/composition/database.js';
 import { formRetryPolicy } from '../src/composition/forms.js';
-import { bindReporting, reportingJob } from '../src/composition/reporting.js';
+import { bindReporting, localDayStart, reportingJob } from '../src/composition/reporting.js';
 import { createFormWorkers } from '../src/composition/workers.js';
 
 const context: CallContext = { scope: { ownerId: 'owner', workspaceId: 'workspace' }, principal: { kind: 'owner', ownerId: 'owner' },
@@ -208,77 +208,72 @@ it('seeds one occurrence for two distinct successful campaign syncs and leaves l
     } finally { f.close(); }
 });
 
-/** Schema-valid frozen attribution fixtures; no identifiers or vendor calls. */
-function cohortLead(required: { id: string; at: string; stage?: Lead['stage']; erased?: boolean; campaign?: string | null; accountId?: string; pluginId?: string }): Lead {
-    const at = Date.parse(required.at), campaign = required.campaign === undefined ? 'campaign-1' : required.campaign;
-    return leadSchema.parse({ scope: context.scope, leadId: required.id, subjectId: required.erased ? null : 'subject-' + required.id,
-        source: { kind: 'form', ref: 'fixture-form' }, occurredAt: at, createdAt: at, stage: required.stage ?? 'new',
-        erased: required.erased ?? false, revision: 1, lastEventId: 'event-' + required.id,
-        attribution: { campaign: campaign === null ? null : { pluginId: required.pluginId ?? request.pluginId,
-            accountId: required.accountId ?? request.accountId, vendorCampaignId: campaign },
-        touchId: campaign === null ? null : 'touch-' + required.id, touchedAt: campaign === null ? null : at - 1000,
-        modelVersion: 'last_paid_touch_30d.v1' } });
+/** Leads-owned aggregate fake; the SQL/memory semantics live in features/leads' shared port suite. */
+function cohortReader(result?: Awaited<ReturnType<LeadsService['readCohort']>>) {
+    return vi.fn<LeadsService['readCohort']>().mockResolvedValue(result ?? { ok: true, value: { counts: [], unattributed: 0 } });
 }
+const resultsQuery = { pluginId: request.pluginId, connectionId: request.connectionId, accountId: request.accountId };
 
-it('binds creation-date cohorts across DST, retaining erased/disqualified counts and workspace unattributed enquiries', async () => {
+it('reads the creation cohort for Los Angeles local days across the DST transition', async () => {
     const f = fixture({});
     try {
         const days = { start: '2026-03-08', end: '2026-03-09' };
-        const observed = metricBatchSchema.parse({ ...batch, timezone: 'America/Los_Angeles', days,
-            rows: [{ ...batch.rows[0], day: days.start }] });
-        const inRange = '2026-03-09T06:30:00Z'; // March 8 23:30 after the DST transition.
-        const items = [
-            cohortLead({ id: 'last-day', at: inRange }),
-            cohortLead({ id: 'end-exclusive', at: '2026-03-09T07:30:00Z' }),
-            cohortLead({ id: 'before-start', at: '2026-03-08T07:30:00Z' }),
-            cohortLead({ id: 'spam', at: inRange, stage: 'spam' }),
-            cohortLead({ id: 'erased', at: inRange, erased: true }),
-            cohortLead({ id: 'disqualified', at: inRange, stage: 'disqualified' }),
-            cohortLead({ id: 'foreign-account', at: inRange, accountId: 'other-account' }),
-            cohortLead({ id: 'foreign-plugin', at: inRange, pluginId: 'other-plugin' }),
-            cohortLead({ id: 'unattributed', at: inRange, campaign: null }),
-            cohortLead({ id: 'lead-only', at: inRange, campaign: 'lead-only' }),
-        ];
-        const list = vi.fn<LeadsService['list']>().mockResolvedValueOnce({ ok: true, value: { items: items.slice(0, 5), cursor: 'page-2' } })
-            .mockResolvedValueOnce({ ok: true, value: { items: items.slice(5), cursor: null } });
-        const reporting = f.binding({ leads: { list } });
+        const observed = metricBatchSchema.parse({ ...batch, timezone: 'America/Los_Angeles', days, rows: [{ ...batch.rows[0], day: days.start }] });
+        const readCohort = cohortReader({ ok: true, value: { counts: [{ vendorCampaignId: 'campaign-1', count: 3 }, { vendorCampaignId: 'lead-only', count: 1 }], unattributed: 1 } });
+        const reporting = f.binding({ leads: { readCohort } });
         value({ result: await reporting.repo.append({ context, batch: observed, request: { ...request, input: { grain: 'campaign', days } } }) });
         const signal = new AbortController().signal;
-        const read = value({ result: await reporting.results({ context, query: { pluginId: request.pluginId, connectionId: request.connectionId, accountId: request.accountId, days } }, { signal }) });
+        const read = value({ result: await reporting.results({ context, query: { ...resultsQuery, days } }, { signal }) });
+        expect(readCohort.mock.calls).toEqual([[{ context, pluginId: request.pluginId, accountId: request.accountId,
+            createdAt: { start: Date.parse('2026-03-08T08:00:00Z'), end: Date.parse('2026-03-09T07:00:00Z') } }, expect.objectContaining({ signal })]]);
         expect(read.campaigns.map(row => [row.campaign.vendorCampaignId, row.verifiedLeads])).toEqual([
             ['campaign-1', { status: 'available', count: 3 }], ['lead-only', { status: 'available', count: 1 }],
         ]);
         expect(read.workspaceUnattributed).toEqual({ status: 'available', count: 1 });
         expect(read.attributionModel).toBe('last_paid_touch_30d.v1');
-        expect(list.mock.calls).toEqual([
-            [{ context, query: { page: { limit: 100, cursor: undefined } } }, { signal }],
-            [{ context, query: { page: { limit: 100, cursor: 'page-2' } } }, { signal }],
-        ]);
     } finally { f.close(); }
 });
 
-it('returns explicit zero for a requested campaign with no leads', async () => {
+it('returns explicit zero for a requested campaign absent from the cohort reader', async () => {
     const f = fixture({});
     try {
-        const reporting = f.binding({ leads: { list: vi.fn<LeadsService['list']>().mockResolvedValue({ ok: true, value: { items: [], cursor: null } }) } });
+        const reporting = f.binding({ leads: { readCohort: cohortReader() } });
         value({ result: await reporting.repo.append({ context, request, batch }) });
-        const read = value({ result: await reporting.results({ context, query: { pluginId: request.pluginId, connectionId: request.connectionId, accountId: request.accountId, days: batch.days } }) });
+        const read = value({ result: await reporting.results({ context, query: { ...resultsQuery, days: batch.days } }) });
         expect(read.campaigns[0]!.verifiedLeads).toEqual({ status: 'available', count: 0 });
         expect(read.workspaceUnattributed).toEqual({ status: 'available', count: 0 });
     } finally { f.close(); }
 });
 
-it('makes cohort counts unavailable after 50 unfinished lead pages without returning partial totals', async () => {
+it('keeps vendor metrics but makes lead cells unavailable with the reader failure code', async () => {
     const f = fixture({});
     try {
-        const items = Array.from({ length: 100 }, (_, index) => cohortLead({ id: 'lead-' + index, at: '2026-10-01T12:00:00Z' }));
-        const list = vi.fn<LeadsService['list']>().mockResolvedValue({ ok: true, value: { items, cursor: 'more' } });
-        const reporting = f.binding({ leads: { list } });
+        const readCohort = cohortReader({ ok: false, error: { code: 'limit_exceeded', message: 'Leads operation limit_exceeded', retryable: false } });
+        const reporting = f.binding({ leads: { readCohort } });
         value({ result: await reporting.repo.append({ context, request, batch }) });
-        const read = value({ result: await reporting.results({ context, query: { pluginId: request.pluginId, connectionId: request.connectionId, accountId: request.accountId, days: batch.days } }) });
-        expect(list).toHaveBeenCalledTimes(50);
+        const read = value({ result: await reporting.results({ context, query: { ...resultsQuery, days: batch.days } }) });
+        expect(readCohort).toHaveBeenCalledTimes(1);
         expect(read.campaigns[0]).toMatchObject({ metrics: batch.rows[0]!.metrics, verifiedLeads: { status: 'unavailable', reason: 'limit_exceeded' } });
         expect(read.workspaceUnattributed).toEqual({ status: 'unavailable', reason: 'limit_exceeded' });
+    } finally { f.close(); }
+});
+
+it('locates local midnights across DST and every UTC offset, and refuses invalid timezones', () => {
+    expect(localDayStart({ day: '2026-03-08', timezone: 'America/Los_Angeles' })).toBe(Date.parse('2026-03-08T08:00:00Z'));
+    expect(localDayStart({ day: '2026-03-09', timezone: 'America/Los_Angeles' })).toBe(Date.parse('2026-03-09T07:00:00Z'));
+    expect(localDayStart({ day: '2026-10-03', timezone: 'Pacific/Kiritimati' })).toBe(Date.parse('2026-10-02T10:00:00Z'));
+    expect(localDayStart({ day: '2026-10-03', timezone: 'Etc/GMT+12' })).toBe(Date.parse('2026-10-03T12:00:00Z'));
+    expect(localDayStart({ day: '2026-10-03', timezone: 'UTC' })).toBe(Date.parse('2026-10-03T00:00:00Z'));
+    expect(localDayStart({ day: '2026-10-03', timezone: 'Not/A_Zone' })).toBeNull();
+});
+
+it('keeps not_implemented when no leads reader is bound', async () => {
+    const f = fixture({});
+    try {
+        const reporting = f.binding();
+        value({ result: await reporting.repo.append({ context, request, batch }) });
+        const read = value({ result: await reporting.results({ context, query: { ...resultsQuery, days: batch.days } }) });
+        expect(read.workspaceUnattributed).toEqual({ status: 'unavailable', reason: 'not_implemented' });
     } finally { f.close(); }
 });
 
@@ -307,7 +302,7 @@ it('observes seed enqueue failure while preserving the committed sync success', 
 it('exposes scoped results and replay-safe campaign refresh through the shared tool catalog', async () => {
     const f = fixture({});
     try {
-        const reporting = f.binding({ leads: { list: vi.fn<LeadsService['list']>().mockResolvedValue({ ok: true, value: { items: [], cursor: null } }) } });
+        const reporting = f.binding({ leads: { readCohort: cohortReader() } });
         value({ result: await reporting.repo.append({ context, request, batch }) });
         const confirmations = createMemoryConfirmationExchange({ clock: f.clock, ids: f.ids, async recordAnswer() { return { ok: true, value: undefined }; } });
         const services = { reporting, confirmations, campaigns: createMemoryCampaignRepo({}), safety: createMemorySafetyRepo({ clock: f.clock, ids: f.ids, ownerTimezone: 'UTC' }) };

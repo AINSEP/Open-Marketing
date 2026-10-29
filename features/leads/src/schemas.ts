@@ -23,6 +23,13 @@ export const getSchema = z.strictObject({ context: callContextSchema, leadId: op
 export const listSchema = z.strictObject({ context: callContextSchema, query: z.strictObject({ stage: leadStageSchema.optional(), page: pageQuerySchema.safeExtend({ cursor: opaqueId.optional() }) }) });
 export const historySchema = getSchema.extend({ page: pageQuerySchema.safeExtend({ cursor: z.string().max(16).regex(/^[1-9][0-9]*$/).refine(value => Number.isSafeInteger(Number(value))).optional() }) });
 export const purgeSchema = z.strictObject({ context: callContextSchema, subjectId: opaqueId });
+/** Half-open creation-time cohort for one attributed plugin/account; 32 days covers 31 local days across DST. */
+export const cohortSchema = z.strictObject({ context: callContextSchema, pluginId: campaignKeySchema.shape.pluginId, accountId: campaignKeySchema.shape.accountId,
+  createdAt: z.strictObject({ start: epochSchema, end: epochSchema }).refine(range => range.end > range.start && range.end - range.start <= 32 * 86400000) });
+/** Aggregate counts only: <=5,000 campaign groups plus the workspace-wide unattributed bucket. */
+export const leadCohortCountsSchema = z.strictObject({ counts: z.array(z.strictObject({ vendorCampaignId: campaignKeySchema.shape.vendorCampaignId, count: epochSchema })).max(5000), unattributed: epochSchema });
+export type LeadCohortInput = z.infer<typeof cohortSchema>;
+export type LeadCohortCounts = z.infer<typeof leadCohortCountsSchema>;
 export const repoCaptureSchema = z.strictObject({ context: callContextSchema, lead: leadSchema, event: leadStageEventSchema });
 export const appendSchema = z.strictObject({ context: callContextSchema, leadId: opaqueId, expectedRevision: stageSchema.shape.expectedRevision, event: leadStageEventSchema })
   .refine(value => value.leadId === value.event.leadId && value.event.revision === value.expectedRevision + 1);

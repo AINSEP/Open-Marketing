@@ -1,6 +1,6 @@
 /** Written-only rule evidence; no vendor, real clock, or credentials. */
 import { describe, expect, it } from 'vitest';
-import { alertCandidates, dailyPacingEvidence, type AlertEvidence, type PacingEvidence } from '../src/alerts/index.js';
+import { alertCandidates, dailyPacingEvidence, lifetimePacingEvidence, type AlertEvidence, type PacingEvidence } from '../src/alerts/index.js';
 import type { Outcome } from '@open-marketing/contracts';
 import type { MetricDay } from '@open-marketing/measure';
 
@@ -101,17 +101,26 @@ describe('server alert rules', () => {
         expect(decide({ pacing: [evidence] })).toEqual([]);
         expect(decide({ pacing: [{ ...evidence, today: { currency: 'USD', complete: true, micros: '18014398509481987' } }] })[0]).toMatchObject({ rules: ['today'] });
     });
-    it('uses a separate lifetime allocation rule including whole-budget excess', () => {
+    it('alerts only when lifetime spend strictly exceeds the elapsed linear share, or the whole budget', () => {
         const evidence = pacing({ today: null, month: null,
-            budget: { kind: 'lifetime', currency: 'USD', totalMicros: '100', elapsedMicros: '50', flightStart: now - 1000, flightEnd: now + 1000 },
-            lifetime: { currency: 'USD', complete: true, micros: '55' } });
+            budget: { kind: 'lifetime', currency: 'USD', totalMicros: '100', elapsedMicros: '50', flightStart: now - 2 * 86400000, flightEnd: now + 2 * 86400000 },
+            lifetime: { currency: 'USD', complete: true, micros: '50' } });
         expect(decide({ pacing: [evidence] })).toEqual([]);
-        expect(decide({ pacing: [{ ...evidence, lifetime: { currency: 'USD', complete: true, micros: '56' } }] })[0]).toMatchObject({ rules: ['lifetime'] });
-        const budget = { kind: 'lifetime' as const, currency: 'USD', totalMicros: '100', elapsedMicros: null, flightStart: now - 1000, flightEnd: now + 1000 };
+        expect(decide({ pacing: [{ ...evidence, lifetime: { currency: 'USD', complete: true, micros: '51' } }] })[0]).toMatchObject({ rules: ['lifetime'] });
+        const budget = { ...evidence.budget, elapsedMicros: null } as PacingEvidence['budget'];
         expect(decide({ pacing: [{ ...evidence, budget, lifetime: { currency: 'USD', complete: true, micros: '101' } }] })[0]).toMatchObject({ rules: ['lifetime'] });
-        expect(decide({ pacing: [{ ...evidence, budget: { ...budget, flightStart: now + 1 } }] })).toEqual([]);
+        expect(decide({ pacing: [{ ...evidence, budget: { ...evidence.budget, flightStart: now + 1 } as PacingEvidence['budget'] }] })).toEqual([]);
         expect(decide({ pacing: [{ ...evidence, lifetime: null }] })).toEqual([]);
-        expect(decide({ pacing: [{ ...evidence, budget }] })).toEqual([]);
+        expect(decide({ pacing: [{ ...evidence, budget, lifetime: { currency: 'USD', complete: true, micros: '55' } }] })).toEqual([]);
+        expect(decide({ pacing: [{ ...evidence, lifetime: { currency: 'USD', complete: false, micros: '99' } }] })).toEqual([]);
+    });
+    it('needs one full elapsed flight day before projecting, but whole-budget excess still alerts', () => {
+        const evidence = pacing({ today: null, month: null,
+            budget: { kind: 'lifetime', currency: 'USD', totalMicros: '100', elapsedMicros: '1', flightStart: now - 86400000 + 1, flightEnd: now + 86400000 },
+            lifetime: { currency: 'USD', complete: true, micros: '60' } });
+        expect(decide({ pacing: [evidence] })).toEqual([]);
+        expect(decide({ pacing: [{ ...evidence, budget: { ...evidence.budget, flightStart: now - 86400000 } as PacingEvidence['budget'] }] })[0]).toMatchObject({ rules: ['lifetime'] });
+        expect(decide({ pacing: [{ ...evidence, lifetime: { currency: 'USD', complete: true, micros: '101' } }] })[0]).toMatchObject({ rules: ['lifetime'] });
     });
     it.each([null, '50'])('stops lifetime pacing at flightEnd even with overspend (elapsed=%s)', elapsedMicros => {
         const evidence = pacing({ today: null, month: null,
@@ -193,5 +202,68 @@ describe('B2 daily pacing projection', () => {
         expect(projection({ observation })).toBeNull();
         expect(projection({ observation: { ...observation, currentBudget: { kind: 'lifetime', amountMicros: '10000000', currency: 'USD',
             flight: { start: now - 1000, end: now + 1000 } } } })).toBeNull();
+    });
+});
+
+const flight = { start: Date.parse('2026-10-01T00:00:00Z'), end: Date.parse('2026-10-05T00:00:00Z') };
+/** One covered stored history day: complete, with its exclusive data cutoff at the next local midnight. */
+function historyPartition(required: { day: string; spend?: string | null; options?: Partial<MetricDay['batch']> }): MetricDay {
+    const next = new Date(Date.parse(required.day) + 86400000).toISOString().slice(0, 10);
+    const base = todayPartition({ days: { start: required.day, end: next }, retrievedAt: Date.parse(next), dataThrough: Date.parse(next),
+        rows: required.spend === undefined ? [] : [{ day: required.day, entity: { grain: 'campaign', vendorCampaignId: campaign.vendorCampaignId }, metrics: { spend: required.spend } }],
+        ...required.options });
+    return { ...base, day: required.day };
+}
+/** Flight 2026-10-01..05 UTC observed at 10-03 12:00: elapsed share is exactly 62.5% of the total. */
+function lifetime(options: { history?: MetricDay[]; today?: string; amountMicros?: string; start?: number; now?: number } = {}) {
+    const history = options.history ?? [historyPartition({ day: '2026-10-01', spend: '200000000' }), historyPartition({ day: '2026-10-02', spend: '200000000' })];
+    const row = todayPartition().batch.rows[0]!;
+    return lifetimePacingEvidence({ campaign, observedAt: now, now: options.now ?? now,
+        observation: { vendorCampaignId: campaign.vendorCampaignId, status: 'active', disapprovalDescriptions: [],
+            currentBudget: { kind: 'lifetime', currency: 'USD', amountMicros: options.amountMicros ?? '1000000000', flight: { start: options.start ?? flight.start, end: flight.end } } },
+        partitions: [...history, todayPartition({ rows: [{ ...row, metrics: { spend: options.today ?? '225000000' } }] })] });
+}
+
+describe('W22 lifetime pacing projection', () => {
+    it('sums complete flight-to-date spend and compares it strictly with the floor of the elapsed share', () => {
+        const evidence = lifetime();
+        expect(evidence).toEqual({ campaign, localDay: '2026-10-03', timezone: 'UTC', budgetCurrent: true,
+            budget: { kind: 'lifetime', currency: 'USD', totalMicros: '1000000000', elapsedMicros: '625000000', flightStart: flight.start, flightEnd: flight.end },
+            today: null, month: null, lifetime: { micros: '625000000', currency: 'USD', complete: true } });
+        expect(decide({ pacing: [evidence!] })).toEqual([]);
+        expect(decide({ pacing: [lifetime({ today: '225000001' })!] })).toMatchObject([{ kind: 'pacing', rules: ['lifetime'], localDay: '2026-10-03' }]);
+    });
+    it('treats a missing day, an absent row, null spend, uncovered days and currency/timezone drift as unknown', () => {
+        const first = historyPartition({ day: '2026-10-01', spend: '200000000' });
+        for (const second of [null, historyPartition({ day: '2026-10-02' }), historyPartition({ day: '2026-10-02', spend: null }),
+            historyPartition({ day: '2026-10-02', spend: '1', options: { currency: 'EUR' } }),
+            historyPartition({ day: '2026-10-02', spend: '1', options: { complete: false } }),
+            historyPartition({ day: '2026-10-02', spend: '1', options: { dataThrough: Date.parse('2026-10-02T23:59:59Z') } }),
+            historyPartition({ day: '2026-10-02', spend: '1', options: { dataThrough: 0 } })]) {
+            expect(lifetime({ history: second === null ? [first] : [first, second] })).toBeNull();
+        }
+        const tokyo = historyPartition({ day: '2026-10-02', spend: '1', options: { timezone: 'Asia/Tokyo' } });
+        expect(lifetime({ history: [first, tokyo] })).toBeNull();
+        expect(lifetime({ history: [first, historyPartition({ day: '2026-10-02', spend: '0' })] })?.lifetime).toEqual({ micros: '425000000', currency: 'USD', complete: true });
+    });
+    it('leaves flights that started more than 310 days ago, or that are not in flight, unknown', () => {
+        expect(lifetime({ start: Date.parse('2025-11-01T00:00:00Z') })).toBeNull();
+        expect(lifetime({ now: flight.end, start: flight.start })).toBeNull();
+        expect(lifetime({ start: now + 1 })).toBeNull();
+    });
+    it('does not project within the first flight day', () => {
+        const evidence = lifetime({ start: Date.parse('2026-10-03T00:00:00Z'), history: [], today: '300000000' });
+        expect(evidence?.budget).toMatchObject({ elapsedMicros: '250000000' });
+        expect(evidence?.lifetime?.micros).toBe('300000000');
+        expect(decide({ pacing: [evidence!] })).toEqual([]);
+        const later = lifetime({ start: Date.parse('2026-10-03T00:00:00Z'), history: [], today: '1000000001' });
+        expect(decide({ pacing: [later!] })).toMatchObject([{ rules: ['lifetime'] }]);
+    });
+    it('keeps totals beyond 2^53 exact with bigint', () => {
+        const big = '9007199254740993';
+        const evidence = lifetime({ amountMicros: '9'.repeat(25), today: big,
+            history: ['2026-10-01', '2026-10-02'].map(day => historyPartition({ day, spend: big })) });
+        expect(evidence?.lifetime?.micros).toBe(String(3n * 9007199254740993n));
+        expect(evidence?.budget).toMatchObject({ elapsedMicros: String(BigInt('9'.repeat(25)) * 5n / 8n) });
     });
 });

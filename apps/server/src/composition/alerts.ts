@@ -10,8 +10,8 @@ import { readBoundedPages } from '../addon-tools.js';
 import { withDeadline, type bindReporting } from './reporting.js';
 import type { bindAgentPluginBackends } from './agent-plugin-backends.js';
 import type { HttpEffects } from '../inbound/http.js';
-import { acknowledgeAlert, ALERT_EVALUATION_INTERVAL_MS, dailyPacingEvidence, enqueueAlertEvaluation, listAlerts, type AlertEvidence } from '../alerts/index.js';
-import { alertFailure } from '../alerts/rules.js';
+import { accountLocalDay, acknowledgeAlert, ALERT_EVALUATION_INTERVAL_MS, dailyPacingEvidence, enqueueAlertEvaluation, lifetimePacingEvidence, listAlerts, type AlertEvidence, type PacingEvidence } from '../alerts/index.js';
+import { alertFailure, historyDayCovered, LIFETIME_HISTORY_DAYS, shiftDay } from '../alerts/rules.js';
 
 /** Inert bindings: sources read at evaluation time; seed is explicitly called before startup.
  * The approver is trusted server composition identity, never an HTTP/tool field.
@@ -126,11 +126,91 @@ async function accountEvidence(required: Dependencies & { context: CallContext; 
     } catch { return alertFailure({ code: 'unavailable', message: 'Alert account evidence unavailable' }); }
 }
 
-/** Append one validated account batch; unknown pacing leaves status/disapproval evidence intact.
- * @complexity O(campaigns * stored rows), <=100 campaigns and <=5,000 rows, no I/O.
+/** Earliest account-local start of an active lifetime flight inside the bounded history. O(campaigns). */
+function lifetimeHistoryStart(required: { status: CampaignStatusOutput; timezone: string; end: string; now: number }): string | null {
+    const floor = shiftDay({ day: required.end, days: -LIFETIME_HISTORY_DAYS });
+    const starts = required.status.campaigns.flatMap(({ currentBudget: budget }) => {
+        if (budget?.kind !== 'lifetime' || budget.flight.start > required.now || required.now >= budget.flight.end) return [];
+        const day = accountLocalDay({ timezone: required.timezone, now: budget.flight.start });
+        return day !== null && day >= floor ? [day] : [];
+    });
+    return starts.length ? starts.sort()[0]! : null;
+}
+
+/** Half-open 31-day windows; the 310-day floor keeps them within the pager's ten pages. O(windows). */
+function historyWindows(required: { start: string; end: string }): MetricDay['batch']['days'][] {
+    const windows: MetricDay['batch']['days'][] = [];
+    for (let start = required.start; start < required.end; start = shiftDay({ day: start, days: 31 })) {
+        const next = shiftDay({ day: start, days: 31 });
+        windows.push({ start, end: next < required.end ? next : required.end });
+    }
+    return windows;
+}
+
+/** One stored read per window through the shared bounded pager; any gap fails the whole history.
+ * @complexity <=10 reads of <=31 days and <=5,000 rows each.
  */
-function appendAccountEvidence(required: { account: JoinedAccount; evidence: AccountEvidence; status: CampaignStatusOutput;
-    partitions: readonly MetricDay[]; now: number }): void {
+async function readFlightHistory(required: Dependencies & { context: CallContext; account: JoinedAccount; windows: readonly MetricDay['batch']['days'][] }, options?: CallOptions): Promise<Outcome<MetricDay[]>> {
+    const { pluginId, connectionId, externalAccountId: accountId } = required.account;
+    return readBoundedPages({ readPage: async (input, callOptions) => {
+        const index = Number(input.query.cursor ?? '0');
+        const stored = await required.reporting.repo.readDays({ context: required.context,
+            query: { pluginId, connectionId, accountId, grain: 'campaign', days: required.windows[index]! } }, callOptions);
+        if (!stored.ok) return stored;
+        const partitions = parseBoundary({ schema: metricDaySchema.array(), input: stored.value });
+        if (!partitions.ok) return partitions;
+        return { ok: true, value: { items: partitions.value, cursor: index + 1 < required.windows.length ? String(index + 1) : null } };
+    } }, options);
+}
+
+/** Enqueue only windows with an uncovered day; the UTC day start keeps each syncId stable all day. */
+async function refreshFlightHistory(required: Dependencies & { context: CallContext; account: JoinedAccount; windows: readonly MetricDay['batch']['days'][];
+    partitions: readonly MetricDay[]; now: number }, options?: CallOptions): Promise<void> {
+    const covered = new Set(required.partitions.filter(partition => historyDayCovered({ partition })).map(partition => partition.day));
+    const now = Math.floor(required.now / 86400000) * 86400000;
+    for (const days of required.windows) {
+        if (options?.signal?.aborted) return;
+        if (!windowCovered({ days, covered })) await refreshAccount({ ...required, days, now }, options);
+    }
+}
+function windowCovered(required: { days: MetricDay['batch']['days']; covered: ReadonlySet<string> }): boolean {
+    for (let day = required.days.start; day < required.days.end; day = shiftDay({ day, days: 1 })) {
+        if (!required.covered.has(day)) return false;
+    }
+    return true;
+}
+
+/** Lifetime pacing for one account: shared history read, missing-window refresh, pure projection.
+ * Failures/aborts observe a gap and return no lifetime evidence; status/daily evidence is kept.
+ * @complexity <=10 history reads + <=10 refresh enqueues, then O(campaigns * days * rows).
+ */
+async function lifetimeEvidence(required: Dependencies & { context: CallContext; account: JoinedAccount; status: CampaignStatusOutput;
+    partitions: readonly MetricDay[]; days: MetricDay['batch']['days']; now: number }, options?: CallOptions): Promise<PacingEvidence[]> {
+    const timezone = required.partitions[0]?.batch.timezone;
+    const start = timezone === undefined ? null : lifetimeHistoryStart({ ...required, timezone, end: required.days.start });
+    if (start === null) return [];
+    try {
+        const windows = historyWindows({ start, end: required.days.start });
+        const history = windows.length ? await readFlightHistory({ ...required, windows }, options) : { ok: true as const, value: [] };
+        if (options?.signal?.aborted) return [];
+        if (!history.ok) { evidenceGap({ ...required, code: history.error.code }); return []; }
+        await refreshFlightHistory({ ...required, windows, partitions: history.value }, options);
+        const partitions = [...history.value, ...required.partitions];
+        const { pluginId, externalAccountId: accountId } = required.account;
+        return required.status.campaigns.flatMap(observation => lifetimePacingEvidence({ campaign: { pluginId, accountId, vendorCampaignId: observation.vendorCampaignId },
+            observation, observedAt: required.status.observedAt, partitions, now: required.now }) ?? []);
+    } catch {
+        evidenceGap({ ...required, code: 'unavailable' });
+        return [];
+    }
+}
+
+/** Append one validated account batch; unknown pacing leaves status/disapproval evidence intact.
+ * Lifetime evidence arriving after cancellation is discarded.
+ * @complexity O(campaigns * stored rows), <=100 campaigns and <=5,000 rows, plus lifetimeEvidence's bounded reads.
+ */
+async function appendAccountEvidence(required: Dependencies & { context: CallContext; account: JoinedAccount; evidence: AccountEvidence; status: CampaignStatusOutput;
+    partitions: readonly MetricDay[]; days: MetricDay['batch']['days']; now: number }, options?: CallOptions): Promise<void> {
     const { pluginId, externalAccountId: accountId } = required.account;
     required.evidence.statuses.push({ ...required.status, pluginId, accountId });
     for (const observation of required.status.campaigns) {
@@ -138,6 +218,8 @@ function appendAccountEvidence(required: { account: JoinedAccount; evidence: Acc
             observation, observedAt: required.status.observedAt, partitions: required.partitions, now: required.now });
         if (pacing) required.evidence.pacing.push(pacing);
     }
+    const lifetime = await lifetimeEvidence(required, options);
+    if (!options?.signal?.aborted) required.evidence.pacing.push(...lifetime);
 }
 
 /** Sequential account collection shares one deadline. Stop on abort and retain earlier evidence.
@@ -158,7 +240,7 @@ async function collectEvidence(required: Dependencies & { context: CallContext; 
         if (options?.signal?.aborted) { evidenceGap({ ...required, code: 'cancelled' }); break; }
         if (!result.ok) { evidenceGap({ ...required, code: result.error.code }); continue; }
         if (!result.value) continue;
-        appendAccountEvidence({ ...required, account, ...result.value, now });
+        await appendAccountEvidence({ ...required, account, ...result.value, days, now }, options);
         count += result.value.count;
     }
 }

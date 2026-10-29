@@ -1,8 +1,8 @@
 import { z } from "zod";
 import type { CallContext, CallOptions, Outcome, SqlSession, UnitOfWork } from "@open-marketing/contracts";
 import type { LeadsRepoPort } from "./ports.js";
-import { appendSchema, checkAppend, checkCapture, failure, getSchema, historySchema, leadSchema, leadStageEventSchema, listSchema, parseInput, purgeSchema, repoCaptureSchema } from "./schemas.js";
-import type { Lead, LeadStageEvent } from "./schemas.js";
+import { appendSchema, checkAppend, checkCapture, cohortSchema, failure, getSchema, historySchema, leadCohortCountsSchema, leadSchema, leadStageEventSchema, listSchema, parseInput, purgeSchema, repoCaptureSchema } from "./schemas.js";
+import type { Lead, LeadCohortCounts, LeadStageEvent } from "./schemas.js";
 
 const leadColumns = "lead_id,subject_id,source_kind,source_ref,occurred_at,created_at,attribution,stage,revision,last_event_id,erased";
 const eventColumns = "event_id,lead_id,revision,payload";
@@ -47,7 +47,21 @@ export function createSqlLeadsRepo(required: { unitOfWork: UnitOfWork }): LeadsR
       await session.query({ text: "UPDATE lead SET subject_id=NULL,erased=1 WHERE owner_id=$1 AND workspace_id=$2 AND subject_id=$3", values: [...scope(value), value.subjectId] });
       return { ok: true, value: undefined };
     } }, options),
+    readCohort: (input, options) => run({ schema: cohortSchema, value: input, work: readCohort }, options),
   };
+}
+
+const cohortWindow = "owner_id=$1 AND workspace_id=$2 AND created_at>=$3 AND created_at<$4 AND stage<>'spam'";
+/** Two aggregate reads in one transaction snapshot; only <=5,001 group rows cross the boundary.
+ * Overflow fails without truncation; malformed counts throw into run's redacted unavailable path.
+ * No created_at index: the scan stays inside SQL. */
+async function readCohort(required: { session: SqlSession; input: z.infer<typeof cohortSchema> }): Promise<Outcome<LeadCohortCounts>> {
+  const { session, input } = required;
+  const values = [...scope(input), input.createdAt.start, input.createdAt.end];
+  const grouped = await session.query({ text: `SELECT json_extract(attribution,'$.campaign.vendorCampaignId') AS campaign, COUNT(*) AS count FROM lead WHERE ${cohortWindow} AND json_extract(attribution,'$.campaign.pluginId')=$5 AND json_extract(attribution,'$.campaign.accountId')=$6 GROUP BY campaign ORDER BY campaign LIMIT 5001`, values: [...values, input.pluginId, input.accountId] });
+  if (grouped.rows.length > 5000) return failure({ code: "limit_exceeded" });
+  const unattributed = await session.query({ text: `SELECT COUNT(*) AS count FROM lead WHERE ${cohortWindow} AND json_extract(attribution,'$.campaign') IS NULL`, values });
+  return { ok: true, value: leadCohortCountsSchema.parse({ counts: grouped.rows.map(row => ({ vendorCampaignId: row.campaign, count: Number(row.count) })), unattributed: Number(unattributed.rows[0]?.count) }) };
 }
 
 /** Scoped source receipt lookup precedes insertion; original attribution wins on replay.

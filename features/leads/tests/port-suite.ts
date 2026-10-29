@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { LeadsRepoPort } from "../index.js";
+import type { CallContext } from "@open-marketing/contracts";
+import type { LeadAttribution, LeadsRepoPort } from "../index.js";
 import { attribution, context, otherOwner, otherWorkspace, record, stage, value } from "./fixtures.js";
 
 /** One behavior contract for memory and SQL; failures assert persisted state, not only errors. */
@@ -108,5 +109,36 @@ export function leadsRepoSuite(required: { name: string; create: () => { repo: L
       expect(await fixture.repo.purgeSubject({ context, subjectId: "subject" }, options)).toMatchObject({ ok: false, error: { code: "cancelled" } });
       expect(value(await fixture.repo.get({ context, leadId: lead.leadId }))?.subjectId).toBe("subject");
     });
+    it("aggregates the half-open creation cohort per campaign plus workspace-wide unattributed", async () => {
+      const capture = async (input: Parameters<typeof cohortLead>[0]) => value(await fixture.repo.capture(cohortLead(input)));
+      await capture({ id: "first", createdAt: 1000 });
+      await capture({ id: "last", createdAt: 1999 });
+      await capture({ id: "end", createdAt: 2000 });
+      await capture({ id: "before", createdAt: 999 });
+      const spam = await capture({ id: "spam", createdAt: 1500 });
+      value(await fixture.repo.appendStage(stage({ lead: spam, to: "spam", changeId: "spam-change" })));
+      const disqualified = await capture({ id: "disqualified", createdAt: 1500 });
+      value(await fixture.repo.appendStage(stage({ lead: disqualified, to: "disqualified", changeId: "disqualified-change" })));
+      await capture({ id: "erased", createdAt: 1500 });
+      value(await fixture.repo.purgeSubject({ context, subjectId: "subject-erased" }));
+      await capture({ id: "foreign-plugin", createdAt: 1500, campaign: { pluginId: "other-plugin" } });
+      await capture({ id: "foreign-account", createdAt: 1500, campaign: { accountId: "other-account" } });
+      await capture({ id: "second-campaign", createdAt: 1500, campaign: { vendorCampaignId: "campaign-b" } });
+      await capture({ id: "unattributed", createdAt: 1500, campaign: null });
+      value(await fixture.repo.capture(cohortLead({ id: "other-workspace", createdAt: 1500, campaign: null, context: otherWorkspace })));
+      const query = { context, pluginId: "google-ads", accountId: "account", createdAt: { start: 1000, end: 2000 } };
+      expect(value(await fixture.repo.readCohort(query))).toEqual({ counts: [{ vendorCampaignId: "campaign", count: 4 }, { vendorCampaignId: "campaign-b", count: 1 }], unattributed: 1 });
+      expect(value(await fixture.repo.readCohort({ ...query, createdAt: { start: 5000, end: 6000 } }))).toEqual({ counts: [], unattributed: 0 });
+      expect(await fixture.repo.readCohort({ ...query, createdAt: { start: 0, end: 32 * 86400000 + 1 } })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+      expect(await fixture.repo.readCohort({ ...query, createdAt: { start: 2000, end: 2000 } })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+      expect(await fixture.repo.readCohort(query, { signal: AbortSignal.abort() })).toMatchObject({ ok: false, error: { code: "cancelled" } });
+    });
   });
+}
+/** Distinct source/event identity per cohort lead; null campaign freezes as unattributed. */
+function cohortLead(required: { id: string; createdAt: number; campaign?: Partial<NonNullable<LeadAttribution["campaign"]>> | null; context?: CallContext }) {
+  const frozen: LeadAttribution = required.campaign === null ? { campaign: null, touchId: null, touchedAt: null, modelVersion: "last_paid_touch_30d.v1" }
+    : { ...attribution, campaign: { ...attribution.campaign!, ...required.campaign } };
+  return record({ context: required.context, lead: { leadId: required.id, lastEventId: "event-" + required.id, subjectId: "subject-" + required.id,
+    source: { kind: "form", ref: "ref-" + required.id }, createdAt: required.createdAt, attribution: frozen } });
 }

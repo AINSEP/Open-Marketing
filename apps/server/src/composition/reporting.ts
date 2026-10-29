@@ -5,53 +5,50 @@ import { callContextSchema, parseBoundary } from '@open-marketing/contracts';
 import type { CallContext, CallOptions, ClockPort, IdPort, ObserverPort, Outcome, SqlSession, UnitOfWork } from '@open-marketing/contracts';
 import { createSqlJobRepo, type JobReceipt, type JobRequest } from '@open-marketing/jobs';
 import { campaignResults, createSqlMetricsRepo, metricSyncRequestSchema, syncMetrics, type CampaignResultsQuery, type MetricSyncReceipt, type MetricSyncRequest, type VerifiedLeadCountsPort } from '@open-marketing/measure';
-import type { Lead, LeadsService } from '@open-marketing/leads';
+import type { LeadsService } from '@open-marketing/leads';
 import { digestArguments } from '@open-marketing/safety';
 import type { HttpEffects } from '../inbound/http.js';
 import type { bindAgentPluginBackends } from './agent-plugin-backends.js';
 import { formRetryPolicy } from './forms.js';
 import { localFailure } from './local-auth.js';
 import { enqueueWeeklyReport, weeklyReportSlot } from '../alerts/jobs.js';
+import { accountLocalDay } from '../alerts/rules.js';
 
 const enqueueSchema = z.strictObject({ context: callContextSchema, request: metricSyncRequestSchema });
 
-/** Frozen attribution is counted by creation date in the observed account timezone.
- * Spam is excluded; erasure does not silently restate anonymous aggregate counts.
- * Returns the workspace-unattributed increment and updates only this call's count map.
- * @complexity O(1) per lead, no I/O or hidden time reads.
+/** First instant whose account-local date is `day`, to the millisecond, including DST.
+ * Bisects [day 00:00Z - 15h, + 13h], which spans every UTC offset; invalid timezones return null.
+ * @example localDayStart({ day: '2026-03-09', timezone: 'America/Los_Angeles' }) // Date.parse('2026-03-09T07:00:00Z')
+ * @complexity O(log 28h) Intl formats, O(1) space, no I/O.
  */
-function countLead(required: { lead: Lead; query: Parameters<VerifiedLeadCountsPort['cohort']>[0]; formatter: Intl.DateTimeFormat; counts: Map<string, number> }): number {
-    const { lead, query, formatter, counts } = required;
-    if (lead.stage === 'spam') return 0;
-    const parts = new Map(formatter.formatToParts(lead.createdAt).map(part => [part.type, part.value]));
-    const day = `${parts.get('year')}-${parts.get('month')}-${parts.get('day')}`;
-    if (day < query.days.start || day >= query.days.end) return 0;
-    const campaign = lead.attribution.campaign;
-    if (campaign === null) return 1;
-    if (campaign.pluginId !== query.pluginId || campaign.accountId !== query.accountId) return 0;
-    counts.set(campaign.vendorCampaignId, (counts.get(campaign.vendorCampaignId) ?? 0) + 1);
-    return 0;
+export function localDayStart(required: { day: string; timezone: string }): number | null {
+    let low = Date.parse(required.day) - 15 * 3600000, high = Date.parse(required.day) + 13 * 3600000;
+    if (accountLocalDay({ timezone: required.timezone, now: low }) === null) return null;
+    while (high - low > 1) {
+        const middle = Math.floor((low + high) / 2);
+        if ((accountLocalDay({ timezone: required.timezone, now: middle }) ?? '') >= required.day) high = middle;
+        else low = middle;
+    }
+    return high;
 }
 
-/** Read the existing scoped lead cursor protocol; cap the whole workspace scan.
- * O(leads + requested campaigns) time/space; <=50 reads of <=100, never partial totals.
- * Throws are converted to unavailable by measure's existing cohort boundary.
+/** Frozen attribution counted by creation time in the account's local days, through one leads-owned
+ * SQL aggregate: spam excluded, erased/disqualified counted, workspace-wide unattributed bucket.
+ * Requested campaigns start at explicit zero; lead-only campaigns are kept. Failures pass through.
+ * @complexity One bounded aggregate read; O(requested + returned campaigns), each <=5,000.
  */
-async function leadCohort(required: { leads?: Pick<LeadsService, 'list'>; query: Parameters<VerifiedLeadCountsPort['cohort']>[0] }, options?: CallOptions): ReturnType<VerifiedLeadCountsPort['cohort']> {
+async function leadCohort(required: { leads?: Pick<LeadsService, 'readCohort'>; query: Parameters<VerifiedLeadCountsPort['cohort']>[0] }, options?: CallOptions): ReturnType<VerifiedLeadCountsPort['cohort']> {
     if (!required.leads) return localFailure({ code: 'not_implemented', message: 'Verified lead counts not bound' });
     const { query } = required;
-    const formatter = new Intl.DateTimeFormat('en-US', { timeZone: query.timezone, year: 'numeric', month: '2-digit', day: '2-digit' });
+    const start = localDayStart({ day: query.days.start, timezone: query.timezone });
+    const end = localDayStart({ day: query.days.end, timezone: query.timezone });
+    if (start === null || end === null) return localFailure({ code: 'unavailable', message: 'Lead cohort timezone unavailable' });
+    const read = await required.leads.readCohort({ context: query.context, pluginId: query.pluginId, accountId: query.accountId, createdAt: { start, end } }, options);
+    if (!read.ok) return read;
     const counts = new Map(query.campaigns.map(campaign => [campaign.vendorCampaignId, 0]));
-    let cursor: string | undefined, unattributed = 0;
-    for (let page = 0; page < 50; page++) {
-        if (options?.signal?.aborted) return localFailure({ code: 'cancelled', message: 'Lead cohort cancelled' });
-        const read = await required.leads.list({ context: query.context, query: { page: { limit: 100, cursor } } }, options);
-        if (!read.ok) return read;
-        for (const lead of read.value.items) unattributed += countLead({ lead, query, formatter, counts });
-        if (read.value.cursor === null) return { ok: true, value: { counts: [...counts].map(([vendorCampaignId, count]) => ({ campaign: { pluginId: query.pluginId, accountId: query.accountId, vendorCampaignId }, count })), unattributed } };
-        cursor = read.value.cursor;
-    }
-    return localFailure({ code: 'limit_exceeded', message: 'Lead cohort exceeds 5000 workspace leads' });
+    for (const row of read.value.counts) counts.set(row.vendorCampaignId, row.count);
+    return { ok: true, value: { unattributed: read.value.unattributed, counts: [...counts].map(([vendorCampaignId, count]) =>
+        ({ campaign: { pluginId: query.pluginId, accountId: query.accountId, vendorCampaignId }, count })) } };
 }
 
 /** Pure scoped refresh identity, shared by enqueue and worker authorization.
@@ -94,7 +91,7 @@ export async function withDeadline<T>(required: {
 export function bindReporting(required: {
     database: SqlSession; unit: UnitOfWork; host: Pick<ReturnType<typeof bindAgentPluginBackends>, 'invokeCapability'> | undefined;
     clock: ClockPort; ids: IdPort; observer: ObserverPort; schedule: HttpEffects['schedule'];
-}, optional?: { leads?: Pick<LeadsService, 'list'> }) {
+}, optional?: { leads?: Pick<LeadsService, 'readCohort'> }) {
     const repo = createSqlMetricsRepo({ database: required.database }, { observer: required.observer });
     const jobs = createSqlJobRepo({ database: required.unit, clock: required.clock, ids: required.ids, retryPolicy: formRetryPolicy });
     return {

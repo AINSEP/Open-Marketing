@@ -39,6 +39,7 @@ function WeeklyReport(props: { report: NonNullable<AlertRowProps['weekly']> }): 
       <th scope="col">Conversions (reported by platform)</th><th scope="col">Leads (OM-verified)</th>
     </tr></thead><tbody>{props.report.campaigns.map(renderCampaign)}</tbody></table>
     {props.report.omittedCampaigns > 0 && <p>{props.report.omittedCampaigns} additional campaigns omitted</p>}
+    <p>Unattributed enquiries (workspace-wide): {props.report.unattributed}</p>
   </div>;
 }
 function renderObservation(text: string): ReactElement { return <p key={text}>{text}</p>; }

@@ -322,3 +322,80 @@ describe('B2 status and pacing sources', () => {
         } finally { f.close(); }
     });
 });
+
+const flightStart = Date.parse('2026-10-20T00:00:00Z'), flightEnd = Date.parse('2026-11-05T00:00:00Z');
+const historyDays = ['2026-10-20', '2026-10-21', '2026-10-22', '2026-10-23', '2026-10-24', '2026-10-25', '2026-10-26'];
+/** Covered stored flight history (complete, cutoff at the next local midnight) for both fixture campaigns. */
+function historyPartitions(required: { accountId: string; days?: readonly string[] }): MetricDay[] {
+    return (required.days ?? historyDays).map(day => {
+        const next = new Date(Date.parse(day) + 86400000).toISOString().slice(0, 10);
+        const base = storedPartitions({ accountId: required.accountId })[0]!;
+        return { ...base, day, syncId: 'history-' + day, batch: { ...base.batch, days: { start: day, end: next },
+            retrievedAt: Date.parse(next), dataThrough: Date.parse(next),
+            rows: ['campaign-a', 'campaign-z'].map(vendorCampaignId => ({ day, entity: { grain: 'campaign' as const, vendorCampaignId }, metrics: { spend: '1300000000' } })) } };
+    });
+}
+/** campaign-a has a 16,000-unit lifetime flight (elapsed share 8,500 units at now); campaign-z stays daily. */
+function lifetimeStatus(): CampaignStatusOutput {
+    const status = statusFixture();
+    return { ...status, campaigns: status.campaigns.map(item => item.vendorCampaignId !== 'campaign-a' ? item
+        : { ...item, status: 'active', disapprovalDescriptions: [], currentBudget: { kind: 'lifetime', currency: 'USD', amountMicros: '16000000000', flight: { start: flightStart, end: flightEnd } } }) };
+}
+/** Current-window reads keep the B2 fixture; history-window reads return the given partitions or failure. */
+function lifetimeFixture(required: { history: (input: { days: { start: string; end: string } }) => Outcome<MetricDay[]> }) {
+    const f = evidenceFixture({ accounts: ['account-a'] });
+    f.invokeCapability.mockResolvedValue({ ok: true, value: lifetimeStatus() });
+    f.readDays.mockImplementation(async input => input.query.days.start === '2026-10-27'
+        ? { ok: true, value: storedPartitions({ accountId: input.query.accountId }) } : required.history({ days: input.query.days }));
+    return f;
+}
+
+describe('W22 lifetime pacing sources', () => {
+    it('reads flight history once per account and persists a lifetime notice beside daily notices', async () => {
+        const f = lifetimeFixture({ history: () => ({ ok: true, value: historyPartitions({ accountId: 'account-a' }) }) });
+        try {
+            const alerts = bindAlerts(f);
+            expect(await evaluateAlerts({ ...f, slot: Math.floor(now / ALERT_EVALUATION_INTERVAL_MS), sources: alerts.sources })).toEqual({ ok: true, value: undefined });
+            expect(f.readDays.mock.calls.map(([input]) => input.query.days)).toEqual([
+                { start: '2026-10-27', end: '2026-10-29' }, { start: '2026-10-20', end: '2026-10-27' }]);
+            expect(f.enqueue).toHaveBeenCalledTimes(1);
+            const pacing = value({ result: await alerts.list({ context, query: { limit: 100 } }) }).items
+                .map(item => item.candidate).filter(candidate => candidate.kind === 'pacing');
+            expect(pacing).toHaveLength(2);
+            expect(pacing).toContainEqual(expect.objectContaining({ campaign: { pluginId: 'fixture-ads', accountId: 'account-a', vendorCampaignId: 'campaign-a' }, rules: ['lifetime'], localDay: '2026-10-28' }));
+            expect(pacing).toContainEqual(expect.objectContaining({ campaign: expect.objectContaining({ vendorCampaignId: 'campaign-z' }), rules: ['today'] }));
+        } finally { f.close(); }
+    });
+    it('keeps daily, disapproval and approval notices when the history read fails', async () => {
+        const f = lifetimeFixture({ history: () => ({ ok: false, error: { code: 'unavailable', message: 'Fixture history unavailable', retryable: true } }) });
+        try {
+            addPendingApproval({ fixture: f });
+            const alerts = bindAlerts(f);
+            expect(await evaluateAlerts({ ...f, slot: Math.floor(now / ALERT_EVALUATION_INTERVAL_MS), sources: alerts.sources })).toEqual({ ok: true, value: undefined });
+            const candidates = value({ result: await alerts.list({ context, query: { limit: 100 } }) }).items.map(item => item.candidate);
+            expect(candidates.filter(candidate => candidate.kind === 'approval_waiting')).toHaveLength(1);
+            expect(candidates.filter(candidate => candidate.kind === 'ad_disapproved')).toHaveLength(1);
+            expect(candidates.filter(candidate => candidate.kind === 'pacing')).toMatchObject([{ rules: ['today'], campaign: { vendorCampaignId: 'campaign-z' } }]);
+            expect(f.events.filter(event => event.operation === 'server.alerts.evidence').map(event => event.outcome)).toEqual(['unavailable']);
+        } finally { f.close(); }
+    });
+    it('refreshes only history windows with an uncovered day, with one syncId per UTC day', async () => {
+        const f = lifetimeFixture({ history: () => ({ ok: true, value: historyPartitions({ accountId: 'account-a', days: historyDays.filter(day => day !== '2026-10-22') }) }) });
+        try {
+            const alerts = bindAlerts(f);
+            const first = value({ result: await alerts.sources({ context }) });
+            expect(first.pacing.map(item => item.campaign.vendorCampaignId)).toEqual(['campaign-z']);
+            const days = { start: '2026-10-20', end: '2026-10-27' };
+            const daySlot = Math.floor(Date.parse('2026-10-28T00:00:00Z') / ALERT_EVALUATION_INTERVAL_MS);
+            const syncId = createHash('sha256').update(JSON.stringify(['fixture-ads', 'connection-account-a', 'account-a', days.start, days.end, daySlot])).digest('hex');
+            expect(f.enqueue).toHaveBeenCalledTimes(2);
+            expect(f.enqueue.mock.calls[1]?.[0]).toEqual({ context, request: { syncId, pluginId: 'fixture-ads', connectionId: 'connection-account-a', accountId: 'account-a',
+                input: { grain: 'campaign', days } } });
+            vi.spyOn(f.clock, 'now').mockReturnValue(now + ALERT_EVALUATION_INTERVAL_MS);
+            value({ result: await alerts.sources({ context }) });
+            expect(f.enqueue).toHaveBeenCalledTimes(4);
+            expect(f.enqueue.mock.calls[3]?.[0].request.syncId).toBe(syncId);
+            expect(f.enqueue.mock.calls[2]?.[0].request.syncId).not.toBe(f.enqueue.mock.calls[0]?.[0].request.syncId);
+        } finally { f.close(); }
+    });
+});
