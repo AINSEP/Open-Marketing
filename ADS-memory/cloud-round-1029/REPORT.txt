@@ -1,0 +1,139 @@
+OM CLOUD ROUND 2026-10-29: COORDINATOR REPORT
+Branch cloud/om-round-1029, from main 35d2b21. Pushed after every phase. main was not touched.
+Time: started 18:17Z, report at about 19:15Z, so about 1 h 00 min of the 4 h budget.
+Environment: the container's default Node is v22. The repo pins engines 24.2.0, so every command ran with PATH=/opt/node24/bin (Node 24.2.0 + pnpm 10.24.0, preinstalled).
+Dependencies: pnpm install --frozen-lockfile only. No lockfile or package.json changes. No vendor calls and no spend.
+Commits carry no co-author trailers. Every commit was staged with explicit paths; where two jobs touched one file, the hunks were split.
+
+COMMITS (oldest first)
+ 3a0c07a chore(contracts): conversion-settings exports in the public barrel + phase-1 logs (+2)
+ 943c806 feat(messaging): w22-sms-composer (+554 -22)
+ ca2d393 feat(alerts,leads): w22-pacing-month-lifetime + w22-results-followups (+528 -111)
+ c21ee14 docs: post-checks for conversion-delivery-diagnostics / gate-minors / conversion-settings
+ 5af9aab docs: post-checks for sms-composer / pacing-month-lifetime / results-followups
+ 24e3381 feat(tracking,measure): w22-consent-banner + w22-contacts-meta-identifiers (+501 -100)
+ 23f8f4f fix(server): conversion blocker + conversion-settings fixes (+18 -14)
+ 120579f fix: whatsapp / meta-postal / tiktok+reddit fingerprints / Meta prepared-plan test (+24 -19)
+ a2f7ecb docs: post-checks for consent-banner / contacts-meta-identifiers
+ 1e552a9 fix(tracking): consent regionMode opt-in, no-store receipt (+7 -5)
+ c9480be test: ingress-worker lint fix; neutral-launch Meta fixture; phase-5 raw outputs (+3 -3)
+ (Net lines exclude ADS-memory.)
+
+PHASE 1: BASELINE
+- Install, then all builds: contracts first, all 18 features (brand built for the first time), all 22 plugins that have a build script.
+- Baseline typecheck: 29 server+studio errors from ONE cause. w22-conversion-settings' NEEDS #1 had never been applied: the contracts root barrel did not export the conversionSettings* schemas and types. Applied the exact 2-line patch from its report.md as integrator (3a0c07a). Server and studio then typechecked clean.
+- Raw output: out/baseline-typecheck.txt, out/baseline-build.txt, out/baseline-lint.txt (51 findings).
+
+LEDGER (per job)
+- w22-consent-banner
+  - Built, all 5 scope items: Jini cookie-consent rc.2 renderBanner, handleReceipt, readConsent, file receipt store, client.min.js.
+  - Reviewed: SMALL FIXES (5), including one MAJOR: regionMode 'auto' let a visitor-set jini_region=us cookie grant marketing with no choice.
+  - All 5 fixed in 1e552a9 (opt-in, a regression test, no-store on the receipt). Verdict after fixes: ready.
+  - Net: about +335 -85.
+  - Outside lane: apps/server/src/ports.ts (method gains DELETE, for DELETE /c only) and 2 mock lines in om-tools.test.ts. Both accepted.
+- w22-contacts-meta-identifiers
+  - Built, 3/3 items. Item (2) disputed per review: no production writer. Form-submit capture deferred.
+  - Reviewed: READY. Its consent-first guarantee depended on the consent-banner opt-in fix, which is now done.
+  - Net: about +168 -16.
+- w22-pacing-month-lifetime
+  - Built, 5/5 items. Monthly pacing, plugin windows and the >100-campaign continuation are DEFERRED; the design note is in progress.md.
+  - Reviewed: READY, 0 fixes.
+  - Net: +310 -19.
+- w22-results-followups
+  - Built, 7/7 items. leads.readCohort runs in SQL with json_extract and no migration; localDayStart bisects to local midnight; the weekly snapshot gains workspaceUnattributed; Studio shows the line.
+  - Reviewed: READY, 0 fixes.
+  - Net: +217 -92.
+- w22-sms-composer
+  - Built, 5/5 items: om_message_connections, om_message_preview, Studio composer, webhook URL card. The twilio dist was rebuilt; its fingerprint is unchanged (hashes src/commands.ts only).
+  - Reviewed: READY, 0 fixes.
+  - Net: +554 -22.
+- w22-conversion-delivery-diagnostics (built earlier)
+  - Reviewed: SMALL FIXES (2), one a BLOCKER: conversionCurrent passed `identifiers` into the strict policy.assess schema, so every claimed conversion ended as a final not_sent.
+  - Both fixed in 23f8f4f (identifiers stripped; fetch wrapper made lint-clean). agent-plugin-jobs.test.ts went from 25 failing to 5 (the 5 are pre-existing halt/SQLite cases).
+- w22-gate-minors (built earlier)
+  - Reviewed: READY, 0 fixes.
+- w22-conversion-settings (built earlier)
+  - Reviewed: SMALL FIXES (4). All fixed in 23f8f4f: handleIntegrationRequest complexity 11 moved into a helper; integrations.test:791, om-tools.test:1652 and studio addons.test:472/481 corrected.
+  - The barrel NEEDS was applied in phase 1.
+- Pending fixes from earlier post-checks (120579f)
+  - whatsapp-sends: rates.ts drops "1": "North America". Unmapped +1 numbers now quote at the max rate. Tests updated, plus a new +1876 case: 116/116. Dist rebuilt.
+  - meta-postal-resolution:
+    - The cancel signal is threaded through campaigns.ts prepare/prepareEffect and index.ts.
+    - The prepare error now reads 'Plugin unadmitted or account binding not current: …'.
+    - Meta dist rebuilt; Meta tests 464/464.
+    - neutral-launch.test.ts Meta fixture updated for the new input (c9480be).
+  - tiktok-conversion-delivery:
+    - The README sentence was already in.
+    - Dist rebuilt; tiktokEventsSchemaFingerprint recomputed with events.ts's own method → plugin.json + capabilities.json.
+    - Manifests test passes; TikTok tests 320/320.
+- Integration items (integration-pass-74)
+  - serve.ts bodylessGet: FOLLOW-UP. GET already refuses a body, the test at :523-528 passes, and the intended "swap" is undefined.
+  - bindCatalogScope `ids`: NOT APPLICABLE. It is used (bindMeasurementGrants → createSqlMeasureAudit).
+  - agent-plugin-backends.test.ts Meta prepared plan: DONE (ad.destinationUrl, creative row 987, stored money-key order). That file went from 24 failing to 14; the rest are listed below.
+  - Fingerprint sweep: DONE. Only reddit-ads was stale (report.metrics.v1 / campaign.status.v1). The known Meta activation row 38b1a8bb was left as is.
+  - Chart deps: FOLLOW-UP (needs lockfile changes).
+  - Provenance entries: no action needed. Each package build regenerates its attestation, and the metric/integrity gate passes: "OM metric integrity PASS: 1038 sources, 29187 functions".
+
+PHASE 5: VERIFY (raw output in ADS-memory/cloud-round-1029/out/)
+- Builds: all dists rebuilt, 0 failures (final-build.txt).
+- Gate tests: PASS, 92/92 (final-gate-tests.txt).
+- Metrics: PASS (final-metrics.txt).
+- Tests (final-tests-workspace.txt, final-tests-plugins.txt, final-failures.txt): about 143 failing.
+  - Baseline on untouched main 35d2b21 + the barrel patch, run in a separate worktree: 178 failing (base-main-failures.txt).
+  - NO REGRESSIONS: every failing test on HEAD also fails on the baseline, and 51 baseline failures now pass. Server went from 107 to 74 failing, studio from 19 to 18.
+  - Per package (failed/total):
+    - apps/server 74/1163, apps/studio 18/325, apps/desktop 1/77
+    - features/jobs 3/203, features/safety 2/168, features/forms 1/97
+    - plugins: yandex-direct 12, microsoft-ads 10, x-ads 5, line-ads 4, amazon-ses 2, resend-email 2, kakao-ads 1, reddit-ads 1, vk-ads 1, google-ads 1, google-business-profile 1
+    - higgsfield-media: 6 suites fail to load
+  - Largest server clusters (all pre-existing):
+    - agent-plugin-backends.test.ts 14: LinkedIn fixture lacks GET /rest/adAccounts/123; om_message_* now in catalog lists; twilio/whatsapp read factories return unavailable.
+    - message-send.test.ts 10 and messaging-webhooks.test.ts 3: the fixture's phone contact upsert fails "Invalid identifier".
+    - boot.test.ts 10, agent-process.test.ts 5, conversations.test.ts 4: "Sandbox agent did not become ready".
+    - agent-plugin-jobs.test.ts 5 (halt/SQLite), om-tools.test.ts 4, catalog-composition.test.ts 4, ingress-worker.test.ts 3, addons.test.ts 3.
+    - integrations.test.ts 2: card tests expect "Invalid credential card or asset" but get "Integration operation unavailable or denied".
+    - owner-api.test.ts 2 (attachment name), jini-compat migrations.test.ts 2.
+  - studio addons.test.ts 8: OAuth/token cases, plus ConversionGrants adding om_measure_grants_list calls. studio shell.test.ts 5.
+- Remaining typecheck errors (final-typecheck.txt; the campaigns error was fixed after that run in c9480be):
+  - content/agent-plugins/vk-ads/io.github.ainsep.openmarketing/tests/dispatch.test.ts:11: TS2353 'admitted' does not exist in VkDependencies. Pre-existing; the test still passes the removed plugin-local `admitted`.
+  - content/agent-plugins/higgsfield-media/io.github.ainsep.openmarketing: 44 errors from one cause. The plugin has no installed node_modules, so '@jini-ai/integrations/media-providers' (src/adapter.ts:3, bridge.ts:4, index.ts:16, types.ts:2, tests/runtime.test.ts:2), '@open-marketing/federation' (tests/federation-integration.test.ts:4-5) and '@open-marketing/safety' (tests/safety-integration.test.ts:3-4) don't resolve. The rest are TS7006/TS18046/TS2322 follow-ons. Pre-existing.
+  - All workspace packages (apps, features, packages) typecheck clean.
+- Lint (final-lint.txt): 47 findings, against 51 at baseline.
+  - 1 was new (ingress-worker.test.ts:410) and is fixed in c9480be, so 46 remain, all pre-existing.
+  - By rule: 39 om/two-object-arguments (mostly content/plugins/charts-echarts 13 and charts-chartjs 9, plus higgsfield-media), 4 cognitive-complexity, 4 no-functions-in-component-body.
+  - Cognitive-complexity sites: apps/studio/tests/addons.test.ts:22, apps/studio/src/shared/api/http.ts:98, google-ads tests/read-capabilities.test.ts:341, meta-ads src/instagram-fetch.ts:69.
+  - no-functions-in-component-body sites: apps/studio/tests/leads.test.tsx:21,22,50,74.
+  - Other apps two-object sites: apps/server/tests/integration-oauth-vendors.test.ts:32, apps/server/tests/integrations.test.ts:454.
+- Boundaries (final-boundaries.txt): exit 1. No baseline run, so not classified.
+  - packages/contracts/tests/assistant.test.ts imports node:fs (impure-contracts).
+  - apps/server/src/cli/http.ts imports @open-marketing/leads (cli-shortcut).
+  - 37 no-cycles hits in apps/server, apps/studio, features/jobs, features/measure and plugins.
+
+DISTS: all rebuilt on this machine (gitignored). The local coordinator must rebuild contracts, then leads, web-events, measure, then the meta-ads, tiktok-ads, whatsapp-business, twilio-sms and google-ads dists after fast-forwarding. Without the leads rebuild, readCohort is missing at runtime and every cohort shows unavailable.
+
+FOLLOW-UPS (not built; out of scope)
+1. Pre-existing test failures listed above, especially the "Sandbox agent did not become ready" cluster, the contacts phone upsert "Invalid identifier", and the LinkedIn adAccounts fixture.
+2. Remaining typecheck items: vk-ads dispatch.test.ts:11 (drop `admitted`); higgsfield-media install gap (needs a workspace or dependency decision).
+3. The real cancel signal never reaches campaign prepare: om-tools.ts:340 calls prepareEffect without options, and the om-tool-types.ts prepareEffect type has no options parameter.
+4. agent-plugin-backends `hash` depends on key order; consider canonicalDigest.
+5. Consent:
+   - POST /consent has no rate limit, so receipt files can accumulate.
+   - omGrantConsent calls made before the Jini client loads are dropped.
+   - Contact-level withdrawal recording (owner-known, deferred).
+   - After withdrawal, stored UA/URL still enrich conversions until erasure or the 30-day window.
+   - JINI ASKs: a memory-only reject mode, and readConsent returning the receipt id.
+6. sms-composer:
+   - om_message_connections loads and rehashes the plugin module for every scoped binding (up to 1000).
+   - The composer picks the connection by list position.
+   - A failed connections read shows as an empty list.
+   - Any lookup failure reads "No OM contact".
+7. pacing: an abort during the last account's history read records no evidence gap (alerts.ts:195/:222). The fix needs a collectEvidence edit.
+8. results-followups:
+   - No created_at index (full workspace scan in SQLite; accepted).
+   - Weekly email still refused (email.ts:89).
+   - JINI ASK (after rc.3): a DST-safe local-date → epoch helper.
+9. conversion-settings: add conversionSettings to hostOwned. The studio addons merge test fails on a bundled-manifest fixture (addons.test.ts:650).
+10. conversion-delivery: owner decision whether a cancelled or transient-unavailable refusal should be a final not_sent.
+11. Lint: studio http.ts:98 complexity 11; AlertsFeed.tsx renderObservation two-object (pre-existing); the remaining 46 lint findings.
+12. Integration: the serve.ts bodylessGet "swap" intent is undefined; chart deps need a lockfile change.
+13. Process note: the sms-composer builder once ran `git checkout -- apps/server/tests/message-send.test.ts` to undo its own temporary probe. That file had no other changes and its diff is empty.
