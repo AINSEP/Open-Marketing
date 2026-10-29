@@ -219,7 +219,8 @@ function at1Fixture() {
     const services: OwnerServices & OmFeatureServices = { ...f.services, conversations, media,
         async handleChartRequest() { return { status: 200, body: { ok: true, value: { providers: [] } } }; } };
     const tools = createOmTools({ ...f, confirmations: f.services.confirmations, authorize: () => ({ ok: true, value: undefined }),
-        definitions: input => buildOmToolDefinitions({ ...input, services }) });
+        // The chart-provider inventory is an injected dependency; without it the tool fails closed as unavailable.
+        definitions: input => buildOmToolDefinitions({ ...input, services, chartProviders: async () => ({ ok: true, value: { providers: [] } }) }) });
     const provenance = { operationId: 'import', source: 'upload', prompt: null, model: null, seed: null, cost: null, vendorTerms: null,
         rights: { evidenceId: 'rights', license: 'owned', permittedUses: ['advertising'] } };
     const request = { sourceUrl, operationId: 'import', expectedDigest: createHash('sha256').update(bytes).digest('hex'), provenance };
@@ -256,7 +257,8 @@ it('routes all ten AT1 capabilities through existing service results and one wri
         const assetId = assets.items[0].record.id;
         expect(await f.approve({ name: 'om_media_crop', input: { request: { assetId, placement: 'ad-square', presetVersion: 1 } } })).toMatchObject({ status: 'completed', output: { assetId } });
         expect(await f.approve({ name: 'om_media_record_provenance', input: { link: { provenance: f.request.provenance, assetId } } })).toMatchObject({ status: 'completed', output: { recorded: true, operationId: 'import' } });
-        expect(value({ result: await f.repo.evidence({ context: owner, operationId: 'import' }) }).provenance).toHaveLength(2);
+        // The import already linked this operation to the asset, so recording the identical link is idempotent: one link, no duplicate root row.
+        expect(value({ result: await f.repo.evidence({ context: owner, operationId: 'import' }) }).provenance).toHaveLength(1);
         expect(cancelRun).not.toHaveBeenCalled();
         expect(await f.approve({ name: 'om_runs_cancel', input: { runId: 'other' } })).toMatchObject({ status: 'completed', output: { runId: 'other', status: 'cancelled' } });
         expect(cancelRun).toHaveBeenCalledWith({ context: { ...agent, principal: owner.principal }, runId: 'other' });
@@ -645,8 +647,11 @@ it('lists a seeded bundled agent-plugin source in the catalog after real boot re
         for (const path of snapshots) {
             const manifest = JSON.parse(await fs.readFile(join(stateRoot, 'addons', path), 'utf8'));
             const filename = 'io.github.ainsep.openmarketing/capabilities.json';
-            expect(await fs.readFile(join(stateRoot, 'addons', path, '..', filename), 'utf8'))
-                .toBe(await fs.readFile(join(projectRoot, 'content/agent-plugins', manifest.name, filename), 'utf8'));
+            const seededFile = join(stateRoot, 'addons', path, '..', filename);
+            const sourceFile = join(projectRoot, 'content/agent-plugins', manifest.name, filename);
+            // Skill-only bundled plugins (for example seo) have no capability metadata to carry through seeding.
+            if (!await fs.access(sourceFile).then(() => true, () => false)) { await expect(fs.access(seededFile)).rejects.toThrow(); continue; }
+            expect(await fs.readFile(seededFile, 'utf8')).toBe(await fs.readFile(sourceFile, 'utf8'));
         }
         const readCounts = reads.map(read => read.mock.calls.length);
         expect((await fetch(origin + '/api/tools?limit=100', { headers })).status).toBe(200);
@@ -659,19 +664,22 @@ it('lists a seeded bundled agent-plugin source in the catalog after real boot re
         const secondCookie = secondBootstrap.headers.get('set-cookie')!.split(';')[0];
         const response = await fetch(new URL('/api/tools?limit=100', restarted.studioUrl), { headers: { cookie: secondCookie } });
         expect(response.status).toBe(200);
-        const tools = await response.json() as { value: { name: string }[] };
+        // The catalog exceeds the 100-descriptor page maximum, so each name is looked up through the bounded substring search.
+        const found = async (name: string): Promise<string[]> => {
+            const page = await fetch(new URL('/api/tools?limit=100&query=' + encodeURIComponent(name), restarted.studioUrl), { headers: { cookie: secondCookie } });
+            expect(page.status).toBe(200);
+            return ((await page.json()) as { value: { name: string }[] }).value.map(tool => tool.name);
+        };
         const expected = 'addon_agent_plugin_' + createHash('sha256').update(seeded.id).digest('hex').slice(0, 32);
-        expect(tools.value.some(tool => tool.name === expected)).toBe(true);
+        expect(await found(expected)).toContain(expected);
         for (const name of ['om_media_list', 'om_media_import', 'om_media_crop', 'om_media_record_provenance',
             'om_contacts_resolve', 'om_forms_publish', 'om_web_events_touches', 'om_privacy_status', 'om_jobs_list', 'om_workspaces_list',
-            'om_campaign_create_paused', 'om_creative_generate', 'om_audit_list', 'om_measure_report_cac', 'om_paid_sending_allowance_get']) {
-            expect(tools.value.some(tool => tool.name === name)).toBe(true);
-        }
-        expect(tools.value.map(tool => tool.name)).toEqual(expect.arrayContaining([
+            'om_campaign_create_paused', 'om_creative_generate', 'om_audit_list', 'om_measure_report_cac', 'om_paid_sending_allowance_get',
             'om_forms_preview', 'om_forms_submissions', 'om_jobs_get', 'om_jobs_cancel',
             'om_campaign_propose_launch', 'om_campaign_reconcile', 'om_creative_status', 'om_creative_cancel',
-            'om_measure_create_link', 'om_paid_sending_allowance_set', 'om_mail_provider_get', 'om_mail_provider_set',
-        ]));
+            'om_measure_create_link', 'om_paid_sending_allowance_set', 'om_mail_provider_get', 'om_mail_provider_set']) {
+            expect(await found(name)).toContain(name);
+        }
     } finally { if (server?.ok) await server.value.stop({}); await removeStateRoot({ path: directory }); }
 }, 30000);
 
@@ -936,8 +944,9 @@ it('generic CLI calls both tracking tools through the existing HTTP dispatcher',
     f.services.tools = tools;
     try {
         for (const name of ['om_web_events_snippet', 'om_tracking_readiness']) {
-            const result = value({ result: await runOmCli({ argv: ['tools', 'call', name, '--input-file', '-', '--json'], runtime: f.runtime }) });
-            expect(result).toMatchObject({ status: 'completed' });
+            value({ result: await runOmCli({ argv: ['tools', 'call', name, '--input-file', '-', '--json'], runtime: f.runtime }) });
+            // The CLI reports through stdout (JSON envelope), not its return value.
+            expect(JSON.parse(f.stdout.at(-1)!)).toMatchObject({ ok: true, value: { status: 'completed' } });
             expect(f.requests.at(-1)).toMatchObject({ path: '/api/tools/call', method: 'POST', body: { name, input: { destinationUrl: 'https://site.example' } } });
         }
         expect(f.confirmationCount()).toBe(0);

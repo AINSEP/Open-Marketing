@@ -1,0 +1,173 @@
+
+ RUN  v3.2.4 /home/user/Open-Marketing/apps/server
+
+ ❯ tests/agent-plugin-backends.test.ts (120 tests | 2 failed) 8004ms
+   ✓ sends only through the selected declared mail provider with call-local settings, credentials and time 61ms
+   ✓ refuses provider success without a guarded send or quota reservation 11ms
+   ✓ refuses mail before native egress with no unknown flag: unadmitted 8ms
+   ✓ refuses mail before native egress with no unknown flag: disabled 8ms
+   ✓ refuses mail before native egress with no unknown flag: stale revision after credentials 9ms
+   ✓ refuses mail before native egress with no unknown flag: stale bundle after credentials 8ms
+   ✓ refuses mail before native egress with no unknown flag: withdrawn admission after credentials 8ms
+   ✓ refuses mail before native egress with no unknown flag: stale revision after reserve 8ms
+   ✓ refuses mail before native egress with no unknown flag: withdrawn consent 8ms
+   ✓ refuses mail before native egress with no unknown flag: existing reservation 8ms
+   ✓ reports sender not bound without credentials or HTTP: unknown plugin 15ms
+   ✓ reports sender not bound without credentials or HTTP: unknown descriptor 10ms
+   ✓ reports sender not bound without credentials or HTTP: entry mismatch 10ms
+   ✓ reports sender not bound without credentials or HTTP: missing default 11ms
+   ✓ reports sender not bound without credentials or HTTP: invalid provider 8ms
+   ✓ reports sender not bound without credentials or HTTP: registry ID refusal 7ms
+   ✓ reports sender not bound without credentials or HTTP: feedback disagreement 7ms
+   ✓ reports sender not bound without credentials or HTTP: credential keys disagreement 7ms
+   ✓ reports sender not bound without credentials or HTTP: malformed descriptor 8ms
+   ✓ refuses missing mail credentials and redacts credential-boundary failures 8ms
+   ✓ converts provider configuration refusals into fixed pre-egress outcomes 8ms
+   ✓ allows only one mail HTTP attempt even if a provider sends concurrently 9ms
+   ✓ keeps submitted mail uncertain and secret-free: native failure 8ms
+   ✓ keeps submitted mail uncertain and secret-free: oversized response 11ms
+   ✓ keeps submitted mail uncertain and secret-free: provider throw after send 9ms
+   ✓ preserves definitive provider back-pressure without echoing provider error text 8ms
+   ✓ fences LinkedIn admission before its adapter can resolve credentials or claim a mutation 125ms
+   ✓ rechecks the owning campaign card after LinkedIn credentials resolve and before transport 62ms
+   ✓ exposes vendor-owned schemas/policies but unadmitted plugins make zero credential and fetch calls  304ms
+   ✓ resolves only the invoking plugin token freshly with a server-created service context 87ms
+   ✓ denies disable/revision changes while credentials are pending, before fetch 84ms
+   ✓ skips disabled backends, admits uploaded entries and rejects malformed commands before credentials 53ms
+   ✓ isolates one plugin state failure while healthy tools remain discoverable 113ms
+   ✓ isolates one plugin module failure while healthy tools remain discoverable 114ms
+   ✓ isolates one plugin descriptors failure while healthy tools remain discoverable 84ms
+   ✓ claims the one durable outbox once across binding recreation and leaves uncertain outcomes for reconciliation 18ms
+   ✓ fences an exact-expiry checkpoint and completion without granting a duplicate attempt 13ms
+   ✓ uses one exact spend card for each single-entity activation and never a gateway card 148ms
+   ✓ rechecks halt after a write credential lookup and leaves the claimed outcome uncertain without fetching 26ms
+   ✓ Instagram fetch encoding stays in the plugin and refuses redirected/oversized responses 5ms
+   ✓ fences rebuilt bundle bytes during credential access and changes catalog revisions/import URLs 33ms
+   × recognizes Higgsfield as an agent plugin while leaving its hosted descriptors to federation 59ms
+     → expected true to be false // Object.is equality
+   ✓ coverage distinguishes unadmitted vendor tools and names the remaining owning workflow gaps 58ms
+   ✓ native bundle digests cover actual bytes, change on rebuild, and reject oversized files 50ms
+   ✓ executes both social hierarchies under one card/job and reconciles through the read-only catalog  411ms
+   ✓ resolves only the frozen deployment plugin without paging or importing unrelated plugins 54ms
+   ✓ keeps Meta success and LinkedIn partial references after failure/restart without replay or rollback  308ms
+   ✓ denies deployment egress when admission changes during credential resolution 230ms
+   ✓ denies deployment egress when binding changes during credential resolution 194ms
+   ✓ denies deployment egress when halt changes during credential resolution 189ms
+   ✓ denies deployment egress when approval changes during credential resolution 177ms
+   ✓ denies deployment egress when revision changes during credential resolution 173ms
+   ✓ denies deployment egress when cancel changes during credential resolution 191ms
+   × sends nothing when the owning run is cancelled during the final awaited approval verification 166ms
+     → expected 2 to be 1 // Object.is equality
+   ✓ propagates owning cancellation into an in-flight Google request alongside its transport timeout 25ms
+   ✓ preserves the latest validated receipt across repeated failed reconciliation (malformed later receipt: false)  370ms
+   ✓ preserves the latest validated receipt across repeated failed reconciliation (malformed later receipt: true)  347ms
+   ✓ recovers all receipt IDs after the ad acknowledgement checkpoint fails, without replay 255ms
+   ✓ recovers all receipt IDs after the creative acknowledgement checkpoint fails, without replay  389ms
+   ✓ deduplicates checkpoint aliases by vendor ID and ignores malformed later references during social recovery  353ms
+   ✓ Google validates before creation and refuses an unsafe validator (secret null, validator admitted true, effects ["read"]) 131ms
+   ✓ Google validates before creation and refuses an unsafe validator (secret AAAAAAAAAAAAAAAAAAAAAA, validator admitted true, effects ["read"]) 126ms
+   ✓ Google validates before creation and refuses an unsafe validator (secret null, validator admitted false, effects ["read"]) 17ms
+   ✓ Google validates before creation and refuses an unsafe validator (secret null, validator admitted true, effects ["read","write"]) 17ms
+   ✓ unadmitted preparation/dispatch and unresolved or incompatible metadata perform no credential access 23ms
+   ✓ rejects unverified linkedin-ads destinations without credentials, egress or enqueue 30ms
+   ✓ rejects duplicate step dispatch and foreign/oversized checkpoints in the owning journal 12ms
+   ✓ includes TikTok in the one grouped card/job and preserves partial outcomes (failure: false)  555ms
+   ✓ includes TikTok in the one grouped card/job and preserves partial outcomes (failure: true)  500ms
+   ✓ rechecks TikTok admission during credential lookup after the other vendors finish  372ms
+   ✓ exposes only the approved write capability with a fresh owner card and dispatches through the outbox 17ms
+   ✓ keeps organic publishing unavailable in read_only mode before constructing a handler 10ms
+   ✓ dispatches halt with the permit and guarded capability: 'no halt manifest row' 11ms
+   ✓ dispatches halt with the permit and guarded capability: 'missing handler' 9ms
+   ✓ dispatches halt with the permit and guarded capability: 'revision mismatch' 9ms
+   ✓ dispatches halt with the permit and guarded capability: 'binding changed' 12ms
+   ✓ dispatches halt with the permit and guarded capability: 'expired at fetch' 19ms
+   ✓ dispatches halt with the permit and guarded capability: 'handler throws' 14ms
+   ✓ discovers a sixth uploaded plugin and invokes it with the catalog read floor without a new vendor branch 20ms
+   ✓ skips enabled skill-only and unbuilt plugins before hashing or importing 10ms
+   ✓ does not turn legacy string declarations into executable capabilities 9ms
+   ✓ accepts server-built configuration through the real TikTok source factory and guarded invoker 40ms
+   ✓ settles deadline cancellation even when a handler ignores its signal 10ms
+   ✓ settles caller cancellation even when a handler ignores its signal 9ms
+   ✓ pages installed discovery and isolates malformed declarations from a healthy plugin 28ms
+   ✓ keeps a callable capability when the same plugin also declares a reserved ID 9ms
+   ✓ keeps generic tools when createCapabilities is missing 9ms
+   ✓ keeps capabilities when tools have no createTools factory 11ms
+   ✓ refuses duplicate, reserved and malformed canonical declarations 0 8ms
+   ✓ refuses duplicate, reserved and malformed canonical declarations 1 8ms
+   ✓ refuses duplicate, reserved and malformed canonical declarations 2 8ms
+   ✓ refuses duplicate, reserved and malformed canonical declarations 3 8ms
+   ✓ refuses duplicate, reserved and malformed canonical declarations 4 8ms
+   ✓ refuses duplicate, reserved and malformed canonical declarations 5 9ms
+   ✓ refuses duplicate, reserved and malformed canonical declarations 6 7ms
+   ✓ refuses duplicate, reserved and malformed canonical declarations 7 8ms
+   ✓ retains raised write effects and refuses a direct typed read 10ms
+   ✓ retains raised ad_spend effects and refuses a direct typed read 9ms
+   ✓ retains raised conversion effects and refuses a direct typed read 9ms
+   ✓ retains raised halt_stop effects and refuses a direct typed read 10ms
+   ✓ does not infer execution authority from discovery or an absent ABI/entry 25ms
+   ✓ parses canonical input/output and refuses status identities outside the request 20ms
+   ✓ rechecks declaration changes during credential resolution before egress 8ms
+   ✓ rechecks entry changes during credential resolution before egress 9ms
+   ✓ rechecks account changes during credential resolution before egress 8ms
+   ✓ rechecks scope changes during credential resolution before egress 8ms
+   ✓ refuses reporting batches with a schema-valid foreign account or window 19ms
+   ✓ routes an effectful canonical capability through the existing generic approval card 27ms
+   ✓ rejects cyclic discovery cursors without loading any plugin 7ms
+   ✓ validates tracking campaign scope before constructing the plugin and accepts inert text output 11ms
+   ✓ invokes the real 'twilio-sms' read factory through the guarded server catalog 13ms
+   ✓ invokes the real 'whatsapp-business' read factory through the guarded server catalog 13ms
+   ✓ invokes connection-only tools without an account and refuses other unbound calls before effects 12ms
+   ✓ discovers Meta Instagram accounts through only the generic source exports without an account 14ms
+   ✓ makes malformed generic declarations unavailable without constructing their factory 8ms
+   ✓ skips backend halt capabilities while keeping a declared read capability 11ms
+   ✓ forwards fresh plugin-bound secrets without enriching another plugin or echoing a failing handler 12ms
+   ✓ uses only the real TikTok fixed exports and projects strict egress fields for advertiser reads 18ms
+   ✓ uses generic deployment exports, saved evidence and the receipt draft state 25ms
+   ✓ uses generic deployment exports, saved evidence and the receipt paused state 32ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/agent-plugin-backends.test.ts > recognizes Higgsfield as an agent plugin while leaving its hosted descriptors to federation
+AssertionError: expected true to be false // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- false[39m
+[31m+ true[39m
+
+ ❯ tests/agent-plugin-backends.test.ts:557:95
+    555|         const definitions = value({ result: await f.binding.definition…
+    556|         expect(f.loads.some(url => url.includes('/higgsfield-media/'))…
+    557|         expect(definitions.some(tool => tool.name === 'vendor_higgsfie…
+       |                                                                                               ^
+    558|         expect(f.calls).toEqual([]); expect(f.accesses).toEqual([]);
+    559|     } finally { f.close(); }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/agent-plugin-backends.test.ts > sends nothing when the owning run is cancelled during the final awaited approval verification
+AssertionError: expected 2 to be 1 // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 1[39m
+[31m+ 2[39m
+
+ ❯ tests/agent-plugin-backends.test.ts:777:29
+    775|     try {
+    776|         await f.approve();
+    777|         expect(finalChecks).toBe(1); expect(f.accesses).toHaveLength(1…
+       |                             ^
+    778|         expect(f.calls).toEqual([]);
+    779|         expect(f.native.prepare('SELECT state FROM job').all()).toEqua…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 118 passed (120)
+   Start at  19:55:39
+   Duration  12.72s (transform 2.16s, setup 0ms, collect 4.35s, tests 8.00s, environment 0ms, prepare 76ms)
+

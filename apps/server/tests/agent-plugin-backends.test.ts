@@ -591,6 +591,8 @@ function socialVendor(required: { failLinkedIn?: boolean; failRead?: boolean; in
     const rows = new Map<string, Record<string, unknown>>(); let meta = 200, linkedin = 400;
     // Existing single-link Meta creative that verifies the reviewed destination before any POST.
     rows.set('987', { id: '987', account_id: '123', object_story_spec: { link_data: { link: 'https://example.test/landing' } } });
+    // LinkedIn tools read authenticated account currency (GET /adAccounts/{id}) before each vendor call.
+    rows.set('123', { id: '123', currency: 'USD' });
     const fetchFixture: typeof fetch = async (url, init) => {
         const uri = new URL(String(url));
         if (uri.hostname === 'business-api.tiktok.com') return tikTokDeploymentResponse({ uri, init, rows, fail: required.failTikTok });
@@ -703,7 +705,7 @@ it('executes both social hierarchies under one card/job and reconciles through t
         const before = f.calls.length;
         const read = await f.tools.dispatch({ context, call: { name: 'om_campaign_reconcile_deployment', operationId: 'read-deployment', input: { operationId: 'social-launch' } } });
         expect(read).toMatchObject({ ok: true, value: { status: 'completed', output: { complete: true, outcomes: [{ result: { references: { campaign: '201', adset: '202', ad: '203' } } }, { result: { references: { group: '401', campaign: '402', creative: 'urn:li:sponsoredCreative:403' } } }] } } });
-        expect(f.calls.slice(before).map(call => call.options?.method)).toEqual(Array(6).fill('GET'));
+        expect(f.calls.slice(before).map(call => call.options?.method)).toEqual(Array(7).fill('GET'));
         expect(f.native.prepare('SELECT id FROM job').all()).toHaveLength(1);
     } finally { await f.closeAll(); }
 });
@@ -835,7 +837,7 @@ it.each(['ad', 'creative'])('recovers all receipt IDs after the %s acknowledgeme
         const linkedin = step === 'ad' ? { result: { status: 'not_attempted' } }
             : { result: { status: 'acknowledged', entityIds: ['401', '402', 'urn:li:sponsoredCreative:403'], references: { group: '401', campaign: '402', creative: 'urn:li:sponsoredCreative:403' } } };
         expect(result).toMatchObject({ ok: true, value: { complete: step === 'creative', outcomes: [meta, linkedin] } });
-        expect(f.calls.slice(before).map(call => call.options?.method)).toEqual(Array(step === 'ad' ? 3 : 6).fill('GET'));
+        expect(f.calls.slice(before).map(call => call.options?.method)).toEqual(Array(step === 'ad' ? 3 : 7).fill('GET'));
         expect(f.calls.filter(call => call.options?.method === 'POST')).toHaveLength(step === 'ad' ? 3 : 6);
         expect(f.native.prepare('SELECT id FROM job').all()).toHaveLength(1);
     } finally { await f.closeAll(); }
@@ -856,7 +858,7 @@ it('deduplicates checkpoint aliases by vendor ID and ignores malformed later ref
             { result: { status: 'acknowledged', entityIds: ['201', '202', '203'], references: { campaign: '201', adset: '202', ad: '203' } } },
             { result: { status: 'acknowledged' } },
         ] } });
-        expect(f.calls.slice(before).map(call => call.options?.method)).toEqual(Array(6).fill('GET'));
+        expect(f.calls.slice(before).map(call => call.options?.method)).toEqual(Array(7).fill('GET'));
         expect(f.native.prepare('SELECT id FROM job').all()).toHaveLength(1);
     } finally { await f.closeAll(); }
 });
@@ -1161,7 +1163,7 @@ it('skips enabled skill-only and unbuilt plugins before hashing or importing', a
     f.ports.moduleDigest = async () => { hashes++; return 'd'.repeat(64); };
     try {
         const definitions = value({ result: await f.binding.definitions({ context }) });
-        expect(definitions.map(tool => tool.name)).toEqual(['om_campaign_reconcile_deployment']);
+        expect(definitions.map(tool => tool.name)).toEqual(['om_campaign_reconcile_deployment', 'om_message_send', 'om_message_connections', 'om_message_preview']);
         expect(hashes).toBe(0); expect(f.loads).toEqual([]); expect(f.factories()).toBe(0);
     } finally { f.close(); }
 });
@@ -1169,7 +1171,7 @@ it('skips enabled skill-only and unbuilt plugins before hashing or importing', a
 it('does not turn legacy string declarations into executable capabilities', async () => {
     const f = await capabilityFixture({ capabilities: ['campaign.status.v1', { capabilityId: 'legacy.read', effects: ['read'] }] });
     try {
-        expect(value({ result: await f.binding.definitions({ context }) }).map(tool => tool.name)).toEqual(['om_campaign_reconcile_deployment']);
+        expect(value({ result: await f.binding.definitions({ context }) }).map(tool => tool.name)).toEqual(['om_campaign_reconcile_deployment', 'om_message_send', 'om_message_connections', 'om_message_preview']);
         expect(await f.binding.invokeCapability(f.request)).toMatchObject({ ok: false });
         expect(f.factories()).toBe(0);
     } finally { f.close(); }
@@ -1431,7 +1433,10 @@ it.each([
     f.states.set(row.pluginId, { enabled: true, admitted: true, bundled: true, revision: 'a'.repeat(64),
         metadata: manifest.extensions['io.github.ainsep.openmarketing'],
         entryUrl: pathToFileURL(join(f.ports.projectRoot, 'content/agent-plugins', row.pluginId, 'io.github.ainsep.openmarketing/dist/index.mjs')).href });
-    const binding = bindAgentPluginBackends({ ...f.ports, async loadModule() { return row.source; },
+    const binding = bindAgentPluginBackends({ ...f.ports,
+        // A pending deadline: the fixture's default wait resolves at once, which would expire the plugin's 15s read deadline before fetch.
+        wait: (_required, options) => new Promise(resolve => options?.signal?.addEventListener('abort', () => resolve({ ok: false, error: { code: 'cancelled', message: 'cancelled', retryable: false } }), { once: true })),
+        async loadModule() { return row.source; },
         integrations: { async access(input) {
             f.accesses.push(input);
             return { ok: true, value: { accessToken: JSON.stringify(row.card) } };

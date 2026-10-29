@@ -1,0 +1,15 @@
+
+ RUN  v3.2.4 /home/user/Open-Marketing/apps/server
+
+ ✓ tests/om-tools.test.ts (102 tests) 31037ms
+   ✓ bounds pending operation retention and revokes every retained card on disposal  612ms
+   ✓ lists a seeded bundled agent-plugin source in the catalog after real boot restores its enabled state  21019ms
+   ✓ authenticates the real frontend stream and carries its binding through a sandbox run  5913ms
+   ✓ S1R1F regressions / memory > completes 300 small operations and replays the oldest evicted body across restart  844ms
+   ✓ S1R1F regressions / sql > completes 300 small operations and replays the oldest evicted body across restart  1199ms
+
+ Test Files  1 passed (1)
+      Tests  102 passed (102)
+   Start at  19:56:18
+   Duration  35.60s (transform 2.27s, setup 0ms, collect 4.15s, tests 31.04s, environment 0ms, prepare 93ms)
+
