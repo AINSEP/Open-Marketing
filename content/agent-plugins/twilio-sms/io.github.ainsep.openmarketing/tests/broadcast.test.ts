@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sendMessage as deliver } from "../src/index.js";
+import { countMessageSegments, sendMessage as deliver } from "../src/index.js";
 import { broadcastFixture, context } from "./fixtures.js";
 const intent = { context, deliveryId: "delivery", recipient: "+15555550100",
   message: { content: "Fixture SMS. Reply STOP to opt out." } };
@@ -162,4 +162,17 @@ it("refuses failed or oversized pricing reads without a POST", async () => {
     expect(await deliver({ ...intent, dependencies })).toMatchObject({ ok: false });
     expect(f.state.authority).toBe(0); expect(f.calls).toHaveLength(0);
   }
+});
+it("exports the same segment counter the quote uses (GSM and emoji)", async () => {
+  const pricing = { price_unit: "USD", outbound_sms_prices: [{ prices: [{ current_price: "0.010001" }] }] };
+  for (const content of [intent.message.content, "😀".repeat(68)]) {
+    const f = broadcastFixture({ pricing });
+    expect(await deliver({ ...intent, message: { content }, dependencies: f.dependencies })).toMatchObject({ ok: true });
+    const counted = countMessageSegments({ content });
+    expect(counted.ok).toBe(true);
+    // 0.010001 rounds up to 2 cents plus 1 cent headroom: 3 cents per segment.
+    expect(f.quotes[0]!.upperBound!.minorUnits).toBe((counted.ok ? counted.value : 0) * 3);
+  }
+  expect(countMessageSegments({ content: intent.message.content })).toEqual({ ok: true, value: 1 });
+  expect(countMessageSegments({ content: "😀".repeat(68) })).toEqual({ ok: true, value: 3 });
 });

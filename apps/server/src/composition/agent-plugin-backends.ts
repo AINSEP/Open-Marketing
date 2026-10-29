@@ -5,12 +5,12 @@ import { createMailAdapterContext, createMailProviderRegistry } from '@jini-ai/p
 import type { MailProviderModule, MailerSendResult } from '@jini-ai/platform/mail';
 import { fetchTextWithTimeout } from '@jini-ai/platform/fetch-with-timeout';
 import { appErrorSchema, campaignDeploymentReceiptSchema, pluginToolSchema, capabilityCatalog, pluginConfigurationSchema, pluginConnectionConfigurationSchema, capabilityIdSchema, capabilityEnvelopeSchema, effectiveCapabilityEffects, callContextSchema, addonToolEffectsSchema, boundedJsonSchema, generationCostQuoteSchema, moneySchema, dailyLimitRequirementSchema, haltStopRequestSchema, idSchema, mailManifestExtensionSchema, moneyExposureSchema, parseBoundary, scopeSchema, toolDescriptorSchema } from '@open-marketing/contracts';
-import type { AddonKind, CampaignDeploymentRequired, CallableCapabilityId, CapabilityInput, CapabilityOutput, CapabilityEnvelope, PluginCapabilitiesFactory, PluginToolsFactory, PluginConfiguration, PluginConnectionConfiguration, PluginCapabilityDependencies, PluginCapability, CallContext, CallOptions, ClockPort, HaltStopPermit, IdPort, ObserverPort, Outcome, UnitOfWork } from '@open-marketing/contracts';
+import type { AddonKind, Page, PageQuery, CampaignDeploymentRequired, CallableCapabilityId, CapabilityInput, CapabilityOutput, CapabilityEnvelope, PluginCapabilitiesFactory, PluginToolsFactory, PluginConfiguration, PluginConnectionConfiguration, PluginCapabilityDependencies, PluginCapability, CallContext, CallOptions, ClockPort, HaltStopPermit, IdPort, ObserverPort, Outcome, UnitOfWork } from '@open-marketing/contracts';
 import { digestArguments, effectRequestSchema } from '@open-marketing/safety';
 import type { AccountDispatchLockPort, SafetyRepoPort, SafetyService } from '@open-marketing/safety';
 import type { CampaignConstituent, ConfirmationExchangePort, DispatchPermit, FrozenDispatchRequest } from '@open-marketing/safety';
 import type { CampaignValidationEvidence, NeutralCampaignLaunch } from '@open-marketing/contracts';
-import type { AccountBindingLookupPort } from '@open-marketing/workspaces';
+import type { AccountBinding, AccountBindingListPort, AccountBindingLookupPort } from '@open-marketing/workspaces';
 import { appendJobEvidence, enqueueInlineJob, createSqlJobRepo, createSqlOutboxStore, jobTenant } from '@open-marketing/jobs';
 import type { LeaseFence, ManagedOutboxStore } from '@open-marketing/jobs';
 import { conversionDiagnosticsSchema, createConversionDispatcher, createMeasurementShareabilityAdapter } from '@open-marketing/measure';
@@ -21,7 +21,7 @@ import type { ContactService } from '@open-marketing/contacts';
 import type { PaidSendingAllowances } from '@open-marketing/safety';
 import type { Addons } from '../addons.js';
 import type { AlertMailPort } from '../alerts/email.js';
-import { readAddonCatalog } from '../addon-tools.js';
+import { readAddonCatalog, readBoundedPages } from '../addon-tools.js';
 import { toolPolicy } from '../om-tools.js';
 import type { OmToolDefinition } from '../om-tools.js';
 import { formRetryPolicy } from './forms.js';
@@ -38,7 +38,9 @@ export type AgentPluginEffects = { fetch: typeof fetch; loadModule(required: { m
 type ConversionStorage = { unit: UnitOfWork; policyForTransaction(required: { unit: UnitOfWork }): PolicyService };
 type Dependencies = AgentPluginEffects & { addons: Pick<Addons, 'list'>; projectRoot: string; clock: ClockPort; observer: ObserverPort;
     state(required: { context: CallContext; pluginId: string }): Promise<AgentPluginState | null>;
-    integrations: { access(required: { context: CallContext; pluginId: string; connectionId: string }, optional?: CallOptions): Promise<Outcome<{ accessToken: string; expiresAt?: number; secrets?: Readonly<Record<string, string>> }>> }; accounts: AccountBindingLookupPort; safetyRepo: Pick<SafetyRepoPort, 'snapshot'>;
+    integrations: { access(required: { context: CallContext; pluginId: string; connectionId: string }, optional?: CallOptions): Promise<Outcome<{ accessToken: string; expiresAt?: number; secrets?: Readonly<Record<string, string>> }>>;
+        list?(required: { context: CallContext; query: PageQuery }, optional?: CallOptions): Promise<Outcome<Page<{ connectionId: string; pluginId: string; status: string }>>> };
+    accounts: AccountBindingLookupPort; accountList?: AccountBindingListPort; publicOrigin?: string; safetyRepo: Pick<SafetyRepoPort, 'snapshot'>;
     jobs: ReturnType<typeof bindAgentPluginJobs>; messaging?: { contacts: Pick<ContactService, 'resolve'>; policy: Pick<PolicyService, 'snapshot'>; paidSending: Pick<PaidSendingAllowances, 'reserve' | 'settle'> }; safety?: SafetyService; confirmations?: ConfirmationExchangePort; accountLocks: AccountDispatchLockPort; subjectLane: ReturnType<typeof createSubjectLane> }
     & ({ mode: 'production' } & ConversionStorage | { mode: 'read_only' | 'sandbox' } & Partial<ConversionStorage>);
 type Namespace = Record<string, unknown>;
@@ -110,7 +112,8 @@ export function bindAgentPluginBackends(required: Dependencies) {
             const installed = await installedPluginIds({ dependencies: required, context });
             if (!installed.ok) return installed;
             for (const pluginId of installed.value) definitions.push(...await pluginDefinitions({ dependencies: required, context, pluginId }));
-            definitions.push(campaignReconciliation({ dependencies: required }), messageSendDefinition({ dependencies: required }));
+            definitions.push(campaignReconciliation({ dependencies: required }), messageSendDefinition({ dependencies: required }),
+                messageConnectionsDefinition({ dependencies: required }), messagePreviewDefinition({ dependencies: required }));
             return { ok: true, value: definitions };
         },
     };
@@ -179,7 +182,7 @@ async function dispatchMessage(required: MessageCall): Promise<Outcome<unknown>>
 }
 
 /** Missing/broken exports are a definitive refusal before any vendor egress. */
-async function messageExecution(required: MessageCall): Promise<(Execution & { messageChannel: string }) | undefined> {
+async function messageExecution(required: { dependencies: Dependencies; context: CallContext; input: { pluginId: string; connectionId: string; accountId: string }; signal?: AbortSignal }): Promise<(Execution & { messageChannel: string }) | undefined> {
     try {
         const execution = await pluginExecution({ ...required, pluginId: required.input.pluginId, connection: required.input, effects: ['write'] }, { signal: required.signal });
         if (!execution) return undefined;
@@ -190,6 +193,89 @@ async function messageExecution(required: MessageCall): Promise<(Execution & { m
         if (!channel.success || typeof execution.module.sendMessage !== 'function') return undefined;
         return { ...execution, messageChannel: channel.data };
     } catch { return undefined; }
+}
+
+const messageTargetSchema = z.strictObject({ pluginId: idSchema, connectionId: idSchema, accountId: idSchema });
+const messagePreviewSchema = messageTargetSchema.extend({ content: z.string().min(1).max(1600) });
+const segmentOutcomeSchema = z.union([z.strictObject({ ok: z.literal(true), value: z.number().int().positive().max(1600) }), z.object({ ok: z.literal(false) })]);
+const routePluginId = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const urlSafeId = /^(?!\.{1,2}$)[A-Za-z0-9._~-]+$/;
+type MessageTarget = z.infer<typeof messageTargetSchema>;
+type MessageConnection = MessageTarget & { channel: string; inboundWebhookUrl: string | null };
+type MessageRead = { dependencies: Dependencies; context: CallContext; signal?: AbortSignal };
+type ConnectionRow = { connectionId: string; pluginId: string; status: string };
+
+/** Read-only discovery for Studio, assistant and CLI: bound messaging connections plus the
+ * server-computed inbound callback URL. No credential access, egress or effects.
+ * @example om tools call om_message_connections --input '{}'
+ */
+function messageConnectionsDefinition(required: { dependencies: Dependencies }): OmToolDefinition {
+    const schema = z.strictObject({});
+    return { name: 'om_message_connections', capability: 'Messaging connections', description: 'List bound messaging connections (max 100) with channel and inbound webhook URL to paste into the vendor console; null URL means set OM_PUBLIC_ORIGIN or use URL-safe connection/account IDs.',
+        effects: ['read'], policy: 'read', ownerOnly: true, revision: '1',
+        inputSchema: toolDescriptorSchema.shape.inputSchema.parse(z.toJSONSchema(schema, { io: 'input' })),
+        parse: input => parseBoundary({ schema, input: input.input }),
+        invoke: input => pluginJobBoundary({ ...required.dependencies, context: input.context, execute: () => messageConnections({ ...required, context: input.context, signal: input.signal }) }) };
+}
+/** Segment preview through the plugin's optional pure counter; channels without one return null.
+ * @example om tools call om_message_preview --input '{"pluginId":"p","connectionId":"c","accountId":"a","content":"Hi"}'
+ */
+function messagePreviewDefinition(required: { dependencies: Dependencies }): OmToolDefinition {
+    return { name: 'om_message_preview', capability: 'Message segment preview', description: 'Count message segments for one bound messaging connection without credentials or vendor requests. segments is null when the channel has no segment counter.',
+        effects: ['read'], policy: 'read', ownerOnly: true, revision: '1',
+        inputSchema: toolDescriptorSchema.shape.inputSchema.parse(z.toJSONSchema(messagePreviewSchema, { io: 'input' })),
+        parse: input => parseBoundary({ schema: messagePreviewSchema, input: input.input }),
+        invoke: input => pluginJobBoundary({ ...required.dependencies, context: input.context, execute: async () => {
+            const parsed = parseBoundary({ schema: messagePreviewSchema, input: input.input });
+            return parsed.ok ? messagePreview({ ...required, context: input.context, input: parsed.value, signal: input.signal }) : parsed;
+        } }) };
+}
+
+/** Join scoped account bindings to saved connections; each candidate passes the send path's checks.
+ * @complexity <=1000 bindings/connections via readBoundedPages; one module load per candidate, <=100 items.
+ */
+async function messageConnections(required: MessageRead): Promise<Outcome<{ items: MessageConnection[] }>> {
+    const { integrations, accountList } = required.dependencies;
+    if (!integrations.list || !accountList) return localFailure({ code: 'not_implemented', message: 'Messaging connections unavailable' });
+    const options = { signal: required.signal };
+    const connections = await readBoundedPages<ConnectionRow>({ readPage: (input, callOptions) => integrations.list!({ ...input, context: required.context }, callOptions) }, options);
+    if (!connections.ok) return connections;
+    const bindings = await readBoundedPages({ readPage: (input, callOptions) => accountList.listAccountBindings({ ...input, context: required.context }, callOptions) }, options);
+    if (!bindings.ok) return bindings;
+    const items: MessageConnection[] = [];
+    for (const binding of bindings.value) {
+        if (items.length >= 100) break;
+        const item = await messageConnection({ ...required, binding, connections: connections.value });
+        if (item) items.push(item);
+    }
+    return { ok: true, value: { items } };
+}
+async function messageConnection(required: MessageRead & { binding: AccountBinding; connections: readonly ConnectionRow[] }): Promise<MessageConnection | undefined> {
+    const { binding, context } = required;
+    if (binding.scope.ownerId !== context.scope.ownerId || binding.scope.workspaceId !== context.scope.workspaceId) return undefined;
+    const connection = required.connections.find(row => row.connectionId === binding.connectionId && row.status !== 'disconnected');
+    if (!connection) return undefined;
+    const input = { pluginId: connection.pluginId, connectionId: binding.connectionId, accountId: binding.externalAccountId };
+    const execution = await messageExecution({ ...required, input });
+    if (!execution) return undefined;
+    return { ...input, channel: execution.messageChannel, inboundWebhookUrl: inboundWebhookUrl({ ...input, publicOrigin: required.dependencies.publicOrigin }) };
+}
+/** Only IDs that need no escaping round-trip through the raw-pathname webhook route. */
+function inboundWebhookUrl(required: MessageTarget & { publicOrigin?: string }): string | null {
+    const ids = [required.pluginId, required.connectionId, required.accountId];
+    if (!required.publicOrigin || !routePluginId.test(required.pluginId) || !ids.every(id => urlSafeId.test(id))) return null;
+    return new URL(required.publicOrigin).origin + '/hooks/agent-plugins/' + ids.join('/');
+}
+/** Pure plugin counter only: no credentials, no fetch. Malformed output refuses. */
+async function messagePreview(required: MessageRead & { input: z.infer<typeof messagePreviewSchema> }): Promise<Outcome<{ segments: number | null }>> {
+    const execution = await messageExecution(required);
+    if (!execution) return localFailure({ code: 'not_implemented', message: 'Messaging connection unavailable' });
+    if (typeof execution.module.countMessageSegments !== 'function') return { ok: true, value: { segments: null } };
+    try {
+        const counted = segmentOutcomeSchema.safeParse(exported<(input: { content: string }) => unknown>({ module: execution.module, name: 'countMessageSegments' })({ content: required.input.content }));
+        if (!counted.success) return localFailure({ code: 'unavailable', message: 'Segment count unavailable' });
+        return counted.data.ok ? { ok: true, value: { segments: counted.data.value } } : localFailure({ code: 'invalid_input', message: 'Message cannot be segmented' });
+    } catch { return localFailure({ code: 'unavailable', message: 'Segment count unavailable' }); }
 }
 
 /** Bind guarded credentials/fetch for this call only. Invalid post-send receipts stay uncertain. */

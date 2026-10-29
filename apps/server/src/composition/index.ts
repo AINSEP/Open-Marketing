@@ -363,6 +363,7 @@ export async function bootServer(required: {
         services.runs = resources.agent.owner;
         const accountLocks = createMemoryAccountDispatchLock({ ids: required.ids });
         const pluginBackends = bindBootPluginBackends({ io: required.io, addons: resources.addons, services, integrations, accountLocks, confirmations: resources.confirmations, subjectLane,
+            publicOrigin: config.value.publicOrigin, accountList: catalogScope.accountBindings,
             policyForTransaction: ({ unit }) => bindIdentity({ unit, clock: required.clock, ids: required.ids, observer: required.observer, digestKey, tokens: visits.tokens, subjectLane }).policy,
             unit: database.unit, clock: required.clock, ids: required.ids, observer: required.observer });
         publicServices.webhooks = (input, options) => pluginBackends?.ingestWebhook(input, options)
@@ -640,10 +641,11 @@ function createModelUpstream(required: { fetch: typeof fetch }): ModelUpstream {
  * separately. Missing host effects leave vendor definitions absent, without constructing services. */
 function bindBootPluginBackends(required: { io: ServerBootIo; addons: ReturnType<typeof bindBootAddons>; services: OwnerServices & OmFeatureServices;
     policyForTransaction: NonNullable<Parameters<typeof bindAgentPluginBackends>[0]['policyForTransaction']>;
-    integrations: Integrations; unit: UnitOfWork; clock: ClockPort; ids: IdPort; observer: ObserverPort; accountLocks: AccountDispatchLockPort; confirmations: ConfirmationExchangePort; subjectLane: ReturnType<typeof createSubjectLane> }): ReturnType<typeof bindAgentPluginBackends> | undefined {
+    integrations: Integrations; unit: UnitOfWork; clock: ClockPort; ids: IdPort; observer: ObserverPort; accountLocks: AccountDispatchLockPort; confirmations: ConfirmationExchangePort; subjectLane: ReturnType<typeof createSubjectLane> }
+    & Pick<Parameters<typeof bindAgentPluginBackends>[0], 'publicOrigin' | 'accountList'>): ReturnType<typeof bindAgentPluginBackends> | undefined {
     if (!required.io.agentPlugins || !required.addons || !required.services.accountBindings) return undefined;
     return bindAgentPluginBackends({ ...required.io.agentPlugins, projectRoot: required.io.projectRoot, clock: required.clock, observer: required.observer,
-        unit: required.unit, policyForTransaction: required.policyForTransaction, subjectLane: required.subjectLane,
+        unit: required.unit, policyForTransaction: required.policyForTransaction, subjectLane: required.subjectLane, publicOrigin: required.publicOrigin, accountList: required.accountList,
         addons: required.addons.addons, state: required.addons.agentPluginState, integrations: required.integrations, accounts: required.services.accountBindings, safetyRepo: required.services.safety,
         jobs: bindAgentPluginJobs(required), mode: 'read_only',
         messaging: required.services.contacts && required.services.paidSending ? { contacts: required.services.contacts,

@@ -7,6 +7,9 @@ import { oauthClientSetSchema, oauthChallengeSchema } from '../../../shared/api/
 import type { OAuthStatus } from '../../../shared/api/index.js';
 import type { ConversionSettingsDeclaration, ConversionSettingsStatus, ConversionSettingsValues, AddonSummary, CredentialCard, ConfirmationCard, IntegrationSummary, MailProviderSettings, ToolOperation, ToolResult } from '@open-marketing/contracts';
 import type { StudioApiPort, StudioRuntime } from '../../../shared/api/index.js';
+import { copyToClipboard } from '@jini-ai/ui';
+import { readMessageConnections } from './message-composer.hooks.js';
+import type { MessageConnection } from './message-composer.hooks.js';
 
 export interface IntegrationsPageProps { api: StudioApiPort; runtime: StudioRuntime }
 /** Owner mail selection; server acknowledgements alone update saved state. No write retries.
@@ -62,13 +65,14 @@ export function useMailProvider(required: IntegrationsPageProps) {
   return { settings, selected, alertFrom, status, busy, change, changeFrom, resetFrom, save, refresh,
     stale: settings?.selected && !settings.candidates.some(row => row.pluginId === settings.selected) };
 }
-export interface ConnectionRowProps { connection: IntegrationSummary; label: string; busy: boolean; disconnect(required: { connectionId: string }): Promise<void> }
+export interface ConnectionRowProps { connection: IntegrationSummary; label: string; busy: boolean; webhooks: readonly MessageConnection[]; disconnect(required: { connectionId: string }): Promise<void> }
 /** Private forms and connection management. Read one installed-plugin page (<=100), including disabled rows.
  * Each plugin reads its own cards; HTTP deadlines bound this accepted N+1 discovery. @example useIntegrations({ api, runtime }); */
 export function useIntegrations(required: IntegrationsPageProps) {
   const [items, setItems] = useState<IntegrationSummary[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [plugins, setPlugins] = useState<Pick<AddonSummary, 'id' | 'name'>[]>([]);
+  const [messaging, setMessaging] = useState<MessageConnection[]>([]);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -81,11 +85,13 @@ export function useIntegrations(required: IntegrationsPageProps) {
     setLoading(true);
     try {
       if (!required.api.addons) { setPlugins([]); setError('Integrations are unavailable on this server.'); return; }
-      const [result, installed] = await Promise.all([
+      const [result, installed, messageConnections] = await Promise.all([
         required.api.addons.integrations({ query: { limit: 100, cursor: input.cursor }, signal: input.signal }),
         required.api.addons.list({ query: { kind: 'agent-plugin', limit: 100 }, signal: input.signal }),
+        readMessageConnections({ api: required.api, runtime: required.runtime, signal: input.signal }),
       ]);
       if (!mounted.current || input.signal?.aborted || epoch !== readEpoch.current) return;
+      setMessaging(messageConnections);
       if (!installed.ok) { setPlugins([]); setError('Integrations could not be loaded.'); return; }
       setPlugins(installed.value.items.map(row => ({ id: row.id, name: row.name })));
       if (!result.ok) { setError('Connections could not be loaded.'); return; }
@@ -129,13 +135,19 @@ export function useIntegrations(required: IntegrationsPageProps) {
   };
   const refresh = (): void => { setError(''); void load(); };
   const next = (): void => { if (cursor) void load({ cursor }); };
-  return { pluginRows: plugins.map(plugin => ({ ...required, pluginId: plugin.id, label: plugin.name, connections: items, submitFor, busy: busy || loading })), items, busy: busy || loading, error, notice, refresh, next, cursor,
-    rows: items.map(connection => ({ connection, label: plugins.find(plugin => plugin.id === connection.pluginId)?.name ?? connection.pluginId, busy: busy || loading, disconnect })) };
+  return { pluginRows: plugins.map(plugin => ({ ...required, pluginId: plugin.id, label: plugin.name, connections: items, submitFor, busy: busy || loading })), items, busy: busy || loading, error, notice, refresh, next, cursor, messaging,
+    rows: items.map(connection => ({ connection, label: plugins.find(plugin => plugin.id === connection.pluginId)?.name ?? connection.pluginId, busy: busy || loading, disconnect,
+      webhooks: messaging.filter(row => row.connectionId === connection.connectionId) })) };
 }
 /** Connection row binding and labels are presentation-only; saved does not claim verification. */
 export function useConnectionRow(required: ConnectionRowProps) {
   const labels = { saved: 'Saved', reconnect_required: 'Reconnect required', disconnected: 'Disconnected' };
-  return { label: required.label, status: labels[required.connection.status],
+  const [copied, setCopied] = useState('');
+  /** Server-computed URL only; the owner pastes it into the vendor console. */
+  const copy = async (input: { text: string }): Promise<void> => { setCopied(await copyToClipboard(input) ? 'Webhook URL copied.' : 'Copy failed. Select the URL manually.'); };
+  return { label: required.label, status: labels[required.connection.status], copied,
+    webhooks: required.webhooks.map(row => ({ key: row.pluginId + '/' + row.accountId, url: row.inboundWebhookUrl,
+      copy: () => { if (row.inboundWebhookUrl) void copy({ text: row.inboundWebhookUrl }); } })),
     disconnect: () => { void required.disconnect({ connectionId: required.connection.connectionId }); } };
 }
 export interface OAuthVendorProps extends IntegrationsPageProps {

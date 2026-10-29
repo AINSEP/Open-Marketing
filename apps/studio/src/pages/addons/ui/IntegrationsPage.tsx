@@ -3,6 +3,7 @@ import { useIntegrations, useConnectionRow, useOAuthVendor, usePluginSecret, use
 import type { ConnectionRowProps, IntegrationsPageProps, OAuthVendorProps, PluginCardRow } from '../model/integrations.hooks.js';
 import { ApprovalCard } from '../../../features/approve/index.js';
 import { ConversionGrants } from './ConversionGrants.js';
+import { MessageComposer } from './MessageComposer.js';
 
 export function IntegrationsPage(props: IntegrationsPageProps) {
   const page = useIntegrations(props);
@@ -18,6 +19,7 @@ export function IntegrationsPage(props: IntegrationsPageProps) {
       <ul>{page.rows.map(renderConnection)}</ul>
       {page.cursor && <button type="button" onClick={page.next} disabled={page.busy} data-action="integrations_list">Next page</button>}
     </section>
+    <MessageComposer {...props} connections={page.messaging} />
     <ConversionGrants {...props} />
   </section>;
 }
@@ -45,7 +47,12 @@ function renderMailCandidate(row: NonNullable<ReturnType<typeof useMailProvider>
 function renderConnection(row: ConnectionRowProps) { return <ConnectionRow key={row.connection.connectionId} {...row} />; }
 function ConnectionRow(props: ConnectionRowProps) {
   const row = useConnectionRow(props);
-  return <li><h2>{row.label}</h2><p>{props.connection.connectionId} · {row.status}</p><button type="button" onClick={row.disconnect} disabled={props.busy || props.connection.status === 'disconnected'} data-action="integrations_disconnect" data-connection-id={props.connection.connectionId}>Disconnect</button></li>;
+  return <li><h2>{row.label}</h2><p>{props.connection.connectionId} · {row.status}</p>{row.webhooks.map(renderWebhook)}{row.copied && <p role="status">{row.copied}</p>}<button type="button" onClick={row.disconnect} disabled={props.busy || props.connection.status === 'disconnected'} data-action="integrations_disconnect" data-connection-id={props.connection.connectionId}>Disconnect</button></li>;
+}
+/** Inbound callback URL for the vendor console, or setup guidance when the server cannot compute one. */
+function renderWebhook(webhook: ReturnType<typeof useConnectionRow>['webhooks'][number]) {
+  if (!webhook.url) return <p key={webhook.key} className="muted">Webhook URL unavailable: set OM_PUBLIC_ORIGIN / bind the account</p>;
+  return <p key={webhook.key}>Inbound webhook URL <code>{webhook.url}</code> <button type="button" onClick={webhook.copy}>Copy webhook URL</button></p>;
 }
 function renderPlugin(props: OAuthVendorProps) { return <PluginCards key={props.pluginId} {...props} />; }
 /** One plugin owns its status read and existing policy-controlled OAuth lifecycle. */

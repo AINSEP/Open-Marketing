@@ -83,10 +83,10 @@ function prepareRequest(required: { input: TwilioMessage; configuration: TwilioD
   return { ok: true, value: Object.freeze({ method: "POST", url: `https://api.twilio.com/2010-04-01/Accounts/${sender.accountSid}/Messages.json`,
     body: new URLSearchParams({ MessagingServiceSid: sender.messagingServiceSid, To: input.recipient, Body: input.message.content }).toString() }) };
 }
-/** Count whole graphemes conservatively; oversized graphemes return invalid_input without I/O.
+/** Count whole graphemes conservatively (also the server preview export); oversized graphemes return invalid_input without I/O.
  * @complexity O(n) time and O(n) segmenter storage for <=1600 UTF-16 units.
  */
-function countSegments(required: { content: string }): Outcome<number> {
+export function countMessageSegments(required: { content: string }): Outcome<number> {
   const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
   let segments = 1;
   let used = 0;
@@ -107,7 +107,7 @@ function countSegments(required: { content: string }): Outcome<number> {
  * @complexity O(p), p is bounded by the 64KiB response; exactly two GETs, no retries.
  */
 async function priceQuote(required: { dependencies: TwilioMessageDependencies; input: TwilioMessage; credential: Credential; argumentsDigest: string }, optional?: CallOptions): Promise<Outcome<z.infer<typeof quoteSchema>>> {
-  const segments = countSegments({ content: required.input.message.content });
+  const segments = countMessageSegments({ content: required.input.message.content });
   if (!segments.ok) return segments;
   const lookup = await readPricing({ ...required, url: "https://lookups.twilio.com/v2/PhoneNumbers/" + encodeURIComponent(required.input.recipient) }, optional);
   if (!lookup.ok) return lookup;
