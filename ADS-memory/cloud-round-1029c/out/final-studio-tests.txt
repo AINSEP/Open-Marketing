@@ -1,0 +1,81 @@
+
+> @open-marketing/studio@0.0.0 test /home/user/Open-Marketing/apps/studio
+> vitest run tests
+
+
+ RUN  v3.2.4 /home/user/Open-Marketing/apps/studio
+
+ ✓ tests/chat.test.ts (5 tests) 5158ms
+   ✓ keyboard opens the global panel, Escape closes it, and focus returns to the FAB  1405ms
+   ✓ a sample chat requests native navigation and acknowledges only the rendered canvas  1284ms
+   ✓ closing the dock preserves the Jini draft; New chat resets it  1645ms
+   ✓ loads the chosen server conversation into Jini and uses server model choices with the existing settings write  819ms
+ ✓ tests/addons.test.ts (33 tests) 6174ms
+   ✓ saves/clears the From address and restores confirmed values when refused  693ms
+   ✓ saves/clears the From address and restores confirmed values when thrown  313ms
+   ✓ mounts 'Plugins' from an ADD-ONS link and restores the hash route  1020ms
+   ✓ mounts 'Agent Plugins' from an ADD-ONS link and restores the hash route  522ms
+   ✓ mounts 'Skills' from an ADD-ONS link and restores the hash route  432ms
+   ✓ mounts 'Integrations' from an ADD-ONS link and restores the hash route  814ms
+ ✓ tests/chat-parity.test.ts (21 tests) 2637ms
+   ✓ renders real model and effort drop-ups in sample mode and never writes preview selections  946ms
+   ✓ renders server usage through Jini for 'estimated completion' without sample prices or false success  433ms
+   ✓ renders server usage through Jini for 'unavailable cost' without sample prices or false success  330ms
+   ✓ renders server usage through Jini for 'partial cancellation' without sample prices or false success  348ms
+   ✓ a server run keeps streaming while the dock is closed and reopened  301ms
+ ✓ tests/domain-pages.test.ts (28 tests) 2334ms
+   ✓ shows unavailable costs and preserves pending, failed and unknown generation evidence  341ms
+   ✓ delivers a live standalone launch card and retains its outcome after resolution  601ms
+   ✓ delivers a live draft launch card and retains its outcome after resolution  377ms
+ ✓ tests/observability.test.ts (9 tests) 1584ms
+   ✓ production composition injects navigation capture into the sample Settings demo  1176ms
+ ✓ tests/browser-tools.test.ts (16 tests) 1299ms
+   ✓ passes the current bind token and shows surface spend approvals in the existing inline card  496ms
+ ✓ tests/shell.test.ts (24 tests) 16301ms
+   ✓ left navigation changes the center canvas and labels every route as sample data  1417ms
+   ✓ keeps appearance Settings usable before workspace data arrives  674ms
+   ✓ offers one Settings picker with live theme previews and keyboard-operated accents  3064ms
+   ✓ executes every composed theme/accent page handle and renders its actual preview colours  4701ms
+   ✓ shows the FAB only while the assistant is closed and returns focus on Escape  681ms
+   ✓ applies sidebar, dock and FAB placement rules to the rendered shell  1091ms
+   ✓ collapses each group with the keyboard and keeps SOON previews navigable  1279ms
+   ✓ remembers the icon rail and retains assistant draft while navigating  1242ms
+   ✓ keeps the rail usable when storage reads and writes fail  465ms
+ ✓ tests/brand-profile.test.ts (3 tests) 1204ms
+   ✓ saves the loaded expectedRevision and preserves colours, fonts and asset references  654ms
+   ✓ keeps typed text on conflict and requires an explicit refresh before another write  319ms
+ ✓ tests/conversion-grants.test.ts (4 tests) 848ms
+   ✓ lists active, revoked and expired conversion-sharing grants beside bounded inputs  304ms
+ ✓ tests/alerts.test.ts (5 tests) 638ms
+   ✓ renders and loads more in Activity even when the legacy activity snapshot is empty  400ms
+ ✓ tests/approval-ui.test.ts (10 tests) 664ms
+   ✓ the card shows exact JSON and only server-offered policy buttons  342ms
+ ✓ tests/message-composer.test.ts (7 tests) 816ms
+   ✓ shows no contact for an unknown phone and never creates one  341ms
+ ✓ tests/measure.test.ts (5 tests) 692ms
+   ✓ separates platform conversions and OM leads, preserving zero/unavailable and attribution evidence  460ms
+ ✓ tests/tracking.test.ts (2 tests) 602ms
+   ✓ generates inert setup, selects source for native copy, checks missing/stale/ready and chooses the published fallback  549ms
+ ✓ tests/chart-providers.test.ts (19 tests) 480ms
+ ✓ tests/appearance.test.ts (22 tests) 58ms
+ ✓ tests/leads.test.tsx (4 tests) 401ms
+   ✓ renders scoped source references, attribution and all five stages  307ms
+ ✓ tests/react-rule.test.ts (1 test) 418ms
+   ✓ the TSX rule catches JSX arrows and nested effect callbacks while accepting extracted handlers  415ms
+ ✓ tests/http-api.test.ts (9 tests) 112ms
+ ✓ tests/jini-chat-transport.test.ts (16 tests) 200ms
+ ✓ tests/theme-pack.test.ts (26 tests) 64ms
+ ✓ tests/api-port.test.ts (3 tests) 53ms
+ ✓ tests/theme.test.ts (22 tests) 27ms
+ ✓ tests/chat-assistant.test.ts (13 tests) 2424ms
+   ✓ streams beyond 1,000 events, deduplicates repeated deltas and accumulates one assistant message  489ms
+   ✓ accepts 8,192 unique events including the terminal slot and rejects event 8,193  1881ms
+ ✓ tests/navigation.test.ts (6 tests) 22ms
+ ✓ tests/approval.test.ts (3 tests) 11ms
+ ✓ tests/session.test.ts (12 tests) 43ms
+
+ Test Files  27 passed (27)
+      Tests  328 passed (328)
+   Start at  20:05:46
+   Duration  28.71s (transform 1.88s, setup 0ms, collect 21.85s, tests 45.26s, environment 10.06s, prepare 2.47s)
+

@@ -1,0 +1,48 @@
+OM CLOUD ROUND 1029c — COORDINATOR REPORT
+Branch: cloud/om-round-1029c (from main a4ae3d0). Never pushed to main. Lockfile/package.json untouched. No live vendor calls. No co-author trailers.
+Time used: start 19:43 UTC, report 20:07 UTC (~24 of 45 min). 3 Sonnet subagents (A: server backends/catalog/om-tools, B: server jobs/ingress/addons/migrations/owner-api/brand/site-guide, C: studio).
+Setup: built server/studio deps, @open-marketing/agent, plugin dists google-ads, linkedin-ads, meta-ads, tiktok-ads, twilio-sms, whatsapp-business (out/setup-build.txt). higgsfield-media not built (ENV).
+Raw output: ADS-memory/cloud-round-1029c/out/ (A-*, B-*, C-* per-file; final-*-tests.txt; *-concurrent.txt = first final run with server+studio run in parallel, two load timeouts — superseded).
+
+FINAL PACKAGE TESTS (sequential runs)
+- apps/studio: 328/328 pass (was 18 failed).
+- apps/server: 7 failed / 1158 passed of 1165 (was 35 failed). All 7 below are ENV or OWNER QUESTION.
+
+COORDINATOR REVIEW — rejected subagent changes (would weaken tests)
+- catalog-composition: first attempt added 16 rows to the expected NEEDS list; reverted, redone via fixture injection (see below).
+- B added `await setTimeout(50)` "settle" sleeps in 3 concurrency tests to dodge SQLite handle contention; reverted (masks a real product race). Listed as OWNER QUESTION.
+
+APPS/SERVER
+fixed (test) agent-plugin-backends.test.ts (13 of 15):
+  - 2 catalog-list tests: om_message_send/connections/preview now in list (stale).
+  - twilio-sms / whatsapp-business read factory (~:1447): fixture wait() resolved immediately, aborting the plugin's read deadline; now pending until abort.
+  - 9 social/campaign deployment tests: LinkedIn now GETs /adAccounts/{id} for currency; fixture adds {id:'123',currency:'USD'}; reconcile GET counts 6→7 (~:708,:840,:861).
+ENV agent-plugin-backends "recognizes Higgsfield as an agent plugin..." (~:557): higgsfield-media dist cannot build here.
+OWNER QUESTION agent-plugin-backends "sends nothing when the owning run is cancelled during the final awaited approval verification" (:769): Meta deployCampaignPaused now does a creative-destination GET first (content/agent-plugins/meta-ads/.../campaign-deployment.ts:70); deployment execution carries no abort signal (apps/server/src/agent-plugin-backends.ts ~:1115 guardedFetch, required.signal undefined), so a stale-OK verify lets one GET through; POST is refused. No write egress. Product change (re-check cancellation after verify / thread signal) is security-relevant — owner decision.
+fixed (test) catalog-composition.test.ts "closes the feature composition gaps..." (~:296): fixture now injects inert tracking/reporting/alerts/providerSettings as real composition does. Expected list keeps add-on routes plus rows gated on the SAME addons/integrations dependency (conversion settings, OAuth start/status, plugin secret status, disconnect; src/om-tools.ts:714, ~:1112), added by e0bb6b6 after the list was written. OWNER QUESTION (minor): if those should be injectable separately from add-ons, needs product change in om-tools.ts.
+fixed (test) om-tools.test.ts (3):
+  - AT1 routes (:250,:260): fixture injects chartProviders dep; provenance length 2→1 (re-recording identical link is idempotent, features/media-library/src/evidence-repo.ts).
+  - seeded bundled plugin (:648,:669): skill-only seo has no capabilities.json (assert absent); catalog >100 descriptors so lookups use ?query=<name>.
+  - generic CLI tracking (:947): runOmCli returns Outcome<void>; parse stdout envelope.
+fixed (product) brand-surfaces "saves through dispatch and owner approval...": features/brand/src/service.ts:57 wrote runId: undefined, rejected by om_brand_get output schema; now set only when defined.
+fixed (test) addons.test.ts (3): Jini rc.2 manifest parser requires $schema; added to 3 test manifests (:260, ~:658).
+fixed (test) migrations.test.ts (2) (apps/server/src/platform/jini-compat/db/tests/): catalogue grew by 6 deliberate migrations (leads-1, server-6, measure-3, brand-1, measure-4, measure-5); count 28.
+fixed (test) site-guide "returns twelve concise topics...": campaigns topic needs a campaign tool in the fixture catalog (~:115).
+fixed (test) ingress-worker "attributes a bare OM campaign ID...": foreign draft reused operationId → identical campaign IDs; gave it its own operationId (:456).
+fixed (test) ingress-worker "the actual boot root seeds the public form...": boot also queues alerts.evaluate; worker is one job per tick; test ticks up to 6 until activity appears (:634).
+fixed (test) agent-plugin-jobs "rejects a stale halt epoch..." and "dispatches the canonical safety-issued permit...": fixture compared with JSON.stringify (key-order dependent); now isDeepStrictEqual (still exact) (:92).
+OWNER QUESTION agent-plugin-jobs "commits halt before enqueue..." (~:131): post-halt TikTok pause_entity now returns {ok:true,value:{status:'unknown',...}} instead of ok:false — tiktok-ads adapter.ts ~:203 uncertain() deliberately maps refused gateway to typed unknown. No network call made. Assertion not loosened.
+OWNER QUESTION (product race) agent-plugin-jobs "closes the admission-to-fetch gap..." (~:636), "retains the subject lane..." (~:747), ingress-worker "holds form withdrawal outside SQLite..." (~:725): a concurrent transaction fails "Database connection failed / handle already has a transaction" ("Contacts storage unavailable" / "Outbox SQL transaction failed") because createSqlitePool.connect fails fast instead of queueing while withdrawConsent/forms.accept hold the single handle in a pre-lane transaction. Tests pass only with an artificial 50 ms sleep (rejected). Needs product decision: queue/serialize on the handle, or move pre-lane reads out of a transaction.
+OWNER QUESTION owner-api "freezes canonical refs and resolves only the current run images..." (:341): readRunImage (apps/server/src/runs.ts:179) uses asset.record.originalFilename ?? ref.name; Jini 0.6.15-rc.2 media-service sets originalFilename null for images, so caller-name.png wins over canonical.png. Product should derive canonical name another way, or expectation changes — tied to Jini upgrade.
+
+APPS/STUDIO (all fixed (test); no product changes)
+- addons.test.ts (8): page now also loads conversion-grants panel (om_measure_grants_list) — stubs answer it (~:305,:332,:375); second role=alert → assert every alert is secret-free (:232).
+- shell.test.ts (5): default theme modern unstored (:168); jsdom lacks CSS.escape — test-env shim; render root wraps Shell in StudioErrorBoundary (composition/index.ts:48) (:204); shell writes om.sidebar-rail.v1 on mount — assert no other key written (:279); Jini rc.2 composer has no aria-label "Message" → placeholder query (:381); leftover selection → removeAllRanges (:441). Coordinator: added 30 s per-test timeout to "executes every composed theme/accent..." (4.4 s alone, >5 s default under full suite; no assertion change) (:273).
+- browser-tools.test.ts:183 title rendered twice by design → heading role query.
+- chat-parity.test.ts:238 Jini rc.2 labels cancelled run "Stopped" (was "Canceled"). Owner may confirm.
+- conversion-grants.test.ts:97 parse grant request via pick schema.
+- jini-chat-transport.test.ts:137 image rejection removed on purpose (c17ccf4); test now asserts invalid attachment rejected with no run started. Valid-image coverage not added (follow-up).
+- navigation.test.ts:76 StudioTrack signature ({name},{properties}).
+
+COMMITS: studio cluster, server cluster A (backends+om-tools), catalog-composition, server cluster B (incl. brand product fix), shell timeout + report.
+NOT RUN (per caps): full workspace/plugin suites, om:check, lint/boundaries, brand package tests (only @open-marketing/brand rebuilt).

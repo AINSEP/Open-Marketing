@@ -270,7 +270,7 @@ it("executes every composed theme/accent page handle and renders its actual prev
     expect([...f.values]).toEqual(saved); expect(f.storage.setItem).toHaveBeenCalledTimes(writes);
     for (const theme of THEMES) expectThemePreview({ container: f.container, theme, scheme: "dark", accent: "violet" });
   } finally { await f.dispose(); }
-});
+}, 30000); // Renders every theme × accent preview; ~4–5 s locally exceeds the 5 s default under full-suite load.
 
 it("denies composed theme/accent page actions without a live run and preserves the previews", async () => {
   const f = await composedAppearanceFixture();

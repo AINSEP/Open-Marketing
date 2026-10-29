@@ -1,0 +1,459 @@
+
+> @open-marketing/server@0.0.0 test /home/user/Open-Marketing/apps/server
+> vitest run tests
+
+
+ RUN  v3.2.4 /home/user/Open-Marketing/apps/server
+
+ ❯ tests/ingress-worker.test.ts (43 tests | 1 failed) 12652ms
+   ✓ public lead acceptance is async, exact, linked to a landing, visible in studio and replay-safe after restart  385ms
+   ✓ binds heartbeat metadata to the validated transport origin: 'ready' / 'https://sandbox.example.test' 51ms
+   ✓ binds heartbeat metadata to the validated transport origin: 'missing' / undefined 41ms
+   ✓ binds heartbeat metadata to the validated transport origin: 'missing' / 'https://other.example.test' 37ms
+   ✓ rejects collection without literal consent before cookie or persistence: undefined 55ms
+   ✓ rejects collection without literal consent before cookie or persistence: false 74ms
+   ✓ rejects collection without literal consent before cookie or persistence: "true" 98ms
+   ✓ leaves hosted GET untracked with the nonce'd banner CSP and issues Secure visits after a stored grant 43ms
+   ✓ writes no visit, cookie or touch without a stored marketing grant: 'no choice' 52ms
+   ✓ writes no visit, cookie or touch without a stored marketing grant: 'pending grant' 44ms
+   ✓ writes no visit, cookie or touch without a stored marketing grant: 'US region hint without a choice' 45ms
+   ✓ writes no visit, cookie or touch without a stored marketing grant: 'reject' 38ms
+   ✓ writes no visit, cookie or touch without a stored marketing grant: 'GPC' 32ms
+   ✓ writes no visit, cookie or touch without a stored marketing grant: 'DNT' 34ms
+   ✓ stores a same-origin Jini receipt, serves the client and clears the visit cookie on DELETE /c 47ms
+   ✓ accepts a form POST without a grant unattributed even with a valid visit cookie 66ms
+   ✓ captures the user agent only on consented /c, rejects a browser-supplied one, enriches identifiers after binding and erases them 174ms
+   ✓ keeps a form lead unattributed with an unusable visit cookie: expired 57ms
+   ✓ keeps a form lead unattributed with an unusable visit cookie: duplicate 48ms
+   ✓ keeps a form lead unattributed with an unusable visit cookie: forged 48ms
+   ✓ attributes a bare OM campaign ID only after a scoped lookup and rejects unknown or foreign IDs 31ms
+   ✓ rejects a tracked-link campaign outside scope and a conflicting campaign claim before collection 32ms
+   ✓ retains the accepted lead receipt when conversion sharing is unchecked 66ms
+   ✓ retains the accepted lead receipt when conversion sharing is withdrawn 97ms
+   ✓ worker failure rolls back contact/evidence/visit; retry and lost acknowledgement do not duplicate acceptance 89ms
+   ✓ duplicate fields, wrong scope, forged/expired visits and address properties fail before ingress persistence 51ms
+   ✓ privacy blocks before phases, failed removal remains blocked, retry purges answers/identifiers/visits and prevents revival 193ms
+   ✓ the actual boot root seeds the public form and starts/stops its acceptance worker without owner authentication  8862ms
+   ✓ atomically suppresses a merged family, cancels queued work, fences attempts and preserves all states after restart 81ms
+   ✓ rolls back the whole erasure request on suppression, cancellation journal or request persistence failure 63ms
+   ✓ recovers a crash around dispatch-start after reopening SQLite without replaying either attempt 70ms
+   × holds form withdrawal outside SQLite until the active subject attempt finishes 75ms
+     → expected { ok: false, error: { …(3) } } to match object { ok: true, …(1) }
+(4 matching properties omitted from actual)
+   ✓ rolls back identity drift in acceptance and retries once under the newly resolved subject lane 97ms
+   ✓ captures one new form lead through worker retry, receipt replay and restart 103ms
+   ✓ a conflicting source rolls back acceptance without adding a lead or receipt 52ms
+   ✓ freezes scoped paid evidence, preserving the enquiry: 'observed' / age +0 80ms
+   ✓ freezes scoped paid evidence, preserving the enquiry: 'observed' / age 2592000000 75ms
+   ✓ freezes scoped paid evidence, preserving the enquiry: 'observed' / age 2592000001 74ms
+   ✓ freezes scoped paid evidence, preserving the enquiry: 'foreign' / age +0 87ms
+   ✓ freezes scoped paid evidence, preserving the enquiry: 'missing' / age +0 83ms
+   ✓ freezes scoped paid evidence, preserving the enquiry: 'failed' / age +0 86ms
+   ✓ freezes scoped paid evidence, preserving the enquiry: 'saturated' / age +0  367ms
+   ✓ freezes scoped paid evidence, preserving the enquiry: 'over-limit' / age +0  359ms
+ ❯ tests/owner-api.test.ts (15 tests | 1 failed) 15696ms
+   ✓ lists persisted campaigns with scoped pagination, CLI parity and actual observed status 165ms
+   ✓ reads and answers existing exact cards over HTTP/CLI without enqueuing or reserving any effect 69ms
+   ✓ rejects forged and missing trusted approvers on catalog=false answer paths 14ms
+   ✓ rejects forged and missing trusted approvers on catalog=true answer paths 17ms
+   ✓ authenticates before reading bodies and records only a local halt while remote stop remains pending 44ms
+   ✓ real boot serves studio HTTP configuration, keeps read-only allowance free of writes and persists halt across restart  15268ms
+   ✓ authenticates event ingestion before body reads, enforces origin/bytes and rejects trace claims 27ms
+   ✓ answers once and rejects repeated answers on catalog=false paths 11ms
+   ✓ answers once and rejects repeated answers on catalog=true paths 9ms
+   ✓ authenticates image uploads before body reads and enforces the raw 1 MiB cap 17ms
+   ✓ returns the safe image upload refusal for 'invalid_input' 4ms
+   ✓ returns the safe image upload refusal for 'unavailable' 5ms
+   ✓ rejects missing/foreign attachments and partial-invalid batches before acceptance or launch 14ms
+   ✓ rejects Sandbox images explicitly without launching 4ms
+   × freezes canonical refs and resolves only the current run images; trashed assets fail opaque 26ms
+     → expected { …(5) } to match object { attachments: [ { …(3) } ], …(1) }
+(8 matching properties omitted from actual)
+ ❯ tests/agent-plugin-jobs.test.ts (51 tests | 3 failed) 1441ms
+   × commits halt before enqueue, obtains a fresh worker permit, and never replays an uncertain stop 152ms
+     → expected { ok: true, value: { …(6) } } to match object { ok: false }
+(7 matching properties omitted from actual)
+   ✓ does not enqueue mixed-invalid halt targets and keeps local halt when remote work is unavailable 11ms
+   ✓ rejects a stale halt epoch and unadmitted stop before token/network access 40ms
+   ✓ records 'protocol_mismatch' when a plugin returns 'delivered' without native egress 37ms
+   ✓ records 'unavailable' when a plugin returns 'unknown' without native egress 20ms
+   ✓ records 'unavailable' when a plugin returns 'throw' without native egress 20ms
+   ✓ records 'unavailable' when a plugin returns 'malformed' without native egress 45ms
+   ✓ keeps a native-fetch exception uncertain and completes the outbox for reconciliation 48ms
+   ✓ claim-less readback enforces 'GET' (false Request) without outbox changes 35ms
+   ✓ claim-less readback enforces 'POST' (false Request) without outbox changes 39ms
+   ✓ claim-less readback enforces 'POST' (true Request) without outbox changes 32ms
+   ✓ hands the worker lease to A3 for exactly one dispatch-start and durable completion 42ms
+   ✓ rejects a worker lease replaced during conversion loading before credentials or egress 19ms
+   ✓ selects a replacement conversion destination and forwards its install settings through guarded dependencies 36ms
+   ✓ rechecks consent at dispatch and after token resolution, with zero egress after withdrawal 50ms
+   ✓ delivers contacts digests through the plugin once and never resends a delivered identity 41ms
+   ✓ refuses conversion egress when halt commits after an earlier unhalted snapshot 23ms
+   ✓ refuses conversion egress when the plugin is unadmitted during the final consent await 22ms
+   ✓ holds the shared halt barrier until an in-flight conversion fetch finishes 29ms
+   ✓ local mode and unadmitted conversion backends make zero credential/network calls 26ms
+   ✓ serializes an in-flight ordinary write with local halt and rejects later writes 81ms
+   ✓ dispatches the canonical safety-issued permit through the LinkedIn halt capability 45ms
+   ✓ rejects a lease that expires while final policy evidence is awaited, without starting fetch 31ms
+   ✓ serializes conversion dispatch against alias 'withdrawal' and blocks fresh work after withdrawal commits 60ms
+   ✓ serializes conversion dispatch against alias 'merge' and blocks fresh work after withdrawal commits 38ms
+   ✓ commits withdrawal first, durably denies the claim, and makes zero sends 15ms
+   ✓ commits erasure first and fences the existing leased conversion without sending 20ms
+   × closes the admission-to-fetch gap while unrelated subjects can commit with SQLite closed 25ms
+     → Contacts storage unavailable
+   ✓ fails closed on admission audit failure and cannot egress or nest a root transaction 25ms
+   ✓ evaluates current pending erasure inside admission and commits denial without starting dispatch 32ms
+   ✓ evaluates current erased erasure inside admission and commits denial without starting dispatch 19ms
+   ✓ rolls back admission on a current-evidence failure and records a definite refusal 21ms
+   ✓ rolls back failed admission evidence and separately completes the definite refusal 19ms
+   ✓ rejects a missing outbox claim before egress 10ms
+   ✓ rejects a token outbox claim before egress 10ms
+   ✓ rejects a expired outbox claim before egress 11ms
+   ✓ rejects a identity outbox claim before egress 11ms
+   ✓ rejects a dispatching outbox claim before egress 10ms
+   ✓ rejects a tenant outbox claim before egress 10ms
+   ✓ records exactly one dispatch transition and checks abortion immediately after final admission 26ms
+   ✓ honors withdrawal through an alias before canonical conversion dispatch 17ms
+   × retains the subject lane until the delivery ledger and outbox outcome are durable 22ms
+     → Outbox SQL transaction failed
+   ✓ activity follows direct plugin identities, scope, uncertain states and nested campaign constituents 15ms
+   ✓ unresolved creative.generate work denies cleanup rather than assuming zero activity 9ms
+   ✓ unresolved measure.conversion work denies cleanup rather than assuming zero activity 8ms
+   ✓ unresolved campaign.create work denies cleanup rather than assuming zero activity 16ms
+   ✓ invalid activity invalid-json fails closed 9ms
+   ✓ invalid activity oversized fails closed 9ms
+   ✓ invalid activity missing-constituents fails closed 10ms
+   ✓ invalid activity wrong-handler fails closed 10ms
+   ✓ invalid activity overflow fails closed 22ms
+ ❯ tests/agent-plugin-backends.test.ts (120 tests | 2 failed) 8734ms
+   ✓ sends only through the selected declared mail provider with call-local settings, credentials and time 78ms
+   ✓ refuses provider success without a guarded send or quota reservation 19ms
+   ✓ refuses mail before native egress with no unknown flag: unadmitted 11ms
+   ✓ refuses mail before native egress with no unknown flag: disabled 8ms
+   ✓ refuses mail before native egress with no unknown flag: stale revision after credentials 8ms
+   ✓ refuses mail before native egress with no unknown flag: stale bundle after credentials 8ms
+   ✓ refuses mail before native egress with no unknown flag: withdrawn admission after credentials 8ms
+   ✓ refuses mail before native egress with no unknown flag: stale revision after reserve 8ms
+   ✓ refuses mail before native egress with no unknown flag: withdrawn consent 8ms
+   ✓ refuses mail before native egress with no unknown flag: existing reservation 8ms
+   ✓ reports sender not bound without credentials or HTTP: unknown plugin 10ms
+   ✓ reports sender not bound without credentials or HTTP: unknown descriptor 11ms
+   ✓ reports sender not bound without credentials or HTTP: entry mismatch 11ms
+   ✓ reports sender not bound without credentials or HTTP: missing default 11ms
+   ✓ reports sender not bound without credentials or HTTP: invalid provider 11ms
+   ✓ reports sender not bound without credentials or HTTP: registry ID refusal 11ms
+   ✓ reports sender not bound without credentials or HTTP: feedback disagreement 11ms
+   ✓ reports sender not bound without credentials or HTTP: credential keys disagreement 11ms
+   ✓ reports sender not bound without credentials or HTTP: malformed descriptor 11ms
+   ✓ refuses missing mail credentials and redacts credential-boundary failures 7ms
+   ✓ converts provider configuration refusals into fixed pre-egress outcomes 8ms
+   ✓ allows only one mail HTTP attempt even if a provider sends concurrently 9ms
+   ✓ keeps submitted mail uncertain and secret-free: native failure 8ms
+   ✓ keeps submitted mail uncertain and secret-free: oversized response 11ms
+   ✓ keeps submitted mail uncertain and secret-free: provider throw after send 8ms
+   ✓ preserves definitive provider back-pressure without echoing provider error text 9ms
+   ✓ fences LinkedIn admission before its adapter can resolve credentials or claim a mutation 129ms
+   ✓ rechecks the owning campaign card after LinkedIn credentials resolve and before transport 44ms
+   ✓ exposes vendor-owned schemas/policies but unadmitted plugins make zero credential and fetch calls  332ms
+   ✓ resolves only the invoking plugin token freshly with a server-created service context 91ms
+   ✓ denies disable/revision changes while credentials are pending, before fetch 84ms
+   ✓ skips disabled backends, admits uploaded entries and rejects malformed commands before credentials 53ms
+   ✓ isolates one plugin state failure while healthy tools remain discoverable 88ms
+   ✓ isolates one plugin module failure while healthy tools remain discoverable 74ms
+   ✓ isolates one plugin descriptors failure while healthy tools remain discoverable 104ms
+   ✓ claims the one durable outbox once across binding recreation and leaves uncertain outcomes for reconciliation 26ms
+   ✓ fences an exact-expiry checkpoint and completion without granting a duplicate attempt 20ms
+   ✓ uses one exact spend card for each single-entity activation and never a gateway card 211ms
+   ✓ rechecks halt after a write credential lookup and leaves the claimed outcome uncertain without fetching 45ms
+   ✓ Instagram fetch encoding stays in the plugin and refuses redirected/oversized responses 5ms
+   ✓ fences rebuilt bundle bytes during credential access and changes catalog revisions/import URLs 46ms
+   × recognizes Higgsfield as an agent plugin while leaving its hosted descriptors to federation 84ms
+     → expected true to be false // Object.is equality
+   ✓ coverage distinguishes unadmitted vendor tools and names the remaining owning workflow gaps 67ms
+   ✓ native bundle digests cover actual bytes, change on rebuild, and reject oversized files 43ms
+   ✓ executes both social hierarchies under one card/job and reconciles through the read-only catalog  358ms
+   ✓ resolves only the frozen deployment plugin without paging or importing unrelated plugins 76ms
+   ✓ keeps Meta success and LinkedIn partial references after failure/restart without replay or rollback  456ms
+   ✓ denies deployment egress when admission changes during credential resolution 223ms
+   ✓ denies deployment egress when binding changes during credential resolution 205ms
+   ✓ denies deployment egress when halt changes during credential resolution 298ms
+   ✓ denies deployment egress when approval changes during credential resolution 197ms
+   ✓ denies deployment egress when revision changes during credential resolution 237ms
+   ✓ denies deployment egress when cancel changes during credential resolution 258ms
+   × sends nothing when the owning run is cancelled during the final awaited approval verification 231ms
+     → expected 2 to be 1 // Object.is equality
+   ✓ propagates owning cancellation into an in-flight Google request alongside its transport timeout 48ms
+   ✓ preserves the latest validated receipt across repeated failed reconciliation (malformed later receipt: false)  431ms
+   ✓ preserves the latest validated receipt across repeated failed reconciliation (malformed later receipt: true)  402ms
+   ✓ recovers all receipt IDs after the ad acknowledgement checkpoint fails, without replay 215ms
+   ✓ recovers all receipt IDs after the creative acknowledgement checkpoint fails, without replay 291ms
+   ✓ deduplicates checkpoint aliases by vendor ID and ignores malformed later references during social recovery  372ms
+   ✓ Google validates before creation and refuses an unsafe validator (secret null, validator admitted true, effects ["read"]) 150ms
+   ✓ Google validates before creation and refuses an unsafe validator (secret AAAAAAAAAAAAAAAAAAAAAA, validator admitted true, effects ["read"]) 79ms
+   ✓ Google validates before creation and refuses an unsafe validator (secret null, validator admitted false, effects ["read"]) 17ms
+   ✓ Google validates before creation and refuses an unsafe validator (secret null, validator admitted true, effects ["read","write"]) 26ms
+   ✓ unadmitted preparation/dispatch and unresolved or incompatible metadata perform no credential access 21ms
+   ✓ rejects unverified linkedin-ads destinations without credentials, egress or enqueue 17ms
+   ✓ rejects duplicate step dispatch and foreign/oversized checkpoints in the owning journal 11ms
+   ✓ includes TikTok in the one grouped card/job and preserves partial outcomes (failure: false)  512ms
+   ✓ includes TikTok in the one grouped card/job and preserves partial outcomes (failure: true)  564ms
+   ✓ rechecks TikTok admission during credential lookup after the other vendors finish  513ms
+   ✓ exposes only the approved write capability with a fresh owner card and dispatches through the outbox 17ms
+   ✓ keeps organic publishing unavailable in read_only mode before constructing a handler 9ms
+   ✓ dispatches halt with the permit and guarded capability: 'no halt manifest row' 11ms
+   ✓ dispatches halt with the permit and guarded capability: 'missing handler' 9ms
+   ✓ dispatches halt with the permit and guarded capability: 'revision mismatch' 9ms
+   ✓ dispatches halt with the permit and guarded capability: 'binding changed' 11ms
+   ✓ dispatches halt with the permit and guarded capability: 'expired at fetch' 18ms
+   ✓ dispatches halt with the permit and guarded capability: 'handler throws' 9ms
+   ✓ discovers a sixth uploaded plugin and invokes it with the catalog read floor without a new vendor branch 12ms
+   ✓ skips enabled skill-only and unbuilt plugins before hashing or importing 8ms
+   ✓ does not turn legacy string declarations into executable capabilities 8ms
+   ✓ accepts server-built configuration through the real TikTok source factory and guarded invoker 38ms
+   ✓ settles deadline cancellation even when a handler ignores its signal 9ms
+   ✓ settles caller cancellation even when a handler ignores its signal 8ms
+   ✓ pages installed discovery and isolates malformed declarations from a healthy plugin 27ms
+   ✓ keeps a callable capability when the same plugin also declares a reserved ID 9ms
+   ✓ keeps generic tools when createCapabilities is missing 10ms
+   ✓ keeps capabilities when tools have no createTools factory 11ms
+   ✓ refuses duplicate, reserved and malformed canonical declarations 0 8ms
+   ✓ refuses duplicate, reserved and malformed canonical declarations 1 8ms
+   ✓ refuses duplicate, reserved and malformed canonical declarations 2 8ms
+   ✓ refuses duplicate, reserved and malformed canonical declarations 3 7ms
+   ✓ refuses duplicate, reserved and malformed canonical declarations 4 7ms
+   ✓ refuses duplicate, reserved and malformed canonical declarations 5 8ms
+   ✓ refuses duplicate, reserved and malformed canonical declarations 6 8ms
+   ✓ refuses duplicate, reserved and malformed canonical declarations 7 8ms
+   ✓ retains raised write effects and refuses a direct typed read 9ms
+   ✓ retains raised ad_spend effects and refuses a direct typed read 9ms
+   ✓ retains raised conversion effects and refuses a direct typed read 10ms
+   ✓ retains raised halt_stop effects and refuses a direct typed read 9ms
+   ✓ does not infer execution authority from discovery or an absent ABI/entry 23ms
+   ✓ parses canonical input/output and refuses status identities outside the request 20ms
+   ✓ rechecks declaration changes during credential resolution before egress 9ms
+   ✓ rechecks entry changes during credential resolution before egress 8ms
+   ✓ rechecks account changes during credential resolution before egress 8ms
+   ✓ rechecks scope changes during credential resolution before egress 8ms
+   ✓ refuses reporting batches with a schema-valid foreign account or window 20ms
+   ✓ routes an effectful canonical capability through the existing generic approval card 26ms
+   ✓ rejects cyclic discovery cursors without loading any plugin 9ms
+   ✓ validates tracking campaign scope before constructing the plugin and accepts inert text output 13ms
+   ✓ invokes the real 'twilio-sms' read factory through the guarded server catalog 13ms
+   ✓ invokes the real 'whatsapp-business' read factory through the guarded server catalog 13ms
+   ✓ invokes connection-only tools without an account and refuses other unbound calls before effects 11ms
+   ✓ discovers Meta Instagram accounts through only the generic source exports without an account 14ms
+   ✓ makes malformed generic declarations unavailable without constructing their factory 8ms
+   ✓ skips backend halt capabilities while keeping a declared read capability 11ms
+   ✓ forwards fresh plugin-bound secrets without enriching another plugin or echoing a failing handler 12ms
+   ✓ uses only the real TikTok fixed exports and projects strict egress fields for advertiser reads 18ms
+   ✓ uses generic deployment exports, saved evidence and the receipt draft state 24ms
+   ✓ uses generic deployment exports, saved evidence and the receipt paused state 45ms
+ ✓ tests/om-tools.test.ts (102 tests) 41617ms
+   ✓ bounds pending operation retention and revokes every retained card on disposal  792ms
+   ✓ lists a seeded bundled agent-plugin source in the catalog after real boot restores its enabled state  28648ms
+   ✓ authenticates the real frontend stream and carries its binding through a sandbox run  8469ms
+   ✓ S1R1F regressions / memory > completes 300 small operations and replays the oldest evicted body across restart  988ms
+   ✓ S1R1F regressions / sql > completes 300 small operations and replays the oldest evicted body across restart  1301ms
+ ✓ tests/catalog-composition.test.ts (29 tests) 25336ms
+   ✓ shared generation completion > reaches boot readiness after creative recovery outcome  8179ms
+   ✓ shared generation completion > reaches boot readiness after creative recovery throw  7673ms
+   ✓ real boot injects direct chart inventory into the catalog as providers enable and disable  7551ms
+ ✓ tests/agent-process.test.ts (8 tests) 15879ms
+   ✓ local agent supervisor / memory > scopes grants, rejects replays with changed payloads and revokes immediately on cancellation  4136ms
+   ✓ local agent supervisor / process > scopes grants, rejects replays with changed payloads and revokes immediately on cancellation  314ms
+   ✓ local agent supervisor / process > expires scoped authority while context is blocked and shows interruption instead of success  341ms
+   ✓ a server callback outage is recovered as an error through real authenticated child polling  334ms
+   ✓ boot wires a real child, HTTP owner routes and om ask prompt-file polling; JSON remains one receipt  10450ms
+ ✓ tests/conversations.test.ts (22 tests) 10103ms
+   ✓ composes an agent Jini turn through the REAL server broker and a fixture upstream  9801ms
+ ✓ tests/addons.test.ts (49 tests) 3061ms
+ ✓ tests/alerts-jobs.test.ts (72 tests) 1096ms
+ ✓ tests/chart-assets.test.ts (14 tests) 10105ms
+   ✓ seeds all three chart plugins disabled and preserves their revisions on restart  330ms
+   ✓ dispatches chart inventory/assets through real boot owner authentication and enable/disable  9434ms
+ ✓ tests/model-broker.test.ts (43 tests) 731ms
+ ✓ tests/campaign-launch.test.ts (15 tests) 730ms
+ ✓ tests/p1-reporting-runtime.test.ts (15 tests) 873ms
+ ✓ tests/spike/transaction.test.ts (15 tests) 846ms
+ ✓ tests/site-guide.test.ts (27 tests) 790ms
+ ✓ tests/integrations.test.ts (50 tests) 493ms
+ ✓ tests/addon-tools.test.ts (16 tests) 724ms
+ ✓ tests/integration-credential-cards.test.ts (68 tests) 704ms
+ ✓ tests/tool-operations.test.ts (8 tests) 585ms
+ ✓ tests/weekly-report.test.ts (12 tests) 563ms
+ ✓ tests/message-send.test.ts (10 tests) 318ms
+ ✓ tests/cli/addons.test.ts (78 tests) 303ms
+ ✓ tests/p1-alerts.test.ts (15 tests) 223ms
+ ✓ tests/messaging-webhooks.test.ts (11 tests) 312ms
+ ✓ tests/provider-settings.test.ts (10 tests) 217ms
+ ✓ tests/message-composer.test.ts (5 tests) 198ms
+ ✓ tests/brand-surfaces.test.ts (4 tests) 201ms
+ ✓ tests/cli/cli.test.ts (93 tests) 148ms
+ ✓ tests/addon-federation.test.ts (13 tests) 162ms
+ ✓ tests/integration-oauth-vendors.test.ts (20 tests) 124ms
+ ✓ tests/subject-lane.test.ts (5 tests) 59ms
+ ✓ tests/p1-tracking.test.ts (23 tests) 224ms
+ ✓ src/platform/jini-compat/db/tests/migrations.test.ts (10 tests) 47ms
+ ✓ tests/alerts.test.ts (25 tests) 85ms
+ ✓ tests/measurement-grants.test.ts (3 tests) 41ms
+ ✓ tests/db/sqlite.test.ts (8 tests) 35ms
+ ✓ tests/observability.test.ts (1 test) 13ms
+ ✓ tests/spike/digest-stability.test.ts (2 tests) 9ms
+ ✓ tests/consent-limit.test.ts (2 tests) 9ms
+ ✓ tests/bundled-skill-content.test.ts (15 tests) 10ms
+ ✓ tests/shell.test.ts (3 tests) 6ms
+ ✓ tests/boot.test.ts (15 tests) 106902ms
+   ✓ commits owner identity and audit together through boot HTTP, rejecting agent tokens and rolling back audit/update faults  14883ms
+   ✓ boots on SQLite, serves built studio, publishes desktop readiness and shares CLI discovery  8233ms
+   ✓ restarts without migration drift or owner/workspace changes; isolated roots reject each other  21291ms
+   ✓ authenticates before body reads, enforces Host/Origin and expiry, and leaves local effects unavailable  7996ms
+   ✓ CLI refuses to send a state-root token to a remote origin and rejects non-private credentials  9400ms
+   ✓ bind/readiness failures close SQLite and never publish another readiness line  15623ms
+   ✓ authenticates google-ads management, approves start once and enforces admission on the exact browser GET  11742ms
+   ✓ authenticates meta-ads management, approves start once and enforces admission on the exact browser GET  11173ms
+   ✓ registers owner mail settings behind bearer and cookie Origin authentication  6118ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/agent-plugin-backends.test.ts > recognizes Higgsfield as an agent plugin while leaving its hosted descriptors to federation
+AssertionError: expected true to be false // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- false[39m
+[31m+ true[39m
+
+ ❯ tests/agent-plugin-backends.test.ts:557:95
+    555|         const definitions = value({ result: await f.binding.definition…
+    556|         expect(f.loads.some(url => url.includes('/higgsfield-media/'))…
+    557|         expect(definitions.some(tool => tool.name === 'vendor_higgsfie…
+       |                                                                                               ^
+    558|         expect(f.calls).toEqual([]); expect(f.accesses).toEqual([]);
+    559|     } finally { f.close(); }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/7]⎯
+
+ FAIL  tests/agent-plugin-backends.test.ts > sends nothing when the owning run is cancelled during the final awaited approval verification
+AssertionError: expected 2 to be 1 // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 1[39m
+[31m+ 2[39m
+
+ ❯ tests/agent-plugin-backends.test.ts:777:29
+    775|     try {
+    776|         await f.approve();
+    777|         expect(finalChecks).toBe(1); expect(f.accesses).toHaveLength(1…
+       |                             ^
+    778|         expect(f.calls).toEqual([]);
+    779|         expect(f.native.prepare('SELECT state FROM job').all()).toEqua…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/7]⎯
+
+ FAIL  tests/agent-plugin-jobs.test.ts > commits halt before enqueue, obtains a fresh worker permit, and never replays an uncertain stop
+AssertionError: expected { ok: true, value: { …(6) } } to match object { ok: false }
+(7 matching properties omitted from actual)
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "ok": false,[39m
+[31m+   "ok": true,[39m
+[2m  }[22m
+
+ ❯ tests/agent-plugin-jobs.test.ts:131:211
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/7]⎯
+
+ FAIL  tests/agent-plugin-jobs.test.ts > closes the admission-to-fetch gap while unrelated subjects can commit with SQLite closed
+Error: Contacts storage unavailable
+ ❯ value tests/agent-plugin-jobs.test.ts:39:89
+     37| const clock = { now: () => 1000 };
+     38| const observer = { observe() {} };
+     39| function value<T>(required: { result: Outcome<T> }): T { if (!required…
+       |                                                                                         ^
+     40| 
+     41| async function fixture(required: { pluginId?: string; module?: object;…
+ ❯ tests/agent-plugin-jobs.test.ts:639:23
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/7]⎯
+
+ FAIL  tests/agent-plugin-jobs.test.ts > retains the subject lane until the delivery ledger and outbox outcome are durable
+JobStoreError: Outbox SQL transaction failed
+ ❯ transact ../../features/jobs/src/sql.ts:102:19
+ ❯ tests/agent-plugin-jobs.test.ts:749:16
+    747|         withdrawing = withdrawConsent({ f });
+    748|         // This later transaction completes while the withdrawal waits…
+    749|         expect(await f.jobs.outbox.get({ tenantId: jobTenant({ context…
+       |                ^
+    750|         expect(f.native.prepare("SELECT kind FROM policy_evidence WHER…
+    751|         resume.resolve(); expect(await delivering).toEqual({ ok: true,…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/7]⎯
+
+ FAIL  tests/ingress-worker.test.ts > holds form withdrawal outside SQLite until the active subject attempt finishes
+AssertionError: expected { ok: false, error: { …(3) } } to match object { ok: true, …(1) }
+(4 matching properties omitted from actual)
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "ok": true,[39m
+[32m-   "value": {[39m
+[32m-     "subjectId": "6da32baa-ecb7-4ad6-a29d-5a96f494b3cf",[39m
+[32m-   },[39m
+[31m+   "ok": false,[39m
+[2m  }[22m
+
+ ❯ tests/ingress-worker.test.ts:733:34
+    731|         expect(f.native.prepare('SELECT COUNT(*) AS n FROM policy_evid…
+    732|         resume.resolve(); await attempt;
+    733|         expect(await acceptance).toMatchObject({ ok: true, value: { su…
+       |                                  ^
+    734|         expect(JSON.stringify(f.native.prepare('SELECT payload FROM po…
+    735|     } finally { resume.resolve(); await attempt; await acceptance; awa…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/7]⎯
+
+ FAIL  tests/owner-api.test.ts > freezes canonical refs and resolves only the current run images; trashed assets fail opaque
+AssertionError: expected { …(5) } to match object { attachments: [ { …(3) } ], …(1) }
+(8 matching properties omitted from actual)
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -1,9 +1,9 @@[39m
+[2m  {[22m
+[2m    "attachments": [[22m
+[2m      {[22m
+[32m-       "name": "canonical.png",[39m
+[31m+       "name": "caller-name.png",[39m
+[2m        "path": "471a8ac9-50bc-4329-a6a4-2642cfdb826d",[22m
+[2m        "size": 68,[22m
+[2m      },[22m
+[2m    ],[22m
+[2m    "images": [[22m
+
+ ❯ tests/owner-api.test.ts:341:26
+    339|             conversationId: receipt.conversationId!, runId: receipt.ru…
+    340|         const resolved = value({ result: await f.runs.context({ grant …
+    341|         expect(resolved).toMatchObject({ attachments: [{ path: f.asset…
+       |                          ^
+    342|             images: [{ mimeType: 'image/png', data: Buffer.from(attach…
+    343|         const row = f.native.prepare('SELECT settings_json FROM om_ass…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/7]⎯
+
+
+ Test Files  4 failed | 39 passed (43)
+      Tests  7 failed | 1158 passed (1165)
+   Start at  20:03:14
+   Duration  131.73s (transform 5.14s, setup 0ms, collect 51.80s, tests 262.41s, environment 9ms, prepare 3.62s)
+
+ ELIFECYCLE  Test failed. See above for more details.
