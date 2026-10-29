@@ -1,11 +1,11 @@
-import { captureEventSchema, recentEventsSchema, addonListRequestSchema, addonSummarySchema, installAddonSchema, setAddonEnabledSchema, uninstallAddonSchema, connectIntegrationTokenSchema, disconnectIntegrationSchema, pageQuerySchema } from '@open-marketing/contracts';
+import { setConversionSettingsSchema, mailProviderSelectionSchema, pluginSecretQuerySchema, pluginSecretSetSchema, captureEventSchema, recentEventsSchema, addonListRequestSchema, addonSummarySchema, installAddonSchema, setAddonEnabledSchema, uninstallAddonSchema, connectIntegrationTokenSchema, disconnectIntegrationSchema, pageQuerySchema } from '@open-marketing/contracts';
 import type { AddonSummary, IntegrationSummary, CaptureEvent } from '@open-marketing/contracts';
 import { approvalResponseSchema, cancelRunSchema, chatMessageSchema, navigationResultSchema, navigationTargetSchema, parseBoundary } from "@open-marketing/contracts";
 import type { Outcome, RunEvent, NavigationResult, ConfirmationCard, ApprovalResponse } from "@open-marketing/contracts";
 import type { StudioApiPort, StudioRun, StudioPayload } from "./types.js";
 import type { StudioRuntime } from "./types.js";
-import { oauthClientSetSchema, oauthStatusQuerySchema, developerTokenQuerySchema, developerTokenSetSchema, parseStudioSnapshot } from "./validation.js";
-import { sampleSnapshot } from "./sample-data.js";
+import { oauthClientSetSchema, oauthStatusQuerySchema, parseStudioSnapshot } from "./validation.js";
+import { sampleSnapshot, sampleIntegrationPlugins, sampleCredentialCards, sampleMailCandidates } from "./sample-data.js";
 
 interface SampleRun { readonly receipt: StudioRun; readonly prompt: string; cancelled: boolean }
 function unavailable<T>(): Outcome<T> { return { ok: false, error: { code: "unavailable", message: "Sample run unavailable", retryable: false } }; }
@@ -41,6 +41,7 @@ export function createSampleStudioApi(required: { runtime: StudioRuntime }): Stu
     },
     async recentEvents() { return parseBoundary({ schema: recentEventsSchema, input: { items: recent } }); },
     async operation() { return unavailable(); },
+    async setLeadStage() { return unavailable(); },
     addons: sampleAddons({ runtime: required.runtime }),
     async conversations() { return unavailable(); },
     async conversation() { return unavailable(); },
@@ -104,12 +105,28 @@ function matchesCard(required: { card: ConfirmationCard; response: ApprovalRespo
  * @complexity <=100 packages/connections; no network, filesystem, or retained tokens.
  */
 function sampleAddons(required: { runtime: StudioRuntime }): NonNullable<StudioApiPort['addons']> {
-  const packages: AddonSummary[] = [];
+  const packages: AddonSummary[] = sampleIntegrationPlugins.map(row => ({ ...row }));
   const connections = new Map<string, IntegrationSummary>();
   const clients = new Map<string, string>();
-  let developerConfigured = false;
+  const secrets = new Map<string, boolean>();
+  let mailSelected: string | null = null;
+  let mailAlertFrom: string | null = null;
   const invalid = (): Outcome<never> => ({ ok: false, error: { code: 'invalid_input', message: 'Invalid sample add-on request', retryable: false } });
   return {
+    async conversionSettings(input) {
+      const parsed = setConversionSettingsSchema.pick({ pluginId: true }).safeParse({ pluginId: input.pluginId });
+      return parsed.success ? { ok: true, value: { pluginId: parsed.data.pluginId, declaration: null, values: null } } : invalid();
+    },
+    async setConversionSettings() { return { ok: false, error: { code: 'unavailable', message: 'Conversion settings are unavailable in sample mode', retryable: false } }; },
+    async mailProviderSettings() { return { ok: true, value: { selected: mailSelected, alertFrom: mailAlertFrom, candidates: structuredClone(sampleMailCandidates) } }; },
+    async setMailProviderSettings(input) {
+      const parsed = mailProviderSelectionSchema.safeParse(input.request);
+      if (!parsed.success) return invalid();
+      if (parsed.data.selected !== null && !sampleMailCandidates.some(row => row.pluginId === parsed.data.selected)) return invalid();
+      mailSelected = parsed.data.selected;
+      if (parsed.data.alertFrom !== undefined) mailAlertFrom = parsed.data.alertFrom;
+      return { ok: true, value: parsed.data };
+    },
     async setOAuthClient(input) {
       const parsed = oauthClientSetSchema.safeParse(input.request);
       if (!parsed.success) return invalid();
@@ -120,16 +137,19 @@ function sampleAddons(required: { runtime: StudioRuntime }): NonNullable<StudioA
     async oauthStatus(input) {
       if (!oauthStatusQuerySchema.safeParse(input.query).success) return invalid();
       if (!('pluginId' in input.query)) return { ok: true, value: { status: 'expired' } };
-      const clientId = clients.get(input.query.pluginId);
-      return { ok: true, value: clientId ? { configured: true, clientId } : { configured: false } };
+      const { pluginId } = input.query;
+      const clientId = clients.get(pluginId);
+      const status = clientId ? { configured: true, clientId } : { configured: false };
+      const credentialCards = structuredClone(sampleCredentialCards.filter(card => card.pluginId === pluginId));
+      return { ok: true, value: credentialCards.length ? { ...status, credentialCards, connections: [], connectionsCursor: null } : { configured: false } };
     },
-    async setDeveloperToken(input) {
-      const parsed = developerTokenSetSchema.safeParse(input.request);
+    async setPluginSecret(input) {
+      const parsed = pluginSecretSetSchema.safeParse(input.request);
       if (!parsed.success) return invalid();
-      developerConfigured = parsed.data.token !== null;
-      return { ok: true, value: { configured: developerConfigured } };
+      secrets.set(parsed.data.pluginId, parsed.data.values !== null);
+      return { ok: true, value: { configured: secrets.get(parsed.data.pluginId)! } };
     },
-    async developerTokenStatus(input) { if (!developerTokenQuerySchema.safeParse({ pluginId: input.pluginId }).success) return invalid(); return { ok: true, value: { configured: developerConfigured } }; },
+    async pluginSecretStatus(input) { if (!pluginSecretQuerySchema.safeParse({ pluginId: input.pluginId }).success) return invalid(); return { ok: true, value: { configured: secrets.get(input.pluginId) ?? false } }; },
     async list(input) {
       const parsed = addonListRequestSchema.safeParse(input.query);
       if (!parsed.success) return invalid();

@@ -95,7 +95,7 @@ async function fixture(required: { transport: 'memory' | 'http'; blocked?: boole
     if (required.transport === 'http') await new Promise<void>(resolveListening => server.listen(0, '127.0.0.1', resolveListening));
     const address = server.address();
     const port = address && typeof address !== 'string' ? address.port : 32000;
-    const brokerBaseUrl = 'http://127.0.0.1:' + port + '/api/agent/v1/model/anthropic';
+    const brokerBaseUrl = 'http://127.0.0.1:' + port + '/api/agent/v1/model';
     const adapters: ProviderTurnAdapters = { ...providerTurnAdapters, anthropic: (input, options) => providerTurnAdapters.anthropic(input, { ...options,
         extraHeaders: { 'x-correlation-id': 'correlation', 'x-trace-id': 'trace' },
         async fetchImpl({ url, init }) {
@@ -107,7 +107,7 @@ async function fixture(required: { transport: 'memory' | 'http'; blocked?: boole
     const client: ModelClient = { brokerBaseUrl, system: 'Use OM tools.',
         tools: [{ name: 'om_campaigns_get', description: 'Read campaign', effects: ['read'], inputSchema: { type: 'object', properties: { campaignId: { type: 'string' } } } }],
         deadline: () => ({ signal: controller.signal, dispose() {} }),
-        async load() { return { ok: true, value: { settings: { mode: 'model', model: 'claude-sonnet-5-5', connectionId: 'connection' }, messages: [] } }; },
+        async load() { return { ok: true, value: { settings: { mode: 'model', provider: 'acme-models', model: 'claude-sonnet-5-5', connectionId: 'connection' }, protocol: 'anthropic', messages: [] } }; },
         async publish({ event }) { published.push(event); return { ok: true, value: undefined }; },
         async executeTool({ call }) { executions.push(call); return { ok: true, value: required.pending ? { status: 'pending', operationId: call.operationId } : { status: 'completed', output: { campaignId: 'campaign', state: 'paused' } } }; },
     };
@@ -129,7 +129,7 @@ for (const transport of ['memory', 'http'] as const) describe('model runtime / '
             await vi.waitFor(async () => expect((await f.events()).at(-1)?.kind).toBe('ended'));
             expect(f.agentRequests).toHaveLength(2);
             expect(f.upstreamRequests).toHaveLength(2);
-            expect(f.agentRequests.every(request => request.apiKey === bearer && request.url.endsWith('/api/agent/v1/model/anthropic/v1/messages'))).toBe(true);
+            expect(f.agentRequests.every(request => request.apiKey === bearer && request.url.endsWith('/api/agent/v1/model/acme-models/v1/messages'))).toBe(true);
             const second = JSON.parse(f.upstreamRequests[1].body);
             expect(second.messages.at(-1)).toEqual({ role: 'user', content: [{ type: 'tool_result', tool_use_id: 'provider-call', content: '{"campaignId":"campaign","state":"paused"}' }] });
             expect(second.model).toBe('claude-sonnet-5-5'); expect(second.max_tokens).toBe(4096);
@@ -164,6 +164,17 @@ it('rejects expired, revoked, misbound, missing-token and sandbox-only grants wi
         const outside = createModelRuntime({ clock: { now: () => 1000 }, ids: { next: () => 'id' }, adapters: f.adapters,
             client: { ...f.client, brokerBaseUrl: 'https://vendor.invalid' } });
         expect((await outside.startRun(input)).ok).toBe(false); await outside.dispose({});
+    } finally { await f.dispose(); }
+});
+
+it('refuses model context without a protocol before any model egress', async () => {
+    const f = await fixture({ transport: 'memory' });
+    f.client.load = async () => ({ ok: true, value: { settings: { mode: 'model', provider: 'anthropic', model: 'claude-sonnet-5-5', connectionId: 'connection' }, messages: [] } });
+    try {
+        value({ result: await f.runtime.startRun(run({})) });
+        await vi.waitFor(async () => expect((await f.events()).at(-1)).toMatchObject({ kind: 'error', payload: { code: 'unavailable' } }));
+        expect(f.upstreamRequests).toHaveLength(0);
+        expect(f.agentRequests).toHaveLength(0);
     } finally { await f.dispose(); }
 });
 
@@ -377,12 +388,12 @@ it.each(['openai', 'google'] as const)('runs the real Jini %s adapter through fi
     };
     let id = 0;
     const runtime = createModelRuntime({ clock: { now: () => 1000 }, ids: { next: () => 'native-event-' + ++id }, adapters,
-        client: { ...f.client, async load() { return { ok: true, value: { settings: { mode: 'model', provider, model: provider === 'openai' ? 'gpt-5.2' : 'gemini-2.5-flash', connectionId: 'own-key', effort: 'high' }, messages: [] } }; } } });
+        client: { ...f.client, async load() { return { ok: true, value: { settings: { mode: 'model', provider, model: provider === 'openai' ? 'gpt-5.2' : 'gemini-2.5-flash', connectionId: 'own-key', effort: 'high' }, protocol: provider, messages: [] } }; } } });
     try {
         expect((await runtime.startRun(run({}))).ok).toBe(true);
         await vi.waitFor(async () => expect(value({ result: await runtime.events({ runId: 'run', after: 0, limit: 100 }) }).at(-1)?.kind).toBe('ended'));
         expect(seen).toHaveLength(2);
-        const broker = f.client.brokerBaseUrl.replace(/\/anthropic$/, '') + '/' + provider;
+        const broker = f.client.brokerBaseUrl + '/' + provider;
         const suffix = provider === 'openai' ? '/chat/completions' : '/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse';
         expect(seen.map(request => request.url)).toEqual([broker + suffix, broker + suffix]);
         const authentication = provider === 'openai' ? 'authorization' : 'x-goog-api-key';
@@ -404,4 +415,23 @@ it.each(['openai', 'google'] as const)('runs the real Jini %s adapter through fi
         expect(seen.map(request => request.body).join('')).not.toContain(providerKey);
         expect(f.upstreamRequests).toHaveLength(0);
     } finally { await runtime.dispose({}); await f.dispose(); }
+});
+
+it('passes current images through the real Jini adapter only on the final user message', async () => {
+    const f = await fixture({ transport: 'memory' });
+    const image = { mimeType: 'image/png' as const, data: 'aGVsbG8=' };
+    f.client.load = async () => ({ ok: true, value: {
+        settings: { mode: 'model', provider: 'acme-models', model: 'claude-sonnet-5-5', connectionId: 'connection' }, protocol: 'anthropic',
+        messages: [{ id: 'old', role: 'user', text: 'Previous question' }, { id: 'reply', role: 'assistant', text: 'Previous answer' }], images: [image],
+    } });
+    try {
+        value({ result: await f.runtime.startRun(run({})) });
+        await vi.waitFor(async () => expect((await f.events()).at(-1)?.kind).toBe('ended'));
+        const messages = JSON.parse(f.agentRequests[0].body).messages;
+        expect(messages.slice(0, 2)).toEqual([{ role: 'user', content: 'Previous question' }, { role: 'assistant', content: 'Previous answer' }]);
+        expect(messages.at(-1)).toEqual({ role: 'user', content: [
+            { type: 'text', text: 'Find my campaign' }, { type: 'image', source: { type: 'base64', media_type: image.mimeType, data: image.data } },
+        ] });
+        expect(JSON.stringify(f.published)).not.toContain(image.data);
+    } finally { await f.dispose(); }
 });

@@ -24,6 +24,10 @@ export const THEMES = [
     light: { bg: "#f1f1f1", panel: "#ffffff", text: "#0a0a0a", accent: "#0a0a0a" },
     dark: { bg: "#0a0a0a", panel: "#141414", text: "#fafafa", accent: "#f5f5f5" },
   } },
+  { id: "om-ink", label: "OM Ink", preview: {
+    light: { bg: "#ffffff", panel: "#ffffff", text: "#000000", accent: "#000000" },
+    dark: { bg: "#000000", panel: "#101010", text: "#ffffff", accent: "#ffffff" },
+  } },
 ] as const satisfies readonly { id: string; label: string; preview: Record<AdminThemeScheme, ThemePreview> }[];
 export type AdminThemeId = (typeof THEMES)[number]["id"];
 /** Preset swatches mirror accents.css primary fills; null delegates to each theme. */

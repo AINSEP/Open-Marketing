@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /** Executable OM composition. Server-issued run grants choose sandbox or the Jini model runtime. */
 import { providerTurnAdapters } from '@jini-ai/agent-runtime/providers/tool-turn';
+import { readFetchResponseText } from '@jini-ai/platform/fetch-with-timeout';
 import { createModelRuntime } from '../runtime/model.js';
 import { createOmModelClient } from '../om-client/index.js';
 import { createServer } from 'node:http';
@@ -26,26 +27,14 @@ export function parseAgentEnvironment(required: { env: Readonly<Record<string, s
     return parseBoundary({ schema: environmentSchema, input: Object.fromEntries(Object.keys(environmentSchema.shape).map(key => [key, required.env[key]])) });
 }
 
-/** Read bounded OM-only responses; redirect rejection and the signal apply through body consumption. */
+/** Parse OM callback envelopes after a strict UTF-8 read capped at 16 KiB; read failures propagate. */
 async function readResponse<T>(required: { response: Response; schema: z.ZodType<T> }): Promise<Outcome<T>> {
-    const reader = required.response.body?.getReader();
-    if (!reader) throw new Error('Missing callback response');
-    let bytes = 0;
-    const chunks: Uint8Array[] = [];
-    try {
-        while (true) {
-            const chunk = await reader.read();
-            if (chunk.done) break;
-            bytes += chunk.value.byteLength;
-            if (bytes > 16384) throw new Error('Callback response exceeds bound');
-            chunks.push(chunk.value);
-        }
-        const envelope = z.discriminatedUnion('ok', [z.strictObject({ ok: z.literal(true), value: required.schema }), z.strictObject({ ok: z.literal(false), error: appErrorSchema })]);
-        const parsed = parseBoundary({ schema: envelope, input: JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks))) as unknown });
-        if (!parsed.ok) return parsed;
-        if (!required.response.ok && parsed.value.ok) throw new Error('Contradictory callback response');
-        return parsed.value;
-    } finally { await reader.cancel(); reader.releaseLock(); }
+    const text = await readFetchResponseText({ response: required.response }, { maxResponseBytes: 16384, strictUtf8: true });
+    const envelope = z.discriminatedUnion('ok', [z.strictObject({ ok: z.literal(true), value: required.schema }), z.strictObject({ ok: z.literal(false), error: appErrorSchema })]);
+    const parsed = parseBoundary({ schema: envelope, input: JSON.parse(text) as unknown });
+    if (!parsed.ok) return parsed;
+    if (!required.response.ok && parsed.value.ok) throw new Error('Contradictory callback response');
+    return parsed.value;
 }
 
 /** Callback token is derived per server-issued grant, never serialized into events/receipts.

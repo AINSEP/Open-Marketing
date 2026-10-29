@@ -39,3 +39,36 @@ for (const scenario of [
         expect(result.ok).toBe(false);
     }
 });
+
+it.each([
+    { name: 'exact cap', byteLength: 131072, invalidUtf8: false, accepted: true },
+    { name: 'cap plus one', byteLength: 131073, invalidUtf8: false, accepted: false },
+    { name: 'invalid UTF-8', byteLength: 256, invalidUtf8: true, accepted: false },
+])('bounds and strictly decodes tools/list / $name', async scenario => {
+    const body = JSON.stringify({ jsonrpc: '2.0', id: run.grant.grantId, result: { tools: [{ name: 'fixture_tool', description: '~', inputSchema: {} }] } });
+    const bytes = new TextEncoder().encode(body.padEnd(scenario.byteLength, ' '));
+    if (scenario.invalidUtf8) bytes[body.indexOf('~')] = 0xFF;
+    expect(bytes.byteLength).toBe(scenario.byteLength);
+    const client = createOmModelClient({ serverOrigin: 'http://127.0.0.1:31000', observer: { observe() {} },
+        deadline: () => ({ signal: new AbortController().signal, dispose() {} }),
+        async fetch(_url, options) { expect(JSON.parse(String(options?.body))).toMatchObject({ method: 'tools/list' }); return new Response(bytes); } });
+    const result = await client.loadTools!({ run, signal: new AbortController().signal });
+    expect(result).toMatchObject(scenario.accepted ? { ok: true } : { ok: false, error: { code: 'unavailable' } });
+});
+
+it.each([
+    { name: 'large image context', byteLength: 200000, accepted: true },
+    { name: 'exact 8 MiB context cap', byteLength: 8388608, accepted: true },
+    { name: 'context cap plus one', byteLength: 8388609, accepted: false },
+])('permits larger responses only for context / $name', async scenario => {
+    const image = { mimeType: 'image/png', data: 'AAAA'.repeat(35000) };
+    const envelope = { ok: true, value: { settings: { mode: 'model', provider: 'fixture-models', model: 'fixture', connectionId: 'connection' }, messages: [], images: [image] } };
+    const bytes = new TextEncoder().encode(JSON.stringify(envelope).padEnd(scenario.byteLength, ' '));
+    const observed: unknown[] = [];
+    const client = createOmModelClient({ serverOrigin: 'http://127.0.0.1:31000', observer: { observe(event) { observed.push(event); } },
+        deadline: () => ({ signal: new AbortController().signal, dispose() {} }),
+        async fetch(url) { expect(String(url)).toContain('/runs/run/context'); return new Response(bytes); } });
+    const result = await client.load({ run, signal: new AbortController().signal });
+    expect(result).toMatchObject(scenario.accepted ? envelope : { ok: false, error: { code: 'unavailable' } });
+    expect(JSON.stringify(observed)).not.toContain(image.data);
+});

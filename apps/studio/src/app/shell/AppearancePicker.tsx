@@ -14,6 +14,7 @@ export function AppearancePicker(props: { appearance: Appearance }) {
       <ThemeChoice appearance={props.appearance} theme={props.appearance.themes[2]} />
       <ThemeChoice appearance={props.appearance} theme={props.appearance.themes[3]} />
       <ThemeChoice appearance={props.appearance} theme={props.appearance.themes[4]} />
+      <ThemeChoice appearance={props.appearance} theme={props.appearance.themes[5]} />
     </fieldset>
     <div className="appearance-control"><label htmlFor="appearance-mode">Appearance</label>
       <select data-agent-element="appearance-mode" data-agent-role="field" data-agent-label="Appearance" id="appearance-mode" value={props.appearance.preference} onChange={props.appearance.change}>

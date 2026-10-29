@@ -1,7 +1,7 @@
-import { it, expect } from "vitest";
+import { it, expect, vi } from "vitest";
 import type { RunEvent, NavigationResult } from "@open-marketing/contracts";
 import { createChatSession } from "../src/features/chat-run/index.js";
-import { createSampleStudioApi } from "../src/shared/api/index.js";
+import { createHttpStudioApi, createSampleStudioApi } from "../src/shared/api/index.js";
 import type { StudioApiPort } from "../src/shared/api/index.js";
 import { testRuntime } from "./support/runtime.js";
 
@@ -71,4 +71,53 @@ it("a repeated stop cannot convert pending server cancellation into local succes
   const sending = session.send({ text: "a brief" }); await Promise.resolve(); await session.cancel(); await sending; await session.cancel();
   expect(count).toBe(1); expect(session.getSnapshot().status).toBe("cancelling");
   expect(session.getSnapshot().notice).toBe("Cancellation requested; remote completion is unconfirmed."); session.dispose();
+});
+
+it('forwards validated image references through the Jini session transport', async () => {
+  const start = vi.fn<StudioApiPort['start']>(async () => ({ ok: true, value: { runId: 'run-1', status: 'pending', expiresAt: 11000 } }));
+  const { session } = setup({ override: { start } });
+  const ref = { path: 'asset', name: 'image.png', kind: 'image' as const, size: 20 };
+  try {
+    await session.transport.startRun({ history: [{ id: 'question', role: 'user', content: 'Look at this' }], attachments: [ref], signal: new AbortController().signal }, { onEvent() {}, onError() {}, onDone() {} });
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(start.mock.calls[0][0]).toMatchObject({ message: { text: 'Look at this' }, attachments: [ref] });
+  } finally { session.dispose(); }
+});
+it('invalid image refs and partial-invalid batches fail before a send or local transcript insertion', async () => {
+  const start = vi.fn<StudioApiPort['start']>();
+  const { session } = setup({ override: { start } });
+  const ref = { path: 'asset', name: 'image.png', kind: 'image' as const, size: 20 };
+  try {
+    for (const attachments of [[{ ...ref, name: 'bad/filename' }], [{ ...ref, size: 1048577 }], [ref, { ...ref, kind: 'file' as const }], Array(5).fill(ref)]) {
+      await expect(session.transport.startRun({ history: [{ id: 'question', role: 'user', content: 'Look' }], attachments, signal: new AbortController().signal }, { onEvent() {}, onError() {}, onDone() {} })).rejects.toThrow('Invalid attachment.');
+    }
+    expect(start).not.toHaveBeenCalled(); expect(session.getSnapshot().messages).toEqual([]);
+  } finally { session.dispose(); }
+});
+
+it('uploads raw image bytes, validates server refs and includes them in the HTTP run request', async () => {
+  const host = testRuntime(); const observed: unknown[] = [];
+  const ref = { path: 'asset', name: 'private image.png', kind: 'image' as const, size: 4 };
+  const calls: { url: string; body: unknown; contentType: string | null }[] = [];
+  let invalidReply = false;
+  const api = createHttpStudioApi({ baseUrl: 'http://localhost', runtime: host.runtime, observer: { observe(event) { observed.push(event); } },
+    async fetch(url, options) {
+      calls.push({ url: String(url), body: options?.body, contentType: new Headers(options?.headers).get('content-type') });
+      if (String(url).includes('/api/attachments')) return Response.json({ ok: true, value: invalidReply ? { ...ref, kind: 'file' } : ref });
+      return Response.json({ ok: true, value: { runId: 'run-1', status: 'pending', expiresAt: 11000 } });
+    } });
+  const file = new File(['data'], ref.name, { type: 'image/png' });
+  const signal = new AbortController().signal;
+  expect(await api.attachments!.upload({ file, signal })).toEqual({ ok: true, value: ref });
+  expect(calls[0]).toEqual({ url: 'http://localhost/api/attachments?name=private%20image.png', body: file, contentType: 'application/octet-stream' });
+  await api.start({ message: { id: 'question', role: 'user', text: 'Look' }, attachments: [ref], signal });
+  expect(JSON.parse(String(calls[1].body))).toEqual({ prompt: 'Look', attachments: [ref] });
+  expect(calls[1].contentType).toBe('application/json');
+  invalidReply = true;
+  expect((await api.attachments!.upload({ file, signal })).ok).toBe(false);
+  const controller = new AbortController(); controller.abort();
+  expect(await api.attachments!.upload({ file, signal: controller.signal })).toMatchObject({ ok: false, error: { code: 'cancelled' } });
+  expect(calls).toHaveLength(3);
+  expect(JSON.stringify(observed)).not.toContain(ref.name);
+  expect(host.pending()).toBe(0);
 });

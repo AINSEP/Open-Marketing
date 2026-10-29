@@ -7,6 +7,9 @@ import { useShell } from "./Shell.hooks.js";
 import type { ShellProps, NavLink, NavGroup } from "./Shell.hooks.js";
 import { Events } from "./Events.js";
 import { AppearancePicker } from "./AppearancePicker.js";
+import { TrackingPage } from "../../pages/tracking/index.js";
+import { LeadsPage } from "../../pages/leads/index.js";
+import { MeasurePage } from "../../pages/measure/index.js";
 
 /** One operator application: feature rail, central canvas, global docked assistant. */
 export function Shell(props: ShellProps) {
@@ -18,6 +21,8 @@ export function Shell(props: ShellProps) {
       <div className="canvas-content"><header className="page-heading"><div><span className="eyebrow">{shell.sidebar.groupLabel}</span><h1 tabIndex={-1} ref={shell.headingRef}>{shell.page.label}</h1><p>{shell.page.description}</p></div><span className="mode-badge" role="status" data-state={shell.connection.state}>{shell.connection.badge}</span></header>
         {shell.error && <p role="alert" className="error-notice">{shell.error}</p>}
         {shell.target === "settings" && <><AppearancePicker appearance={shell.appearance} /><Events api={props.api} runtime={props.runtime} /></>}
+        {shell.target === "measure" && <><TrackingPage api={props.api} runtime={props.runtime} /><MeasurePage api={props.api} runtime={props.runtime} /></>}
+        {shell.target === "activity" && <LeadsPage api={props.api} runtime={props.runtime} />}
         {shell.addonTarget ? <AddonPage target={shell.addonTarget} api={props.api} runtime={props.runtime} /> : shell.snapshot && shell.canvasTarget ? <WorkspaceCanvas target={shell.canvasTarget} snapshot={shell.snapshot} cards={shell.session.cards} onOpenChat={shell.openChat} api={props.api} runtime={props.runtime} /> : !shell.error && <p role="status">Opening your workspace…</p>}
       </div>
     </main>

@@ -21,7 +21,7 @@ function fixture({ kind, terminal = 'ended' }: { kind: 'memory' | 'http'; termin
   let starts = 0, cancellations = 0; const cursors: number[] = [], prompts: string[] = [];
   const receipt = { runId: 'run', status: 'pending' as const, expiresAt: 301000, conversationId: 'chat' };
   const status = { ended: 'completed', cancelled: 'cancelled', error: 'interrupted' }[terminal];
-  const usage = { kind: 'usage' as const, durationMs: 8000, costUsd: .07, totalCostUsd: .58, complete: false, costBasis: 'estimated' as const };
+  const usage = { kind: 'usage' as const, durationMs: 8000, costUsdMicros: '70000', totalCostUsdMicros: '580000', complete: false, costBasis: 'estimated' as const };
   async function pause({ signal }: { signal?: AbortSignal }) {
     entered.resolve();
     if (signal?.aborted) return;

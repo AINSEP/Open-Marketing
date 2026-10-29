@@ -1,0 +1,61 @@
+/* OM Ink: flat monochrome surfaces and large, non-inverted metrics. Accents load last. */
+:root[data-admin-theme="om-ink"][data-color-scheme="light"] {
+  --jini-theme-light-bg: #ffffff; --jini-theme-light-surface: #f2f2f2;
+  --jini-theme-light-text: #000000; --jini-theme-light-muted: #525252; --jini-theme-light-border: #737373;
+  --jini-theme-light-primary: #000000; --jini-theme-light-primary-ink: #ffffff;
+  --jini-theme-light-danger: #b33332; --jini-theme-light-success: #006b47; --jini-theme-light-warning: #87570d;
+  --jini-accent: var(--jini-primary); --jini-accent-ink: var(--jini-primary-ink); --jini-accent-hover: var(--jini-primary);
+  --jini-accent-strong: #000000; --jini-accent-soft: #f2f2f2; --jini-accent-ring: var(--jini-accent-strong); --jini-link: var(--jini-accent-strong);
+  --jini-text-faint: var(--jini-muted); --jini-success-bg: #e8f5ee; --jini-warning-bg: #fff4df; --jini-danger-bg: #fceceb;
+  --jini-app-bg: var(--jini-bg); --jini-shell-bg: transparent; --jini-panel-bg: #ffffff; --jini-panel-border: #737373;
+  --jini-panel-text: var(--jini-text); --jini-panel-muted: var(--jini-muted); --jini-panel-texture: none; --jini-panel-backdrop: none;
+  --jini-panel-shadow: none; --jini-panel-shadow-inset: none;
+  --jini-rail-bg: #ffffff; --jini-rail-border: #737373; --jini-rail-shadow: none; --jini-rail-backdrop: none;
+  --jini-rail-text: var(--jini-text); --jini-rail-muted: var(--jini-muted);
+  --jini-overlay-bg: rgb(0 0 0 / .45); --jini-overlay-backdrop: none; --jini-overlay-shadow: 0 12px 32px rgb(0 0 0 / .16);
+  --jini-control-bg: #ffffff; --jini-control-border: #737373; --jini-control-shadow: none;
+  --jini-control-shadow-hover: none; --jini-control-shadow-pressed: none; --jini-control-shadow-inset: none;
+  --jini-metric-bg: #ffffff; --jini-metric-text: var(--jini-text); --jini-metric-muted: var(--jini-muted); --jini-metric-border: var(--jini-panel-border);
+  --jini-nav-active-bg: var(--jini-primary); --jini-nav-active-text: var(--jini-primary-ink); --jini-nav-active-shadow: none; --jini-nav-active-indicator: transparent;
+  --jini-tab-bg: var(--jini-surface); --jini-tab-active-bg: var(--jini-primary); --jini-tab-active-text: var(--jini-primary-ink); --jini-tab-radius: 4px;
+  --jini-border-width: 1px; --jini-radius: 8px; --jini-radius-sm: 4px; --jini-radius-lg: 12px; --jini-radius-nav: 4px; --jini-radius-pill: 999px; --jini-radius-circle: 50%;
+  --jini-font-body: "DM Sans Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --jini-font-heading: "Space Grotesk Variable", var(--jini-font-body); --jini-font-mono: "SF Mono", Menlo, Consolas, monospace;
+  --jini-font-size-xs: .6875rem; --jini-font-size-sm: .8125rem; --jini-font-size-base: .875rem; --jini-font-size-lg: 1rem; --jini-font-size-xl: 1.75rem; --jini-font-size-metric: 2.25rem;
+  --jini-font-weight-heading: 600; --jini-font-weight-metric: 500; --jini-tracking-heading: -.025em; --jini-tracking-eyebrow: .1em;
+  --jini-density: 1; --jini-space-gutter: 32px; --jini-space-panel: 24px; --jini-sidebar-width: 232px; --jini-sidebar-rail-width: 60px;
+  --jini-shadow-xs: none; --jini-shadow-sm: none; --jini-shadow-md: var(--jini-overlay-shadow); --jini-shadow-lg: var(--jini-overlay-shadow);
+  --jini-chat-bg: var(--jini-panel-bg); --jini-chat-panel: var(--jini-panel-bg); --jini-chat-text: var(--jini-text); --jini-chat-muted: var(--jini-muted);
+  --jini-chat-border: var(--jini-border); --jini-chat-accent: var(--jini-accent); --jini-chat-subtle: var(--jini-surface); --jini-chat-radius: var(--jini-radius);
+  --jini-focus-width: 2px; --jini-duration-fast: 140ms; --jini-ease-out: ease-out;
+}
+:root[data-admin-theme="om-ink"][data-color-scheme="dark"] {
+  --jini-theme-dark-bg: #000000; --jini-theme-dark-surface: #242424;
+  --jini-theme-dark-text: #ffffff; --jini-theme-dark-muted: #b3b3b3; --jini-theme-dark-border: #737373;
+  --jini-theme-dark-primary: #ffffff; --jini-theme-dark-primary-ink: #000000;
+  --jini-theme-dark-danger: #ffa4a0; --jini-theme-dark-success: #77d8ae; --jini-theme-dark-warning: #eac077;
+  --jini-accent: var(--jini-primary); --jini-accent-ink: var(--jini-primary-ink); --jini-accent-hover: var(--jini-primary);
+  --jini-accent-strong: #ffffff; --jini-accent-soft: #242424; --jini-accent-ring: var(--jini-accent-strong); --jini-link: var(--jini-accent-strong);
+  --jini-text-faint: var(--jini-muted); --jini-success-bg: #173f30; --jini-warning-bg: #3c321f; --jini-danger-bg: #482b2b;
+  --jini-app-bg: var(--jini-bg); --jini-shell-bg: transparent; --jini-panel-bg: #101010; --jini-panel-border: #737373;
+  --jini-panel-text: var(--jini-text); --jini-panel-muted: var(--jini-muted); --jini-panel-texture: none; --jini-panel-backdrop: none;
+  --jini-panel-shadow: none; --jini-panel-shadow-inset: none;
+  --jini-rail-bg: #101010; --jini-rail-border: #737373; --jini-rail-shadow: none; --jini-rail-backdrop: none;
+  --jini-rail-text: var(--jini-text); --jini-rail-muted: var(--jini-muted);
+  --jini-overlay-bg: rgb(0 0 0 / .8); --jini-overlay-backdrop: none; --jini-overlay-shadow: 0 12px 32px rgb(0 0 0 / .4);
+  --jini-control-bg: #101010; --jini-control-border: #737373; --jini-control-shadow: none;
+  --jini-control-shadow-hover: none; --jini-control-shadow-pressed: none; --jini-control-shadow-inset: none;
+  --jini-metric-bg: #101010; --jini-metric-text: var(--jini-text); --jini-metric-muted: var(--jini-muted); --jini-metric-border: var(--jini-panel-border);
+  --jini-nav-active-bg: var(--jini-primary); --jini-nav-active-text: var(--jini-primary-ink); --jini-nav-active-shadow: none; --jini-nav-active-indicator: transparent;
+  --jini-tab-bg: var(--jini-surface); --jini-tab-active-bg: var(--jini-primary); --jini-tab-active-text: var(--jini-primary-ink); --jini-tab-radius: 4px;
+  --jini-border-width: 1px; --jini-radius: 8px; --jini-radius-sm: 4px; --jini-radius-lg: 12px; --jini-radius-nav: 4px; --jini-radius-pill: 999px; --jini-radius-circle: 50%;
+  --jini-font-body: "DM Sans Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --jini-font-heading: "Space Grotesk Variable", var(--jini-font-body); --jini-font-mono: "SF Mono", Menlo, Consolas, monospace;
+  --jini-font-size-xs: .6875rem; --jini-font-size-sm: .8125rem; --jini-font-size-base: .875rem; --jini-font-size-lg: 1rem; --jini-font-size-xl: 1.75rem; --jini-font-size-metric: 2.25rem;
+  --jini-font-weight-heading: 600; --jini-font-weight-metric: 500; --jini-tracking-heading: -.025em; --jini-tracking-eyebrow: .1em;
+  --jini-density: 1; --jini-space-gutter: 32px; --jini-space-panel: 24px; --jini-sidebar-width: 232px; --jini-sidebar-rail-width: 60px;
+  --jini-shadow-xs: none; --jini-shadow-sm: none; --jini-shadow-md: var(--jini-overlay-shadow); --jini-shadow-lg: var(--jini-overlay-shadow);
+  --jini-chat-bg: var(--jini-panel-bg); --jini-chat-panel: var(--jini-panel-bg); --jini-chat-text: var(--jini-text); --jini-chat-muted: var(--jini-muted);
+  --jini-chat-border: var(--jini-border); --jini-chat-accent: var(--jini-accent); --jini-chat-subtle: var(--jini-surface); --jini-chat-radius: var(--jini-radius);
+  --jini-focus-width: 2px; --jini-duration-fast: 140ms; --jini-ease-out: ease-out;
+}

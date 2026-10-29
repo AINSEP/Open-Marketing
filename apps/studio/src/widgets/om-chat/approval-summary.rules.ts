@@ -15,13 +15,12 @@ export function approvalSummary(required: { card: unknown }): { title: string; d
 
 /** Strings are text-only React content; the full frozen request stays in the shared card. */
 function summaryFields(required: { args: Record<string, unknown> }): string {
-  const text = ['tool', 'action', 'brief', 'campaignId', 'format'].map(key => required.args[key]).filter(isSummaryText).map(value => value.slice(0, 200));
+  const text = ['tool', 'action', 'brief', 'campaignId', 'format'].map(key => required.args[key]).filter((value): value is string => typeof value === 'string' && value.length > 0).map(value => value.slice(0, 200));
   if (typeof required.args.count === 'number') text.push('Count: ' + required.args.count);
   const money = moneySchema.safeParse(required.args.quotedCost ?? required.args.exposure);
   if (money.success) text.push(summaryMoney(money.data));
   return text.join(' · ');
 }
-function isSummaryText(value: unknown): value is string { return typeof value === 'string' && value.length > 0; }
 
 /** Currency exponent comes from Intl; a valid but unknown currency retains its exact minor units. */
 function summaryMoney(required: { currency: string; minorUnits: number }): string {

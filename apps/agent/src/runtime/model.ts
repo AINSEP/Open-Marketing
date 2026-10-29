@@ -48,12 +48,12 @@ function admitted(required: { run: StartRunRequest; clock: ClockPort }): boolean
         && run.context.principal.runId === run.runId;
 }
 
-/** The spike admits only the exact loopback OM broker. Injected adapters cannot receive a vendor URL. */
+/** Admit only the loopback OM broker root. Injected adapters cannot receive a vendor URL. */
 function brokerConfigured(required: { client: ModelClient }): boolean {
     try {
         const url = new URL(required.client.brokerBaseUrl);
         return url.protocol === 'http:' && url.hostname === '127.0.0.1' && !url.username && !url.password
-            && /^\/api\/agent\/v1\/model(?:\/anthropic)?$/.test(url.pathname) && !url.search && !url.hash;
+            && /^\/api\/agent\/v1\/model$/.test(url.pathname) && !url.search && !url.hash;
     } catch { return false; }
 }
 
@@ -192,18 +192,18 @@ async function performTurn(required: { state: ModelRun; deps: ModelDependencies 
     const context = await deps.client.load({ run: state.request, signal: state.signal });
     if (!context.ok || !active(required)) throw new Error('Model context unavailable');
     const parsed = parseBoundary({ schema: assistantContextSchema, input: context.value });
-    if (!parsed.ok || parsed.value.settings.mode !== 'model') throw new Error('Model context unavailable');
+    if (!parsed.ok || parsed.value.settings.mode !== 'model' || !parsed.value.protocol || !parsed.value.settings.provider) throw new Error('Model context unavailable');
     const discovery = deps.client.loadTools ? await deps.client.loadTools({ run: state.request, signal: state.signal }) : { ok: true as const, value: deps.client.tools };
     if (!discovery.ok || !active(required)) throw new Error('Model discovery unavailable');
     const tools = toolDescriptorSchema.array().max(100).parse(discovery.value);
     state.tools = tools;
-    const result = await runProviderToolTurn({ protocol: parsed.value.settings.provider ?? 'anthropic', adapters: deps.adapters, apiKey: state.request.runBearer!,
+    const result = await runProviderToolTurn({ protocol: parsed.value.protocol, adapters: deps.adapters, apiKey: state.request.runBearer!,
         model: parsed.value.settings.model, system: deps.client.system,
         messages: [...parsed.value.messages.slice(-39).map(message => ({ role: message.role, content: message.text })),
-            { role: 'user', content: state.request.prompt }],
+            { role: 'user', content: state.request.prompt, ...(parsed.value.images?.length ? { images: parsed.value.images } : {}) }],
         tools: tools.map(tool => ({ id: tool.name, description: tool.description, inputSchema: tool.inputSchema })),
         executeTool: call => executeTool({ call, ...required }), onEvent: event => providerEvent({ event, ...required }),
-    }, { baseUrl: deps.client.brokerBaseUrl.replace(/\/anthropic$/, '') + '/' + (parsed.value.settings.provider ?? 'anthropic'), maxTokens: 4096, maxToolTurns: 24, signal: state.signal });
+    }, { baseUrl: deps.client.brokerBaseUrl + '/' + encodeURIComponent(parsed.value.settings.provider), maxTokens: 4096, maxToolTurns: 24, signal: state.signal });
     if (!active(required)) throw new Error('Model run interrupted');
     if (result.stopReason !== 'stop') throw new Error('Model turn interrupted');
     await state.publications;

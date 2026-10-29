@@ -71,7 +71,10 @@
 .om-chat-approval summary { cursor:pointer; overflow-wrap:anywhere; }
 .om-chat-approval>header p { margin-block:var(--jini-space-2); }
 .om-usage-evidence { color:var(--jini-muted); font-size:var(--jini-font-size-xs); }
-.om-chat-approval .approval-card { margin-top:var(--jini-space-3); box-shadow:none; padding:var(--jini-space-3); }
+.om-chat-approval .approval-card {
+  margin:var(--jini-space-3) 0 0; padding:0;
+  border:0; background:transparent; box-shadow:none;
+}
 /* The shared card owns all controls; its exact JSON is presented in the collapsed details above. */
 .om-chat-approval .approval-card>header, .om-chat-approval .approval-card>.muted, .om-chat-approval .approval-card>pre { display:none; }
 .om-chat-approval pre { white-space:pre-wrap; overflow-wrap:anywhere; }

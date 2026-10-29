@@ -1,11 +1,11 @@
-import { captureEventSchema, recentEventsSchema, assistantUsageSchema, confirmationCardSchema, toolOperationSchema, surfaceAcknowledgementSchema, toolCallSchema, toolResultSchema } from '@open-marketing/contracts';
+import { conversionSettingsStatusSchema, setConversionSettingsSchema, mailProviderSelectionSchema, mailProviderSettingsSchema, oauthClientStatusSchema, pluginSecretQuerySchema, pluginSecretSetSchema, pluginSecretStatusSchema, captureEventSchema, recentEventsSchema, assistantUsageSchema, confirmationCardSchema, toolOperationSchema, surfaceAcknowledgementSchema, toolCallSchema, toolResultSchema } from '@open-marketing/contracts';
 /** Cookie-authenticated owner transport. Server state is validated before reaching presentation. */
 import { z } from 'zod';
 import { addonListRequestSchema, addonListSchema, addonSummarySchema, addonUninstallReceiptSchema, installAddonSchema, setAddonEnabledSchema, uninstallAddonSchema, integrationListSchema, integrationSummarySchema, connectIntegrationTokenSchema, disconnectIntegrationSchema, pageQuerySchema } from '@open-marketing/contracts';
-import { assistantRunRequestSchema, assistantSettingsSchema, assistantSettingsStatusSchema, conversationListSchema, conversationSchema, appErrorSchema, approvalResponseSchema, epochSchema, idSchema, runEventSchema, parseBoundary } from '@open-marketing/contracts';
+import { chatAttachmentSchema, assistantRunRequestSchema, assistantSettingsSchema, assistantSettingsStatusSchema, conversationListSchema, conversationSchema, appErrorSchema, approvalResponseSchema, epochSchema, idSchema, runEventSchema, parseBoundary } from '@open-marketing/contracts';
 import type { AppError, ObserverPort, Outcome } from '@open-marketing/contracts';
 import type { StudioApiPort, StudioRuntime, StudioTrace } from './types.js';
-import { oauthClientSetSchema, oauthClientStatusSchema, oauthStatusQuerySchema, oauthStatusSchema, developerTokenQuerySchema, developerTokenSetSchema, developerTokenStatusSchema, isSafeUiValue, parseStudioSnapshot } from './validation.js';
+import { leadDisplaySchema, leadStageRequestSchema, oauthClientSetSchema, oauthStatusQuerySchema, pluginOAuthStatusSchema, isSafeUiValue, parseStudioSnapshot } from './validation.js';
 
 interface Dependencies {
     readonly baseUrl: string;
@@ -17,6 +17,7 @@ interface Dependencies {
 const envelope = z.discriminatedUnion('ok', [z.strictObject({ ok: z.literal(true), value: z.unknown() }),
     z.strictObject({ ok: z.literal(false), error: appErrorSchema })]);
 const recordedSchema = z.strictObject({ status: z.literal('recorded') });
+const acknowledgedSchema = z.strictObject({ status: z.literal('acknowledged') });
 
 function failure(required: { code: AppError['code']; message: string }): Outcome<never> {
     return { ok: false, error: { ...required, retryable: false } };
@@ -95,7 +96,7 @@ function transportResult<T>(required: { result: Outcome<T>; method: 'GET' | 'POS
  * @complexity One HTTP call, O(b) bounded response; timeout 15s, no retained request state.
  */
 async function request<T>(required: {
-    dependencies: Dependencies; origin: Outcome<string>; path: string; method: 'GET' | 'POST'; body?: unknown;
+    dependencies: Dependencies; origin: Outcome<string>; path: string; method: 'GET' | 'POST'; body?: unknown; rawBody?: Blob;
     signal?: AbortSignal; trace?: StudioTrace; parse: (required: { input: unknown }) => Outcome<T>;
 }): Promise<Outcome<T>> {
     if (!required.origin.ok) return required.origin;
@@ -111,9 +112,9 @@ async function request<T>(required: {
     try {
         const response = await required.dependencies.fetch(new URL(required.path, required.origin.value), {
             method: required.method, credentials: 'same-origin', redirect: 'manual', signal: controller.signal,
-            headers: { accept: 'application/json', 'content-type': 'application/json', 'x-correlation-id': correlationId,
+            headers: { accept: 'application/json', 'content-type': required.rawBody ? 'application/octet-stream' : 'application/json', 'x-correlation-id': correlationId,
                 'x-trace-id': traceId, 'idempotency-key': correlationId },
-            ...(required.body === undefined ? {} : { body: JSON.stringify(required.body) }),
+            body: required.rawBody ?? (required.body === undefined ? undefined : JSON.stringify(required.body)),
         });
         const received = await receive({ response, parse: required.parse });
         const result = transportResult({ result: received, method: required.method, aborted: controller.signal.aborted, ownerAborted: required.signal?.aborted ?? false });
@@ -140,6 +141,7 @@ async function request<T>(required: {
 export function createHttpStudioApi(required: Dependencies): StudioApiPort {
     const origin = baseOrigin(required);
     return {
+        setLeadStage: input => addonWrite({ dependencies: required, origin, path: '/api/leads/stage', schema: leadDisplaySchema, inputSchema: leadStageRequestSchema, ...input }),
         async captureEvent(input) {
             const event = captureEventSchema.safeParse(input.event);
             if (!event.success || event.data.kind === 'trace') return failure({ code: 'invalid_input', message: 'Invalid browser event' });
@@ -163,6 +165,8 @@ export function createHttpStudioApi(required: Dependencies): StudioApiPort {
             }),
         approvalCard: input => request({ dependencies: required, origin, path: '/api/safety/approvals/' + encodeURIComponent(input.cardId), method: 'GET', signal: input.signal, trace: input.trace,
             parse: value => parseBoundary({ schema: confirmationCardSchema, input: value.input }) }),
+        acknowledgeAlert: input => request({ dependencies: required, origin, path: '/api/alerts/acknowledge', method: 'POST', body: { noticeId: input.noticeId }, signal: input.signal, trace: input.trace,
+            parse: value => parseBoundary({ schema: acknowledgedSchema, input: value.input }) }),
         async acknowledgeSurface(input) {
             const result = parseBoundary({ schema: surfaceAcknowledgementSchema, input: input.result });
             if (!result.ok) return result;
@@ -170,10 +174,14 @@ export function createHttpStudioApi(required: Dependencies): StudioApiPort {
                 parse: value => parseBoundary({ schema: recordedSchema, input: value.input }) });
         },
         addons: {
+            conversionSettings: input => addonRead({ dependencies: required, origin, path: '/api/addons/v1/integrations/conversion-settings', schema: conversionSettingsStatusSchema, querySchema: setConversionSettingsSchema.pick({ pluginId: true }), query: { pluginId: input.pluginId }, signal: input.signal, trace: input.trace }),
+            setConversionSettings: input => addonWrite({ dependencies: required, origin, path: '/api/addons/v1/integrations/conversion-settings', schema: conversionSettingsStatusSchema, inputSchema: setConversionSettingsSchema, ...input }),
+            mailProviderSettings: input => addonRead({ dependencies: required, origin, path: '/api/addons/v1/provider-settings/mail', schema: mailProviderSettingsSchema, querySchema: z.strictObject({}), query: {}, signal: input.signal, trace: input.trace }),
+            setMailProviderSettings: input => addonWrite({ dependencies: required, origin, path: '/api/addons/v1/provider-settings/mail', schema: mailProviderSelectionSchema, inputSchema: mailProviderSelectionSchema, ...input }),
             setOAuthClient: input => addonWrite({ dependencies: required, origin, path: '/api/addons/v1/integrations/oauth/client', schema: oauthClientStatusSchema, inputSchema: oauthClientSetSchema, ...input }),
-            oauthStatus: input => addonRead({ dependencies: required, origin, path: '/api/addons/v1/integrations/oauth/status', schema: oauthStatusSchema, querySchema: oauthStatusQuerySchema, ...input }),
-            setDeveloperToken: input => addonWrite({ dependencies: required, origin, path: '/api/addons/v1/integrations/developer-token', schema: developerTokenStatusSchema, inputSchema: developerTokenSetSchema, ...input }),
-            developerTokenStatus: input => addonRead({ dependencies: required, origin, path: '/api/addons/v1/integrations/developer-token', schema: developerTokenStatusSchema, querySchema: developerTokenQuerySchema, query: { pluginId: input.pluginId }, signal: input.signal, trace: input.trace }),
+            oauthStatus: input => addonRead({ dependencies: required, origin, path: '/api/addons/v1/integrations/oauth/status', schema: pluginOAuthStatusSchema, querySchema: oauthStatusQuerySchema, ...input }),
+            setPluginSecret: input => addonWrite({ dependencies: required, origin, path: '/api/addons/v1/integrations/plugin-secret', schema: pluginSecretStatusSchema, inputSchema: pluginSecretSetSchema, ...input }),
+            pluginSecretStatus: input => addonRead({ dependencies: required, origin, path: '/api/addons/v1/integrations/plugin-secret', schema: pluginSecretStatusSchema, querySchema: pluginSecretQuerySchema, query: { pluginId: input.pluginId }, signal: input.signal, trace: input.trace }),
             list: input => addonRead({ dependencies: required, origin, path: '/api/addons/v1/packages', schema: addonListSchema, querySchema: addonListRequestSchema, ...input }),
             integrations: input => addonRead({ dependencies: required, origin, path: '/api/addons/v1/integrations', schema: integrationListSchema, querySchema: pageQuerySchema, ...input }),
             install: input => addonWrite({ dependencies: required, origin, path: '/api/addons/v1/install', schema: addonSummarySchema, inputSchema: installAddonSchema, ...input }),
@@ -189,8 +197,17 @@ export function createHttpStudioApi(required: Dependencies): StudioApiPort {
             return request({ dependencies: required, origin, path: '/api/safety/approvals/' + encodeURIComponent(response.value.cardId) + '/answer',
                 method: 'POST', body: response.value, signal: input.signal, trace: input.trace, parse: value => parseBoundary({ schema: recordedSchema, input: value.input }) });
         },
+        attachments: {
+            async upload(input) {
+                const file = chatAttachmentSchema.pick({ name: true, size: true }).safeParse({ name: input.file.name, size: input.file.size });
+                if (!file.success) return failure({ code: 'invalid_input', message: 'Invalid attachment.' });
+                return request({ dependencies: required, origin, path: '/api/attachments?name=' + encodeURIComponent(file.data.name),
+                    method: 'POST', rawBody: input.file, signal: input.signal, trace: input.trace,
+                    parse: value => parseBoundary({ schema: chatAttachmentSchema, input: value.input }) });
+            },
+        },
         async start(input) {
-            const parsed = parseBoundary({ schema: assistantRunRequestSchema, input: { prompt: input.message.text, conversationId: input.conversationId, frontendSessionId: input.frontendSessionId, frontendBindToken: input.frontendBindToken } });
+            const parsed = parseBoundary({ schema: assistantRunRequestSchema, input: { prompt: input.message.text, attachments: input.attachments, conversationId: input.conversationId, frontendSessionId: input.frontendSessionId, frontendBindToken: input.frontendBindToken } });
             if (!parsed.ok) return parsed;
             return request({ dependencies: required, origin, path: '/api/runs', method: 'POST', body: parsed.value, signal: input.signal, trace: input.trace,
                 parse: value => parseBoundary({ schema: runReceiptSchema, input: value.input }) });

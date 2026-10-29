@@ -1,4 +1,4 @@
-import type { ConfirmationCard, ClockPort } from "@open-marketing/contracts";
+import type { AddonSummary, CredentialCard, ConfirmationCard, ClockPort, MailProviderSettings } from "@open-marketing/contracts";
 import type { StudioSnapshot } from "./types.js";
 
 /** Creative/media fixtures: costs are observations, including charge evidence on failure. */
@@ -99,3 +99,26 @@ export function sampleSnapshot(required: { clock: ClockPort }): StudioSnapshot {
     pages: { creative: creativeMediaSamples, campaigns: campaignSettingsSamples, operations: operationsSamples },
   };
 }
+
+/** Disabled integration fixtures stay out of chat discovery; each adapter owns its mutable state. */
+export const sampleMailCandidates: MailProviderSettings['candidates'] = [
+  { pluginId: 'sample-mail-service', label: 'Sample mail service', status: 'connected' },
+  { pluginId: 'sample-mail-relay', label: 'Sample mail relay', status: 'not_connected' },
+];
+export const sampleIntegrationPlugins: AddonSummary[] = [
+  { id: 'sample-oauth-service', name: 'Sample OAuth service', kind: 'agent-plugin', description: 'Sample sign-in service', version: '1', revision: '1', enabled: false },
+  { id: 'sample-key-service', name: 'Sample key service', kind: 'agent-plugin', description: 'Sample token service', version: '1', revision: '1', enabled: false },
+];
+export const sampleCredentialCards: CredentialCard[] = [
+  { pluginId: 'sample-oauth-service', target: 'sign-in', title: 'Account sign-in', label: 'Sign in', category: 'Sample', intro: 'Connect an account through secure sign-in.',
+    usedFor: [], helpUrl: 'https://example.test/help', helpLabel: 'Sign-in help', baseUrl: 'https://example.test', saveKind: 'oauth', actionSupported: true },
+  { pluginId: 'sample-oauth-service', target: 'client', title: 'OAuth client configuration', label: 'Client configuration', category: 'Sample', intro: 'Save your application credentials on the server.',
+    usedFor: [], helpUrl: 'https://example.test/help', helpLabel: 'Client setup help', baseUrl: 'https://example.test', saveKind: 'oauth-client', actionSupported: true,
+    fields: [{ name: 'clientId', label: 'Client ID', required: true, type: 'string' }, { name: 'tenantId', label: 'Tenant ID', type: 'string' }], secretFields: [{ name: 'clientSecret', label: 'Client secret' }] },
+  { pluginId: 'sample-key-service', target: 'access', title: 'Access token', label: 'Token connection', category: 'Sample', intro: 'Save an access token on the server.',
+    usedFor: [], keyHint: 'Paste the token from your service account.', helpUrl: 'https://example.test/help', helpLabel: 'Token help', baseUrl: 'https://example.test', saveKind: 'api-key', actionSupported: true,
+    secretFields: [{ name: 'token', label: 'Access token', required: true }] },
+  { pluginId: 'sample-key-service', target: 'secret', title: 'Plugin secret', label: 'Service secret', category: 'Sample', intro: 'Save a private service key on the server.',
+    usedFor: [], helpUrl: 'https://example.test/help', helpLabel: 'Secret help', baseUrl: 'https://example.test', saveKind: 'plugin-secret', actionSupported: true,
+    secretFields: [{ name: 'serviceKey', label: 'Service key', required: true }] },
+];

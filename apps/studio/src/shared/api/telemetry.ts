@@ -27,11 +27,11 @@ export function instrumentStudioApi(required: { api: StudioApiPort; runtime: Stu
       void Promise.resolve(result).then(release, release);
     } });
   };
-  const track: StudioTrack = (name, fields) => {
+  const track: StudioTrack = ({ name }, { properties }) => {
     attempt({ run: () => {
       const trace = name === 'approval.clicked' ? nextTrace() : undefined;
       const kind = ['approval.invalid_card', 'approval.submit_failed', 'studio.render_crash'].includes(name) ? 'error' : 'product';
-      const event = captureEventSchema.safeParse({ ...fields, ...trace, name, kind, at: required.runtime.clock.now({}) });
+      const event = captureEventSchema.safeParse({ ...properties, ...trace, name, kind, at: required.runtime.clock.now({}) });
       if (!event.success) return;
       if (event.data.name === 'approval.clicked') click = { cardId: event.data.cardId, operationId: event.data.operationId, choice: event.data.choice,
         trace: { correlationId: event.data.correlationId, traceId: event.data.traceId } };

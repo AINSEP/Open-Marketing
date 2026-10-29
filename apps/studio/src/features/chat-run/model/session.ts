@@ -1,8 +1,8 @@
 import { z } from "zod";
 import type { AgentEvent, ChatTransport, RunHandlers, ChatRunStatus } from "@jini-ai/chat";
 import type { A2uiSurfacePayload } from '@open-marketing/contracts';
-import { a2uiSurfacePayloadSchema, confirmationCardSchema, assistantSettingsStatusSchema, assistantUsageSchema, conversationListSchema, conversationSchema, chatMessageSchema, idSchema, epochSchema, parseBoundary } from "@open-marketing/contracts";
-import type { AssistantSettingsStatus, ConversationSummary, ChatMessage, ConfirmationCard, NavigationAction, NavigationResult, Outcome } from "@open-marketing/contracts";
+import { a2uiSurfacePayloadSchema, confirmationCardSchema, assistantSettingsStatusSchema, assistantUsageSchema, chatAttachmentSchema, conversationListSchema, conversationSchema, chatMessageSchema, idSchema, epochSchema, parseBoundary } from "@open-marketing/contracts";
+import type { ChatAttachmentRef, AssistantSettingsStatus, ConversationSummary, ChatMessage, ConfirmationCard, NavigationAction, NavigationResult, Outcome } from "@open-marketing/contracts";
 import type { StudioApiPort, StudioPayload, StudioRun } from "../../../shared/api/index.js";
 import { parseStudioEvent, parseStudioSnapshot, isSafeUiValue } from "../../../shared/api/index.js";
 import type { StudioRuntime } from "../../../shared/api/index.js";
@@ -116,15 +116,20 @@ export function createChatSession(required: Dependencies): ChatSession {
     if (pendingTimer !== null) required.runtime.timers.cancel({ handle: pendingTimer });
     pendingTimer = null;
   };
-  const stop = async (input: { reason: "owner" | "expired" }): Promise<void> => {
+  /** Remove owned cards before clearing their tracking; cancel local observation without a server call.
+   * @complexity O(cards + tools) time/output space, bounded to 50 cards and 100 tools.
+   */
+  const clearLocalRun = (): Pick<ChatState, 'cards' | 'tools'> => {
     clearPending();
-    const runId = active?.receipt.runId ?? frontendRun?.runId ?? lastRun?.receipt.runId;
-    frontendRun = null;
     const cards = state.cards.filter(card => !lastRun?.cardIds.has(card.cardId) && !frontendCardIds.has(card.cardId));
+    frontendRun = null;
     frontendCardIds.clear();
-    update({ cards, tools: state.tools.map(tool => tool.status === 'running' || tool.status === 'pending' ? { ...tool, status: 'cancelled' } : tool) });
     clearRun();
-    update({ status: input.reason === "expired" ? "expired" : "cancelling", notice: input.reason === "expired" ? "Run expired. External outcomes remain unconfirmed." : "Observation stopped. Requesting server cancellation…" });
+    return { cards, tools: state.tools.map(tool => tool.status === 'running' || tool.status === 'pending' ? { ...tool, status: 'cancelled' } : tool) };
+  };
+  const stop = async (input: { reason: "owner" | "expired" }): Promise<void> => {
+    const runId = active?.receipt.runId ?? frontendRun?.runId ?? lastRun?.receipt.runId;
+    update({ ...clearLocalRun(), status: input.reason === "expired" ? "expired" : "cancelling", notice: input.reason === "expired" ? "Run expired. External outcomes remain unconfirmed." : "Observation stopped. Requesting server cancellation…" });
     if (!runId) { update({ status: "cancelled", notice: "Local request cancelled." }); return; }
     const result = await required.api.cancel({ runId, reason: input.reason });
     if (input.reason === "expired") return;
@@ -224,7 +229,7 @@ export function createChatSession(required: Dependencies): ChatSession {
     if (config.ok) update({ settings: config.value });
   }
   /** Acceptance ends at the receipt; the existing consumer owns the sole subscription. */
-  async function start(input: { text: string }): Promise<ActiveRun | null> {
+  async function start(input: { text: string; attachments?: ChatAttachmentRef[] }): Promise<ActiveRun | null> {
       if (disposed || state.settingsPending || isActive({ status: state.status })) return null;
       const message = prepareMessage({ text: input.text, id: required.runtime.ids.next({}) });
       if (!message.ok) { update({ notice: message.error.message }); return null; }
@@ -240,7 +245,7 @@ export function createChatSession(required: Dependencies): ChatSession {
       pendingTimer = startDeadline;
       const frontendSessionId = required.frontendSessionId?.();
       const frontendBindToken = required.frontendBindToken?.();
-      const result = await required.api.start({ message: message.value, signal: controller.signal, conversationId: state.conversationId ?? undefined, frontendSessionId, frontendBindToken });
+      const result = await required.api.start({ message: message.value, attachments: input.attachments, signal: controller.signal, conversationId: state.conversationId ?? undefined, frontendSessionId, frontendBindToken });
       required.runtime.timers.cancel({ handle: startDeadline });
       if (disposed || controller.signal.aborted) return null;
       pendingController = null; pendingTimer = null;
@@ -273,12 +278,13 @@ export function createChatSession(required: Dependencies): ChatSession {
   }
   const transport: ChatTransport = {
     async startRun(input, handlers) {
-      if (input.attachments?.length) throw new Error('This server does not accept image attachments. Your message was not sent.');
+      const attachments = z.array(chatAttachmentSchema).max(4).safeParse(input.attachments ?? []);
+      if (!attachments.success) throw new Error('Invalid attachment.');
       const message = input.history.findLast(item => item.role === 'user');
       const plugins = z.array(z.string().max(400)).max(100).safeParse(input.context?.pluginInstructions ?? []);
       if (!plugins.success) throw new Error('Invalid add-on selection.');
       const prefix = plugins.data.length ? 'Use these enabled add-ons when relevant: ' + plugins.data.join(', ') + '. This selection grants no authority.\n\n' : '';
-      const run = await start({ text: prefix + (message?.content ?? '') });
+      const run = await start({ text: prefix + (message?.content ?? ''), attachments: attachments.data });
       if (!run) throw new Error(state.notice);
       observe({ handlers, signal: input.signal });
       if (active === run) void consumeSafely({ run });
@@ -323,10 +329,7 @@ export function createChatSession(required: Dependencies): ChatSession {
     },
     voidFrontendRun(input) {
       if (input.runId !== (active?.receipt.runId ?? frontendRun?.runId)) return;
-      const cards = state.cards.filter(card => !lastRun?.cardIds.has(card.cardId) && !frontendCardIds.has(card.cardId));
-      clearPending(); clearRun(); frontendRun = null; frontendCardIds.clear();
-      update({ cards, status: input.status === 'cancelled' ? 'cancelled' : 'unavailable', notice: 'Server voided browser actions for this run. External outcomes may need reconciliation.',
-        tools: state.tools.map(tool => tool.status === 'running' || tool.status === 'pending' ? { ...tool, status: 'cancelled' } : tool) });
+      update({ ...clearLocalRun(), status: input.status === 'cancelled' ? 'cancelled' : 'unavailable', notice: 'Server voided browser actions for this run. External outcomes may need reconciliation.' });
       finishDisplay();
     },
     receiveSurface(input) {

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { readFetchResponseText } from '@jini-ai/platform/fetch-with-timeout';
 import { assistantContextSchema, appErrorSchema, boundedJsonSchema, confirmationCardSchema, idSchema, parseBoundary, toolDescriptorSchema, toolOperationSchema, toolResultSchema } from "@open-marketing/contracts";
 import type { Outcome, ObserverPort, StartRunRequest } from "@open-marketing/contracts";
 /** All tool traffic uses fixed OM routes and the same bounded callback adapter. */
@@ -90,7 +91,7 @@ async function modelRequest<T>(required: {
    headers: { authorization: 'Bearer ' + required.run.runBearer, 'content-type': 'application/json', 'x-correlation-id': required.run.context.correlationId, 'x-trace-id': required.run.context.traceId },
    ...(required.body === undefined ? {} : { body: JSON.stringify(required.body) }),
   });
-  const result = await boundedModelResponse({ response, schema: required.schema, envelope: required.operation === 'mcp' ? 'rpc' : 'outcome' });
+  const result = await boundedModelResponse({ response, schema: required.schema, maxResponseBytes: required.operation === 'context' ? 8388608 : 131072, envelope: required.operation === 'mcp' ? 'rpc' : 'outcome' });
   if (signal.aborted) return { ok: false, error: { code: 'cancelled', message: 'OM callback interrupted', retryable: false } };
   outcome = result.ok ? 'ok' : result.error.code;
   return result;
@@ -102,25 +103,14 @@ async function modelRequest<T>(required: {
   catch { /* Diagnostics cannot replace the callback outcome. */ }
  }
 }
-/** Consume bounded JSON and close the response even when parsing fails. */
-async function boundedModelResponse<T>(required: { response: Response; schema: z.ZodType<T>; envelope?: 'rpc' | 'outcome' }): Promise<Outcome<T>> {
- const reader = required.response.body?.getReader();
- if (!reader) throw new Error('Missing OM response');
- let bytes = 0; let text = ''; const decoder = new TextDecoder('utf-8', { fatal: true });
- try {
-  while (true) {
-   const chunk = await reader.read();
-   if (chunk.done) break;
-   bytes += chunk.value.byteLength;
-   if (bytes > 131072) throw new Error('OM context bound exceeded');
-   text += decoder.decode(chunk.value, { stream: true });
-  }
-  const value: unknown = JSON.parse(text + decoder.decode());
-  if (required.envelope === 'rpc') return parseBoundary({ schema: required.schema, input: value });
-  const schema = z.discriminatedUnion('ok', [z.strictObject({ ok: z.literal(true), value: required.schema }), z.strictObject({ ok: z.literal(false), error: appErrorSchema })]);
-  const parsed = parseBoundary({ schema, input: value });
-  if (!parsed.ok) return parsed;
-  if (!required.response.ok && parsed.value.ok) throw new Error('OM status mismatch');
-  return parsed.value;
- } finally { try { await reader.cancel(); } finally { reader.releaseLock(); } }
+/** Strict UTF-8 model envelopes: only image-bearing context may use the 8 MiB cap. */
+async function boundedModelResponse<T>(required: { response: Response; schema: z.ZodType<T>; maxResponseBytes: number; envelope?: 'rpc' | 'outcome' }): Promise<Outcome<T>> {
+ const text = await readFetchResponseText({ response: required.response }, { maxResponseBytes: required.maxResponseBytes, strictUtf8: true });
+ const value: unknown = JSON.parse(text);
+ if (required.envelope === 'rpc') return parseBoundary({ schema: required.schema, input: value });
+ const schema = z.discriminatedUnion('ok', [z.strictObject({ ok: z.literal(true), value: required.schema }), z.strictObject({ ok: z.literal(false), error: appErrorSchema })]);
+ const parsed = parseBoundary({ schema, input: value });
+ if (!parsed.ok) return parsed;
+ if (!required.response.ok && parsed.value.ok) throw new Error('OM status mismatch');
+ return parsed.value;
 }

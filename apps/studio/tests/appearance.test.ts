@@ -11,13 +11,11 @@ import { THEMES, ACCENTS } from "../src/themes/registry.js";
 afterEach(cleanup);
 
 function mediaFixture() {
-  const listeners = new Set<() => void>();
-  const media = { matches: true,
-    addEventListener: vi.fn((_type: "change", listener: () => void) => { listeners.add(listener); }),
-    removeEventListener: vi.fn((_type: "change", listener: () => void) => { listeners.delete(listener); }),
-  };
+  const media = Object.assign(new EventTarget(), { matches: true });
+  const add = vi.spyOn(media, "addEventListener");
+  const remove = vi.spyOn(media, "removeEventListener");
   const matchMedia = vi.fn(() => media);
-  return { media, matchMedia, listeners, change({ matches }: { matches: boolean }) { media.matches = matches; for (const listener of listeners) listener(); } };
+  return { media, matchMedia, add, remove, change({ matches }: { matches: boolean }) { media.matches = matches; media.dispatchEvent(new Event("change")); } };
 }
 function change({ value }: { value: string }): ChangeEvent<HTMLSelectElement> { return { currentTarget: { value } } as ChangeEvent<HTMLSelectElement>; }
 
@@ -26,12 +24,12 @@ it.each([
   ["light", "light", "light"], ["dark", "dark", "dark"],
 ] as const)("restores scheme %s and the shipped theme before mounting", (saved, preference, scheme) => {
   const root = document.createElement("div"); const media = mediaFixture();
-  const storage = { getItem: vi.fn((key: string) => key === "om.appearance.v1" ? saved : "unshipped-theme"), setItem: vi.fn() };
+  const storage = { getItem: vi.fn<Storage['getItem']>((key: string) => key === "om.appearance.v1" ? saved : "unshipped-theme"), setItem: vi.fn() };
   expect(applyAppearance({ root, storage, matchMedia: media.matchMedia })).toEqual({ theme: "modernist", scheme: preference, accent: "default" });
   expect(root.getAttribute("data-color-scheme")).toBe(scheme);
   expect(root.getAttribute("data-admin-theme")).toBe("modernist");
   expect(root.style.colorScheme).toBe("");
-  expect(storage.setItem).not.toHaveBeenCalled(); expect(media.listeners.size).toBe(0);
+  expect(storage.setItem).not.toHaveBeenCalled(); expect(media.add.mock.calls.length - media.remove.mock.calls.length).toBe(0);
 });
 
 it("uses Modernist/Light when storage is missing or blocked, including an inert host", () => {
@@ -52,15 +50,15 @@ it("subscribes only for System, responds to OS changes, and cleans up on choice 
   const root = document.createElement("div"); const media = mediaFixture();
   const storage = { getItem: () => "system", setItem: vi.fn() };
   const view = renderHook(() => useAppearance({ root, storage, matchMedia: media.matchMedia }));
-  expect(root.getAttribute("data-color-scheme")).toBe("dark"); expect(media.listeners.size).toBe(1);
+  expect(root.getAttribute("data-color-scheme")).toBe("dark"); expect(media.add.mock.calls.length - media.remove.mock.calls.length).toBe(1);
   act(() => media.change({ matches: false })); expect(root.getAttribute("data-color-scheme")).toBe("light");
   act(() => view.result.current.change(change({ value: "dark" })));
-  expect(view.result.current.preference).toBe("dark"); expect(media.listeners.size).toBe(0);
+  expect(view.result.current.preference).toBe("dark"); expect(media.add.mock.calls.length - media.remove.mock.calls.length).toBe(0);
   expect(storage.setItem).toHaveBeenLastCalledWith("om.appearance.v1", "dark");
   act(() => media.change({ matches: false })); expect(root.getAttribute("data-color-scheme")).toBe("dark");
-  act(() => view.result.current.change(change({ value: "system" }))); expect(media.listeners.size).toBe(1);
+  act(() => view.result.current.change(change({ value: "system" }))); expect(media.add.mock.calls.length - media.remove.mock.calls.length).toBe(1);
   expect(storage.setItem).toHaveBeenLastCalledWith("om.appearance.v1", "system");
-  view.unmount(); expect(media.listeners.size).toBe(0);
+  view.unmount(); expect(media.add.mock.calls.length - media.remove.mock.calls.length).toBe(0);
 });
 
 it("keeps in-memory choices on failed writes and normalizes invalid scheme/theme input", () => {
@@ -85,38 +83,38 @@ it("persists the admitted theme and resolves System without media to determinist
 
 it.each(["{", "null", "true", "[]", "{}", '{"glass":"toString","quiet":"blue"}', " ".repeat(1025)])("defaults malformed or oversized accent records: %s", saved => {
   const root = document.createElement("div"); root.setAttribute("data-accent", "blue");
-  const storage = { getItem: (key: string) => key === "om.admin-theme.v1" ? "glass" : saved, setItem: vi.fn() };
+  const storage: Pick<Storage, 'getItem' | 'setItem'> = { getItem: (key: string) => key === "om.admin-theme.v1" ? "glass" : saved, setItem: vi.fn() };
   expect(applyAppearance({ root, storage })).toEqual({ theme: "glass", scheme: "light", accent: "default" });
   expect(root.hasAttribute("data-accent")).toBe(false); expect(storage.setItem).not.toHaveBeenCalled();
 });
 it("restores per-theme accents before mount, keeps them through System flips, and survives blocked writes", () => {
   const root = document.createElement("div"); const media = mediaFixture();
   const values: Record<string, string> = { "om.admin-theme.v1": "glass", "om.appearance.v1": "system", "om.admin-accents.v1": '{"glass":"blue","mono":"violet","quiet":"green"}' };
-  const storage = { getItem: (key: string) => values[key] ?? null, setItem() { throw new Error("blocked"); } };
+  const storage: Pick<Storage, 'getItem' | 'setItem'> = { getItem: (key: string) => values[key] ?? null, setItem() { throw new Error("blocked"); } };
   expect(applyAppearance({ root, storage, matchMedia: media.matchMedia })).toEqual({ theme: "glass", scheme: "system", accent: "blue" });
   expect(root.getAttribute("data-accent")).toBe("blue");
   const view = renderHook(() => useAppearance({ root, storage, matchMedia: media.matchMedia }));
   act(() => media.change({ matches: false })); expect(view.result.current.scheme).toBe("light");
   expect(root.getAttribute("data-accent")).toBe("blue"); expect(root.style.length).toBe(0);
   act(() => view.result.current.changeTheme(change({ value: "mono" })));
-  expect(root.getAttribute("data-accent")).toBe("violet"); expect(media.listeners.size).toBe(1);
+  expect(root.getAttribute("data-accent")).toBe("violet"); expect(media.add.mock.calls.length - media.remove.mock.calls.length).toBe(1);
   act(() => view.result.current.changeAccent({ currentTarget: { value: "default" } } as ChangeEvent<HTMLInputElement>));
   expect(root.hasAttribute("data-accent")).toBe(false);
   act(() => view.result.current.changeTheme(change({ value: "glass" }))); expect(root.getAttribute("data-accent")).toBe("blue");
   act(() => view.result.current.changeAccent({ currentTarget: { value: "unknown" } } as ChangeEvent<HTMLInputElement>));
   expect(view.result.current.accent).toBe("default"); expect(root.hasAttribute("data-accent")).toBe(false);
-  view.unmount(); expect(media.listeners.size).toBe(0);
+  view.unmount(); expect(media.add.mock.calls.length - media.remove.mock.calls.length).toBe(0);
 });
 it("persists only known per-theme choices and restores them on remount", () => {
   const values = new Map<string, string>([["om.admin-accents.v1", '{"unknown":"blue","mono":"invalid"}']]);
-  const storage = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value); } };
+  const storage: Pick<Storage, 'getItem' | 'setItem'> = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value); } };
   const host = { root: document.createElement("div"), storage };
   const view = renderHook(() => useAppearance(host));
   act(() => view.result.current.changeAccent({ currentTarget: { value: "green" } } as ChangeEvent<HTMLInputElement>));
   act(() => view.result.current.changeTheme(change({ value: "neumorphic" })));
   expect(view.result.current.accent).toBe("default");
   act(() => view.result.current.changeAccent({ currentTarget: { value: "violet" } } as ChangeEvent<HTMLInputElement>));
-  expect(JSON.parse(values.get("om.admin-accents.v1")!)).toEqual({ modernist: "green", glass: "default", neumorphic: "violet", "modern-premium": "default", mono: "default" });
+  expect(JSON.parse(values.get("om.admin-accents.v1")!)).toEqual({ modernist: "green", glass: "default", neumorphic: "violet", "modern-premium": "default", mono: "default", "om-ink": "default" });
   view.unmount(); const restored = renderHook(() => useAppearance(host));
   expect(restored.result.current).toMatchObject({ theme: "neumorphic", accent: "violet" });
   act(() => restored.result.current.changeTheme(change({ value: "modernist" }))); expect(restored.result.current.accent).toBe("green");

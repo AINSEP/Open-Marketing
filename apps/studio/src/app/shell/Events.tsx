@@ -1,4 +1,4 @@
-import { eventFields, useEvents } from './Events.hooks.js';
+import { eventFields, eventTime, useEvents } from './Events.hooks.js';
 import type { CaptureEvent } from '@open-marketing/contracts';
 import type { StudioApiPort, StudioRuntime } from '../../shared/api/index.js';
 
@@ -12,6 +12,7 @@ export function Events(props: { api: StudioApiPort; runtime: StudioRuntime }) {
   </section>;
 }
 /** Fixed Array.map callback ABI supplies the disposable snapshot row key. */
-function renderEvent(event: CaptureEvent, index: number) {
-  return <li key={index}><strong>{event.kind} · {event.name}</strong> · <time>{event.at}</time><p>{eventFields({ event })}</p></li>;
-}
+const renderEvent = ((event: CaptureEvent, index: number) => {
+  const time = eventTime({ event });
+  return <li key={index}><strong>{event.kind} · {event.name}</strong> · <time dateTime={time.iso} title={time.iso}>{time.text}</time><p>{eventFields({ event })}</p></li>;
+}) satisfies Parameters<CaptureEvent[]['map']>[0];

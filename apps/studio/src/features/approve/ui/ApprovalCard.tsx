@@ -25,4 +25,4 @@ export function ApprovalCard(props: ApprovalCardProps) {
 function renderApprovalButton(button: ApprovalButton) { return <button key={button.choice} type="button" className="approval-choice" data-choice={button.choice} onClick={button.onClick}>{button.label}</button>; }
 
 /** Narrow map callback for a parsed destination; exact JSON remains visible immediately below. */
-function renderDestination(item: LaunchDestinationSummary) { return <li key={item.key}><strong>{item.vendor}</strong><span>{item.account}</span><span>Daily budget: {item.budget} · Expected flight exposure: {item.exposure}</span></li>; }
+function renderDestination(item: LaunchDestinationSummary) { return <li key={item.key}><strong>{item.vendor}</strong><span>{item.account}</span><span>Daily budget: {item.budget} · Expected flight exposure: {item.exposure}</span><span>{item.validation}</span></li>; }

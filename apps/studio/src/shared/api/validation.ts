@@ -1,4 +1,4 @@
-import { a2uiSurfacePayloadSchema, integrationSummarySchema } from '@open-marketing/contracts';
+import { a2uiSurfacePayloadSchema, campaignKeySchema, epochSchema, idSchema, credentialPluginStatusSchema, oauthClientStatusSchema, oauthStatusSchema, oauthChallengeSchema as sharedOAuthChallengeSchema } from '@open-marketing/contracts';
 import { z } from "zod";
 import { toolRequestedPayloadSchema, toolResultPayloadSchema, approvalPayloadSchema, chatMessageSchema, confirmationCardSchema, navigationActionSchema, navigationTargetSchema, studioNavigationTargetSchema, moneySchema, runEventSchema, parseBoundary } from "@open-marketing/contracts";
 import type { Outcome, RunEvent } from "@open-marketing/contracts";
@@ -10,6 +10,17 @@ const snapshotRows = z.record(z.string(), z.array(row).max(100))
   .refine(rows => Object.keys(rows).every(target => studioNavigationTargetSchema.safeParse(target).success))
   .refine(rows => navigationTargetSchema.options.every(target => target in rows));
 const displayId = z.string().min(1).max(256);
+/** Studio reads only the inbox presentation fields; backend lifecycle types stay on the server. */
+export const leadDisplaySchema = z.object({
+  leadId: displayId, source: z.object({ kind: z.enum(['form', 'call', 'booking', 'manual']), ref: displayId }),
+  stage: z.enum(['new', 'qualified', 'won', 'disqualified', 'spam']), revision: epochSchema.min(1), erased: z.boolean(),
+  attribution: z.object({ campaign: campaignKeySchema.nullable() }),
+});
+export const leadStageRequestSchema = leadDisplaySchema.pick({ leadId: true }).strict().extend({
+  to: leadDisplaySchema.shape.stage, expectedRevision: leadDisplaySchema.shape.revision.max(Number.MAX_SAFE_INTEGER - 1), changeId: displayId,
+});
+export type LeadDisplay = z.infer<typeof leadDisplaySchema>;
+export type LeadStageRequest = z.infer<typeof leadStageRequestSchema>;
 const title = z.string().min(1).max(200);
 const detail = z.string().max(1024);
 const evidenceList = z.array(detail).max(100);
@@ -120,29 +131,18 @@ function normalizePayload(required: { event: RunEvent }): unknown {
  return event.payload;
 }
 
-/** Studio-local wire schemas mirror the existing owner HTTP endpoints; no credentials in replies. */
-export const oauthPluginSchema = z.enum(['google-ads', 'linkedin-ads', 'meta-ads']);
-const oauthClientSchema = z.strictObject({ clientId: z.string().min(1).max(2048), clientSecret: z.string().min(1).max(8192).optional() });
-export const oauthClientSetSchema = z.union([
-  z.strictObject({ pluginId: z.enum(['google-ads', 'linkedin-ads']), client: oauthClientSchema.nullable() }),
-  z.strictObject({ pluginId: z.literal('meta-ads'), client: oauthClientSchema.extend({ configId: z.string().regex(/^[1-9][0-9]{0,127}$/) }).nullable() }),
-]);
-export const oauthClientStatusSchema = z.union([
-  z.strictObject({ configured: z.literal(false), guidance: z.string().max(512).optional() }),
-  z.strictObject({ configured: z.literal(true), clientId: z.string().min(1).max(2048), guidance: z.string().max(512).optional() }),
-]);
-export const oauthStatusQuerySchema = z.union([z.strictObject({ pluginId: oauthPluginSchema }), z.strictObject({ transactionId: displayId })]);
-export const oauthStatusSchema = z.union([oauthClientStatusSchema,
-  z.strictObject({ status: z.enum(['pending', 'complete', 'expired']), connection: integrationSummarySchema.optional() }),
-]);
-export const developerTokenQuerySchema = z.strictObject({ pluginId: z.literal('google-ads') });
-export const developerTokenSetSchema = developerTokenQuerySchema.extend({ token: z.string().regex(/^[A-Za-z0-9]{22}$/).nullable() });
-export const developerTokenStatusSchema = z.strictObject({ configured: z.boolean() });
+/** Plugin identity and declared client extras are generic; vendor rules stay on the server. */
+export const oauthPluginSchema = idSchema;
+export const oauthClientSetSchema = z.strictObject({ pluginId: idSchema, client: z.object({
+  clientId: z.string().min(1).max(2048), clientSecret: z.string().min(1).max(8192).optional(),
+}).catchall(z.string().min(1).max(2048)).nullable() });
+export const oauthStatusQuerySchema = z.union([z.strictObject({ pluginId: idSchema }), z.strictObject({ transactionId: displayId })]);
+export const pluginOAuthStatusSchema = z.union([oauthStatusSchema, credentialPluginStatusSchema]);
 /** Server-provided sign-in URLs must be HTTPS and cannot embed user/password credentials. */
-export const oauthChallengeSchema = z.strictObject({ transactionId: displayId, authorizationUrl: z.url().max(4096).refine(value => {
+export const oauthChallengeSchema = sharedOAuthChallengeSchema.extend({ authorizationUrl: sharedOAuthChallengeSchema.shape.authorizationUrl.refine(value => {
   const url = new URL(value); return url.protocol === 'https:' && !url.username && !url.password;
-}), expiresAt: z.number().int().nonnegative().max(8640000000000000) });
+}), expiresAt: sharedOAuthChallengeSchema.shape.expiresAt.max(8640000000000000) });
 export type OAuthPlugin = z.infer<typeof oauthPluginSchema>;
 export type OAuthClientRequest = z.infer<typeof oauthClientSetSchema>;
 export type OAuthClientStatus = z.infer<typeof oauthClientStatusSchema>;
-export type OAuthStatus = z.infer<typeof oauthStatusSchema>;
+export type OAuthStatus = z.infer<typeof pluginOAuthStatusSchema>;

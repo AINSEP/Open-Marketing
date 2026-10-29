@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { confirmationCardSchema, moneySchema, parseBoundary } from "@open-marketing/contracts";
+import { campaignValidationEvidenceSchema, confirmationCardSchema, neutralCampaignLaunchSchema, parseBoundary } from "@open-marketing/contracts";
 import type { ApprovalResponse, ConfirmationCard, Outcome } from "@open-marketing/contracts";
 import { isSafeUiValue } from "../../../shared/api/index.js";
 
@@ -26,13 +26,10 @@ export function prepareApproval(required: { card: unknown; choice: ApprovalRespo
   return { ok: true, value: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: required.choice } };
 }
 
-const groupedLaunchSchema = z.object({ tool: z.literal('om_campaign_deploy_paused'), campaign: z.object({
-  name: z.string().min(1).max(200), objective: z.literal('traffic'),
-  schedule: z.object({ window: z.object({ start: z.number().int().nonnegative().max(8640000000000000), end: z.number().int().nonnegative().max(8640000000000000) }), timezone: z.string().min(1).max(100) }),
-  creativeIds: z.array(z.string().max(256)).min(1).max(20),
-  targets: z.array(z.object({ pluginId: z.string().max(256), connectionId: z.string().max(256), accountId: z.string().max(256), dailyBudget: moneySchema, expectedExposure: moneySchema })).min(1).max(4),
-}), calls: z.array(z.unknown()).min(1).max(4) });
-export interface LaunchDestinationSummary { readonly key: string; readonly vendor: string; readonly account: string; readonly budget: string; readonly exposure: string }
+const groupedLaunchSchema = z.object({ tool: z.literal('om_campaign_deploy_paused'),
+  campaign: neutralCampaignLaunchSchema,
+  calls: z.array(z.unknown()).min(1).max(4), validation: z.array(campaignValidationEvidenceSchema).max(4) });
+export interface LaunchDestinationSummary { readonly key: string; readonly vendor: string; readonly account: string; readonly budget: string; readonly exposure: string; readonly validation: string }
 /** Display an optional grouped summary without replacing or altering the complete frozen arguments.
  * Invalid/oversized/secret-bearing cards yield no summary and remain subject to readApprovalCard.
  * @example useLaunchSummary({ card });
@@ -43,12 +40,13 @@ export function useLaunchSummary(required: { card: unknown }) {
   if (!card.ok) return null;
   const parsed = groupedLaunchSchema.safeParse(card.value.arguments);
   if (!parsed.success) return null;
-  const { campaign, calls } = parsed.data;
-  return { name: campaign.name, objective: campaign.objective, creatives: campaign.creativeIds.join(', '),
+  const { campaign, calls, validation } = parsed.data;
+  return { name: campaign.name, objective: campaign.objective, creatives: campaign.ads.map(ad => ad.creativeId).join(', '),
     schedule: new Date(campaign.schedule.window.start).toISOString() + ' → ' + new Date(campaign.schedule.window.end).toISOString() + ' · ' + campaign.schedule.timezone,
     callCount: calls.length, expires: card.value.expiresAt <= 8640000000000000 ? new Date(card.value.expiresAt).toISOString() : String(card.value.expiresAt),
     destinations: campaign.targets.map((target, index) => ({ key: String(index), vendor: target.pluginId, account: target.connectionId + ' / ' + target.accountId,
-      budget: summaryMoney({ money: target.dailyBudget }), exposure: summaryMoney({ money: target.expectedExposure }) })),
+      budget: summaryMoney({ money: target.dailyBudget }), exposure: summaryMoney({ money: target.expectedExposure }),
+      validation: validation[index]?.status === 'validated' ? 'Vendor validated · ' + validation[index].evidenceDigest.slice(0, 12) : 'Not vendor-validated' })),
   };
 }
 /** Currency units are formatted independently; never combine destinations or imply a spending cap. */

@@ -1,4 +1,6 @@
 import { createRoot } from "react-dom/client";
+import { REMIXICON_STYLESHEET_MARKER } from "@jini-ai/ui";
+import remixiconCss from "@jini-ai/ui/remixicon.css?inline";
 import { createStudioApp } from "./index.js";
 import { browserFrontendRequest, browserRuntime, browserRoutes, browserStorage } from "./composition/adapters/browser.js";
 import { createBrowserChartHost } from './features/chart-providers/index.js';
@@ -6,6 +8,12 @@ import { createHttpStudioApi } from "./shared/api/index.js";
 import "@fontsource-variable/space-grotesk";
 import "@fontsource-variable/dm-sans";
 import "./styles.css";
+
+// Process font URLs through Vite and mark the override before any Jini icon mounts.
+const remixiconStyle = document.createElement("style");
+remixiconStyle.setAttribute(REMIXICON_STYLESHEET_MARKER, "");
+remixiconStyle.textContent = remixiconCss;
+document.head.appendChild(remixiconStyle);
 
 /** Explicit browser entry; all DOM/time/ID effects are injected at the host boundary. */
 const element = document.getElementById("root");

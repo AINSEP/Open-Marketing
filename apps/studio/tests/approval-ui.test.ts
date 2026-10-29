@@ -37,19 +37,22 @@ it("choices record honestly and expire at the injected clock deadline", async ()
 function groupedCard(required: { runtime: ReturnType<typeof testRuntime>['runtime'] }) {
   const card = sampleCards({ clock: required.runtime.clock })[1];
   return { ...card, arguments: { tool: 'om_campaign_deploy_paused',
-    campaign: { name: 'Autumn traffic', objective: 'traffic', schedule: { window: { start: 1000, end: 301000 }, timezone: 'America/Los_Angeles' }, creativeIds: ['creative-one'],
+    campaign: { schemaVersion: 2, operationId: 'launch', audience: { countries: ['US'] }, creativeDigest: 'a'.repeat(64), name: 'Autumn traffic', objective: 'traffic', schedule: { window: { start: 1000, end: 301000 }, timezone: 'America/Los_Angeles' }, ads: [{ creativeId: 'creative-one', destinationUrl: 'https://example.test/landing' }],
       targets: [
         { pluginId: 'google-ads', connectionId: 'google-one', accountId: 'account-us', dailyBudget: { minorUnits: 2000, currency: 'USD' }, expectedExposure: { minorUnits: 10000, currency: 'USD' } },
         { pluginId: 'linkedin-ads', connectionId: 'linkedin-one', accountId: 'account-eu', dailyBudget: { minorUnits: 3000, currency: 'EUR' }, expectedExposure: { minorUnits: 15000, currency: 'EUR' } },
       ] }, calls: [{ arguments: { text: 'x'.repeat(40000) } }, { arguments: { text: 'Keep the entire second call' } }],
+    validation: ['validated', 'unsupported'].map((status, index) => ({ pluginDigest: 'a'.repeat(64), schemaFingerprint: 'b'.repeat(64), argumentsDigest: 'c'.repeat(64), status, evidenceDigest: String(index + 1).repeat(64) })),
   } };
 }
-it('shows one grouped exact card above 32 KiB without trimming any frozen arguments or adding broad choices', () => {
-  const { runtime } = testRuntime(); const card = groupedCard({ runtime });
+it.each(['traffic', 'leads', 'sales'])('shows %s validation on one grouped exact card above 32 KiB without trimming arguments or adding broad choices', objective => {
+  const { runtime } = testRuntime(); const card = groupedCard({ runtime }); card.arguments.campaign.objective = objective;
   render(createElement(ApprovalCard, { card, api: createSampleStudioApi({ runtime }), runtime, sample: false }));
   expect(screen.getAllByRole('article')).toHaveLength(1);
   expect(screen.getByRole('region', { name: 'Grouped campaign launch' })).toBeDefined();
   expect(screen.getByText('Autumn traffic')).toBeDefined();
+  expect(screen.getByText('Vendor validated · 111111111111')).toBeDefined();
+  expect(screen.getByText('Not vendor-validated')).toBeDefined();
   expect(screen.getByText('Daily budget: $20.00 · Expected flight exposure: $100.00')).toBeDefined();
   expect(screen.getByText('Daily budget: €30.00 · Expected flight exposure: €150.00')).toBeDefined();
   expect(screen.getByLabelText('Exact arguments').textContent).toBe(JSON.stringify(card.arguments, null, 2));

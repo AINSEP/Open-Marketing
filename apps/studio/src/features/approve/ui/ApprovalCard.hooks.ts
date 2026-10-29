@@ -30,7 +30,7 @@ export function useApprovalCard(required: ApprovalCardProps) {
     const response = prepareApproval({ card: parsed.value, choice: input.choice, now: decidedAt });
     if (!response.ok) { setStatus("expired"); return; }
     locked.current = true; setStatus("submitting");
-    required.runtime.track?.('approval.clicked', { cardId: parsed.value.cardId, operationId: parsed.value.operationId, choice: input.choice, durationMs: Math.max(0, decidedAt - (exposure.current?.at ?? decidedAt)) });
+    required.runtime.track?.({ name: 'approval.clicked' }, { properties: { cardId: parsed.value.cardId, operationId: parsed.value.operationId, choice: input.choice, durationMs: Math.max(0, decidedAt - (exposure.current?.at ?? decidedAt)) } });
     const controller = required.runtime.abort();
     const handle = required.runtime.timers.schedule({ delayMs: 15000, callback: () => { controller.abort("timeout"); setStatus("failed"); } });
     submission.current = { controller, handle };
@@ -77,12 +77,12 @@ function useApprovalExposure(required: ApprovalCardProps & { parsed: ReturnType<
       const cardId = required.parsed.ok ? required.parsed.value.cardId : null;
       if (!exposure.current || exposure.current.cardId !== cardId) {
         exposure.current = { cardId, at: required.runtime.clock.now({}), expired: false };
-        if (required.parsed.ok) required.runtime.track?.('approval.shown', { cardId: required.parsed.value.cardId, operationId: required.parsed.value.operationId });
-        else required.runtime.track?.('approval.invalid_card', { errorCode: 'invalid_card' });
+        if (required.parsed.ok) required.runtime.track?.({ name: 'approval.shown' }, { properties: { cardId: required.parsed.value.cardId, operationId: required.parsed.value.operationId } });
+        else required.runtime.track?.({ name: 'approval.invalid_card' }, { properties: { errorCode: 'invalid_card' } });
       }
       if (!required.parsed.ok || required.locked.current || exposure.current.expired || required.now < required.parsed.value.expiresAt) return;
       exposure.current.expired = true;
-      required.runtime.track?.('approval.expired', { cardId: required.parsed.value.cardId, operationId: required.parsed.value.operationId, durationMs: Math.max(0, required.now - exposure.current.at) });
+      required.runtime.track?.({ name: 'approval.expired' }, { properties: { cardId: required.parsed.value.cardId, operationId: required.parsed.value.operationId, durationMs: Math.max(0, required.now - exposure.current.at) } });
     } catch { /* Diagnostic clocks/capture never change card authority or deadlines. */ }
   }, [required.card, required.parsed, required.now, required.locked, required.runtime]);
   return exposure;

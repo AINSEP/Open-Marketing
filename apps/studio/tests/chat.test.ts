@@ -53,17 +53,18 @@ it('closing the dock preserves the Jini draft; New chat resets it', async () => 
     expect(screen.queryByDisplayValue('Keep this draft')).toBeNull();
     expect(host.props.session.getSnapshot().conversationId).toBeNull();
     expect(screen.getByRole('button', { name: 'Reasoning: Default' })).toBeDefined();
-    expect(screen.getByRole('button', { name: 'Model: Opus 5.5' })).toBeDefined();
+    expect(screen.getByRole('button', { name: 'Model: Sample Large' })).toBeDefined();
     expect(screen.queryByText(/coming soon/i)).toBeNull();
   } finally { host.dispose(); }
 });
 
 it('loads the chosen server conversation into Jini and uses server model choices with the existing settings write', async () => {
   const host = testStudio(), writes: unknown[] = [];
-  const settings = { mode: 'sandbox' as 'sandbox' | 'model', model: 'fixture-model', connectionId: 'connection' };
+  const settings = { mode: 'sandbox' as 'sandbox' | 'model', provider: 'acme-models', model: 'fixture-model', connectionId: 'connection' };
   const models = [{ id: 'fixture-model', label: 'Fixture model from server' }];
-  host.props.api.settings = async () => ({ ok: true, value: { settings, models, ready: true, status: 'ready' } });
-  host.props.api.setSettings = async input => { writes.push(input.settings); return { ok: true, value: { settings: input.settings, models, ready: true, status: 'ready' } }; };
+  const runtimes = [{ id: 'acme-models', name: 'Acme models', available: true, authStatus: 'ok' as const, models, reasoningOptions: [] }];
+  host.props.api.settings = async () => ({ ok: true, value: { settings, models, runtimes, ready: true, status: 'ready' } });
+  host.props.api.setSettings = async input => { writes.push(input.settings); return { ok: true, value: { settings: input.settings, models, runtimes, ready: true, status: 'ready' } }; };
   host.props.api.conversations = async () => ({ ok: true, value: { items: [{ conversationId: 'saved', title: 'Saved chat', createdAt: 1000, updatedAt: 1000 }], cursor: null } });
   host.props.api.conversation = async () => ({ ok: true, value: { conversation: { conversationId: 'saved', title: 'Saved chat', createdAt: 1000, updatedAt: 1000 }, messages: [{ id: 'reply', role: 'assistant', text: 'Saved answer from the server' }], cursor: null } });
   try {
@@ -76,10 +77,10 @@ it('loads the chosen server conversation into Jini and uses server model choices
     expect(await screen.findByText('Saved answer from the server')).toBeDefined();
     const hook = renderHook(() => useOMChatPane({ ...host.props, sample: false, available: true, open: true, toggle() {} }));
     expect(hook.result.current.pane.agents?.[0].models).toContainEqual(models[0]);
-    await act(async () => { hook.result.current.pane.onSelectionChange?.({ agentId: 'claude', model: 'fixture-model' }); });
-    expect(writes).toEqual([{ mode: 'model', provider: 'anthropic', model: 'fixture-model', connectionId: 'connection' }]);
-    expect(hook.result.current.pane.selection?.agentId).toBe('claude');
-    await act(async () => { hook.result.current.pane.onSelectionChange?.({ agentId: 'claude', model: 'unadvertised-model' }); });
+    await act(async () => { hook.result.current.pane.onSelectionChange?.({ agentId: 'om-model:acme-models', model: 'fixture-model' }); });
+    expect(writes).toEqual([{ mode: 'model', provider: 'acme-models', model: 'fixture-model', connectionId: 'connection' }]);
+    expect(hook.result.current.pane.selection?.agentId).toBe('om-model:acme-models');
+    await act(async () => { hook.result.current.pane.onSelectionChange?.({ agentId: 'om-model:acme-models', model: 'unadvertised-model' }); });
     expect(writes).toHaveLength(1); hook.unmount();
   } finally { host.dispose(); }
 });

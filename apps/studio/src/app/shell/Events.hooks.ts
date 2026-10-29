@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { formatTimestamp } from '@jini-ai/ui/panel-kit';
 import { recentEventsSchema } from '@open-marketing/contracts';
 import type { CaptureEvent } from '@open-marketing/contracts';
 import type { StudioApiPort, StudioRuntime } from '../../shared/api/index.js';
@@ -29,4 +30,12 @@ export function useEvents(required: { api: StudioApiPort; runtime: StudioRuntime
 /** Only schema-validated fixed fields reach the list; no error messages, payloads or stacks. */
 export function eventFields(required: { event: CaptureEvent }): string {
   return Object.entries(required.event).filter(([key]) => !['kind', 'name', 'at'].includes(key)).map(([key, value]) => key + ': ' + value).join(' · ');
+}
+/** Present validated event milliseconds in local time with exact ISO; keep out-of-range values visible. */
+export function eventTime(required: { event: CaptureEvent }): { text: string; iso?: string } {
+  if (required.event.at <= 8640000000000000) {
+    const iso = new Date(required.event.at).toISOString();
+    return { text: formatTimestamp({ iso }, { timeZone: 'local' }), iso };
+  }
+  return { text: String(required.event.at) };
 }

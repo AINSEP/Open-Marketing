@@ -87,7 +87,7 @@ export function createNavigationController(required: { browser: BrowserRoutePort
       if (disposed || target !== input.target) return;
       if (renderedTarget !== input.target) {
         renderedTarget = input.target;
-        try { required.track?.('screen.viewed', { screen: input.target }); } catch { /* Capture cannot block navigation. */ }
+        try { required.track?.({ name: 'screen.viewed' }, { properties: { screen: input.target } }); } catch { /* Capture cannot block navigation. */ }
       }
       if (pending?.target === input.target && target === input.target) finish({ result: { status: "completed", actionId: pending.actionId, target: pending.target } });
     },

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { expect, it } from "vitest";
 
-const themeIds = ["glass", "neumorphic", "modern-premium", "mono"];
+const themeIds = ["glass", "neumorphic", "modern-premium", "mono", "om-ink"];
 type Tokens = Record<string, string>;
 // Fixture reads only. Array/regex callbacks below retain their native callback signatures.
 const readCss = ({ name }: { name: string }) => readFileSync(new URL(`../src/themes/${name}.css`, import.meta.url), "utf8");
@@ -90,7 +90,7 @@ it.each([...themeIds, "accents"])("keeps %s scoped, token-only and within the CS
     expect(block.body.split(";").map(part => part.trim()).filter(Boolean).every(part => /^--jini-[\w-]+:/.test(part))).toBe(true);
   }
 });
-it("imports Modern plus the four themes once, with accents last and no missing Quiet import", () => {
+it("imports all six themes once, with accents last and no missing Quiet import", () => {
   expect(readCss({ name: "index" }).trim().split("\n")).toEqual(["modernist", ...themeIds, "accents"].map(id => `@import "./${id}.css";`));
 });
 it.each(states)("ships material roles and AA pairs for $id/$scheme", state => {

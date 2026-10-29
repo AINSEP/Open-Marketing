@@ -5,6 +5,25 @@ import { createHttpStudioApi, createSampleStudioApi, parseStudioSnapshot } from 
 import type { StudioSnapshot, StudioApiPort } from '../src/shared/api/index.js';
 import { testRuntime } from './support/runtime.js';
 
+it('sends the owner stage path/body, validates its response, and keeps sample leads unavailable', async () => {
+    const host = testRuntime();
+    const calls: { path: string; init?: RequestInit }[] = [];
+    let malformed = false;
+    const lead = { leadId: 'lead-1', source: { kind: 'form', ref: 'submission-1' }, stage: 'qualified', revision: 2, erased: false, attribution: { campaign: null } };
+    const api = createHttpStudioApi({ baseUrl: 'http://127.0.0.1:4321', runtime: host.runtime, observer: { observe() {} },
+        fetch: async (input, init) => { calls.push({ path: new URL(String(input)).pathname, init });
+            return Response.json({ ok: true, value: malformed ? { ...lead, revision: '2' } : lead }); } });
+    const request = { leadId: 'lead-1', to: 'qualified' as const, expectedRevision: 1, changeId: 'change-1' };
+    expect(await api.setLeadStage!({ request })).toEqual({ ok: true, value: lead });
+    expect(calls[0].path).toBe('/api/leads/stage');
+    expect(calls[0].init?.method).toBe('POST');
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual(request);
+    malformed = true;
+    expect(await api.setLeadStage!({ request: { ...request, changeId: 'change-2' } })).toMatchObject({ ok: false, error: { code: 'invalid_input' } });
+    expect(await createSampleStudioApi({ runtime: host.runtime }).setLeadStage!({ request })).toMatchObject({ ok: false, error: { code: 'unavailable' } });
+    expect(host.pending()).toBe(0);
+});
+
 function value<T>(required: { result: Outcome<T> }): T {
     if (!required.result.ok) throw new Error(required.result.error.message);
     return required.result.value;

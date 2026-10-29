@@ -151,14 +151,14 @@ it("keeps appearance Settings usable before workspace data arrives", async () =>
 it("offers one Settings picker with live theme previews and keyboard-operated accents", async () => {
   const host = testStudio(); const root = document.createElement("div");
   const values = new Map<string, string>();
-  const storage = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value); } };
+  const storage: Pick<Storage, 'getItem' | 'setItem'> = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value); } };
   try {
     const user = userEvent.setup(); const view = render(createElement(Shell, { ...host.props, appearance: { root, storage } }));
     await user.click(screen.getByRole("link", { name: "Settings" }));
     expect(screen.getAllByRole("group", { name: "Theme" })).toHaveLength(1);
     expect(screen.getAllByRole("group", { name: "Accent" })).toHaveLength(1);
     expect(screen.queryByRole("radio", { name: "Quiet" })).toBeNull();
-    for (const [label, id] of [["Modern", "modernist"], ["Glass", "glass"], ["Neumorphic", "neumorphic"], ["Modern Premium", "modern-premium"], ["Mono", "mono"]]) {
+    for (const [label, id] of [["Modern", "modernist"], ["Glass", "glass"], ["Neumorphic", "neumorphic"], ["Modern Premium", "modern-premium"], ["Mono", "mono"], ["OM Ink", "om-ink"]]) {
       await user.click(screen.getByRole("radio", { name: label }));
       expect(root.getAttribute("data-admin-theme")).toBe(id); expect(values.get("om.admin-theme.v1")).toBe(id);
       expect(screen.getByRole("radio", { name: label }).getAttribute("data-agent-element")).toBe("appearance-theme-" + id);
@@ -173,7 +173,7 @@ it("offers one Settings picker with live theme previews and keyboard-operated ac
     await user.click(screen.getByRole("radio", { name: "Mono" })); expect(root.hasAttribute("data-accent")).toBe(false);
     await user.click(screen.getByRole("radio", { name: "Glass" })); expect(root.getAttribute("data-accent")).toBe("violet");
     await user.click(screen.getByRole("radio", { name: "Theme default" })); expect(root.hasAttribute("data-accent")).toBe(false);
-    expect(view.container.querySelectorAll('[data-theme-preview]')).toHaveLength(5);
+    expect(view.container.querySelectorAll('[data-theme-preview]')).toHaveLength(6);
   } finally { host.dispose(); }
 });
 
@@ -184,7 +184,7 @@ async function composedAppearanceFixture() {
   const timer = testRuntime(); const now = vi.fn(() => 1000); const runtime = { ...timer.runtime, clock: { now } };
   const container = document.createElement("div"); document.body.append(container);
   const appearanceRoot = document.createElement("div"); const values = new Map<string, string>();
-  const storage = { getItem: (key: string) => values.get(key) ?? null, setItem: vi.fn((key: string, value: string) => { values.set(key, value); }) };
+  const storage = { getItem: (key: string) => values.get(key) ?? null, setItem: vi.fn<Storage['setItem']>((key: string, value: string) => { values.set(key, value); }) } satisfies Pick<Storage, 'getItem' | 'setItem'>;
   const source = Object.assign(new EventTarget(), { close: vi.fn() });
   const responses: { invocationId: string; ok: boolean; message?: string }[] = [];
   let session!: ComponentProps<typeof Shell>["session"]; let view: { unmount(): void } | undefined;
@@ -244,10 +244,10 @@ it("executes every composed theme/accent page handle and renders its actual prev
       expect(await f.response({ invocationId: themeAction })).toMatchObject({ ok: true });
       expect(f.root.getAttribute("data-admin-theme")).toBe(theme.id); expect(f.values.get("om.admin-theme.v1")).toBe(theme.id);
       expect((screen.getByRole("radio", { name: theme.label }) as HTMLInputElement).checked).toBe(true);
-      for (const accent of [ACCENTS.green, ACCENTS.blue, ACCENTS.default, ACCENTS.violet]) {
+      for (const [accent, attribute] of [[ACCENTS.green, 'green'], [ACCENTS.blue, 'blue'], [ACCENTS.default, null], [ACCENTS.violet, 'violet']] as const) {
         const accentAction = await f.invoke({ handle: "appearance-accent-" + accent.id });
         expect(await f.response({ invocationId: accentAction })).toMatchObject({ ok: true });
-        expect(f.root.getAttribute("data-accent")).toBe(accent.id === "default" ? null : accent.id);
+        expect(f.root.getAttribute("data-accent")).toBe(attribute);
         expect(JSON.parse(f.values.get("om.admin-accents.v1")!)[theme.id]).toBe(accent.id);
         expectThemePreview({ container: f.container, theme, scheme: "light", accent: accent.id });
       }
@@ -261,7 +261,7 @@ it("executes every composed theme/accent page handle and renders its actual prev
       const denied = await f.invoke({ handle });
       expect(await f.response({ invocationId: denied })).toMatchObject({ ok: false, message: expect.stringContaining("No live run") });
     }
-    expect(f.root.getAttribute("data-admin-theme")).toBe("mono"); expect(f.root.getAttribute("data-accent")).toBe("violet");
+    expect(f.root.getAttribute("data-admin-theme")).toBe("om-ink"); expect(f.root.getAttribute("data-accent")).toBe("violet");
     expect([...f.values]).toEqual(saved); expect(f.storage.setItem).toHaveBeenCalledTimes(writes);
     for (const theme of THEMES) expectThemePreview({ container: f.container, theme, scheme: "dark", accent: "violet" });
   } finally { await f.dispose(); }
@@ -360,7 +360,7 @@ it("collapses each group with the keyboard and keeps SOON previews navigable", a
 
 it("remembers the icon rail and retains assistant draft while navigating", async () => {
   const host = testStudio(); const values = new Map<string, string>([["om.sidebar-rail.v1", "true"]]);
-  const storage = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value); } };
+  const storage: Pick<Storage, 'getItem' | 'setItem'> = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value); } };
   const props = { ...host.props, appearance: { root: null, storage } };
   try {
     const user = userEvent.setup(); const view = render(createElement(Shell, props));

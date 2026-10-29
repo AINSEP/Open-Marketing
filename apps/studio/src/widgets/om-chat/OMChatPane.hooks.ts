@@ -5,7 +5,7 @@ import type { AgentEvent, ChatMessage as JiniMessage } from '@jini-ai/chat';
 import { createExtEventRendererRegistry, useChatSettingsDialog } from '@jini-ai/chat/react';
 import type { ChatPermissionsPort, ExtEventRendererRegistry, ExtEventRenderProps, ChatSettingsSection } from '@jini-ai/chat/react';
 import type { ChatPaneProps } from '@jini-ai/chat/react/chat-pane';
-import { addonListSchema, parseBoundary } from '@open-marketing/contracts';
+import { chatAttachmentSchema, addonListSchema, parseBoundary } from '@open-marketing/contracts';
 import type { AddonSummary } from '@open-marketing/contracts';
 import { usePortSnapshot } from '../../shared/ui/index.js';
 import type { ChatSession, ChatState } from '../../features/chat-run/index.js';
@@ -96,10 +96,33 @@ export function useOMChatPane(required: OMChatPaneProps & { providers?: ChartPro
     placeholder: 'Ask the assistant to do something…', toolCallDisplay, showUsageLine: true,
     runContext: () => ({ pluginInstructions: selected.map(addon => addon.name + ' (' + addon.id + ')') }),
     composerSlots: { discoveryGroups, onDiscoverySelect },
+    ...(required.api.attachments ? {
+      uploadAttachments: (files, options) => uploadImages({ api: required.api.attachments!, files, signal: options?.signal ?? required.runtime.abort().signal }),
+      attachmentAccept: 'image/png,image/jpeg,image/webp',
+    } : {}),
   };
   return { state, busy, pane, panelRef, buttonRef, keyDown, history, showAgents, registry, settings, displaySections, selectedPlugins,
     title: state.conversations.find(item => item.conversationId === state.conversationId)?.title || state.messages.find(item => item.role === 'user')?.text.slice(0, 80) || 'New chat',
     navigationText: navigationText({ state }), modeText: state.notice === 'Assistant selection could not be saved.' ? state.notice : runtime.notice };
+}
+
+/** Sequential durable image uploads use the existing Studio transport and Jini draft lifecycle.
+ * Fixed failures preserve the composer's unsent draft; cancellation stops before the next upload.
+ * @complexity <=4 uploads, <=1 MiB each. Earlier successful uploads remain media-library assets.
+ */
+async function uploadImages(required: { api: NonNullable<StudioApiPort['attachments']>; files: File[]; signal: AbortSignal }) {
+  if (required.files.length > 4) throw new Error('Attach at most four images.');
+  const attachments = [];
+  for (const file of required.files) {
+    if (required.signal.aborted) throw new Error('Image upload cancelled.');
+    const result = await required.api.upload({ file, signal: required.signal });
+    if (required.signal.aborted) throw new Error('Image upload cancelled.');
+    if (!result.ok) throw new Error('Image upload unavailable.');
+    const ref = chatAttachmentSchema.safeParse(result.value);
+    if (!ref.success) throw new Error('Invalid attachment.');
+    attachments.push(ref.data);
+  }
+  return attachments;
 }
 
 /** Adapt existing session actions to Jini's menu lifecycle; unsupported rename/delete are omitted. */

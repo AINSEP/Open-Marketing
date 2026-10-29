@@ -1,6 +1,6 @@
-import type { OAuthClientRequest, OAuthClientStatus, OAuthStatus } from "./validation.js";
-import type { A2uiSurfacePayload, SurfaceAcknowledgement, ToolCall, ToolResult } from '@open-marketing/contracts';
-import type { AssistantSettings, AssistantSettingsStatus, Conversation, ConversationList, ConversationSummary, ToolRequestedPayload, ToolResultPayload, ApprovalPayload, CancellationReceipt, ChatMessage, ConfirmationCard, NavigationResult, Outcome, ApprovalResponse, RunEvent, NavigationAction, Money, ClockPort, IdPort, CaptureEvent } from "@open-marketing/contracts";
+import type { LeadDisplay, LeadStageRequest, OAuthClientRequest, OAuthClientStatus, OAuthStatus } from "./validation.js";
+import type { ConversionSettingsStatus, SetConversionSettings, A2uiSurfacePayload, SurfaceAcknowledgement, ToolCall, ToolResult, MailProviderSelection, MailProviderSettings } from '@open-marketing/contracts';
+import type { ChatAttachmentRef, AssistantSettings, AssistantSettingsStatus, Conversation, ConversationList, ConversationSummary, ToolRequestedPayload, ToolResultPayload, ApprovalPayload, CancellationReceipt, ChatMessage, ConfirmationCard, NavigationResult, Outcome, ApprovalResponse, RunEvent, NavigationAction, Money, ClockPort, IdPort, CaptureEvent } from "@open-marketing/contracts";
 
 /** Small read model for j19–j21 to replace with domain canvases. */
 export interface StudioRow { readonly id: string; readonly title: string; readonly detail: string; readonly status: string }
@@ -93,23 +93,31 @@ export type StudioPayload = A2uiSurfacePayload
 /** Diagnostic context is supplied by the composition decorator, never used as authority. */
 export interface StudioTrace { readonly correlationId: string; readonly traceId: string }
 type BrowserEvent = Exclude<CaptureEvent, { kind: 'trace' }>;
-/** Owner-specified track(name, fields) callback ABI, bound and injected per application instance. */
-export type StudioTrack = <N extends BrowserEvent['name']>(name: N, fields: Omit<Extract<BrowserEvent, { name: N }>, 'kind' | 'name' | 'at' | 'correlationId' | 'traceId'>) => void;
+/** Bound track({ name }, { properties }) callback, mirroring Jini tracker capture(required, optional); injected per application instance. */
+export type StudioTrack = <N extends BrowserEvent['name']>(required: { name: N }, optional: { properties: Omit<Extract<BrowserEvent, { name: N }>, 'kind' | 'name' | 'at' | 'correlationId' | 'traceId'> }) => void;
 /** Fixture and future HTTP adapters implement this boundary. Writes are never implicitly retried. */
 export interface StudioApiPort {
+  /** Direct authenticated owner change; conflicts require rereading the inbox. */
+  setLeadStage?(required: { request: LeadStageRequest; signal?: AbortSignal; trace?: StudioTrace }): Promise<Outcome<LeadDisplay>>;
   captureEvent?(required: { event: BrowserEvent; signal?: AbortSignal }): Promise<Outcome<{ status: 'recorded' }>>;
   recentEvents?(required: { signal?: AbortSignal }): Promise<Outcome<{ items: CaptureEvent[] }>>;
   tool?(required: { call: ToolCall; signal?: AbortSignal; trace?: StudioTrace; runId?: string; frontendSessionId?: string }): Promise<Outcome<ToolResult>>;
   operation?(required: { operationId: string; signal?: AbortSignal; trace?: StudioTrace }): Promise<Outcome<import("@open-marketing/contracts").ToolOperation>>;
   approvalCard?(required: { cardId: string; signal?: AbortSignal; trace?: StudioTrace }): Promise<Outcome<ConfirmationCard>>;
+  /** Direct owner acknowledgement; the server supplies approver identity. */
+  acknowledgeAlert?(required: { noticeId: string; signal?: AbortSignal; trace?: StudioTrace }): Promise<Outcome<{ status: 'acknowledged' }>>;
   acknowledgeSurface?(required: { result: SurfaceAcknowledgement; trace?: StudioTrace }): Promise<Outcome<{ status: 'recorded' }>>;
 
   /** Owner upload/connection forms use this surface; plaintext never enters chat. */
   readonly addons?: {
+    conversionSettings(required: { pluginId: string; signal?: AbortSignal; trace?: StudioTrace }): Promise<Outcome<ConversionSettingsStatus>>;
+    setConversionSettings(required: { request: SetConversionSettings; signal?: AbortSignal; trace?: StudioTrace }): Promise<Outcome<ConversionSettingsStatus>>;
+    mailProviderSettings(required: { signal?: AbortSignal; trace?: StudioTrace }): Promise<Outcome<MailProviderSettings>>;
+    setMailProviderSettings(required: { request: MailProviderSelection; signal?: AbortSignal; trace?: StudioTrace }): Promise<Outcome<MailProviderSelection>>;
     setOAuthClient(required: { request: OAuthClientRequest; signal?: AbortSignal; trace?: StudioTrace }): Promise<Outcome<OAuthClientStatus>>;
-    oauthStatus(required: { query: { pluginId: 'google-ads' | 'linkedin-ads' | 'meta-ads' } | { transactionId: string }; signal?: AbortSignal; trace?: StudioTrace }): Promise<Outcome<OAuthStatus>>;
-    setDeveloperToken(required: { request: { pluginId: 'google-ads'; token: string | null }; signal?: AbortSignal; trace?: StudioTrace }): Promise<Outcome<{ configured: boolean }>>;
-    developerTokenStatus(required: { pluginId: 'google-ads'; signal?: AbortSignal; trace?: StudioTrace }): Promise<Outcome<{ configured: boolean }>>;
+    oauthStatus(required: { query: { pluginId: string } | { transactionId: string }; signal?: AbortSignal; trace?: StudioTrace }): Promise<Outcome<OAuthStatus>>;
+    setPluginSecret(required: { request: import('@open-marketing/contracts').PluginSecretSet; signal?: AbortSignal; trace?: StudioTrace }): Promise<Outcome<import('@open-marketing/contracts').PluginSecretStatus>>;
+    pluginSecretStatus(required: { pluginId: string; signal?: AbortSignal; trace?: StudioTrace }): Promise<Outcome<import('@open-marketing/contracts').PluginSecretStatus>>;
     list(required: { query: import('@open-marketing/contracts').AddonListRequest; signal?: AbortSignal; trace?: StudioTrace }): Promise<Outcome<import('@open-marketing/contracts').AddonList>>;
     install(required: { request: import('@open-marketing/contracts').InstallAddon; signal?: AbortSignal; trace?: StudioTrace }): Promise<Outcome<import('@open-marketing/contracts').AddonSummary>>;
     setEnabled(required: { request: import('@open-marketing/contracts').SetAddonEnabled; signal?: AbortSignal; trace?: StudioTrace }): Promise<Outcome<import('@open-marketing/contracts').AddonSummary>>;
@@ -123,7 +131,8 @@ export interface StudioApiPort {
   settings?(required: { signal?: AbortSignal; trace?: StudioTrace }): Promise<Outcome<AssistantSettingsStatus>>;
   setSettings?(required: { settings: AssistantSettings; signal?: AbortSignal; trace?: StudioTrace }): Promise<Outcome<AssistantSettingsStatus>>;
   snapshot(required: { signal?: AbortSignal; trace?: StudioTrace }): Promise<Outcome<StudioSnapshot>>;
-  start(required: { message: ChatMessage; signal: AbortSignal; trace?: StudioTrace; conversationId?: string; frontendSessionId?: string; frontendBindToken?: string }): Promise<Outcome<StudioRun>>;
+  attachments?: { upload(required: { file: File; signal: AbortSignal; trace?: StudioTrace }): Promise<Outcome<ChatAttachmentRef>> };
+  start(required: { message: ChatMessage; attachments?: ChatAttachmentRef[]; signal: AbortSignal; trace?: StudioTrace; conversationId?: string; frontendSessionId?: string; frontendBindToken?: string }): Promise<Outcome<StudioRun>>;
   /** Validated cursor scan of the existing endpoint; no run is started. */
   runStatus?(required: { runId: string; after?: number; signal?: AbortSignal; trace?: StudioTrace }): Promise<Outcome<{ runId: string; status: 'running' | 'completed' | 'cancelled' | 'interrupted'; usage?: import('@open-marketing/contracts').AssistantUsage }>>;
   events(required: { runId: string; after: number; signal: AbortSignal; trace?: StudioTrace }): AsyncIterable<Outcome<RunEvent>>;

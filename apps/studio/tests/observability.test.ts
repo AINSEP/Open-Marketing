@@ -10,6 +10,7 @@ import type { CaptureEvent, Outcome } from '@open-marketing/contracts';
 import { createHttpStudioApi, createSampleStudioApi, instrumentStudioApi } from '../src/shared/api/index.js';
 import { sampleCards } from '../src/shared/api/sample-data.js';
 import { Events } from '../src/app/shell/Events.js';
+import { eventTime } from '../src/app/shell/Events.hooks.js';
 import { StudioErrorBoundary } from '../src/app/shell/StudioErrorBoundary.js';
 import { testRuntime } from './support/runtime.js';
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
@@ -45,9 +46,9 @@ it('capture caps four in flight, drops excess without a queue, and recovers from
   const { runtime } = testRuntime(); const api = createSampleStudioApi({ runtime });
   const pending = Promise.withResolvers<Outcome<{ status: 'recorded' }>>(); const captureEvent = vi.fn(() => pending.promise);
   const instrumented = instrumentStudioApi({ api: { ...api, captureEvent }, runtime, observability: createNoopObservabilityPort({}) });
-  for (let i = 0; i < 8; i++) instrumented.runtime.track('screen.viewed', { screen: 'settings' });
+  for (let i = 0; i < 8; i++) instrumented.runtime.track({ name: 'screen.viewed' }, { properties: { screen: 'settings' } });
   expect(captureEvent).toHaveBeenCalledTimes(4); pending.reject(new Error('private-fixture')); await Promise.resolve();
-  instrumented.runtime.track('screen.viewed', { screen: 'settings' }); expect(captureEvent).toHaveBeenCalledTimes(5);
+  instrumented.runtime.track({ name: 'screen.viewed' }, { properties: { screen: 'settings' } }); expect(captureEvent).toHaveBeenCalledTimes(5);
   expect(await instrumented.api.snapshot({})).toMatchObject({ ok: true });
 });
 it('one click/request/failure pair uses existing headers and preserves the response and invocation count', async () => {
@@ -60,7 +61,7 @@ it('one click/request/failure pair uses existing headers and preserves the respo
   } });
   const observability = { ...createNoopObservabilityPort({}), trackRequest() { return { end() { throw new Error('tracker'); } }; } };
   const { api, runtime: observed } = instrumentStudioApi({ api: raw, runtime, observability });
-  observed.track('approval.clicked', { cardId: card.cardId, operationId: card.operationId, choice: 'allow', durationMs: 12 });
+  observed.track({ name: 'approval.clicked' }, { properties: { cardId: card.cardId, operationId: card.operationId, choice: 'allow', durationMs: 12 } });
   expect(await api.approve({ response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } })).toEqual({
     ok: false, error: { code: 'unavailable', message: 'Write response unavailable; outcome unknown. Refresh before another submission.', retryable: false },
   });
@@ -77,16 +78,21 @@ it('each throwing diagnostic destination preserves approval results and invocati
     const observed = instrumentStudioApi({ api: { ...raw, approve, captureEvent: fault === 'capture' ? throwing : raw.captureEvent },
       runtime: { ...runtime, ids: fault === 'ids' ? { next: throwing } : runtime.ids, clock: fault === 'clock' ? { now: throwing } : runtime.clock },
       observability: { ...createNoopObservabilityPort({}), ...(fault === 'tracker' ? { trackRequest: throwing } : {}) } });
-    expect(() => observed.runtime.track('approval.clicked', { cardId: 'c', operationId: 'o', choice: 'cancel', durationMs: 0 })).not.toThrow();
+    expect(() => observed.runtime.track({ name: 'approval.clicked' }, { properties: { cardId: 'c', operationId: 'o', choice: 'cancel', durationMs: 0 } })).not.toThrow();
     expect(await observed.api.approve({ response })).toEqual(recorded); expect(approve).toHaveBeenCalledTimes(1);
   }
 });
 it('Events displays capture on manual Refresh and reports absent capability', async () => {
+  expect(eventTime({ event: { ...viewed, at: 9e15 } })).toEqual({ text: '9000000000000000' });
   const { runtime } = testRuntime(); const api = createSampleStudioApi({ runtime });
   render(createElement(Events, { api, runtime })); await act(async () => {}); expect(screen.getByText('No local events yet')).toBeDefined();
   await api.captureEvent!({ event: viewed }); expect(screen.queryByText('product · screen.viewed')).toBeNull();
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Refresh' })); });
   expect(screen.getByText('product · screen.viewed')).toBeDefined(); expect(screen.getByText('screen: settings')).toBeDefined();
+  const time = screen.getByRole('list', { name: 'Recent events' }).querySelector('time');
+  expect(time?.getAttribute('datetime')).toBe('1970-01-01T00:00:01.000Z');
+  expect(time?.textContent).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+  expect(time?.textContent).not.toBe('1000');
   cleanup(); render(createElement(Events, { api: { ...api, recentEvents: undefined }, runtime })); await act(async () => {});
   expect(screen.getByText('Local events unavailable')).toBeDefined();
 });
