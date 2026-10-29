@@ -3,9 +3,12 @@ import { createHash } from 'node:crypto';
 import { formDefinitionRepoFor, formSubmissionRepoFor } from '@jini-ai/cms/forms/sql';
 import { z } from 'zod';
 import type { CallContext, ClockPort, IdPort, ObserverPort, Outcome, SqlSession, UnitOfWork } from '@open-marketing/contracts';
-import { epochSchema, idSchema } from '@open-marketing/contracts';
+import { epochSchema, idSchema, parseCampaignKey } from '@open-marketing/contracts';
 import { acceptFormSubmission, createFormsService, createSqlFormsStorage, type FormAcceptancePort, type FormPublication } from '@open-marketing/forms';
 import { createSqlJobRepo } from '@open-marketing/jobs';
+import { createLeadsService, createSqlLeadsRepo, type LeadAttribution } from '@open-marketing/leads';
+import { createSqlMetricsRepo } from '@open-marketing/measure';
+import type { AttributionTouch } from '@open-marketing/web-events';
 import { createSqlContactRepo, identifierDigest, normalizeEmail } from '@open-marketing/contacts';
 import { bindIdentity, processingAllowed } from './identity.js';
 import type { bindServerDatabase } from './database.js';
@@ -45,6 +48,30 @@ async function captureAcceptanceEvidence(required: {
     return bound.ok ? { ok: true, value: undefined } : bound;
 }
 
+/** Select the first projected paid claim in newest-first repository order; a page without
+ * one stays unattributed. O(n) time, O(1) space, n <=100. */
+function latestPaidTouch(required: { touches: readonly AttributionTouch[] }): LeadAttribution {
+    for (const touch of required.touches) {
+        const campaign = parseCampaignKey({ value: touch.campaignId });
+        if (campaign.ok) return { campaign: campaign.value, touchId: touch.touchId, touchedAt: touch.occurredAt, modelVersion: 'last_paid_touch_30d.v1' };
+    }
+    return { campaign: null, touchId: null, touchedAt: null, modelVersion: 'last_paid_touch_30d.v1' };
+}
+
+/** Preserve the enquiry even when attribution evidence is unavailable. Only capture failure
+ * rolls back acceptance; every adapter borrows the submission session. One <=100-touch read. */
+async function captureFormLead(required: {
+    request: Parameters<FormAcceptancePort['accept']>[0] & { session: SqlSession };
+    identity: ReturnType<typeof bindIdentity>; subjectId: string; capturedAt: number; clock: ClockPort; ids: IdPort;
+}) {
+    const { request, capturedAt } = required;
+    const touches = await required.identity.webEvents.touchesFor({ context: request.context, subjectId: required.subjectId,
+        window: { start: Math.max(0, capturedAt - 30 * 86400000), end: capturedAt + 1 }, limit: 100 });
+    const leads = createLeadsService({ repo: createSqlLeadsRepo({ unitOfWork: request.session }), clock: required.clock, ids: required.ids });
+    return leads.capture({ context: request.context, subjectId: required.subjectId, source: { kind: 'form', ref: request.submissionId },
+        occurredAt: capturedAt, attribution: latestPaidTouch({ touches: touches.ok ? touches.value : [] }) });
+}
+
 /** Inert binding: Jini joins the shared kernel; enqueue/contact/evidence/visit use caller sessions.
  * Worker registration/scheduling is separate. No answer is copied into a job/event envelope.
  * @example bindForms({ database, clock, ids, observer, digestKey, tokens, subjectLane });
@@ -77,7 +104,9 @@ export function bindForms(required: {
     }
     async function acceptNew(input: { input: Parameters<FormAcceptancePort['accept']>[0] & { session: SqlSession }; joined: ReturnType<typeof createSqlFormsStorage>; subjectIds: readonly string[] }): Promise<Outcome<{ subjectId: string }>> {
         const request = input.input;
-        const identity = bindIdentity({ ...required, unit: request.session });
+        const identity = bindIdentity({ ...required, unit: request.session }, { observedCampaigns: {
+            observed: (i, o) => createSqlMetricsRepo({ database: request.session }).observedCampaigns(i, o),
+        } });
         const submission = await submissions.findById({ workspaceId: request.context.scope.workspaceId, id: request.submissionId });
         if (!submission) return localFailure({ message: 'Acceptance submission unavailable' });
         const data = z.object({ email: z.string().min(1).max(320), om_publication: z.literal(request.publicationId) }).parse(submission.data);
@@ -92,6 +121,8 @@ export function bindForms(required: {
         if (!allowed.value) return localFailure({ code: 'forbidden', message: 'Subject processing blocked' });
         const captured = await captureAcceptanceEvidence({ input: request, subjectId: subject.value.subjectId, capturedAt, identity });
         if (!captured.ok) return captured;
+        const lead = await captureFormLead({ request, identity, subjectId: subject.value.subjectId, capturedAt, clock: required.clock, ids: required.ids });
+        if (!lead.ok) return lead;
         const receipt = await input.joined.subjects.append({ context: request.context, session: request.session,
             receipt: { submissionId: request.submissionId, publicationId: request.publicationId, subjectId: subject.value.subjectId, acceptedAt: capturedAt } });
         return receipt.ok ? { ok: true, value: { subjectId: receipt.value.subjectId } } : receipt;
@@ -114,7 +145,8 @@ export function bindForms(required: {
         return required.subjectLane.run({ context: input.context, subjectIds: found.value ? [found.value.subjectId] : [], work: held =>
             acceptFormSubmission({ ...input, submissions, publications: storage.publications, acceptance: acceptanceFor(held), unitOfWork: required.database.unit }) });
     }
-    return { forms, ...storage, definitions, submissions, acceptance, async accept(input: Parameters<typeof acceptOnce>[0]) {
+    const leads = createLeadsService({ repo: createSqlLeadsRepo({ unitOfWork: required.database.unit }), clock: required.clock, ids: required.ids });
+    return { forms, leads, ...storage, definitions, submissions, acceptance, async accept(input: Parameters<typeof acceptOnce>[0]) {
         try {
             input = structuredClone(input);
             const result = await acceptOnce(input);

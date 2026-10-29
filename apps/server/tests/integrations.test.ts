@@ -4,19 +4,20 @@ import * as fs from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import Database from 'better-sqlite3';
-import { expect, it } from 'vitest';
-import type { CallContext, ObserverEvent, Outcome } from '@open-marketing/contracts';
+import { expect, it, vi } from 'vitest';
+import type { AddonSummary, CallContext, CallOptions, ObserverEvent, Outcome, PluginCapabilityDependencies } from '@open-marketing/contracts';
 import { createAesGcmSecretSealer, createCredentialBroker, createCredentialKeyring, createCredentialService,
     createMemoryCredentialAudit, createMemoryCredentialLock, createMemoryCredentialRefresh,
-    createMemoryOAuthClient, createSqlCredentialRepo } from '@open-marketing/credentials';
+    createMemoryOAuthClient, createSqlCredentialRepo, readCredentialOAuthClient } from '@open-marketing/credentials';
 import type { CredentialRefreshPort, CredentialSqlPort, KeyringConfiguration } from '@open-marketing/credentials';
-import { createIntegrations } from '../src/integrations.js';
+import { withConversionSettings, createIntegrations } from '../src/integrations.js';
+import type { IntegrationDependencies } from '../src/integrations.js';
 import { handleIntegrationRequest } from '../src/inbound/integrations.js';
 import { bindServerIntegrations, loadOAuthProviders } from '../src/composition/index.js';
 import { fileURLToPath } from 'node:url';
 import { createOAuthUrlGuard } from '@jini-ai/oauth';
 import { handleOAuthBrowserCallback } from '../src/inbound/integrations.js';
-import { oauthCallbackPath } from '../src/integration-oauth-contracts.js';
+import { oauthCallbackPath, oauthMetadataSchema, type IntegrationOAuthProvider } from '../src/integration-oauth-contracts.js';
 import { createNodeBootIo, createOAuthHttp, loadCredentialMaster } from '../src/composition/serve.js';
 import type { HttpRequest } from '../src/ports.js';
 import { createHash } from 'node:crypto';
@@ -27,6 +28,12 @@ const host: CallContext = { ...owner, principal: { kind: 'service', serviceId: '
 const request = { connectionId: 'anthropic-fixture', pluginId: 'anthropic', plaintext: 'fixture-provider-token-never-live' };
 const configuration: KeyringConfiguration = { hkdfSalt: 'fixture-integration-salt-v1', envVarName: 'OM_CREDENTIAL_KEY', keyFilePath: '/fixture/key' };
 const clock = { now: () => 1000 };
+
+/** Protocol tests use source fixtures; production discovery reads installed revision-matched bytes. */
+function fixtureOAuthProviders(required: { pluginIds: string[] }): Map<string, IntegrationOAuthProvider> {
+    return new Map(required.pluginIds.map(pluginId => [pluginId, oauthMetadataSchema.parse(JSON.parse(readFileSync(
+        new URL('../../../content/agent-plugins/' + pluginId + '/io.github.ainsep.openmarketing/oauth.json', import.meta.url), 'utf8')))]));
+}
 
 it.each(['key', 'apiKey'])('rejects credential-bearing card URLs using %s before status output and redacts diagnostics', async key => {
     const f = fixture({}); const pluginId = 'fixture-vendor';
@@ -94,7 +101,7 @@ function unwrap<T>(required: { result: Outcome<T> }): T {
 }
 
 /** Owned in-memory native database, real sealing and inspectable metadata-only audit/observer. */
-function fixture(_required: Record<string, never>) {
+function fixture(required: { readCredentialCards?: IntegrationDependencies['readCredentialCards'] }) {
     const native = new Database(':memory:');
     native.exec(readFileSync(new URL('../../../features/credentials/migrations/0001_credentials.sql', import.meta.url), 'utf8'));
     const db: CredentialSqlPort = { async query<Row extends Record<string, unknown>>(input: { text: string; values?: unknown[] }) {
@@ -115,7 +122,7 @@ function fixture(_required: Record<string, never>) {
     const events: ObserverEvent[] = [];
     const observer = { observe(event: ObserverEvent) { events.push(event); } };
     const service = createCredentialService({ repo, sealer, keyring, locks, audit, clock, oauth: createMemoryOAuthClient({}) });
-    const dependencies = { repo, sealer, locks, audit, service, db, observer, broker: createCredentialBroker({ repo, sealer, locks, audit }) };
+    const dependencies = { ...required, repo, sealer, locks, audit, service, db, observer, oauthProviders: new Map<string, unknown>(), broker: createCredentialBroker({ repo, sealer, locks, audit }) };
     const integrations = createIntegrations(dependencies);
     return { native, dependencies, integrations, events,
         withRefresh(input: { refresh: CredentialRefreshPort }) {
@@ -246,6 +253,82 @@ it('provisions one private master key, reuses it and rejects malformed/insecure 
     } finally { await fs.rm(directory, { recursive: true, force: true }); }
 });
 
+it('discovers disabled installed OAuth metadata and isolates absent, malformed, mismatched and failed reads', async () => {
+    const metadata = fixtureOAuthProviders({ pluginIds: ['google-ads'] }).get('google-ads')!;
+    const raw = JSON.stringify({ ...metadata, provider: { ...metadata.provider, label: 'fixture-oauth-file-text' } });
+    const rows: AddonSummary[] = ['google-ads', 'absent', 'malformed', 'mismatched', 'failed'].map(id => ({
+        id, kind: 'agent-plugin', name: id, description: '', version: '1.0.0', enabled: false, revision: 'fixture',
+    }));
+    const events: ObserverEvent[] = [];
+    const readOAuthMetadata = vi.fn(async ({ pluginId }: { pluginId: string }): Promise<Outcome<string | null>> => {
+        if (pluginId === 'absent') return { ok: true, value: null };
+        if (pluginId === 'malformed') return { ok: true, value: '{fixture-oauth-file-text' };
+        if (pluginId === 'failed') return { ok: false, error: { code: 'unavailable', message: 'fixture-oauth-file-text', retryable: false } };
+        return { ok: true, value: raw };
+    });
+    const list = vi.fn(async () => ({ ok: true as const, value: { items: rows, cursor: null } }));
+    const providers = await loadOAuthProviders({ context: owner, observer: { observe(event) { events.push(event); } },
+        addons: { addons: { list }, readOAuthMetadata } });
+    expect([...providers.keys()]).toEqual(['google-ads']);
+    expect(providers.get('google-ads')!.provider.label).toBe('fixture-oauth-file-text');
+    expect(readOAuthMetadata.mock.calls.map(([input]) => input.pluginId)).toEqual(rows.map(row => row.id));
+    expect(events).toHaveLength(3);
+    expect(events).toEqual(Array.from({ length: 3 }, () => ({ operation: 'server.boot.oauth', outcome: 'invalid',
+        correlationId: owner.correlationId, traceId: owner.traceId })));
+    expect(JSON.stringify(events)).not.toContain('fixture-oauth-file-text');
+});
+
+it('refuses OAuth before discovery without caching an empty-origin client, then starts from the same populated map', async () => {
+    const f = fixture({}); let sequence = 0;
+    const providers = new Map<string, IntegrationOAuthProvider>();
+    const fetchFn = vi.fn(async () => Response.json({}));
+    const io = { ...createNodeBootIo({ projectRoot: fileURLToPath(new URL('../../../', import.meta.url)), studioRoot: '/fixture', ready() {} }),
+        randomToken: () => (++sequence).toString(16).padStart(2, '0').repeat(32),
+        loadCredentialMaster: async () => ({ ok: true as const, value: new Uint8Array(32).fill(3) }),
+        oauth: { guard: createOAuthUrlGuard({ assertAllowed() {} }, { allowLoopbackHttp: true }), fetchFn } };
+    try {
+        const integrations = bindServerIntegrations({ db: f.dependencies.db, clock, ids: { next: () => 'early-' + ++sequence },
+            observer: f.dependencies.observer, io, providers, readCredentialCards: readInstalledFixtureCards, stateRoot: '/fixture',
+            redirectUri: () => 'http://127.0.0.1:43120' + oauthCallbackPath });
+        unwrap({ result: await integrations.setOAuthClient({ context: owner, request: { pluginId: 'google-ads',
+            client: { clientId: 'fixture-client', clientSecret: 'fixture-client-secret' } } }) });
+        expect(await integrations.startOAuth({ context: owner, request: { pluginId: 'google-ads' } })).toMatchObject({ ok: false });
+        const metadata = fixtureOAuthProviders({ pluginIds: ['google-ads'] }).get('google-ads')!;
+        providers.set('google-ads', metadata);
+        const challenge = unwrap({ result: await integrations.startOAuth({ context: owner, request: { pluginId: 'google-ads' } }) });
+        expect(new URL(challenge.authorizationUrl).origin).toBe(new URL(metadata.provider.authorizationEndpoint!).origin);
+        expect(fetchFn).not.toHaveBeenCalled();
+    } finally { f.dispose(); }
+});
+
+it('rebuilds challenge rules after late custom-provider discovery instead of caching empty rules', async () => {
+    const f = fixture({}); let sequence = 0;
+    const providers = new Map<string, IntegrationOAuthProvider>();
+    const fetchFn = vi.fn(async () => Response.json({}));
+    const io = { ...createNodeBootIo({ projectRoot: fileURLToPath(new URL('../../../', import.meta.url)), studioRoot: '/fixture', ready() {} }),
+        randomToken: () => (++sequence).toString(16).padStart(2, '0').repeat(32),
+        loadCredentialMaster: async () => ({ ok: true as const, value: new Uint8Array(32).fill(3) }),
+        oauth: { guard: createOAuthUrlGuard({ assertAllowed() {} }, { allowLoopbackHttp: true }), fetchFn } };
+    try {
+        const integrations = bindServerIntegrations({ db: f.dependencies.db, clock, ids: { next: () => 'early-' + ++sequence },
+            observer: f.dependencies.observer, io, providers, readCredentialCards: readInstalledFixtureCards, stateRoot: '/fixture',
+            redirectUri: () => 'http://127.0.0.1:43120' + oauthCallbackPath });
+        unwrap({ result: await integrations.setOAuthClient({ context: owner, request: { pluginId: 'meta-ads',
+            client: { clientId: '12345', clientSecret: 'fixture-client-secret', configId: '999' } } }) });
+        expect(await integrations.startOAuth({ context: owner, request: { pluginId: 'meta-ads' } })).toMatchObject({ ok: false });
+        const metadata = fixtureOAuthProviders({ pluginIds: ['meta-ads'] }).get('meta-ads')!;
+        providers.set('meta-ads', metadata);
+        const challenge = unwrap({ result: await integrations.startOAuth({ context: owner, request: { pluginId: 'meta-ads' } }) });
+        expect(new URL(challenge.authorizationUrl).origin).toBe(new URL(metadata.provider.authorizationEndpoint!).origin);
+        const url = new URL(challenge.authorizationUrl);
+        expect(url.searchParams.get('config_id')).toBe('999');
+        expect(url.searchParams.has('scope')).toBe(false);
+        expect(url.searchParams.has('code_challenge')).toBe(false);
+        expect(url.searchParams.has('code_challenge_method')).toBe(false);
+        expect(fetchFn).not.toHaveBeenCalled();
+    } finally { f.dispose(); }
+});
+
 it.each(['google-ads', 'linkedin-ads'])('loads %s metadata, exchanges once, seals tokens and refreshes at plugin access', async pluginId => {
     const f = fixture({}); let now = 1000; let sequence = 0;
     const calls: { url: string; init?: RequestInit }[] = [];
@@ -258,9 +341,9 @@ it.each(['google-ads', 'linkedin-ads'])('loads %s metadata, exchanges once, seal
                 : { access_token: 'fixture-refreshed', expires_in: 3600, token_type: 'Bearer' });
         } } };
     try {
-        const providers = await loadOAuthProviders({ io });
+        const providers = fixtureOAuthProviders({ pluginIds: [pluginId] });
         const integrations = bindServerIntegrations({ db: f.dependencies.db, clock: { now: () => now }, ids: { next: () => 'oauth-' + ++sequence }, observer: f.dependencies.observer,
-            io, providers, stateRoot: '/fixture', redirectUri: () => 'http://127.0.0.1:43120' + oauthCallbackPath });
+            io, providers, readCredentialCards: readInstalledFixtureCards, stateRoot: '/fixture', redirectUri: () => 'http://127.0.0.1:43120' + oauthCallbackPath });
         expect(await integrations.startOAuth({ context: owner, request: { pluginId } })).toMatchObject({ ok: false });
         unwrap({ result: await integrations.setOAuthClient({ context: owner, request: { pluginId, client: { clientId: 'fixture-client', clientSecret: 'fixture-client-secret' } } }) });
         const challenge = unwrap({ result: await integrations.startOAuth({ context: owner, request: { pluginId } }) });
@@ -326,20 +409,20 @@ it('permits HTTP only for the fixed loopback redirect and rejects token endpoint
 });
 
 it('seals purpose-bound clients, isolates access, and supports clear then set without exposing secrets', async () => {
-    const f = fixture({}); const pluginId = 'google-ads'; const path = '/api/addons/v1/integrations/oauth/client';
+    const f = fixture({ readCredentialCards: readInstalledFixtureCards }); const pluginId = 'google-ads'; const path = '/api/addons/v1/integrations/oauth/client';
     const client = { clientId: 'fixture-client', clientSecret: 'fixture-client-secret' };
     try {
         const saved = await f.http({ method: 'POST', path, body: { pluginId, client } });
         expect(saved).toMatchObject({ status: 200, body: { ok: true, value: { configured: true, clientId: client.clientId } } });
         expect(await f.http({ method: 'GET', path: '/api/addons/v1/integrations/oauth/status', query: { pluginId } })).toMatchObject({ body: { value: { configured: true, clientId: client.clientId } } });
-        expect(await f.integrations.oauthStatus({ context: { ...owner, scope: { ...owner.scope, workspaceId: 'other' } }, pluginId })).toEqual({ ok: true, value: { configured: false } });
-        expect(await f.integrations.oauthStatus({ context: owner, pluginId: 'linkedin-ads' })).toEqual({ ok: true, value: { configured: false } });
+        expect(await f.integrations.oauthStatus({ context: { ...owner, scope: { ...owner.scope, workspaceId: 'other' } }, pluginId })).toMatchObject({ ok: true, value: { configured: false } });
+        expect(await f.integrations.oauthStatus({ context: owner, pluginId: 'linkedin-ads' })).toMatchObject({ ok: true, value: { configured: false } });
         expect(await f.http({ method: 'GET', path: '/api/addons/v1/integrations' })).toMatchObject({ body: { value: { items: [], cursor: null } } });
         expect(await f.integrations.access({ context: host, pluginId, connectionId: 'oauth-client.' + pluginId })).toMatchObject({ ok: false });
         expect(await f.integrations.connect({ context: owner, request: { connectionId: 'oauth-client.' + pluginId, pluginId, plaintext: 'overwrite' } })).toMatchObject({ ok: false });
         expect(await f.integrations.disconnect({ context: owner, request: { connectionId: 'oauth-client.' + pluginId } })).toMatchObject({ ok: false });
         expect(await f.integrations.oauthStatus({ context: owner, transactionId: 'oauth-client.' + pluginId })).toMatchObject({ value: { status: 'expired' } });
-        for (const invalid of [{ ...client, extra: true }, { clientId: '' }, { clientId: 'x', clientSecret: 'x'.repeat(8193) }]) {
+        for (const invalid of [{ clientId: '' }, { clientId: 'x', clientSecret: 'x'.repeat(8193) }]) {
             expect(await f.http({ method: 'POST', path, body: { pluginId, client: invalid } })).toMatchObject({ status: 400 });
         }
         expect(await f.http({ method: 'POST', path, body: { pluginId, client: null } })).toMatchObject({ body: { value: { configured: false } } });
@@ -348,37 +431,11 @@ it('seals purpose-bound clients, isolates access, and supports clear then set wi
     } finally { f.dispose(); }
 });
 
-it('seals/replaces/clears the optional Google developer token with configured-only HTTP status', async () => {
-    const f = fixture({}); const path = '/api/addons/v1/integrations/developer-token'; const pluginId = 'google-ads';
-    const token = 'A'.repeat(22), replacement = 'B'.repeat(22);
-    try {
-        expect(await f.http({ method: 'GET', path, query: { pluginId } })).toMatchObject({ status: 200, body: { value: { configured: false } } });
-        expect(await f.integrations.resolveDeveloperToken({ context: host, pluginId })).toEqual({ ok: true, value: null });
-        const saved = await f.http({ method: 'POST', path, body: { pluginId, token } });
-        expect(saved).toMatchObject({ status: 200, body: { ok: true, value: { configured: true } } });
-        expect(await f.http({ method: 'POST', path, body: { pluginId, token: replacement } })).toMatchObject({ body: { value: { configured: true } } });
-        expect(await f.integrations.resolveDeveloperToken({ context: host, pluginId })).toEqual({ ok: true, value: replacement });
-        expect(await f.integrations.resolveDeveloperToken({ context: host, pluginId: 'meta-ads' })).toMatchObject({ ok: false, error: { code: 'forbidden' } });
-        expect(await f.integrations.resolveDeveloperToken({ context: owner, pluginId })).toMatchObject({ ok: false, error: { code: 'forbidden' } });
-        expect(await f.integrations.access({ context: host, pluginId, connectionId: 'developer-token.google-ads' })).toMatchObject({ ok: false });
-        expect(await f.integrations.disconnect({ context: owner, request: { connectionId: 'developer-token.google-ads' } })).toMatchObject({ ok: false });
-        expect(await f.integrations.oauthStatus({ context: owner, transactionId: 'developer-token.google-ads' })).toMatchObject({ value: { status: 'expired' } });
-        expect(await f.http({ method: 'GET', path: '/api/addons/v1/integrations' })).toMatchObject({ body: { value: { items: [] } } });
-        expect(await f.http({ method: 'GET', path, query: { pluginId, token } })).toMatchObject({ status: 400 });
-        expect(await f.http({ method: 'POST', path, body: { pluginId, token: 'bad\r\nvalue' } })).toMatchObject({ status: 400 });
-        expect(await f.http({ method: 'POST', path, body: { pluginId: 'linkedin-ads', token } })).toMatchObject({ status: 400 });
-        expect(await f.integrations.developerTokenStatus({ context: { ...owner, scope: { ...owner.scope, workspaceId: 'other' } }, pluginId })).toEqual({ ok: true, value: { configured: false } });
-        const cleared = await f.http({ method: 'POST', path, body: { pluginId, token: null } });
-        expect(cleared).toMatchObject({ status: 200, body: { value: { configured: false } } });
-        expect(await f.integrations.resolveDeveloperToken({ context: host, pluginId })).toEqual({ ok: true, value: null });
-        expect(JSON.stringify([saved, cleared, f.events, f.dependencies.audit.entries({}), f.native.prepare('SELECT * FROM om_credential_connection').all()])).not.toMatch(new RegExp(token + '|' + replacement));
-    } finally { f.dispose(); }
-});
-it('refuses developer-token bodies before reading them for non-owners', async () => {
+it.each(['GET', 'POST'] as const)('returns 404 for removed developer-token %s without reading the body', async method => {
     const f = fixture({}); let reads = 0;
     try {
-        expect(await handleIntegrationRequest({ context: host, integrations: f.integrations, request: { method: 'POST', path: '/api/addons/v1/integrations/developer-token',
-            async readBody() { reads++; return { ok: true, value: { pluginId: 'google-ads', token: 'A'.repeat(22) } }; } } })).toMatchObject({ status: 403 });
+        expect(await f.http({ method, path: '/api/addons/v1/integrations/developer-token', query: { pluginId: 'fixture-plugin' },
+            async readBody() { reads++; throw new Error('Must not read deprecated body'); } })).toMatchObject({ status: 404 });
         expect(reads).toBe(0);
     } finally { f.dispose(); }
 });
@@ -389,19 +446,27 @@ it.each([false, true])('completes Meta on O1, rejects replay and uses broker rec
     const io = { ...createNodeBootIo({ projectRoot: fileURLToPath(new URL('../../../', import.meta.url)), studioRoot: '/fixture', ready() {} }),
         randomToken: () => (++sequence).toString(16).padStart(2, '0').repeat(32), loadCredentialMaster: async () => ({ ok: true as const, value: new Uint8Array(32).fill(3) }) };
     try {
-        const providers = await loadOAuthProviders({ io }); const scopes = providers.get(pluginId)!.provider.defaultScopes;
+        const providers = fixtureOAuthProviders({ pluginIds: [pluginId] }); const scopes = providers.get(pluginId)!.provider.defaultScopes;
         const integrations = bindServerIntegrations({ db: f.dependencies.db, clock: { now: () => now }, ids: { next: () => 'meta-' + ++sequence },
-            agentPluginState: async () => ({ enabled: true, bundled: true, admitted: true, revision: 'fixture', metadata: {} }),
-            observer: f.dependencies.observer, stateRoot: '/fixture', providers, redirectUri: () => 'http://127.0.0.1:43120' + oauthCallbackPath,
-            io: { ...io, oauth: { guard: createOAuthUrlGuard({ assertAllowed() {} }, { allowLoopbackHttp: true }), async fetchFn() {
+            agentPluginState: async () => ({ enabled: true, bundled: false, admitted: true, revision: 'fixture', entryUrl: 'file:///fixture/oauth.mjs', metadata: {} }),
+            observer: f.dependencies.observer, stateRoot: '/fixture', providers, readCredentialCards: readInstalledFixtureCards, redirectUri: () => 'http://127.0.0.1:43120' + oauthCallbackPath,
+            io: { ...io, agentPlugins: { ...io.agentPlugins!, moduleDigest: async () => 'a'.repeat(64), loadModule: async () => ({
+                createOAuthExchange: (dependencies: Pick<PluginCapabilityDependencies, 'fetch' | 'clock'>) => ({ async exchange(_input: unknown, options?: CallOptions) {
+                    for (const path of ['first', 'second', 'third']) await dependencies.fetch('https://fixture.example/' + path, { signal: options?.signal });
+                    return { ok: true, value: { accessToken: 'fixture-meta-long', refreshToken: null, tokenType: 'Bearer', scopes: [...scopes, 'email'],
+                        expiresAt: nonExpiring ? null : new Date(3601000).toISOString() } };
+                } }),
+            }) }, oauth: { guard: createOAuthUrlGuard({ assertAllowed() {} }, { allowLoopbackHttp: true }), async fetchFn() {
                 exchanges++;
                 return Response.json(exchanges === 3 ? { data: { app_id: client.clientId, type: 'USER', is_valid: true, expires_at: nonExpiring ? 0 : 3601,
                     data_access_expires_at: nonExpiring ? 0 : 3601, scopes: [...scopes, 'email'] } }
                     : { access_token: exchanges === 1 ? 'fixture-meta-short' : 'fixture-meta-long', token_type: 'bearer', expires_in: nonExpiring ? 0 : 3600 });
             } } } });
         const saved = unwrap({ result: await integrations.setOAuthClient({ context: owner, request: { pluginId, client } }) });
-        expect(saved).toMatchObject({ configured: true, guidance: expect.stringContaining('Strict Mode/Enforce HTTPS') });
-        expect(await integrations.setOAuthClient({ context: owner, request: { pluginId, client: { clientId: client.clientId, clientSecret: client.clientSecret } } })).toMatchObject({ ok: false });
+        expect(saved).toEqual({ configured: true, clientId: client.clientId });
+        expect(await integrations.setOAuthClient({ context: owner, request: { pluginId, client: { clientId: client.clientId, clientSecret: client.clientSecret } } })).toMatchObject({ ok: true });
+        expect(await integrations.startOAuth({ context: owner, request: { pluginId } })).toMatchObject({ ok: false, error: { code: 'unavailable' } });
+        unwrap({ result: await integrations.setOAuthClient({ context: owner, request: { pluginId, client } }) });
         const challenge = unwrap({ result: await integrations.startOAuth({ context: owner, request: { pluginId } }) });
         const query = { state: new URL(challenge.authorizationUrl).searchParams.get('state')!, code: 'fixture-meta-code' };
         expect(await integrations.completeOAuth({ context: owner, response: { ...query, error: 'access_denied' } })).toMatchObject({ ok: false });
@@ -414,7 +479,7 @@ it.each([false, true])('completes Meta on O1, rejects replay and uses broker rec
         const used = await integrations.access({ context: host, pluginId, connectionId: challenge.transactionId });
         expect(used.ok).toBe(nonExpiring); expect(exchanges).toBe(3);
         expect(await integrations.list({ context: owner, query: { limit: 25 } })).toMatchObject({ value: { items: [{ status: nonExpiring ? 'saved' : 'reconnect_required' }] } });
-        expect(await integrations.oauthStatus({ context: owner, pluginId: 'tiktok-ads' })).toMatchObject({ ok: true, value: { configured: false, guidance: expect.stringContaining('paste-token') } });
+        expect(await integrations.oauthStatus({ context: owner, pluginId: 'tiktok-ads' })).toMatchObject({ ok: true, value: { configured: false } });
         expect(await integrations.oauthStatus({ context: host, pluginId: 'tiktok-ads' })).toMatchObject({ ok: false });
         expect(await integrations.startOAuth({ context: owner, request: { pluginId: 'tiktok-ads' } })).toMatchObject({ ok: false });
         const denied = unwrap({ result: await integrations.startOAuth({ context: owner, request: { pluginId } }) });
@@ -435,7 +500,7 @@ it('denies admitted:false Meta through composed integrations with zero network a
         } } };
     try {
         const integrations = bindServerIntegrations({ db: f.dependencies.db, clock, ids: { next: () => 'denied-' + ++sequence },
-            observer: f.dependencies.observer, io, stateRoot: '/fixture', providers: await loadOAuthProviders({ io }),
+            observer: f.dependencies.observer, io, stateRoot: '/fixture', providers: fixtureOAuthProviders({ pluginIds: [pluginId] }), readCredentialCards: readInstalledFixtureCards,
             redirectUri: () => 'http://127.0.0.1:43120' + oauthCallbackPath,
             agentPluginState: async input => {
                 expect(input).toEqual({ context: owner, pluginId }); admissionChecks++;
@@ -460,4 +525,276 @@ it('refuses GET outside the two Meta token paths before attempting network acces
     for (const url of ['https://oauth2.googleapis.com/token', 'https://graph.facebook.com/v26.0/me', 'https://graph.facebook.com.attacker.test/v26.0/debug_token']) {
         await expect(http.fetchFn({ url }, { method: 'GET' })).rejects.toThrow('Invalid OAuth request');
     }
+});
+
+it.each(['oauth-client', 'developer-token', 'plugin-secret'])('refuses %s purpose IDs before any credential repository or broker read', async purpose => {
+    const f = fixture({}); const connectionId = purpose + '.fixture-plugin';
+    const getSecret = vi.fn(f.dependencies.repo.getSecret);
+    const use = vi.fn(f.dependencies.broker.use);
+    const integrations = createIntegrations({ ...f.dependencies, repo: { ...f.dependencies.repo, getSecret }, broker: { use } });
+    try {
+        expect(await integrations.access({ context: host, pluginId: 'fixture-plugin', connectionId })).toMatchObject({ ok: false, error: { code: 'forbidden' } });
+        expect(await integrations.disconnect({ context: owner, request: { connectionId } })).toMatchObject({ ok: false, error: { code: 'forbidden' } });
+        expect(await integrations.oauthStatus({ context: owner, transactionId: connectionId })).toEqual({ ok: true, value: { status: 'expired' } });
+        expect(getSecret).not.toHaveBeenCalled(); expect(use).not.toHaveBeenCalled();
+    } finally { f.dispose(); }
+});
+
+/** Small installed-card fixture; parsing binds fields/save targets exactly as production does. */
+function declaredCards(required: { pluginId: string; cards: unknown[] }) {
+    return parseCredentialCardManifest({ pluginId: required.pluginId, raw: JSON.stringify({ name: required.pluginId,
+        extensions: { 'io.github.ainsep.openmarketing': { credentialCards: required.cards } } }) });
+}
+const fixtureCard = { target: 'fixture-card', title: 'Fixture', label: 'Save', category: 'Integration', intro: 'Fixture credentials.',
+    usedFor: ['Fixture operation'], helpUrl: 'https://fixture.example/help', helpLabel: 'Help', baseUrl: 'https://fixture.example' };
+const secretCards = [{ ...fixtureCard, saveKind: 'plugin-secret', secretFields: [{ name: 'firstSecret', label: 'First', required: true }] },
+    { ...fixtureCard, target: 'fixture-second', saveKind: 'plugin-secret', secretFields: [{ name: 'secondSecret', label: 'Second', required: true }] }];
+
+it('attaches only current bound plugin-secret fields and reads replacements and clears afresh', async () => {
+    const pluginId = 'fixture-plugin'; const sentinel = 'W6_SECRET_SENTINEL_1028';
+    let cards = [...secretCards, { ...fixtureCard, target: 'fixture-client', saveKind: 'oauth-client',
+        secretFields: [{ name: 'clientSecret', label: 'Client secret', required: true }] }];
+    const readCredentialCards = vi.fn(async (input: { pluginId: string }) => declaredCards({ ...input, cards }));
+    const f = fixture({ readCredentialCards });
+    try {
+        unwrap({ result: await f.integrations.setPluginSecret({ context: owner, request: { pluginId, values: { firstSecret: sentinel, secondSecret: 'b' } } }) });
+        unwrap({ result: await f.integrations.connect({ context: owner, request: { ...request, pluginId } }) });
+        const input = { context: host, pluginId, connectionId: request.connectionId };
+        expect(await f.integrations.access(input)).toEqual({ ok: true, value: { accessToken: request.plaintext, secrets: { firstSecret: sentinel, secondSecret: 'b' } } });
+        expect(readCredentialCards).toHaveBeenLastCalledWith({ context: host, pluginId });
+        cards = cards.map(card => card.target === 'fixture-second' ? { ...card, saveKind: 'oauth-client' } : card);
+        expect(await f.integrations.access(input)).toEqual({ ok: true, value: { accessToken: request.plaintext, secrets: { firstSecret: sentinel } } });
+        unwrap({ result: await f.integrations.setPluginSecret({ context: owner, request: { pluginId, values: { firstSecret: 'replacement' } } }) });
+        expect(await f.integrations.access(input)).toEqual({ ok: true, value: { accessToken: request.plaintext, secrets: { firstSecret: 'replacement' } } });
+        unwrap({ result: await f.integrations.setPluginSecret({ context: owner, request: { pluginId, values: null } }) });
+        expect(await f.integrations.access(input)).toEqual({ ok: true, value: { accessToken: request.plaintext } });
+        expect(JSON.stringify([f.events, f.dependencies.audit.entries({})])).not.toContain(sentinel);
+    } finally { f.dispose(); }
+});
+
+it('isolates other plugins and omits secrets when records or card declarations are unavailable', async () => {
+    const sentinel = 'W6_CARD_FAILURE_SENTINEL_1028';
+    const f = fixture({ readCredentialCards: async input => declaredCards({ ...input, cards: input.pluginId === 'fixture-plugin' ? secretCards : [] }) });
+    try {
+        unwrap({ result: await f.integrations.setPluginSecret({ context: owner, request: { pluginId: 'fixture-plugin', values: { firstSecret: sentinel, secondSecret: 'b' } } }) });
+        unwrap({ result: await f.integrations.connect({ context: owner, request: { ...request, pluginId: 'fixture-other' } }) });
+        const input = { context: host, pluginId: 'fixture-other', connectionId: request.connectionId };
+        expect(await f.integrations.access(input)).toEqual({ ok: true, value: { accessToken: request.plaintext } });
+        const readers: NonNullable<IntegrationDependencies['readCredentialCards']>[] = [
+            async input => declaredCards({ ...input, cards: secretCards }),
+            async () => ({ ok: false, error: { code: 'unavailable', message: sentinel, retryable: false } }),
+            async () => { throw new Error(sentinel); },
+        ];
+        for (const readCredentialCards of readers) {
+            const integrations = createIntegrations({ ...f.dependencies, readCredentialCards });
+            const result = await integrations.access(input);
+            expect(result).toEqual({ ok: true, value: { accessToken: request.plaintext } });
+            expect(JSON.stringify([result, f.events, f.dependencies.audit.entries({})])).not.toContain(sentinel);
+        }
+    } finally { f.dispose(); }
+});
+
+it('refuses declared secret-read failures without exposing the secret in errors or metadata', async () => {
+    const sentinel = 'W6_READ_FAILURE_SENTINEL_1028'; const pluginId = 'fixture-plugin';
+    const f = fixture({ readCredentialCards: async input => declaredCards({ ...input, cards: secretCards }) });
+    try {
+        unwrap({ result: await f.integrations.connect({ context: owner, request: { ...request, pluginId } }) });
+        const integrations = createIntegrations({ ...f.dependencies, repo: { ...f.dependencies.repo, async getSecret(input, options) {
+            if (input.connectionId.startsWith('plugin-secret.')) throw new Error(sentinel);
+            return f.dependencies.repo.getSecret(input, options);
+        } } });
+        const result = await integrations.access({ context: host, pluginId, connectionId: request.connectionId });
+        expect(result).toMatchObject({ ok: false, error: { code: 'unavailable' } });
+        expect(JSON.stringify([result, f.events, f.dependencies.audit.entries({})])).not.toContain(sentinel);
+    } finally { f.dispose(); }
+});
+
+it.each(['google-ads', 'microsoft-ads'])('exposes a supported generic developerToken secret card for %s', async pluginId => {
+    const cards = unwrap({ result: await readInstalledFixtureCards({ pluginId }) }).credentialCards;
+    const secrets = cards.filter(card => card.saveKind === 'plugin-secret');
+    expect(secrets).toHaveLength(1);
+    expect(secrets[0]).toMatchObject({ actionSupported: true });
+    expect(secrets[0]?.secretFields?.map(field => field.name)).toEqual(['developerToken']);
+    expect(cards.map(card => card.saveKind)).not.toContain('developer-token');
+});
+
+it('sets, checks and clears declared plugin secrets with secret-free Outcomes and observer events', async () => {
+    const f = fixture({}); const pluginId = 'fixture-plugin'; const sentinel = 'VN_A4_SECRET_SENTINEL_7461028';
+    const readCredentialCards = vi.fn(async (input: { pluginId: string }) => declaredCards({ ...input, cards: secretCards }));
+    const integrations = createIntegrations({ ...f.dependencies, readCredentialCards });
+    try {
+        const results = [];
+        results.push(await integrations.setPluginSecret({ context: owner, request: { pluginId, values: { firstSecret: sentinel, secondSecret: sentinel } } }));
+        expect(results[0]).toEqual({ ok: true, value: { configured: true } });
+        readCredentialCards.mockClear();
+        results.push(await integrations.pluginSecretStatus({ context: owner, pluginId }));
+        expect(results[1]).toEqual({ ok: true, value: { configured: true } });
+        expect(readCredentialCards).not.toHaveBeenCalled();
+        results.push(await integrations.setPluginSecret({ context: owner, request: { pluginId, values: null } }));
+        expect(results[2]).toEqual({ ok: true, value: { configured: false } });
+        expect(await integrations.pluginSecretStatus({ context: owner, pluginId })).toEqual({ ok: true, value: { configured: false } });
+        results.push(await integrations.setPluginSecret({ context: owner, request: { pluginId, values: { firstSecret: sentinel } } }));
+        expect(results[3]).toMatchObject({ ok: false, error: { code: 'invalid_input' } });
+        const tainted = createIntegrations({ ...f.dependencies, readCredentialCards: async () => { throw new Error(sentinel); } });
+        results.push(await tainted.setPluginSecret({ context: owner, request: { pluginId, values: null } }));
+        expect(results[4]).toMatchObject({ ok: false, error: { code: 'unavailable' } });
+        expect(JSON.stringify([results, f.events, f.dependencies.audit.entries({})])).not.toContain(sentinel);
+    } finally { f.dispose(); }
+});
+
+it('refuses undeclared/missing secret fields, absent declarations and non-owner service operations', async () => {
+    const f = fixture({}); const pluginId = 'fixture-plugin';
+    const readCredentialCards = vi.fn(async (input: { pluginId: string }) => declaredCards({ ...input, cards: secretCards }));
+    const integrations = createIntegrations({ ...f.dependencies, readCredentialCards });
+    try {
+        for (const values of [{ firstSecret: 'first', secondSecret: 'second', undeclared: 'forbidden' }, { firstSecret: 'first' }]) {
+            expect(await integrations.setPluginSecret({ context: owner, request: { pluginId, values } })).toMatchObject({ ok: false, error: { code: 'invalid_input' } });
+        }
+        for (const context of [host, { ...owner, principal: { kind: 'owner' as const, ownerId: 'foreign' } }]) {
+            readCredentialCards.mockClear();
+            expect(await integrations.setPluginSecret({ context, request: { pluginId, values: null } })).toMatchObject({ ok: false, error: { code: 'forbidden' } });
+            expect(await integrations.pluginSecretStatus({ context, pluginId })).toMatchObject({ ok: false, error: { code: 'forbidden' } });
+            expect(readCredentialCards).not.toHaveBeenCalled();
+        }
+        const undeclared = createIntegrations({ ...f.dependencies, readCredentialCards: async input => declaredCards({ ...input, cards: [] }) });
+        for (const values of [null, { firstSecret: 'first' }]) expect(await undeclared.setPluginSecret({ context: owner, request: { pluginId, values } })).toMatchObject({ ok: false, error: { code: 'forbidden' } });
+        expect(await f.integrations.setPluginSecret({ context: owner, request: { pluginId, values: null } })).toMatchObject({ ok: false, error: { code: 'unavailable' } });
+        expect(await integrations.pluginSecretStatus({ context: owner, pluginId: '' })).toMatchObject({ ok: false, error: { code: 'invalid_input' } });
+        expect(f.native.prepare('SELECT COUNT(*) AS total FROM om_credential_connection').get()).toEqual({ total: 0 });
+    } finally { f.dispose(); }
+});
+
+it('serves owner plugin-secret HTTP set/status/clear and refuses non-owners before lazy body reads', async () => {
+    const f = fixture({}); const pluginId = 'fixture-plugin'; const path = '/api/addons/v1/integrations/plugin-secret'; let reads = 0;
+    const sentinel = 'W12_PLUGIN_SECRET_FIRST'; const replacement = 'W12_PLUGIN_SECRET_REPLACEMENT';
+    const integrations = createIntegrations({ ...f.dependencies, readCredentialCards: async input => declaredCards({ ...input, cards: secretCards }) });
+    const request: HttpRequest = { method: 'POST', path, async readBody() { reads++; return { ok: true, value: { pluginId, values: { firstSecret: sentinel, secondSecret: sentinel } } }; } };
+    try {
+        for (const context of [host, { ...owner, principal: { kind: 'owner' as const, ownerId: 'foreign' } }]) {
+            expect(await handleIntegrationRequest({ context, integrations, request })).toMatchObject({ status: 403 });
+        }
+        expect(reads).toBe(0);
+        const saved = await handleIntegrationRequest({ context: owner, integrations, request });
+        expect(saved).toMatchObject({ status: 200, body: { ok: true, value: { configured: true } } });
+        expect(reads).toBe(1);
+        expect(await integrations.pluginSecretStatus({ context: { ...owner, scope: { ...owner.scope, workspaceId: 'other' } }, pluginId })).toEqual({ ok: true, value: { configured: false } });
+        expect(await integrations.list({ context: owner, query: { limit: 100 } })).toEqual({ ok: true, value: { items: [], cursor: null } });
+        const replaced = await handleIntegrationRequest({ context: owner, integrations, request: { method: 'POST', path, body: { pluginId, values: { firstSecret: replacement, secondSecret: replacement } } } });
+        expect(replaced).toMatchObject({ status: 200, body: { value: { configured: true } } });
+        expect(await handleIntegrationRequest({ context: owner, integrations, request: { method: 'GET', path, query: { pluginId } } })).toMatchObject({ status: 200, body: { value: { configured: true } } });
+        const cleared = await handleIntegrationRequest({ context: owner, integrations, request: { method: 'POST', path, body: { pluginId, values: null } } });
+        expect(cleared).toMatchObject({ status: 200, body: { value: { configured: false } } });
+        expect(await handleIntegrationRequest({ context: owner, integrations, request: { method: 'GET', path, query: { pluginId, token: 'forbidden' } } })).toMatchObject({ status: 400 });
+        const publicMetadata = JSON.stringify([saved, replaced, cleared, f.events, f.dependencies.audit.entries({}), f.native.prepare('SELECT * FROM om_credential_connection').all()]);
+        expect(publicMetadata).not.toContain(sentinel); expect(publicMetadata).not.toContain(replacement);
+    } finally { f.dispose(); }
+});
+
+/** Existing file/manifest parser supplies installed card data for composed OAuth fixtures. */
+async function readInstalledFixtureCards(required: { pluginId: string }) {
+    return parseCredentialCardManifest({ ...required, raw: readFileSync(new URL('../../../content/agent-plugins/' + required.pluginId + '/plugin.json', import.meta.url), 'utf8') });
+}
+
+it('retains declared OAuth extras end to end and refuses plugins without an oauth-client declaration', async () => {
+    const f = fixture({}); const pluginId = 'fixture-plugin';
+    const cards = [{ ...fixtureCard, saveKind: 'oauth-client', fields: [{ name: 'clientId', label: 'ID' }, { name: 'tenant', label: 'Tenant' }],
+        secretFields: [{ name: 'clientSecret', label: 'Secret' }, { name: 'notAnExtra', label: 'Other secret' }] }];
+    const integrations = createIntegrations({ ...f.dependencies, readCredentialCards: async input => declaredCards({ ...input, cards }) });
+    try {
+        expect(await integrations.setOAuthClient({ context: owner, request: { pluginId, client: { clientId: 'public-client', clientSecret: 'fixture-client-secret', tenant: 'declared-tenant', notAnExtra: 'must-be-stripped', unknown: 'must-be-stripped' } } })).toEqual({ ok: true, value: { configured: true, clientId: 'public-client' } });
+        const client = await readCredentialOAuthClient({ ...f.dependencies, context: host, pluginId, clientFields: ['tenant', 'notAnExtra', 'unknown'] });
+        expect(client).toEqual({ ok: true, value: { clientId: 'public-client', clientSecret: 'fixture-client-secret', tenant: 'declared-tenant' } });
+        const status = await integrations.oauthStatus({ context: owner, pluginId });
+        expect(status).toMatchObject({ ok: true, value: { configured: true, clientId: 'public-client' } });
+        expect(JSON.stringify([status, f.events])).not.toContain('fixture-client-secret');
+        const undeclared = createIntegrations({ ...f.dependencies, readCredentialCards: async input => declaredCards({ ...input, cards: [] }) });
+        expect(await undeclared.setOAuthClient({ context: owner, request: { pluginId, client: null } })).toMatchObject({ ok: false, error: { code: 'forbidden' } });
+        expect(await undeclared.oauthStatus({ context: owner, pluginId })).toEqual({ ok: true, value: { configured: false, credentialCards: [], connections: [], connectionsCursor: null } });
+        expect(await f.integrations.setOAuthClient({ context: owner, request: { pluginId, client: null } })).toMatchObject({ ok: false, error: { code: 'unavailable' } });
+        expect(await f.integrations.oauthStatus({ context: owner, pluginId })).toEqual({ ok: true, value: { configured: false } });
+    } finally { f.dispose(); }
+});
+
+it.each([false, true])('offers OAuth card actions only for a registered plugin (registered=%s)', async registered => {
+    const f = fixture({}); const pluginId = 'fixture-plugin';
+    const cards = [{ ...fixtureCard, saveKind: 'oauth' }, { ...fixtureCard, target: 'fixture-client', saveKind: 'oauth-client' }];
+    const integrations = createIntegrations({ ...f.dependencies, oauthProviders: new Map(registered ? [[pluginId, {}]] : []),
+        readCredentialCards: async input => declaredCards({ ...input, cards }) });
+    try {
+        const status = unwrap({ result: await integrations.oauthStatus({ context: owner, pluginId }) });
+        expect(status).toMatchObject({ configured: false, credentialCards: [
+            { saveKind: 'oauth', actionSupported: registered }, { saveKind: 'oauth-client', actionSupported: registered },
+        ] });
+        expect(status).not.toHaveProperty('guidance');
+    } finally { f.dispose(); }
+});
+
+/** Conversion settings use only fixture SQL and installed declaration parsing. */
+function conversionFixture() {
+    const declaration = { fields: [{ name: 'targets', label: 'Target IDs', kind: 'string-map', format: 'decimal-id' }] };
+    const readCredentialCards = vi.fn(async (input: { pluginId: string }) => parseCredentialCardManifest({ ...input,
+        raw: JSON.stringify({ name: input.pluginId, extensions: { 'io.github.ainsep.openmarketing': { conversionSettings: declaration } } }) }));
+    const f = fixture({ readCredentialCards });
+    f.native.exec(readFileSync(new URL('../migrations/0006_alerts.sql', import.meta.url), 'utf8'));
+    return { ...f, readCredentialCards, declaration };
+}
+
+it('round-trips owner conversion settings through HTTP, isolates scopes and replaces/clears values without touching the catalog', async () => {
+    const f = conversionFixture(); const pluginId = 'fixture-conversions'; const path = '/api/addons/v1/integrations/conversion-settings';
+    f.native.exec(readFileSync(new URL('../migrations/0002_addons.sql', import.meta.url), 'utf8'));
+    f.native.prepare('INSERT INTO addon_package VALUES (?,?,?,?,?)').run('owner', 'workspace', 'agent-plugin', pluginId, JSON.stringify({ enabled: false }));
+    const catalog = f.native.prepare('SELECT * FROM addon_package').all();
+    try {
+        const values = { targets: { signup: '1234567890123456789' } };
+        expect(await f.http({ method: 'POST', path, body: { pluginId, values } })).toMatchObject({ status: 200, body: { value: { pluginId, declaration: f.declaration, values } } });
+        expect(await f.http({ method: 'GET', path, query: { pluginId } })).toMatchObject({ status: 200, body: { value: { values } } });
+        expect(await f.integrations.conversionSettings({ context: host, pluginId })).toMatchObject({ ok: true, value: { values } });
+        const other = { ...owner, scope: { ...owner.scope, workspaceId: 'other-workspace' } };
+        expect(await f.integrations.conversionSettings({ context: other, pluginId })).toMatchObject({ ok: true, value: { values: null } });
+        expect(await f.integrations.setConversionSettings({ context: owner, request: { pluginId, values: {} } })).toMatchObject({ ok: true, value: { values: {} } });
+        expect(await f.integrations.conversionSettings({ context: owner, pluginId })).toMatchObject({ ok: true, value: { values: {} } });
+        expect(f.native.prepare('SELECT * FROM addon_package').all()).toEqual(catalog);
+    } finally { f.dispose(); }
+});
+
+it('refuses conversion settings writes by non-owners before manifest/SQL and HTTP body reads', async () => {
+    const f = conversionFixture(); const sql = vi.spyOn(f.dependencies.db, 'query'); const readBody = vi.fn();
+    try {
+        for (const context of [host, { ...owner, principal: { kind: 'owner' as const, ownerId: 'other-owner' } }]) {
+            expect(await f.integrations.setConversionSettings({ context, request: { pluginId: 'fixture-conversions', values: {} } })).toMatchObject({ ok: false, error: { code: 'forbidden' } });
+            expect(await handleIntegrationRequest({ context, integrations: f.integrations, request: { method: 'POST', path: '/api/addons/v1/integrations/conversion-settings', readBody } })).toMatchObject({ status: 403 });
+        }
+        expect(f.readCredentialCards).not.toHaveBeenCalled(); expect(sql).not.toHaveBeenCalled(); expect(readBody).not.toHaveBeenCalled();
+    } finally { f.dispose(); }
+});
+
+it.each([
+    { unexpected: '123' }, { targets: { signup: '0' } }, { targets: { signup: '1e9' } }, { targets: { signup: '-123' } },
+    { targets: { signup: 'secret-invalid-value' } },
+    { targets: Object.fromEntries(Array.from({ length: 101 }, (_, i) => ['key' + i, '123'])) },
+    { targets: Object.fromEntries(Array.from({ length: 30 }, (_, i) => ['key' + i, '1'.repeat(128)])) },
+])('rejects malformed/oversized replacement conversion settings without storing a row', async values => {
+    const f = conversionFixture();
+    try {
+        const result = await f.integrations.setConversionSettings({ context: owner, request: { pluginId: 'fixture-conversions', values } });
+        expect(result.ok).toBe(false);
+        if (!result.ok) expect(['invalid_input', 'limit_exceeded']).toContain(result.error.code);
+        expect(f.native.prepare('SELECT * FROM om_owner_settings').all()).toEqual([]);
+        expect(JSON.stringify([result, f.events])).not.toContain('secret-invalid-value');
+    } finally { f.dispose(); }
+});
+
+it('isolates bad conversion declarations from credential cards and refuses undeclared settings', async () => {
+    const f = conversionFixture();
+    try {
+        const readCredentialCards: NonNullable<IntegrationDependencies['readCredentialCards']> = async input => parseCredentialCardManifest({ ...input,
+            raw: JSON.stringify({ name: input.pluginId, extensions: { 'io.github.ainsep.openmarketing': { credentialCards: [{ ...fixtureCard, saveKind: 'api-key', secretFields: [{ name: 'token', label: 'Token' }] }], conversionSettings: { fields: 'invalid' } } } }) });
+        const parsed = unwrap({ result: await readCredentialCards({ context: owner, pluginId: 'fixture-plugin' }) });
+        expect(parsed.credentialCards).toHaveLength(1); expect(parsed.conversionSettings).toBeNull();
+        const integrations = createIntegrations({ ...f.dependencies, readCredentialCards });
+        expect(await integrations.setConversionSettings({ context: owner, request: { pluginId: 'fixture-plugin', values: {} } })).toMatchObject({ ok: false, error: { code: 'forbidden' } });
+        expect(f.native.prepare('SELECT * FROM om_owner_settings').all()).toEqual([]);
+        const metadata = { conversionSettings: { fields: 'invalid' }, unrelated: 'preserved' };
+        expect(await withConversionSettings({ context: owner, db: f.dependencies.db, pluginId: 'fixture-plugin', metadata })).toBe(metadata);
+    } finally { f.dispose(); }
 });

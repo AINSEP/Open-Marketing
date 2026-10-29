@@ -4,6 +4,7 @@ import { createErasureParticipantRegistry, createPrivacyService, createSqlPrivac
 import { createSqlJobRepo, jobTenant } from '@open-marketing/jobs';
 import type { FormSubjectPort } from '@open-marketing/forms';
 import type { MeasurePrivacyPort } from '@open-marketing/measure';
+import { createSqlLeadsRepo } from '@open-marketing/leads';
 import type { bindIdentity } from './identity.js';
 import { localFailure } from './local-auth.js';
 import { formRetryPolicy } from './forms.js';
@@ -38,13 +39,14 @@ function localParticipant(required: { id: string; identity: Identity; purge: (in
  * contacts retains HMAC tombstones and privacy retains their IDs/key versions/purpose/topic/reason.
  * No external removal is claimed beyond this fixed local sandbox's data inventory.
  * @example bindPrivacy({ unit, identity, subjects, measure, clock, ids, observer, subjectLane });
- * @complexity Six participants, bounded lineage/digest scans; no cross-feature SQL. */
+ * @complexity Seven participants, bounded lineage/digest scans; no cross-feature SQL. */
 export function bindPrivacy(required: {
     unit: UnitOfWork; identity: Identity; subjects: FormSubjectPort; measure: MeasurePrivacyPort;
     clock: ClockPort; ids: IdPort; observer: ObserverPort;
     subjectLane: ReturnType<typeof createSubjectLane>;
 }) {
     const participants = createErasureParticipantRegistry({});
+    const leadsRepo = createSqlLeadsRepo({ unitOfWork: required.unit });
     const contacts: ErasureParticipantPort = { id: 'contacts', async run(input) {
         if (input.phase !== 'purgeLocal') return { ok: true, value: { complete: true, removedCount: 0 } };
         const result = await required.identity.contactsRepo.purgeIdentifiers({ context: input.context, subjectId: input.subjectId });
@@ -64,6 +66,7 @@ export function bindPrivacy(required: {
         localParticipant({ id: 'forms', identity: required.identity, purge: input => required.subjects.purgeSubject(input) }),
         localParticipant({ id: 'web-events', identity: required.identity, purge: input => required.identity.webRepo.purgeSubject(input) }),
         localParticipant({ id: 'measure', identity: required.identity, purge: input => required.measure.purgeSubject(input) }),
+        localParticipant({ id: 'leads', identity: required.identity, purge: input => leadsRepo.purgeSubject(input) }),
     ];
     for (const participant of inventory) {
         const result = participants.register({ participant });

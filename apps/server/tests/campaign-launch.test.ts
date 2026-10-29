@@ -3,7 +3,7 @@ import Database from 'better-sqlite3';
 import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { expect, it } from 'vitest';
-import type { CallContext, Outcome, ToolCall } from '@open-marketing/contracts';
+import type { CallContext, CampaignValidationEvidence, Outcome, ToolCall } from '@open-marketing/contracts';
 import { createMemoryCampaignRepo } from '@open-marketing/campaigns';
 import type { NeutralCampaignLaunch } from '@open-marketing/campaigns';
 import { createMemorySafetyRepo, createMemoryConfirmationExchange, createMemorySpendPolicy, createMemoryAccountDispatchLock,
@@ -58,11 +58,15 @@ async function fixture() {
         const args = { tool: children[index].name, input: { operationId: 'launch-child-' + index, connectionId: target.connectionId, accountId: target.accountId, arguments: { kind: 'create-draft', name: campaign.name } } };
         return { arguments: args, pluginDigest: children[index].revision, schemaFingerprint: digest({ value: schema }), envelope: { operationId: 'launch-child-' + index, connectionId: target.connectionId, accountId: target.accountId, effects: ['write'], argumentsDigest: digest({ value: args }), moneyExposure: null, requiredLimit: null } };
     });
+    const validation: CampaignValidationEvidence[] = calls.map(call => {
+        const evidence = { pluginDigest: call.pluginDigest, schemaFingerprint: call.schemaFingerprint, argumentsDigest: call.envelope.argumentsDigest, status: 'validated' as const };
+        return { ...evidence, evidenceDigest: digest({ value: evidence }) };
+    });
     const safety = createSafetyService({ repo: safetyRepo, confirmations, clock, ids, policy: createMemorySpendPolicy({}), accountLocks: createMemoryAccountDispatchLock({ ids }), platformLimits: createMemoryPlatformLimitEvidence({}), audit: createMemorySafetyAudit({}),
         effects: { async resolve({ request }) { const matched = calls.find(call => digest({ value: call }) === digest({ value: request })); return matched ? { ok: true, value: matched.envelope } : { ok: false, error: { code: 'forbidden', message: 'Not a verified fixture', retryable: false } }; }, async verifyGenerationQuote() { throw new Error('No generation'); }, async verifyHaltStop() { throw new Error('No halt stop'); } } });
     const ports = { unit: database.unit, repo, safety, confirmations, clock, ids, observer,
         async execute(input: Parameters<Parameters<typeof bindPausedCampaignDeployment>[0]['execute']>[0]) { const args = input.call.arguments as { tool: string; input: Record<string, unknown> }; return children.find(child => child.name === args.tool)!.invoke({ ...input, input: args.input }); },
-        async prepare(): Promise<Outcome<readonly CampaignConstituent[]>> { return unavailable ? { ok: false, error: { code: 'unavailable', message: 'Plugin unadmitted: fixture', retryable: false } } : { ok: true, value: structuredClone(calls) }; },
+        async prepare(): Promise<Outcome<{ calls: readonly CampaignConstituent[]; validation: readonly CampaignValidationEvidence[] }>> { return unavailable ? { ok: false, error: { code: 'unavailable', message: 'Plugin unadmitted: fixture', retryable: false } } : { ok: true, value: structuredClone({ calls, validation }) }; },
         async definitions(): Promise<Outcome<readonly OmToolDefinition[]>> { return { ok: true, value: children.map(child => changedRevision ? { ...child, revision: 'c'.repeat(64) } : child) }; },
         async read(): Promise<Outcome<unknown>> { return { ok: true, value: { complete: true, entities: calls.map((call, index) => ({ operationId: call.envelope.operationId, entityId: badEvidence ? 'unrelated' : 'entity-' + index, state: index === 1 ? 'draft' : 'paused' })) } }; } };
     const definition = bindPausedCampaignDeployment(ports);
@@ -77,7 +81,7 @@ async function fixture() {
         value({ result: await tools.answer({ context, approver: { kind: 'local_token', ownerId: context.scope.ownerId, deviceId: 'fixture-device', tokenId: 'fixture-token-reference' }, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } }) });
         return card;
     }
-    return { native, tools, toolPorts, definition, ports, safety, confirmations, calls, sends, campaign, call, approve,
+    return { native, tools, toolPorts, definition, ports, safety, confirmations, calls, validation, sends, campaign, call, approve,
         setAfterFirst(input: { callback: () => Promise<void> }) { afterFirst = input.callback; },
         setUncertain() { uncertain = true; }, setBadEvidence() { badEvidence = true; }, setUnavailable() { unavailable = true; }, changeRevision() { changedRevision = true; }, expire() { now += 300001; },
         async close() { await tools.dispose({}); native.close(); } };
@@ -91,17 +95,30 @@ it('one exact card reviews every destination and executes only non-serving const
         expect(card.classification).toBe('spend'); expect(card.allowedChoices).toEqual(['allow', 'cancel']);
         expect(card.expiresAt).toBe(301000);
         expect(card.arguments.campaign).toEqual(f.campaign); expect(card.arguments.calls).toEqual(f.calls);
+        expect(card.arguments.validation).toEqual(f.validation);
+        expect(card.argumentsDigest).toBe(digest({ value: card.arguments }));
         expect(card.arguments.budgetSemantics).toContain('not hard spending caps');
         expect(f.sends).toEqual([]); expect(f.native.prepare('SELECT id FROM job').all()).toEqual([]);
         value({ result: await f.tools.answer({ context, approver: { kind: 'local_token', ownerId: context.scope.ownerId, deviceId: 'fixture-device', tokenId: 'fixture-token-reference' }, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } }) });
         expect(value({ result: await f.tools.operation({ context, operationId: 'launch' }) })).toMatchObject({ status: 'completed', output: { status: 'submitted' } });
         expect(f.sends).toEqual(['1', '2', '3']);
         expect(f.native.prepare('SELECT state FROM job').all()).toEqual([{ state: 'succeeded' }]);
-        expect(f.native.prepare("SELECT event_type FROM job_attempt WHERE event_type LIKE 'campaign_%' ORDER BY sequence").all()).toEqual(Array.from({ length: 3 }, () => ['campaign_dispatch', 'campaign_result', 'campaign_ack', 'campaign_outcome'].map(event_type => ({ event_type }))).flat());
+        expect(f.native.prepare("SELECT event_type FROM job_attempt WHERE event_type LIKE 'campaign_%' ORDER BY sequence").all()).toEqual(f.calls.flatMap(call => ['campaign_dispatch.' + call.envelope.operationId, 'campaign_result', 'campaign_ack', 'campaign_outcome'].map(event_type => ({ event_type }))));
         const payload = String((f.native.prepare('SELECT payload FROM job').get() as { payload: string }).payload);
         expect(payload).toContain('deploy-paused'); expect(payload).toContain(card.cardId);
         expect(value({ result: await f.tools.dispatch({ context, call: f.call }) })).toMatchObject({ status: 'completed' });
         expect(f.sends).toHaveLength(3);
+    } finally { await f.close(); }
+});
+
+it.each(['campaign_dispatch.launch-child-0', 'campaign_result'])('a failed %s checkpoint stops subsequent effects and preserves uncertainty', async event => {
+    const f = await fixture();
+    try {
+        f.native.exec("CREATE TRIGGER fail_checkpoint BEFORE INSERT ON job_attempt WHEN NEW.event_type='" + event + "' BEGIN SELECT RAISE(ABORT,'injected'); END");
+        await f.approve();
+        expect(f.sends).toEqual(event === 'campaign_result' ? ['1'] : []);
+        expect(f.native.prepare('SELECT state FROM job').all()).toEqual([{ state: 'reconcile' }]);
+        expect(f.native.prepare('SELECT event_type FROM job_attempt WHERE event_type=?').all(event)).toEqual([]);
     } finally { await f.close(); }
 });
 

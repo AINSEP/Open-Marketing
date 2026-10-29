@@ -1,10 +1,10 @@
 /** Owner-scoped Jini history; OM settings contain identifiers, never provider credentials. */
 import type { ChatStore, ChatStoreFactory, ChatConversation } from '@jini-ai/chat/store';
-import { assistantContextSchema, assistantSettingsSchema, conversationListSchema, conversationSchema, parseBoundary } from '@open-marketing/contracts';
-import type { AssistantUsage, AssistantContext, AssistantSettings, AssistantSettingsStatus, CallContext, Conversation, ConversationList, ConversationSummary, IdPort, ObserverPort, Outcome, PageQuery } from '@open-marketing/contracts';
+import { assistantContextSchema, assistantSettingsSchema, conversationListSchema, conversationSchema, modelProviderSchema, parseBoundary } from '@open-marketing/contracts';
+import type { AssistantUsage, AssistantContext, AssistantSettings, AssistantSettingsStatus, CallContext, Conversation, ConversationList, ConversationSummary, IdPort, IntegrationSummary, ModelProtocol, ModelProvider, ObserverPort, Outcome, PageQuery } from '@open-marketing/contracts';
 import type { CampaignSqlPort } from '@open-marketing/campaigns';
 import type { Integrations } from './integrations.js';
-import { modelChoices, selectedModel, providerNames } from './models.js';
+import { readModelProviders, selectedModel } from './model-providers.js';
 import { readUsage } from './model-usage.js';
 import { localFailure } from './composition/local-auth.js';
 
@@ -19,9 +19,11 @@ export interface Conversations {
  setSettings(required: { context: CallContext; settings: AssistantSettings }): Promise<Outcome<AssistantSettingsStatus>>;
  modelContext(required: { context: CallContext; conversationId: string; settings: AssistantSettings }): Promise<Outcome<AssistantContext>>;
 }
-interface Dependencies { stores: ChatStoreFactory; db: CampaignSqlPort; kernel: Parameters<typeof readUsage>[0]['kernel']; ids: IdPort; observer: ObserverPort; integrations: Pick<Integrations, 'list'> }
-const models = modelChoices({ provider: 'anthropic' });
-const defaults: AssistantSettings = { mode: 'sandbox', model: models[0].id, connectionId: null };
+interface Dependencies { stores: ChatStoreFactory; db: CampaignSqlPort; kernel: Parameters<typeof readUsage>[0]['kernel']; ids: IdPort; observer: ObserverPort; integrations: Pick<Integrations, 'list'>; addons?: Parameters<typeof readModelProviders>[0]['addons'] }
+const defaults: AssistantSettings = { mode: 'sandbox', model: 'sandbox', connectionId: null };
+function modelChoices(required: { declaration?: ModelProvider }) {
+ return (required.declaration?.models ?? []).map(model => ({ id: model.id, label: model.label.slice(0, 80), reasoning: model.efforts.map(({ id, label }) => ({ id, label: label.slice(0, 80) })) }));
+}
 function summary(required: { conversation: ChatConversation }): ConversationSummary {
  const c = required.conversation;
  return { conversationId: c.id, title: c.title ?? 'New chat', createdAt: c.createdAt, updatedAt: c.updatedAt };
@@ -49,7 +51,7 @@ export function createConversations(required: Dependencies): Conversations {
    const value = rows.rows[0]?.settings_json;
    const parsed = parseBoundary({ schema: assistantSettingsSchema, input: value === undefined ? defaults : JSON.parse(String(value)) });
    if (!parsed.ok) return parsed;
-   return readiness({ context: input.context, settings: parsed.value, integrations: required.integrations });
+   return readiness({ context: input.context, settings: parsed.value, integrations: required.integrations, addons: required.addons });
   } });
  }
  return { store, settings,
@@ -73,12 +75,20 @@ export function createConversations(required: Dependencies): Conversations {
   setSettings: input => boundary({ ...input, operation: 'assistant.settings.write', work: async () => {
    const parsed = parseBoundary({ schema: assistantSettingsSchema, input: input.settings });
    if (!parsed.ok) return parsed;
-   if (!selectedModel({ settings: parsed.value })) return localFailure({ code: 'invalid_input', message: 'Unknown assistant model' });
+   if (parsed.value.mode === 'model') {
+    const providers = await readModelProviders({ context: input.context, addons: required.addons });
+    if (!providers.ok) return providers;
+    const selection = selectedModel({ settings: parsed.value, providers: providers.value });
+    if (!selection.ok) return selection;
+   }
    await required.db.query({ text: 'INSERT INTO om_assistant_settings(owner_id,workspace_id,settings_json) VALUES ($1,$2,$3) ON CONFLICT(owner_id,workspace_id) DO UPDATE SET settings_json=excluded.settings_json',
     values: [input.context.scope.ownerId, input.context.scope.workspaceId, JSON.stringify(parsed.value)] });
    return settings(input);
   } }),
   modelContext: input => boundary({ ...input, operation: 'assistant.context', work: async () => {
+   const settings = input.settings;
+   const protocol = await contextProtocol({ ...input, addons: required.addons });
+   if (!protocol.ok) return protocol;
    const owned = store(input);
    if (!await owned.get({ id: input.conversationId })) return localFailure({ code: 'forbidden', message: 'Conversation unavailable' });
    // Jini's history reader returns the tail when fromPosition is omitted; omit the current queued turn.
@@ -86,29 +96,48 @@ export function createConversations(required: Dependencies): Conversations {
    if (!page) return localFailure({ message: 'Bounded conversation history unavailable' });
    const messages = page.messages.filter(message => !['queued', 'running'].includes(message.runStatus ?? ''))
     .slice(-40).map(message => ({ id: message.id, role: message.role, text: message.content }));
-   return parseBoundary({ schema: assistantContextSchema, input: { settings: input.settings, messages } });
+   return parseBoundary({ schema: assistantContextSchema, input: { settings, protocol: protocol.value, messages } });
   } }),
  };
 }
-/** Every status carries the same configured choices. Readiness uses metadata; dispatch decrypts. */
-async function readiness(required: { context: CallContext; settings: AssistantSettings; integrations: Pick<Integrations, 'list'> }): Promise<Outcome<AssistantSettingsStatus>> {
- const provider = required.settings.provider ?? 'anthropic';
+/** Choices come from current declarations; readiness freezes identity once without decrypting keys. */
+async function readiness(required: { context: CallContext; settings: AssistantSettings; integrations: Pick<Integrations, 'list'>; addons?: Dependencies['addons'] }): Promise<Outcome<AssistantSettingsStatus>> {
+ const providers = await readModelProviders({ context: required.context, addons: required.addons });
+ const available = providers.ok ? providers.value : [];
+ const selection = selectedModel({ settings: required.settings, providers: available });
  const listed = await required.integrations.list({ context: required.context, query: { limit: 100 } });
  const items = listed.ok ? listed.value.items : [];
- const runtimes = (Object.keys(providerNames) as (keyof typeof providerNames)[]).map(id => {
-  const available = items.some(item => item.pluginId === id && item.status === 'saved');
-  const models = modelChoices({ provider: id });
-  return { id, name: providerNames[id], available, authStatus: available ? 'ok' as const : 'missing' as const, models,
-   reasoningOptions: models[0].reasoning, ...(available ? {} : { diagnostic: 'Connect in Integrations' }) };
+ const runtimes = available.map(provider => {
+  const connected = items.some(item => item.pluginId === provider.id && item.status === 'saved');
+  const models = modelChoices({ declaration: provider.declaration });
+  return { id: provider.id, name: provider.declaration.label.slice(0, 80), available: connected, authStatus: connected ? 'ok' as const : 'missing' as const, models,
+   reasoningOptions: models[0].reasoning, ...(connected ? {} : { diagnostic: 'Connect in Integrations' }) };
  });
- const configured = { settings: required.settings, models: modelChoices({ provider }), runtimes };
+ const configured = { settings: required.settings, models: modelChoices({ declaration: selection.ok ? selection.value.declaration : undefined }), runtimes };
  if (required.settings.mode === 'sandbox') return { ok: true, value: { ...configured, ready: true, status: 'sandbox' } };
- if (!selectedModel(required)) return localFailure({ code: 'invalid_input', message: 'Unknown model or effort' });
+ if (!selection.ok) return selection.error.code === 'invalid_input' ? selection : { ok: true, value: { ...configured, ready: false, status: 'unavailable' } };
  if (!listed.ok || listed.value.cursor !== null) return { ok: true, value: { ...configured, ready: false, status: 'unavailable' } };
- const candidates = items.filter(item => item.pluginId === provider && (required.settings.connectionId === null ? item.status === 'saved' : item.connectionId === required.settings.connectionId));
+ return { ok: true, value: connectionReadiness({ configured, provider: selection.value.provider, items }) };
+}
+/** Resolve connection metadata once; freezing never decrypts or chooses a different provider. */
+function connectionReadiness(required: { configured: Pick<AssistantSettingsStatus, 'settings' | 'models' | 'runtimes'>; provider: string; items: IntegrationSummary[] }): AssistantSettingsStatus {
+ const { configured, provider, items } = required;
+ const settings = configured.settings;
+ const candidates = items.filter(item => item.pluginId === provider && (settings.connectionId === null ? item.status === 'saved' : item.connectionId === settings.connectionId));
  const connection = candidates.length === 1 ? candidates[0] : undefined;
  const status = connection?.status === 'saved' ? 'ready' : connection?.status === 'reconnect_required' ? 'reconnect_required' : 'disconnected';
- // Resolve the default once before acceptance; subsequent requests cannot follow a different key.
- const frozen = status === 'ready' ? { ...required.settings, provider, connectionId: connection!.connectionId } : required.settings;
- return { ok: true, value: { ...configured, settings: frozen, ready: status === 'ready', status } };
+ const frozen = status === 'ready' ? { ...settings, provider, connectionId: connection!.connectionId } : settings;
+ return { ...configured, settings: frozen, ready: status === 'ready', status };
+}
+/** One current selected-plugin read supplies protocol; disappearing plugins make context unavailable. */
+async function contextProtocol(required: { context: CallContext; settings: AssistantSettings; addons?: Dependencies['addons'] }): Promise<Outcome<ModelProtocol | undefined>> {
+ const { settings, addons } = required;
+ if (settings.mode === 'sandbox') return { ok: true, value: undefined };
+ if (!settings.provider || !addons) return localFailure({ message: 'Model provider unavailable' });
+ const state = await addons.agentPluginState({ context: required.context, pluginId: settings.provider });
+ if (!state?.enabled || !state.admitted) return localFailure({ message: 'Model provider unavailable' });
+ const declaration = modelProviderSchema.safeParse(state.metadata.modelProvider);
+ if (!declaration.success) return localFailure({ message: 'Model declaration unavailable' });
+ const selection = selectedModel({ settings, providers: [{ id: settings.provider, declaration: declaration.data }] });
+ return selection.ok ? { ok: true, value: declaration.data.protocol } : selection;
 }

@@ -33,29 +33,44 @@ function requestMetadata(required: { incoming: IncomingMessage; signal: AbortSig
             headers[name] = value;
         }
         let body: Promise<Outcome<unknown>> | undefined;
+        let bytes: Promise<Outcome<Uint8Array>> | undefined;
+        const readBytes = () => bytes ??= readRawBody({ incoming, maxBytes: bodyLimit({ path: url.pathname }) });
         return { ok: true, value: { method: incoming.method, path: url.pathname, query, headers,
             authorization: headers.authorization, signal: required.signal,
-            readBody: () => body ??= readJsonBody({ incoming, maxBytes: bodyLimit({ path: url.pathname }) }) } };
+            readRawBody: readBytes,
+            readBody: () => body ??= readJsonBody({ incoming, readBytes }) } };
     } catch { return localFailure({ code: 'invalid_input', message: 'Invalid request URL' }); }
 }
 
-/** Upload JSON allows base64 overhead; existing model/ordinary route bounds stay unchanged. */
+/** Raw image uploads and image-bearing model requests have explicit bounds; ordinary JSON stays at 128 KiB. */
 function bodyLimit(required: { path: string }): number {
+    if (required.path === '/api/attachments') return 1048576;
     if (required.path === '/api/dev/events') return 2048;
     if (required.path === '/api/addons/v1/install') return 50331648;
-    return ['/api/agent/v1/model/anthropic/v1/messages', '/api/agent/v1/model/openai/chat/completions', '/api/agent/v1/model/google/v1beta/models/gemini-2.5-flash:streamGenerateContent'].includes(required.path) ? 262144 : 131072;
+    return required.path.startsWith('/api/agent/v1/model/') ? 8388608 : 131072;
 }
 
 /** Lazy JSON/form edge; handlers call only after authentication.
  * @returns Unknown JSON for the route schema, or an input/size failure; no automatic retries.
  * @complexity O(b) time/space, b <= the route's byte limit. Node requestTimeout bounds delivery.
  */
-async function readJsonBody(required: { incoming: IncomingMessage; maxBytes: number }): Promise<Outcome<unknown>> {
+async function readJsonBody(required: { incoming: IncomingMessage; readBytes(): Promise<Outcome<Uint8Array>> }): Promise<Outcome<unknown>> {
     const contentType = required.incoming.headers['content-type']?.split(';')[0].trim();
     const isForm = contentType === 'application/x-www-form-urlencoded';
     if (contentType !== 'application/json' && !isForm) {
         return localFailure({ code: 'invalid_input', message: 'Expected JSON or URL-encoded form' });
     }
+    const bytes = await required.readBytes();
+    if (!bytes.ok) return bytes;
+    try {
+        const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes.value);
+        return isForm ? parseFormBody({ text }) : { ok: true, value: JSON.parse(text) as unknown };
+    } catch { return localFailure({ code: 'invalid_input', message: 'Malformed or interrupted JSON body' }); }
+}
+
+/** Read original bytes once for JSON/form parsing and signature verification, independent of MIME.
+ * @returns Bounded bytes or a fixed size/interruption failure. @complexity O(b), b<=route limit. */
+async function readRawBody(required: { incoming: IncomingMessage; maxBytes: number }): Promise<Outcome<Uint8Array>> {
     const chunks: Buffer[] = [];
     let bytes = 0;
     try {
@@ -67,9 +82,8 @@ async function readJsonBody(required: { incoming: IncomingMessage; maxBytes: num
             if (bytes > required.maxBytes) return localFailure({ code: 'limit_exceeded', message: 'Request body exceeds route limit' });
             chunks.push(buffer);
         }
-        const text = new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks));
-        return isForm ? parseFormBody({ text }) : { ok: true, value: JSON.parse(text) as unknown };
-    } catch { return localFailure({ code: 'invalid_input', message: 'Malformed or interrupted JSON body' }); }
+        return { ok: true, value: Buffer.concat(chunks) };
+    } catch { return localFailure({ code: 'invalid_input', message: 'Interrupted request body' }); }
 }
 
 /** URL-encoded form transport keeps scalar strings and rejects duplicate/oversized fields.
@@ -124,12 +138,22 @@ function waitForDrain(required: { outgoing: ServerResponse }): Promise<void> {
     });
 }
 
-/** Exact Host check defends loopback from DNS rebinding; any supplied Origin must match.
- * Health/static reads use the same host boundary as owner requests. @complexity O(1).
+/** Exact Host/Origin checks keep owner/static routes local; the public exception is route-bound.
+ * Public POSTs require an exact Origin. No proxy header supplies authority. @complexity O(1).
  */
-function trustedOrigin(required: { request: HttpRequest; origin: string }): boolean {
-    return required.request.headers?.host === new URL(required.origin).host
-        && (required.request.headers?.origin === undefined || required.request.headers.origin === required.origin);
+function trustedOrigin(required: { request: HttpRequest; origin: string; publicOrigin?: string }): boolean {
+    const { request, origin, publicOrigin } = required;
+    if (request.headers?.host === new URL(origin).host) return request.headers.origin === undefined || request.headers.origin === origin;
+    if (!publicOrigin || request.headers?.host !== new URL(publicOrigin).host || !publicRoute({ request })) return false;
+    return request.headers.origin === publicOrigin || (request.method === 'GET' && request.headers.origin === undefined);
+}
+
+/** The public host grants no owner/static access; forwarded headers never influence admission. */
+function publicRoute(required: { request: HttpRequest }): boolean {
+    const { method, path } = required.request;
+    if (path === '/web-events.js') return method === 'GET';
+    if (path === '/c') return method === 'POST';
+    return /^\/f\/[A-Za-z0-9_-]{1,100}$/.test(path);
 }
 
 /** Best-effort transport telemetry uses bounded generated IDs, never raw URLs, cookies or bodies. */
@@ -149,7 +173,7 @@ function traceIdentifier(required: { value: string | string[] | undefined; ids: 
 /** Dispatch through an authenticated app handler and map opaque transport faults to typed replies. */
 async function dispatchRequest(required: {
     incoming: IncomingMessage; outgoing: ServerResponse; listener: NodeHttpListener;
-    handle: (required: HttpRequest) => Promise<HttpResponse>; observer: ObserverPort; ids: IdPort;
+    handle: (required: HttpRequest) => Promise<HttpResponse>; observer: ObserverPort; ids: IdPort; publicOrigin?: string;
 }): Promise<void> {
     let outcome = 'unavailable';
     const controller = new AbortController();
@@ -160,9 +184,9 @@ async function dispatchRequest(required: {
         const request = requestMetadata({ incoming: required.incoming, signal: controller.signal });
         if (!request.ok) { outcome = '400'; await sendResponse({ outgoing: required.outgoing, response: { status: 400, body: request } }); return; }
         const origin = required.listener.origin({});
-        if (!origin || !trustedOrigin({ request: request.value, origin })) {
+        if (!origin || !trustedOrigin({ request: request.value, origin, publicOrigin: required.publicOrigin })) {
             outcome = '403';
-            await sendResponse({ outgoing: required.outgoing, response: { status: 403, body: localFailure({ code: 'forbidden', message: 'Request must use the local server origin' }) } });
+            await sendResponse({ outgoing: required.outgoing, response: { status: 403, body: localFailure({ code: 'forbidden', message: 'Request origin is not allowed' }) } });
             return;
         }
         const response = await required.handle(request.value);
@@ -209,7 +233,7 @@ function closeListener(required: { server: Server; effects: HttpEffects }): Prom
  * @complexity O(1) factory space; native connections capped at 64, headers 16 KiB, request timeout 15s.
  */
 export function createNodeHttpListener(required: {
-    host: '127.0.0.1'; port: number; effects: HttpEffects; ids: IdPort; observer: ObserverPort;
+    host: '127.0.0.1'; port: number; effects: HttpEffects; ids: IdPort; observer: ObserverPort; publicOrigin?: string;
 }): NodeHttpListener {
     let server: Server | undefined;
     let origin: string | null = null;
@@ -218,7 +242,7 @@ export function createNodeHttpListener(required: {
         async start({ handle }) {
             if (server) return localFailure({ code: 'conflict', message: 'HTTP listener has already started' });
             server = required.effects.createServer({ maxHeaderSize: 16384, requestTimeout: 15000, headersTimeout: 5000 },
-                (incoming, outgoing) => { void dispatchRequest({ incoming, outgoing, listener, handle, observer: required.observer, ids: required.ids }); });
+                (incoming, outgoing) => { void dispatchRequest({ incoming, outgoing, listener, handle, observer: required.observer, ids: required.ids, publicOrigin: required.publicOrigin }); });
             server.maxConnections = 64;
             server.maxHeadersCount = 100;
             const started = await listen({ server, host: required.host, port: required.port });

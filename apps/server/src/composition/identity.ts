@@ -2,11 +2,13 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import { idSchema, epochSchema } from '@open-marketing/contracts';
-import type { CallContext, ClockPort, IdPort, ObserverPort, Outcome, UnitOfWork } from '@open-marketing/contracts';
+import type { CallContext, CallOptions, CampaignKey, ClockPort, IdPort, ObserverPort, Outcome, UnitOfWork } from '@open-marketing/contracts';
 import { createContactService, createSqlContactRepo } from '@open-marketing/contacts';
 import { createPolicyService, createSqlPolicyRepo, type PolicyService, type SubjectPolicy } from '@open-marketing/policy';
-import { createSqlWebEventRepo, createWebEventService, type Visit, type VisitTokenPort } from '@open-marketing/web-events';
-import type { ConversionIdentifiersPort, AttributionTouchPort } from '@open-marketing/measure';
+import { createSqlWebEventRepo, createWebEventService, landingPropertiesSchema, type ObservedCampaignPort, type Visit, type VisitTokenPort } from '@open-marketing/web-events';
+import type { ConversionIdentifiersPort, AttributionTouchPort, MetricsRepoPort } from '@open-marketing/measure';
+import type { AccountBindingLookupPort } from '@open-marketing/workspaces';
+import type { AgentPluginState } from './agent-plugin-backends.js';
 import { localFailure } from './local-auth.js';
 import type { createSubjectLane } from './subject-lane.js';
 
@@ -16,6 +18,7 @@ export function localKey(required: { ownerToken: string; domain: 'visits' | 'con
     return createHmac('sha256', required.ownerToken).update('om.local.' + required.domain + '.v1').digest();
 }
 const tokenPayload = z.strictObject({ workspaceId: z.uuid(), visitId: idSchema, exp: epochSchema });
+const landingPropertyKeys = Object.keys(landingPropertiesSchema.shape);
 
 /** HMAC visit tokens have no authority/session store. Scope and expiry are checked on every use.
  * A visit's anonymous ID equals its server-issued visit ID; stored binding remains web-events-owned.
@@ -44,7 +47,7 @@ export function createVisitTokens(required: { key: Uint8Array; clock: ClockPort;
  * Sharing is denied locally, even with captured consent; this sandbox has no delivery authority.
  * @example bindIdentity({ unit, clock, ids, observer, digestKey, tokens, subjectLane });
  * @complexity Bounded owning repository work, no cross-feature SQL. */
-export function bindIdentity(required: { unit: UnitOfWork; clock: ClockPort; ids: IdPort; observer: ObserverPort; digestKey: Uint8Array; tokens: VisitTokenPort; subjectLane: ReturnType<typeof createSubjectLane> }) {
+export function bindIdentity(required: { unit: UnitOfWork; clock: ClockPort; ids: IdPort; observer: ObserverPort; digestKey: Uint8Array; tokens: VisitTokenPort; subjectLane: ReturnType<typeof createSubjectLane> }, optional?: { observedCampaigns: ObservedCampaignPort }) {
     const contactsRepo = createSqlContactRepo({ uow: required.unit });
     const evidence = createPolicyService({ repo: createSqlPolicyRepo({ pool: required.unit, observer: required.observer }), clock: required.clock }, { observer: required.observer });
     // Borrowed SqlSessions already belong to a caller holding the lane; never reacquire inside SQLite.
@@ -73,8 +76,9 @@ export function bindIdentity(required: { unit: UnitOfWork; clock: ClockPort; ids
         suppression: { async assess() { return { ok: true, value: { allowed: false } }; } } });
     const webRepo = createSqlWebEventRepo({ pool: required.unit, clock: required.clock });
     const webEvents = createWebEventService({ repo: webRepo, clock: required.clock, ids: required.ids, tokens: required.tokens,
+        observedCampaigns: optional?.observedCampaigns ?? { async observed() { return { ok: true, value: [] }; } },
         collectionAuthority: { async assess(input) {
-            const basic = Object.keys(input.event.properties).every(key => key === 'linkId' || key === 'campaignId');
+            const basic = Object.keys(input.event.properties).every(key => landingPropertyKeys.includes(key));
             return { ok: true, value: { allowed: basic && input.event.subjectId === undefined } };
         } } });
     const identifiers: ConversionIdentifiersPort = { identifiersFor: (input, options) => contacts.identifiersFor(input, options) };
@@ -87,6 +91,37 @@ export function bindIdentity(required: { unit: UnitOfWork; clock: ClockPort; ids
         return 'query' in required.unit ? contacts.merge(input, options) : required.subjectLane.run({ context: input.context, subjectIds: [input.sourceSubjectId, input.targetSubjectId], work: () => contacts.merge(input, options) }, options);
     } }, policy, webRepo, webEvents, identifiers, touches,
         forTransaction: (input: { unit: UnitOfWork }): { policy: PolicyService; contactsRepo: typeof contactsRepo } => bindIdentity({ ...required, unit: input.unit }) };
+}
+
+type MembershipDependencies = { metrics: Pick<MetricsRepoPort, 'observedCampaigns'>; accounts: AccountBindingLookupPort;
+    state(input: { context: CallContext; pluginId: string }): Promise<Pick<AgentPluginState, 'admitted' | 'enabled'> | null> };
+
+/** Current admission and scoped account ownership precede historical membership; no credentials.
+ * @example observedCampaignMembership({ metrics: reporting.repo, state, accounts }).observed({ context, keys })
+ * @complexity O(keys) sequential admission/binding reads, then one bounded metrics batch (<=100 keys).
+ */
+export function observedCampaignMembership(required: MembershipDependencies): ObservedCampaignPort {
+    return { async observed(input, options) {
+        const keys: CampaignKey[] = [];
+        for (const key of input.keys) {
+            const allowed = await admittedCampaign({ ...required, context: input.context, key }, options);
+            if (!allowed.ok) return allowed;
+            if (allowed.value) keys.push(key);
+        }
+        if (keys.length === 0) return { ok: true, value: [] };
+        return required.metrics.observedCampaigns({ context: input.context, keys }, options);
+    } };
+}
+
+/** Missing/foreign bindings and disabled plugins cannot turn visitor claims into attribution. */
+async function admittedCampaign(required: MembershipDependencies & { context: CallContext; key: CampaignKey }, options?: CallOptions): Promise<Outcome<boolean>> {
+    const state = await required.state({ context: required.context, pluginId: required.key.pluginId });
+    if (!state?.admitted || !state.enabled) return { ok: true, value: false };
+    const found = await required.accounts.find({ context: required.context, externalAccountId: required.key.accountId }, options);
+    if (!found.ok) return found;
+    const binding = found.value;
+    return { ok: true, value: binding !== null && binding.externalAccountId === required.key.accountId
+        && binding.scope.ownerId === required.context.scope.ownerId && binding.scope.workspaceId === required.context.scope.workspaceId };
 }
 
 /** Durable erasure barrier is ordinary policy suppression evidence, with no second authority store. */

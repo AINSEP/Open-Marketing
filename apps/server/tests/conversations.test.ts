@@ -1,5 +1,6 @@
 /** Written-only A2 persistence and real composed broker fixtures; no vendor traffic. */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import { readFile, mkdtemp, mkdir, writeFile } from 'node:fs/promises';
@@ -13,8 +14,9 @@ import { createDurableRunStore, createChatRunLedger } from '@jini-ai/chat/store/
 import type { ChatStore, ChatStoreFactory, ChatConversation } from '@jini-ai/chat/store';
 import type { ChatMessage as JiniMessage } from '@jini-ai/chat';
 import type { StorageKernel } from '@jini-ai/db/kernel';
-import type { CallContext, Outcome, RunEvent, RunGrantMetadata } from '@open-marketing/contracts';
-import { assistantSettingsStatusSchema } from '@open-marketing/contracts';
+import type { CallContext, ModelProvider, Outcome, RunEvent, RunGrantMetadata } from '@open-marketing/contracts';
+import { assistantSettingsStatusSchema, modelProviderSchema } from '@open-marketing/contracts';
+import { emptyUsage } from '../src/model-protocols.js';
 import { createConversations } from '../src/conversations.js';
 import { createAssistantRuns, type AssistantDatabase } from '../src/runs.js';
 import { bindServerDatabase } from '../src/composition/database.js';
@@ -26,6 +28,20 @@ import type { ModelUpstream } from '../src/inbound/model.js';
 const projectRoot = fileURLToPath(new URL('../../../', import.meta.url));
 const context: CallContext = { scope: { ownerId: 'owner', workspaceId: 'workspace' }, principal: { kind: 'owner', ownerId: 'owner' }, correlationId: 'correlation', traceId: 'trace' };
 function value<T>(required: { result: Outcome<T> }): T { if (!required.result.ok) throw new Error(required.result.error.message); return required.result.value; }
+
+/** Reuse provider manifests as declaration fixtures; the catalog/state doubles never access keys. */
+const providerDeclarations: Record<string, ModelProvider> = Object.fromEntries(['anthropic', 'openai', 'google'].map(id => {
+ const manifest = JSON.parse(readFileSync(new URL(`../../../content/agent-plugins/${id}/plugin.json`, import.meta.url), 'utf8'));
+ return [id, modelProviderSchema.parse(manifest.extensions['io.github.ainsep.openmarketing'].modelProvider)];
+}));
+function modelAddons(required: { providers: Record<string, ModelProvider> }): NonNullable<Parameters<typeof createConversations>[0]['addons']> {
+ return { addons: { async list() { return { ok: true, value: { items: Object.entries(required.providers).map(([id, declaration]) => ({
+  id, kind: 'agent-plugin' as const, name: declaration.label, description: '', version: '1', enabled: true, revision: 'fixture-revision' })), cursor: null } }; } },
+  async agentPluginState({ pluginId }) {
+   const declaration = required.providers[pluginId];
+   return declaration ? { enabled: true, admitted: true, bundled: false, revision: 'fixture-revision', metadata: { provides: ['model'], modelProvider: declaration }, capabilities: [] } : null;
+  } };
+}
 
 /** Owner-bound in-memory transcript double. The same suite below exercises the real Jini SQLite adapter. */
 function memoryStores(required: { now(): number }): ChatStoreFactory {
@@ -60,7 +76,7 @@ function memoryStores(required: { now(): number }): ChatStoreFactory {
   return store;
  };
 }
-async function fixture(required: { adapter?: 'memory' | 'sqlite'; integrations?: Parameters<typeof createConversations>[0]['integrations'] } = {}) {
+async function fixture(required: { adapter?: 'memory' | 'sqlite'; integrations?: Parameters<typeof createConversations>[0]['integrations']; addons?: Parameters<typeof createConversations>[0]['addons'] | null } = {}) {
  const native = new Database(':memory:'); native.pragma('foreign_keys = ON');
  native.exec(await readFile(join(projectRoot, 'apps/server/migrations/0001_assistant.sql'), 'utf8'));
  native.exec(await readFile(join(projectRoot, 'apps/server/migrations/0005_chat_backend.sql'), 'utf8'));
@@ -68,11 +84,12 @@ async function fixture(required: { adapter?: 'memory' | 'sqlite'; integrations?:
  const db = bindServerDatabase({ native, context, observer });
  const sql: Parameters<typeof createConversations>[0]['db'] = { query: input => db.unit.transaction({ work: ({ session }) => session.query(input) }) };
  const kernel = db.kernel as unknown as StorageKernel<AssistantDatabase>;
- const conversations = createConversations({ stores: required.adapter === 'memory' ? memoryStores({ now: () => 1000 }) : ({ scope }) => createSqliteChatStore({ kernel, scope }, { clock: { nowMs: () => 1000 } }),
+ const addons = required.addons === null ? undefined : required.addons ?? modelAddons({ providers: providerDeclarations });
+ const conversations = createConversations({ addons, stores: required.adapter === 'memory' ? memoryStores({ now: () => 1000 }) : ({ scope }) => createSqliteChatStore({ kernel, scope }, { clock: { nowMs: () => 1000 } }),
   db: { query: input => db.unit.transaction({ work: ({ session }) => session.query(input) }) }, kernel, ids, observer,
   integrations: required.integrations ?? { async list() { return { ok: true, value: { items: [], cursor: null } }; } } });
- const runs = createAssistantRuns({ kernel, conversations, clock, ids, observer, durable: createDurableRunStore({ kernel, isDaemonRunId: () => true }), ledger: createChatRunLedger({ kernel, isDaemonRunId: () => true }) });
- return { conversations, runs, kernel, native, sql, advance() { now += 8000; }, close() { native.close(); } };
+ const runs = createAssistantRuns({ kernel, conversations, clock, ids, observer, media: { readImage: async () => ({ ok: false as const, error: { code: 'unavailable' as const, message: 'unused', retryable: false } }) }, durable: createDurableRunStore({ kernel, isDaemonRunId: () => true }), ledger: createChatRunLedger({ kernel, isDaemonRunId: () => true }) });
+ return { conversations, runs, kernel, native, sql, addons, advance() { now += 8000; }, close() { native.close(); } };
 }
 
 for (const adapter of ['memory', 'sqlite'] as const) describe('owner transcript / ' + adapter, () => {
@@ -93,7 +110,7 @@ for (const adapter of ['memory', 'sqlite'] as const) describe('owner transcript 
  it('defaults to labeled Sandbox and reports unready configured model without falling back', async () => {
   const f = await fixture({ adapter });
   try {
-   expect(value({ result: await f.conversations.settings({ context }) })).toMatchObject({ settings: { mode: 'sandbox', model: 'claude-sonnet-5-5' }, ready: true, status: 'sandbox' });
+   expect(value({ result: await f.conversations.settings({ context }) })).toMatchObject({ settings: { mode: 'sandbox', model: 'sandbox' }, ready: true, status: 'sandbox' });
    expect(value({ result: await f.conversations.setSettings({ context, settings: { mode: 'model', model: 'claude-opus-5-5', connectionId: null } }) })).toMatchObject({ ready: false, status: 'disconnected' });
    let launched = false;
    const result = await f.runs.start({ context, prompt: 'fixture', async launch() { launched = true; return { ok: true, value: { runId: 'wrong', status: 'pending' } }; } });
@@ -111,9 +128,10 @@ it.each(['sandbox', 'ready', 'reconnect_required', 'disconnected', 'unavailable'
   const mode = status === 'sandbox' ? 'sandbox' : 'model'; const connectionId = status === 'disconnected' ? 'missing' : 'fixture';
   const current = value({ result: await f.conversations.setSettings({ context, settings: { mode, model: 'claude-opus-5-5', connectionId } }) });
   expect(current.status).toBe(status);
-  expect(current.models?.map(({ id, label }) => ({ id, label }))).toEqual([{ id: 'claude-sonnet-5-5', label: 'Sonnet 5.5' }, { id: 'claude-opus-5-5', label: 'Opus 5.5' }]);
+  expect(current.models?.map(({ id, label }) => ({ id, label }))).toEqual(providerDeclarations.anthropic.models.map(({ id, label }) => ({ id, label })));
   for (const model of current.models!) expect((await f.conversations.setSettings({ context, settings: { ...current.settings, model: model.id } })).ok).toBe(true);
-  expect(await f.conversations.setSettings({ context, settings: { ...current.settings, model: 'unknown' } })).toMatchObject({ ok: false, error: { code: 'invalid_input' } });
+  if (mode === 'model') expect(await f.conversations.setSettings({ context, settings: { ...current.settings, provider: 'anthropic', model: 'unknown' } })).toMatchObject({ ok: false, error: { code: 'invalid_input' } });
+  value({ result: await f.conversations.setSettings({ context, settings: current.settings }) });
   const saved = value({ result: await f.conversations.settings({ context }) });
   expect(saved.settings.model).toBe('claude-opus-5-5'); expect(assistantSettingsStatusSchema.safeParse(saved).success).toBe(true);
  } finally { f.close(); }
@@ -123,8 +141,8 @@ it('bounds strict model choices and accepts settings responses without choices',
  const status = { settings: { mode: 'sandbox', model: 'fixture', connectionId: null }, ready: true, status: 'sandbox' };
  const choice = { id: 'fixture', label: 'Fixture' };
  expect(assistantSettingsStatusSchema.safeParse(status).success).toBe(true);
- expect(assistantSettingsStatusSchema.safeParse({ ...status, models: Array(16).fill(choice) }).success).toBe(true);
- for (const models of [Array(17).fill(choice), [{ ...choice, id: '' }], [{ ...choice, label: '' }], [{ ...choice, label: 'x'.repeat(81) }], [{ ...choice, extra: true }]]) {
+ expect(assistantSettingsStatusSchema.safeParse({ ...status, models: Array(64).fill(choice) }).success).toBe(true);
+ for (const models of [Array(65).fill(choice), [{ ...choice, id: '' }], [{ ...choice, label: '' }], [{ ...choice, label: 'x'.repeat(81) }], [{ ...choice, extra: true }]]) {
   expect(assistantSettingsStatusSchema.safeParse({ ...status, models }).success).toBe(false);
  }
 });
@@ -245,16 +263,16 @@ it('freezes one provider connection at acceptance, persists usage, and excludes 
   expect(status.runtimes?.find(item => item.id === 'google')).toMatchObject({ available: false, diagnostic: 'Connect in Integrations' });
   const first = await accepted({ f }); connectionId = 'second';
   const grant: RunGrantMetadata = { protocolVersion: 1, grantId: 'g', agentInstanceId: 'a', runId: first.runId, conversationId: first.conversationId!, scope: context.scope, capabilities: ['model'], expiresAt: 99999, revoked: false, authenticationEpoch: 1 };
-  expect(value({ result: await f.runs.context({ grant }) })).toMatchObject({ settings: { connectionId: 'first', provider: 'openai', effort: 'high' } });
+  expect(value({ result: await f.runs.context({ grant }) })).toMatchObject({ settings: { connectionId: 'first', provider: 'openai', effort: 'high' }, protocol: 'openai' });
   const accesses: unknown[] = [];
-  const credentials = bindModelCredentials({ persistence: f.runs, integrations: { async access(input) { accesses.push(input); return { ok: true, value: { accessToken: 'sealed-first' } }; } } });
-  expect(value({ result: await credentials.resolveProviderKey({ grant, signal: new AbortController().signal }) })).toMatchObject({ apiKey: 'sealed-first', provider: 'openai', model: 'gpt-5.2', effort: 'high' });
+  const credentials = bindModelCredentials({ persistence: f.runs, addons: f.addons, integrations: { async access(input) { accesses.push(input); return { ok: true, value: { accessToken: 'sealed-first' } }; } } });
+  expect(value({ result: await credentials.resolveProviderKey({ grant, signal: new AbortController().signal }) })).toMatchObject({ apiKey: 'sealed-first', settings: { provider: 'openai', model: 'gpt-5.2', effort: 'high' }, declaration: providerDeclarations.openai });
   expect(accesses[0]).toMatchObject({ pluginId: 'openai', connectionId: 'first' });
-  const { appendUsage, emptyUsage } = await import('../src/model-usage.js');
+  const { appendUsage } = await import('../src/model-usage.js');
   const sql = f.sql;
   // Real SQL adapter: insert evidence directly, retaining duplicate-key enforcement.
   for (const requestId of ['r1', 'r2']) {
-   const base = { db: sql, grant, requestId, provider: 'openai' as const, model: 'gpt-5.2', now: 1000 };
+   const base = { db: sql, grant, requestId, provider: 'openai' as const, model: 'gpt-5.2', pricing: providerDeclarations.openai.models[0].pricing, now: 1000 };
    await appendUsage({ ...base, kind: 'intent' });
    await appendUsage({ ...base, kind: 'completion', usage: { ...emptyUsage(), input: 10, output: 5, stopped: true } });
   }
@@ -265,20 +283,20 @@ it('freezes one provider connection at acceptance, persists usage, and excludes 
   expect(saved.events?.filter(item => item.kind === 'usage')).toHaveLength(1);
   const usage = value({ result: await f.runs.events({ context, runId: first.runId, after: 0 }) }).usage!;
   expect(usage).toMatchObject({ inputTokens: 20, outputTokens: 10, complete: true, costBasis: 'estimated', durationMs: 8000 });
-  expect(usage.costUsd).toBeCloseTo((20 * 1.75 + 10 * 14) / 1e6);
+  expect(usage.costUsdMicros).toBe('176'); expect(usage.totalCostUsdMicros).toBe('176');
   const second = value({ result: await f.runs.start({ context, prompt: 'next', conversationId: first.conversationId, async launch(input) { return { ok: true, value: { ...input, status: 'pending' as const } }; } }) });
   const later = value({ result: await f.conversations.usage({ context, runId: second.runId }) });
-  expect(later.complete).toBe(false); expect(later.totalCostUsd).toBeUndefined();
-  expect(value({ result: await f.conversations.usage({ context, runId: first.runId }) }).totalCostUsd).toBe(usage.totalCostUsd);
+  expect(later.complete).toBe(false); expect(later.totalCostUsdMicros).toBeUndefined();
+  expect(value({ result: await f.conversations.usage({ context, runId: first.runId }) }).totalCostUsdMicros).toBe(usage.totalCostUsdMicros);
   const history = value({ result: await f.conversations.read({ context, conversationId: first.conversationId!, query: { limit: 1 } }) });
   expect(history.messages.length).toBe(1);
   const next = value({ result: await f.conversations.read({ context, conversationId: first.conversationId!, query: { limit: 1, cursor: history.cursor! } }) });
-  expect(next.messages[0].usage?.totalCostUsd).toBe(usage.totalCostUsd);
+  expect(next.messages[0].usage?.totalCostUsdMicros).toBe(usage.totalCostUsdMicros);
   const secondGrant = { ...grant, runId: second.runId };
   await appendUsage({ db: sql, grant: secondGrant, requestId: 'interrupted', kind: 'intent', provider: 'openai', model: 'gpt-5.2', now: 9000 });
   value({ result: await f.runs.record({ context, event: event({ runId: second.runId, sequence: 1, kind: 'error' }) }) });
-  expect(value({ result: await f.conversations.usage({ context, runId: second.runId }) }).costUsd).toBeUndefined();
-  expect(value({ result: await f.conversations.usage({ context: { ...context, scope: { ...context.scope, ownerId: 'foreign' } }, runId: first.runId }) }).totalCostUsd).toBeUndefined();
+  expect(value({ result: await f.conversations.usage({ context, runId: second.runId }) }).costUsdMicros).toBeUndefined();
+  expect(value({ result: await f.conversations.usage({ context: { ...context, scope: { ...context.scope, ownerId: 'foreign' } }, runId: first.runId }) }).totalCostUsdMicros).toBeUndefined();
  } finally { f.close(); }
 });
 
@@ -312,5 +330,65 @@ it('caps durable request intents at 25 and leaves interrupted outcomes unavailab
   for (let n = 0; n < 25; n++) await appendUsage({ ...base, requestId: String(n) });
   await expect(appendUsage({ ...base, requestId: '26' })).rejects.toThrow('Model request limit reached');
   expect(value({ result: await f.conversations.usage({ context, runId: acceptedRun.runId }) })).toMatchObject({ complete: false, costBasis: 'unavailable' });
+ } finally { f.close(); }
+});
+
+it.each(['disabled', 'missing'] as const)('refuses a %s selected plugin before credential access without scanning the catalog', async state => {
+ const f = await fixture({ adapter: 'memory', integrations: { async list() { return { ok: true, value: { items: [{ pluginId: 'openai', connectionId: 'key', status: 'saved' }], cursor: null } }; } } });
+ try {
+  value({ result: await f.conversations.setSettings({ context, settings: { mode: 'model', provider: 'openai', model: 'gpt-5.2', connectionId: 'key' } }) });
+  const receipt = await accepted({ f });
+  const grant: RunGrantMetadata = { protocolVersion: 1, grantId: 'g', agentInstanceId: 'a', runId: receipt.runId, conversationId: receipt.conversationId!, scope: context.scope, capabilities: ['model'], expiresAt: 99999, revoked: false, authenticationEpoch: 1 };
+  const current = await f.addons!.agentPluginState({ context, pluginId: 'openai' });
+  const read = vi.spyOn(f.addons!, 'agentPluginState').mockResolvedValue(state === 'missing' ? null : { ...current!, enabled: false });
+  const catalog = vi.spyOn(f.addons!.addons, 'list');
+  const access = vi.fn(async () => ({ ok: true as const, value: { accessToken: 'must-not-be-read' } }));
+  const credentials = bindModelCredentials({ persistence: f.runs, addons: f.addons, integrations: { access } });
+  const result = await credentials.resolveProviderKey({ grant, signal: new AbortController().signal });
+  expect(result).toMatchObject({ ok: false, error: { code: 'forbidden' } });
+  expect(access).not.toHaveBeenCalled(); expect(catalog).not.toHaveBeenCalled();
+  expect(read).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ pluginId: 'openai' }));
+  expect(JSON.stringify(result)).not.toContain('must-not-be-read');
+ } finally { f.close(); }
+});
+
+it.each([false, true])('projects declarations and resolves a legacy provider only when its model is unique (ambiguous=%s)', async ambiguous => {
+ const declaration = modelProviderSchema.parse({ protocol: 'openai', endpoint: 'https://models.example.test', label: 'Acme models',
+  models: [{ id: 'custom-chat', label: 'Custom chat', efforts: [{ id: 'careful', label: 'Careful', request: { reasoning_effort: 'high' } }] }] });
+ const providers: Record<string, ModelProvider> = ambiguous ? { 'acme-models': declaration, 'second-models': { ...declaration, label: 'Second models' } } : { 'acme-models': declaration };
+ const addons = modelAddons({ providers });
+ const f = await fixture({ adapter: 'memory', addons, integrations: { async list() { return { ok: true, value: { items: [{ pluginId: 'acme-models', connectionId: 'fixture-key', status: 'saved' }], cursor: null } }; } } });
+ try {
+  const settings = { mode: 'model' as const, model: 'custom-chat', effort: 'careful', connectionId: null };
+  // A pre-existing row, not an owner write, exercises missing-provider readiness directly.
+  await f.sql.query({ text: 'INSERT INTO om_assistant_settings(owner_id,workspace_id,settings_json) VALUES ($1,$2,$3)', values: [context.scope.ownerId, context.scope.workspaceId, JSON.stringify(settings)] });
+  const current = value({ result: await f.conversations.settings({ context }) });
+  expect(current.runtimes?.map(runtime => [runtime.id, runtime.name])).toEqual(Object.entries(providers).map(([id, provider]) => [id, provider.label]));
+  expect(current.ready).toBe(!ambiguous);
+  if (ambiguous) {
+   expect(current.status).toBe('unavailable');
+   expect(await f.conversations.setSettings({ context, settings })).toMatchObject({ ok: false, error: { code: 'unavailable' } });
+  } else {
+   expect(current.settings).toMatchObject({ provider: 'acme-models', connectionId: 'fixture-key' });
+   expect(current.models).toEqual([{ id: 'custom-chat', label: 'Custom chat', reasoning: [{ id: 'careful', label: 'Careful' }] }]);
+   const chat = value({ result: await f.conversations.create({ context }) });
+   const catalog = vi.spyOn(addons.addons, 'list');
+   const read = vi.spyOn(addons, 'agentPluginState');
+   expect(value({ result: await f.conversations.modelContext({ context, conversationId: chat.conversationId, settings: current.settings }) })).toMatchObject({ protocol: 'openai', settings: current.settings });
+   expect(read).toHaveBeenCalledTimes(1); expect(catalog).not.toHaveBeenCalled();
+   read.mockResolvedValue(null);
+   expect(await f.conversations.modelContext({ context, conversationId: chat.conversationId, settings: current.settings })).toMatchObject({ ok: false, error: { code: 'unavailable' } });
+  }
+ } finally { f.close(); }
+});
+
+it('keeps Sandbox usable with no addon dependency and leaves a saved model selection unavailable', async () => {
+ const f = await fixture({ adapter: 'memory', addons: null });
+ try {
+  expect(value({ result: await f.conversations.settings({ context }) })).toMatchObject({ settings: { mode: 'sandbox', model: 'sandbox' }, runtimes: [], models: [], ready: true });
+  const receipt = await accepted({ f }); expect(receipt.mode).toBe('sandbox');
+  const settings = { mode: 'model', provider: 'missing-models', model: 'custom-chat', connectionId: 'key' };
+  await f.sql.query({ text: 'INSERT INTO om_assistant_settings(owner_id,workspace_id,settings_json) VALUES ($1,$2,$3)', values: [context.scope.ownerId, context.scope.workspaceId, JSON.stringify(settings)] });
+  expect(value({ result: await f.conversations.settings({ context }) })).toMatchObject({ ready: false, status: 'unavailable', runtimes: [] });
  } finally { f.close(); }
 });

@@ -1,20 +1,20 @@
 /** HTTP-only add-ons CLI. Native reads are injected; credentials are accepted only from stdin. */
 import { parseArgs } from 'node:util';
-import { addonKindSchema, addonListRequestSchema, installAddonSchema, connectIntegrationTokenSchema,
+import { setConversionSettingsSchema, mailProviderSelectionSchema, pluginSecretQuerySchema, pluginSecretSetSchema, pluginSecretStatusSchema, addonKindSchema, addonListRequestSchema, installAddonSchema, connectIntegrationTokenSchema,
   disconnectIntegrationSchema, setAddonEnabledSchema, uninstallAddonSchema, parseBoundary } from '@open-marketing/contracts';
-import type { AddonUpload, Outcome } from '@open-marketing/contracts';
+import type { AddonUpload, MailProviderSelection, Outcome } from '@open-marketing/contracts';
 import type { CliRuntime } from './types.js';
 export type { AddonCliFiles } from './types.js';
 import { createSession, failure, requestOm, routes, terminalText } from './http.js';
 import type { HttpSession } from './http.js';
 import { oauthClientQuerySchema, oauthCallbackSchema, oauthOperationSchema, oauthStartSchema, oauthStatusQuerySchema } from '../integration-oauth-contracts.js';
 import { answerApproval } from './approval.js';
-import { developerTokenQuerySchema, developerTokenSetSchema, developerTokenStatusSchema } from '../integration-oauth-contracts.js';
 
 const options = { json: { type: 'boolean' }, help: { type: 'boolean' }, kind: { type: 'string' }, limit: { type: 'string' },
   cursor: { type: 'string' }, plugin: { type: 'string' }, connection: { type: 'string' }, 'token-stdin': { type: 'boolean' },
+  'alert-from': { type: 'string' }, 'clear-alert-from': { type: 'boolean' },
   transaction: { type: 'string' }, 'response-stdin': { type: 'boolean' } } as const;
-const help = 'om addons list [--kind plugin|agent-plugin|skill] [--limit 1..100] [--cursor C]\nom addons install <folder|ZIP> [--kind plugin|agent-plugin|skill]\nom addons enable|disable|uninstall <id> --kind plugin|agent-plugin|skill\nom integrations list [--limit 1..100] [--cursor C]\nom integrations connect --plugin <id> [--connection <id>] --token-stdin\nom integrations disconnect <connection-id>\nAll commands: --json, --help\n';
+const help = 'om addons list [--kind plugin|agent-plugin|skill] [--limit 1..100] [--cursor C]\nom addons install <folder|ZIP> [--kind plugin|agent-plugin|skill]\nom addons enable|disable|uninstall <id> --kind plugin|agent-plugin|skill\nom integrations list [--limit 1..100] [--cursor C]\nom integrations connect --plugin <id> [--connection <id>] --token-stdin\nom integrations disconnect <connection-id>\nom integrations conversion-settings get|set --plugin ID (set reads a JSON values object from stdin)\nAll commands: --json, --help\n';
 const oauthHelp = 'om integrations oauth client set --plugin ID (stdin JSON: clientId, optional clientSecret)\nom integrations oauth client clear --plugin ID\nom integrations oauth start --plugin ID\nom integrations oauth callback --response-stdin (JSON state + code or error)\nom integrations oauth status --transaction ID | --plugin ID\n';
 /** Narrow documented native parseArgs ABI; config stays fixed at this input boundary. */
 function nativeArgs(required: { argv: readonly string[] }) {
@@ -47,7 +47,7 @@ function checkedArgs(required: { args: Args; allowed: string[]; count: number })
 /** Bound binary/stdin reads and chunks; dispose the deadline even on input failure.
  * @complexity O(b) time/space, <=32 MiB for ZIP or <=64 KiB for token; one injected read.
  */
-async function readBytes(required: { runtime: CliRuntime; path: string; maxBytes: number }): Promise<Outcome<Buffer>> {
+export async function readBytes(required: { runtime: CliRuntime; path: string; maxBytes: number }): Promise<Outcome<Buffer>> {
   const deadline = required.runtime.deadline.create({ timeoutMs: 15000 });
   const chunks: Uint8Array[] = []; let size = 0;
   try {
@@ -118,7 +118,9 @@ async function dispatch(required: { args: Args; session: HttpSession; runtime: C
   const values = required.args.values;
   switch (key) {
     case 'integrations oauth': return oauth(required);
-    case 'integrations developer-token': return developerToken(required);
+    case 'integrations plugin-secret': return pluginSecret(required);
+    case 'integrations conversion-settings': return conversionSettings(required);
+    case 'integrations mail-provider': return mailProvider(required);
     case 'addons list': case 'integrations list': return list({ ...required, key });
     case 'addons install': return install(required);
     case 'addons enable': case 'addons disable': {
@@ -149,7 +151,9 @@ async function run(required: { args: Args; runtime: CliRuntime }): Promise<Outco
     'integrations list': { count: 0, allowed: ['limit', 'cursor'] },
     'integrations connect': { count: 0, allowed: ['plugin', 'connection', 'token-stdin'] },
     'integrations disconnect': { count: 1, allowed: [] },
-    'integrations developer-token': { count: 1, allowed: ['plugin'] },
+    'integrations plugin-secret': { count: 1, allowed: ['plugin'] },
+    'integrations conversion-settings': { count: 1, allowed: ['plugin'] },
+    'integrations mail-provider': { count: 1, allowed: ['plugin', 'alert-from', 'clear-alert-from'] },
     'integrations oauth': { count: required.args.positionals[2] === 'client' ? 2 : 1, allowed: oauthFlags[required.args.positionals[2]] ?? [] },
   };
   if (required.args.positionals.length === 1 && required.args.values.help) return { ok: true, value: { help } };
@@ -166,7 +170,7 @@ async function run(required: { args: Args; runtime: CliRuntime }): Promise<Outco
 }
 
 /** Delegate one CLI family to the existing authenticated transport, printing secret-free Outcomes.
- * @example await runAddonCli({ argv: ['integrations', 'connect', '--plugin', 'anthropic', '--token-stdin'], runtime });
+ * @example await runAddonCli({ argv: ['integrations', 'connect', '--plugin', 'example-provider', '--token-stdin'], runtime });
  * @complexity Bounded argv/upload/response; one HTTP write, no retries or vendor effects.
  */
 export async function runAddonCli(required: { argv: readonly string[]; runtime: CliRuntime }): Promise<Outcome<void>> {
@@ -176,30 +180,65 @@ export async function runAddonCli(required: { argv: readonly string[]; runtime: 
   catch { result = failure({ code: 'unavailable', message: 'Add-on command failed; refresh server state before another submission' }); }
   const json = required.argv.includes('--json');
   if (json) required.runtime.stdout.write({ text: JSON.stringify(result) + '\n' });
-  else if (result.ok && parsed.ok && parsed.value.values.help) required.runtime.stdout.write({ text: help + oauthHelp + 'om integrations developer-token set|clear|status --plugin google-ads (set reads the token from stdin)\n' });
+  else if (result.ok && parsed.ok && parsed.value.values.help) required.runtime.stdout.write({ text: help + oauthHelp + 'om integrations plugin-secret set|clear|status --plugin ID (set reads a JSON field map from stdin)\nom integrations mail-provider get|clear | select --plugin ID [--alert-from ADDRESS | --clear-alert-from]\n' });
   else if (result.ok) required.runtime.stdout.write({ text: terminalText({ text: JSON.stringify(result.value) }) + '\n' });
   else required.runtime.stderr.write({ text: result.error.message + '\n' });
   return result.ok ? { ok: true, value: undefined } : result;
 }
 
 const oauthFlags: Record<string, string[]> = { client: ['plugin'], start: ['plugin'], callback: ['response-stdin'], status: ['transaction', 'plugin'] };
-/** Owner-only Google compatibility secret; bounded UTF-8 stdin, no argv secret or echo. */
-async function developerToken(required: { args: Args; runtime: CliRuntime; session: HttpSession }): Promise<Outcome<unknown>> {
-  const query = developerTokenQuerySchema.safeParse({ pluginId: required.args.values.plugin });
-  const action = required.args.positionals[2];
-  if (!query.success || !['set', 'clear', 'status'].includes(action)) return failure({ code: 'invalid_input', message: 'Specify developer-token set|clear|status --plugin google-ads' });
-  const route = { path: '/api/addons/v1/integrations/developer-token', schema: developerTokenStatusSchema };
-  if (action === 'status') return requestOm({ session: required.session, route: { ...route, method: 'GET' }, query: query.data });
-  let token: string | null = null;
-  if (action === 'set') {
-    const bytes = await readBytes({ runtime: required.runtime, path: '-', maxBytes: 64 });
-    if (!bytes.ok) return bytes;
-    try { token = new TextDecoder('utf-8', { fatal: true }).decode(bytes.value).replace(/\r?\n$/, ''); }
-    catch { return failure({ code: 'invalid_input', message: 'Token stdin must be UTF-8' }); }
-  }
-  const body = developerTokenSetSchema.safeParse({ ...query.data, token });
-  return body.success ? requestOm({ session: required.session, route: { ...route, method: 'POST' }, body: body.data }) : failure({ code: 'invalid_input', message: 'Invalid developer token' });
+
+/** Validate select flags before HTTP; omitted From preserves the override, null restores the default.
+ * @complexity O(1) bounded CLI input; fixed failures never reflect the submitted address.
+ */
+function mailSelectionBody(required: { args: Args }): Outcome<MailProviderSelection> {
+  const { plugin, 'alert-from': from, 'clear-alert-from': clear } = required.args.values;
+  if (clear && from !== undefined) return failure({ code: 'invalid_input', message: 'Use only one From address flag' });
+  const body = mailProviderSelectionSchema.safeParse({ selected: plugin,
+    ...(clear ? { alertFrom: null } : from !== undefined ? { alertFrom: from } : {}) });
+  return body.success ? { ok: true, value: body.data } : failure({ code: 'invalid_input', message: 'Specify a plugin ID and a valid From address' });
 }
+
+/** Owner-direct settings use the Studio's HTTP route; validate actions/IDs before any request.
+ * Returns selection/readiness or the existing transport failure. @complexity O(1), one HTTP call.
+ */
+async function mailProvider(required: { args: Args; session: HttpSession }): Promise<Outcome<unknown>> {
+  const action = required.args.positionals[2];
+  const values = required.args.values;
+  if (action !== 'select' && [values.plugin, values['alert-from'], values['clear-alert-from']].some(value => value !== undefined))
+    return failure({ code: 'invalid_input', message: 'Plugin and From flags are only supported for mail-provider select' });
+  switch (action) {
+    case 'get': return requestOm({ session: required.session, route: routes.mailProvider });
+    case 'clear': return requestOm({ session: required.session, route: routes.setMailProvider, body: { selected: null } });
+    case 'select': {
+      const body = mailSelectionBody(required);
+      return body.ok ? requestOm({ session: required.session, route: routes.setMailProvider, body: body.value }) : body;
+    }
+    default: return failure({ code: 'invalid_input', message: 'Specify mail-provider get|select|clear' });
+  }
+}
+
+/** Owner-only declared secrets; bounded JSON stdin is the sole value ingress.
+ * Returns configured status or fixed diagnostics, never stdin/server bodies.
+ * @complexity <=64 KiB stdin and one HTTP call; no retries or retained credentials.
+ */
+async function pluginSecret(required: { args: Args; runtime: CliRuntime; session: HttpSession }): Promise<Outcome<unknown>> {
+  const query = pluginSecretQuerySchema.safeParse({ pluginId: required.args.values.plugin });
+  const action = required.args.positionals[2];
+  if (!query.success || !['set', 'clear', 'status'].includes(action)) return failure({ code: 'invalid_input', message: 'Specify plugin-secret set|clear|status --plugin ID' });
+  const route = { path: '/api/addons/v1/integrations/plugin-secret', schema: pluginSecretStatusSchema };
+  if (action === 'status') return requestOm({ session: required.session, route: { ...route, method: 'GET' }, query: query.data });
+  let values: unknown = null;
+  if (action === 'set') {
+    const bytes = await readBytes({ runtime: required.runtime, path: '-', maxBytes: 65536 });
+    if (!bytes.ok) return bytes;
+    try { values = pluginSecretSetSchema.shape.values.unwrap().parse(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes.value))); }
+    catch { return failure({ code: 'invalid_input', message: 'Secret stdin must be a JSON field map' }); }
+  }
+  const body = pluginSecretSetSchema.safeParse({ ...query.data, values });
+  return body.success ? requestOm({ session: required.session, route: { ...route, method: 'POST' }, body: body.data }) : failure({ code: 'invalid_input', message: 'Invalid secret field map' });
+}
+
 /** Fixed command schemas before stdin/HTTP; callback secrets travel only in the authenticated body.
  * Start uses the same exact-card terminal continuation as ordinary tool calls; JSON returns its receipt.
  * @complexity <=64 KiB stdin, one dispatch plus bounded approval continuation; no retries.
@@ -248,4 +287,20 @@ async function oauthCallback(required: { args: Args; runtime: CliRuntime; sessio
     const body = oauthCallbackSchema.safeParse(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes.value)));
     return body.success ? requestOm({ session: required.session, route: routes.integrationOAuthCallback, body: body.data }) : failure({ code: 'invalid_input', message: 'Invalid OAuth response' });
   } catch { return failure({ code: 'invalid_input', message: 'OAuth stdin must be JSON' }); }
+}
+
+/** Non-secret settings replacement uses the existing bounded stdin reader and owner HTTP session.
+ * @complexity <=4096 stdin bytes and one HTTP call; malformed input is refused without dispatch.
+ */
+async function conversionSettings(required: { args: Args; runtime: CliRuntime; session: HttpSession }): Promise<Outcome<unknown>> {
+  const query = setConversionSettingsSchema.pick({ pluginId: true }).safeParse({ pluginId: required.args.values.plugin });
+  const action = required.args.positionals[2];
+  if (!query.success || !['get', 'set'].includes(action)) return failure({ code: 'invalid_input', message: 'Specify conversion-settings get|set --plugin ID' });
+  if (action === 'get') return requestOm({ session: required.session, route: routes.integrationConversionSettings, query: query.data });
+  const bytes = await readBytes({ runtime: required.runtime, path: '-', maxBytes: 4096 });
+  if (!bytes.ok) return bytes;
+  try {
+    const body = setConversionSettingsSchema.safeParse({ ...query.data, values: JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes.value)) });
+    return body.success ? requestOm({ session: required.session, route: routes.setIntegrationConversionSettings, body: body.data }) : failure({ code: 'invalid_input', message: 'Invalid conversion settings' });
+  } catch { return failure({ code: 'invalid_input', message: 'Conversion settings stdin must be a JSON object' }); }
 }

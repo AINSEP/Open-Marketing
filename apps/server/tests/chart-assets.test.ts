@@ -231,7 +231,17 @@ it('packages the unchanged standalone bundle with canonical names and complete i
     expect(Buffer.from(files.get('server/index.mjs')!).toString()).not.toContain('import');
 });
 
-it('seeds the chart plugin through the installer, disabled, and preserves the installed revision on restart', async () => {
+it.each(['charts-echarts', 'charts-chartjs'])('%s ships a standalone bundle with canonical names and complete integrity', async id => {
+    const sourceDir = fileURLToPath(new URL(`../../../content/plugins/${id}/0.1.0/`, import.meta.url));
+    const files = await snapshotSitePluginPackage({ sourceDir });
+    const manifest = JSON.parse(Buffer.from(files.get('jini.plugin.json')!).toString()) as PluginManifest;
+    expect(manifest.extensions).toEqual({ 'io.github.ainsep.openmarketing': { id: `openmarketing/${id}` } });
+    expect([...files.keys()].sort()).toEqual(['NOTICE', 'client/provider.js', 'client/styles.css', 'jini.plugin.json', 'server/index.mjs']);
+    expect(() => verifyPluginSnapshotIntegrity({ files, integrity: manifest.integrity })).not.toThrow();
+    expect(Buffer.from(files.get('server/index.mjs')!).toString()).not.toContain('import');
+});
+
+it('seeds all three chart plugins disabled and preserves their revisions on restart', async () => {
     const root = await fs.realpath(await fs.mkdtemp(join(tmpdir(), 'om-chart-seed-')));
     const native = new Database(':memory:');
     let binding: ReturnType<typeof bindServerAddons> | undefined;
@@ -246,15 +256,25 @@ it('seeds the chart plugin through the installer, disabled, and preserves the in
         const clock = { now: () => 1000 }; const loadModule = vi.fn(async () => ({ definition: { setup() {} } }));
         const effects = createNodeAddonEffects({ clock, ids: { next: () => 'fixture-id' }, loadModule });
         const dependencies = { context, db, stateRoot: root, projectRoot: root, clock, effects, observer,
+        audit: { async record() { return { ok: true as const, value: undefined }; } },
+        async runningJobs() { return { ok: true as const, value: 0 }; },
             yamlReader: { read({ yaml }: { yaml: string }) { return JSON.parse(yaml); } }, sessions: { async reload() {}, async close() {} } };
         await fs.mkdir(join(root, 'content/plugins'), { recursive: true });
-        await fs.cp(new URL('../../../content/plugins/charts-recharts/0.1.0/', import.meta.url), join(root, 'content/plugins/charts-recharts/0.1.0'), { recursive: true });
+        for (const id of ['charts-recharts', 'charts-echarts', 'charts-chartjs']) {
+            await fs.cp(new URL('../../../content/plugins/' + id + '/0.1.0/', import.meta.url), join(root, 'content/plugins', id, '0.1.0'), { recursive: true });
+        }
         binding = bindServerAddons(dependencies);
         expect(await binding.start()).toEqual({ ok: true, value: undefined });
         const initial = await binding.addons.list({ context, query: { kind: 'plugin', limit: 100 } });
-        expect(initial).toMatchObject({ ok: true, value: { items: [{ id: 'charts-recharts', enabled: false, version: '0.1.0' }] } });
+        expect(initial.ok).toBe(true);
+        if (!initial.ok) throw new Error('Expected seeded charts');
+        expect(initial.value.items.map(item => item.id).sort()).toEqual(['charts-chartjs', 'charts-echarts', 'charts-recharts']);
+        expect(initial.value.items.every(item => !item.enabled && item.version === '0.1.0')).toBe(true);
         expect(loadModule).not.toHaveBeenCalled();
         expect(binding.charts.list({})).toEqual({ providers: [] });
+        expect(await binding.listChartProviders({ context })).toEqual({ ok: true, value: { providers: [] } });
+        expect(await binding.listChartProviders({ context: { ...context, scope: { ...context.scope, workspaceId: 'other-workspace' } } }))
+            .toMatchObject({ ok: false, error: { code: 'forbidden' } });
         expect((await binding.handleChartRequest({ context: { ...context, scope: { ...context.scope, workspaceId: 'other-workspace' } },
             request: { method: 'GET', path: '/api/addons/v1/chart-providers' } })).status).toBe(403);
         await binding.dispose();

@@ -1,9 +1,11 @@
+import type { Sharp } from 'sharp';
 /** Feature instances for the one catalog. All persistence shares the boot-owned kernel. */
 import type { CallContext, ClockPort, IdPort, ObserverPort, Outcome, UnitOfWork } from '@open-marketing/contracts';
 import { createAuditService, createSqlAuditRepo, createMemoryAuditRedactor } from '@open-marketing/audit';
 import type { AuditService } from '@open-marketing/audit';
 import { createSqlWorkspaceRepo, createSqlWorkspaceListing } from '@open-marketing/workspaces';
 import { createSqlScopedJobs } from '@open-marketing/jobs';
+import { createSqlBrandRepo } from '@open-marketing/brand';
 import { createSqlPaidSendingAllowances } from '@open-marketing/safety';
 import type { SafetySqlDatabase } from '@open-marketing/safety';
 import { createMeasureService } from '@open-marketing/measure';
@@ -11,6 +13,7 @@ import type { MeasureRepoPort, TrackedLinkPort, PlatformReportingPort } from '@o
 import { digestArguments } from '@open-marketing/safety';
 import type { bindServerDatabase } from './database.js';
 import { localFailure } from './local-auth.js';
+import { bindMeasurementGrants } from './conversions.js';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { z } from 'zod';
@@ -18,7 +21,7 @@ import { idSchema, digestSchema } from '@open-marketing/contracts';
 import { mimeForTransformFormat, preserveMediaCreator, MediaConflictError, MediaValidationError } from '@jini-ai/cms/media';
 import { LocalFsBlobStore } from '@jini-ai/cms/media/node';
 import { createHttpClient, createNodeGuardedHttpPorts } from '@jini-ai/platform/http/guarded';
-import { createMediaLibrary, createSqlMediaRepo, createJiniMediaAdapter, createJiniBlobStore,
+import { createMediaLibrary, createSqlMediaRepo, createJiniMediaAdapter,
     createJiniGuardedAssetImport, createJiniImageTransform, createImageInspectionAdapter } from '@open-marketing/media-library';
 import type { JiniMediaDependencies, JiniAssetImportDependencies, MediaLibrary } from '@open-marketing/media-library';
 import type { CampaignSqlPort } from '@open-marketing/campaigns';
@@ -30,7 +33,7 @@ type MediaEffects = Pick<JiniMediaDependencies, 'blobStore' | 'imageTransformer'
 /** Durable append-only audit with the existing conservative local reference redactor.
  * @complexity O(1) construction; SQL methods inherit bounded owning queries. */
 export function bindCatalogAudit(required: { unit: UnitOfWork; clock: ClockPort; ids: IdPort; observer: ObserverPort }): AuditService {
-    return createAuditService({ clock: required.clock, ids: required.ids, repo: createSqlAuditRepo({ ...required, db: required.unit }), redactor: createMemoryAuditRedactor({}) }, { observer: required.observer });
+    return createAuditService({ repo: createSqlAuditRepo({ ...required, db: required.unit }), redactor: createMemoryAuditRedactor({}) }, { observer: required.observer });
 }
 /** Lifecycle adapters record through the owning audit service; no second evidence store. */
 export function catalogAuditPort(required: { audit: AuditService }) {
@@ -44,11 +47,12 @@ export function catalogAuditPort(required: { audit: AuditService }) {
 }
 /** Lookup never authenticates or binds accounts; authenticated ingress supplies its scope. */
 export function bindCatalogScope(required: { database: ReturnType<typeof bindServerDatabase>; safetyDb: SafetySqlDatabase; clock: ClockPort; ids: IdPort; observer: ObserverPort; timezone: string }) {
-    const repo = createSqlWorkspaceRepo({ db: required.database.workspace, ids: required.ids,
-        identity: { async verify() { return localFailure({ code: 'forbidden', message: 'Session resolution is not a catalog capability' }); } } }, { observer: required.observer });
+    const repo = createSqlWorkspaceRepo({ db: required.database.workspace }, { observer: required.observer });
     return { accountBindings: repo, workspaces: createSqlWorkspaceListing({ db: required.database.workspace, observer: required.observer }),
+        brand: { repo: createSqlBrandRepo({ db: required.database.workspace }), clock: required.clock },
         jobs: createSqlScopedJobs({ database: required.database.unit, clock: required.clock, observer: required.observer }),
-        paidSending: createSqlPaidSendingAllowances({ db: required.safetyDb, clock: required.clock, observer: required.observer, timezone: required.timezone }) };
+        paidSending: createSqlPaidSendingAllowances({ db: required.safetyDb, clock: required.clock, observer: required.observer, timezone: required.timezone }),
+        measurementGrants: bindMeasurementGrants({ database: required.database.workspace, clock: required.clock, ids: required.ids, observer: required.observer }) };
 }
 /** Explicit zero-spend sandbox report, never a fabricated live vendor observation. Account ID
  * must be sandbox-account. Real platform reports remain I-2. @complexity O(1), no egress. */
@@ -60,12 +64,10 @@ export function sandboxPlatformReports(required: { clock: ClockPort; ids: IdPort
     } };
 }
 /** Interactive measure reads/link creation reuse real storage. Verified ingestion and delivery
- * retain their existing local denial and are never catalog tools. */
-export function bindCatalogMeasure(required: { repo: MeasureRepoPort; links: TrackedLinkPort; reports: PlatformReportingPort; clock: ClockPort; ids: IdPort; observer: ObserverPort; audit: AuditService }) {
-    return createMeasureService({ ...required, audit: catalogAuditPort(required),
+ * are never catalog tools. */
+export function bindCatalogMeasure(required: { repo: MeasureRepoPort; links: TrackedLinkPort; reports: PlatformReportingPort; clock: ClockPort; observer: ObserverPort }) {
+    return createMeasureService({ ...required,
         policy: { async assess() { return { ok: true, value: { allowed: false } }; } },
-        conversions: { async deliver() { return localFailure({ code: 'forbidden', message: 'Conversions denied in local sandbox' }); } },
-        jobs: { async enqueue() { return localFailure({ code: 'forbidden', message: 'Conversions denied in local sandbox' }); } },
     }, { observer: required.observer });
 }
 
@@ -81,10 +83,9 @@ export function bindCatalogMedia(required: { db: CampaignSqlPort; context: CallC
         clock: { nowMs: () => required.clock.now({}) }, idGen: { newId: () => required.ids.next({}) } };
     const observed = { observer: required.observer };
     const inspection = createImageInspectionAdapter({ scope, decode: required.effects.decode }, observed);
-    return createMediaLibrary({ clock: required.clock, ids: required.ids,
+    return createMediaLibrary({
         repo: createSqlMediaRepo({ db: required.db, scope }, observed),
         media: createJiniMediaAdapter({ scope, dependencies }, observed),
-        blobs: createJiniBlobStore({ scope, store: dependencies.blobStore }, observed),
         importer: createJiniGuardedAssetImport({ ...required.effects, scope, dependencies, inspection }, { ...observed, maxBytes: 10000000, timeoutMs: 20000 }),
         transforms: createJiniImageTransform({ scope, dependencies }, { ...observed, inspection }),
         audit: { record: input => catalogAuditPort(required).record({ ...input, outcome: 'media:' + input.assetId }) },
@@ -201,19 +202,11 @@ export function createCatalogMediaEffects(required: { stateRoot: string; clock: 
         } } };
 }
 
-// Narrow ABI for the optional codec peer; no dependency change or fallback to a fake transform.
-interface CatalogImagePipeline {
-    metadata(): Promise<unknown>; stats(): Promise<unknown>;
-    timeout(required: { seconds: number }): CatalogImagePipeline;
-    resize(required: { width?: number; height?: number; fit?: string }): CatalogImagePipeline;
-    toFormat(format: string, options: { quality?: number }): CatalogImagePipeline;
-    toBuffer(): Promise<Uint8Array>; destroy(): void;
-}
+type CatalogImagePipeline = Sharp;
 /** Jini's Sharp adapter has no pixel/deadline options; configure its optional codec peer here. */
 function catalogImagePipeline(required: { bytes: Uint8Array; maxPixels: number }): CatalogImagePipeline {
     const require = createRequire(import.meta.url);
-    const sharp = createRequire(require.resolve('@jini-ai/cms/media/node'))('sharp') as
-        (bytes: Uint8Array, options: { limitInputPixels: number; failOn: string }) => CatalogImagePipeline;
+    const sharp = createRequire(require.resolve('@jini-ai/cms/media/node'))('sharp') as typeof import('sharp').default;
     return sharp(required.bytes, { limitInputPixels: required.maxPixels, failOn: 'warning' }).timeout({ seconds: 10 });
 }
 /** Full bounded decode before any import write. Metadata alone is not evidence of valid pixels.

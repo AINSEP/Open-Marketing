@@ -1,7 +1,14 @@
 /** Written-only I2 HTTP/CLI coverage. Public feature dist exports must be built by Coordinator. */
 import { expect, it, vi } from 'vitest';
-import { createNoopObservabilityPort } from '@jini-ai/diagnostics/observability';
 import { createRecentEvents } from '../src/recent-events.js';
+import { createSqliteChatStore } from '@jini-ai/chat/store/sqlite';
+import { createDurableRunStore, createChatRunLedger } from '@jini-ai/chat/store/runtime';
+import type { StorageKernel } from '@jini-ai/db/kernel';
+import { uploadMedia } from '@jini-ai/cms/media';
+import { createMemoryJiniDependencies, createMemoryJiniMedia, createMemoryMediaRepo, createMemoryMediaAudit, createMemoryGuardedAssetImport, createMemoryImageTransform, createMediaLibrary } from '@open-marketing/media-library';
+import { createAssistantRuns, type AssistantDatabase } from '../src/runs.js';
+import { createConversations } from '../src/conversations.js';
+import type { AssistantContext, RunGrantMetadata } from '@open-marketing/contracts';
 import type { OwnerServices } from '../src/inbound/owner.js';
 import Database from 'better-sqlite3';
 import * as fs from 'node:fs/promises';
@@ -38,7 +45,7 @@ async function ownerFixture(_required: Record<string, never>) {
     const ids = { next: () => randomUUID() };
     const events: ObserverEvent[] = [];
     const observer = { observe: (event: ObserverEvent) => { events.push(event); } };
-    const recentEvents = createRecentEvents({ clock, observer });
+    const recentEvents = createRecentEvents({});
     for (const path of ['campaigns', 'safety']) native.exec(await fs.readFile(new URL(`../../../features/${path}/migrations/0001_${path}.sql`, import.meta.url), 'utf8'));
     const db = bindServerDatabase({ native, context, observer });
     const campaignDb: CampaignSqlPort = { query: <Row extends Record<string, unknown>>(input: { text: string; values?: unknown[] }) =>
@@ -58,7 +65,8 @@ async function ownerFixture(_required: Record<string, never>) {
         const authenticated = auth.verify({ request, origin: listener.origin({})! });
         if (!authenticated.ok) return { status: 401, body: authenticated };
         const readBody = request.readBody;
-        return handleOwnerRequest({ request: { ...request, readBody: readBody ? input => { bodyReads++; return readBody(input); } : undefined },
+        const readRawBody = request.readRawBody;
+        return handleOwnerRequest({ request: { ...request, readRawBody: readRawBody ? input => { bodyReads++; return readRawBody(input); } : undefined, readBody: readBody ? input => { bodyReads++; return readBody(input); } : undefined },
             context, services });
     } }) });
     const origin = listener.origin({})!;
@@ -66,7 +74,7 @@ async function ownerFixture(_required: Record<string, never>) {
     const runtime: CliRuntime = { env: { OM_SERVER_URL: origin, OM_OWNER_TOKEN: token }, fetch, clock, ids,
         deadline: { create: () => ({ signal: AbortSignal.timeout(15000), dispose() {} }) },
         stdout: { write: ({ text }) => { output.push(text); } }, stderr: { write() {} }, confirm: async () => true, readPrompt: async function* () {} };
-    return { native, context, otherContext, campaigns, safety, confirmations, answers, approver, events, origin, runtime, output, services, recentEvents,
+    return { native, db, clock, ids, observer, token, context, otherContext, campaigns, safety, confirmations, answers, approver, events, origin, runtime, output, services, recentEvents,
         reads: () => bodyReads,
         async get(required: { path: string }) { return fetch(origin + required.path, { headers: { authorization: 'Bearer ' + token } }); },
         async post(required: { path: string; body: unknown }) { return fetch(origin + required.path, { method: 'POST', headers: {
@@ -192,8 +200,7 @@ it('real boot serves studio HTTP configuration, keeps read-only allowance free o
         const localEvent = { kind: 'product', name: 'screen.viewed', at: 1000, screen: 'settings' };
         expect((await fetch(origin + '/api/dev/events', { method: 'POST', headers, body: JSON.stringify(localEvent) })).status).toBe(200);
         await fetch(origin + '/api/safety/approvals/missing/answer', { method: 'POST', headers, body: JSON.stringify({ cardId: 'missing', operationId: 'missing', argumentsDigest: 'a'.repeat(64), choice: 'allow' }) });
-        expect((await (await fetch(origin + '/api/dev/events', { headers })).json()).value.items).toEqual([localEvent,
-            { kind: 'trace', name: 'approval.submit', at: 1000, correlationId: 'owner-test-correlation', traceId: 'owner-test-trace', outcome: 'error' }]);
+        expect((await (await fetch(origin + '/api/dev/events', { headers })).json()).value.items).toEqual([localEvent]);
         expect(snapshot.value.allowance.remaining.minorUnits).toBe(1000);
         expect(handles[0].prepare('SELECT COUNT(*) AS count FROM safety_state').get()).toEqual({ count: 0 });
         expect(await (await fetch(origin + '/api/safety/halt', { method: 'POST', headers, body: JSON.stringify({ accountId: 'local-account' }) })).json()).toEqual({ ok: true, value: { accountId: 'local-account', status: 'pending' } });
@@ -225,7 +232,7 @@ it('authenticates event ingestion before body reads, enforces origin/bytes and r
     } finally { await fixture.close(); }
 });
 
-it.each(['none', 'create', 'end', 'observer', 'clock'].flatMap(fault => [false, true].map(catalog => ({ fault, catalog }))))('preserves catalog=$catalog with $fault diagnostic failure', async ({ fault, catalog }) => {
+it.each([false, true])('answers once and rejects repeated answers on catalog=%s paths', async catalog => {
     const fixture = await ownerFixture({});
     const confirm = vi.spyOn(fixture.confirmations, 'confirm');
     try {
@@ -233,25 +240,116 @@ it.each(['none', 'create', 'end', 'observer', 'clock'].flatMap(fault => [false, 
         const unused = async () => { throw new Error('Unexpected fixture call'); };
         if (catalog) fixture.services.tools = { card: async () => ({ ok: true, value: card }), answer: input => fixture.confirmations.confirm(input),
             list: unused, describe: unused, dispatch: unused, operation: unused, restore: unused, cancel: unused, dispose: unused };
-        const end = vi.fn(() => { if (fault === 'end') throw new Error('fixture'); });
-        const trackRequest = vi.fn(() => { if (fault === 'create') throw new Error('fixture'); return { end }; });
-        fixture.services.observability = { ...createNoopObservabilityPort({}), trackRequest };
-        fixture.services.recentEvents = createRecentEvents({ clock: { now() { if (fault === 'clock') throw new Error('fixture'); return 1000; } },
-            observer: { observe(event) { if (fault === 'observer') throw new Error('fixture'); fixture.events.push(event); } } });
         const body = { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' };
         expect(await (await fixture.post({ path: '/api/safety/approvals/' + card.cardId + '/answer', body })).json()).toEqual({ ok: true, value: { status: 'recorded' } });
         expect(confirm).toHaveBeenCalledTimes(1);
         expect(confirm.mock.calls[0][0].context).toEqual(fixture.context);
         expect(confirm.mock.calls[0][0].approver).toEqual(fixture.approver);
         expect(fixture.answers).toEqual([{ context: fixture.context, answer: { response: body, approver: fixture.approver, answeredAt: 1000 } }]);
-        expect(trackRequest).toHaveBeenCalledWith({ method: 'POST', path: '/api/safety/approvals/:id/answer' }, { requestId: fixture.context.correlationId });
-        expect(end).toHaveBeenCalledTimes(fault === 'create' ? 0 : 1);
-        if (fault !== 'create') expect(end).toHaveBeenCalledWith({ statusCode: 200, routePattern: '/api/safety/approvals/:id/answer' });
         const repeated = await fixture.post({ path: '/api/safety/approvals/' + card.cardId + '/answer', body });
         expect(repeated.status).toBe(409); expect(confirm).toHaveBeenCalledTimes(2);
-        if (fault !== 'create') expect(end).toHaveBeenLastCalledWith({ statusCode: 409, routePattern: '/api/safety/approvals/:id/answer' });
-        expect(fixture.services.recentEvents.recent({}).items).toEqual(fault === 'clock' ? [] : [
-            { kind: 'trace', name: 'approval.submit', at: 1000, correlationId: 'correlation', traceId: 'trace', outcome: 'recorded' },
-            { kind: 'trace', name: 'approval.submit', at: 1000, correlationId: 'correlation', traceId: 'trace', outcome: 'error' }]);
     } finally { confirm.mockRestore(); await fixture.close(); }
+});
+
+const attachmentBytes = Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aQx8AAAAASUVORK5CYII=', 'base64'));
+
+it('authenticates image uploads before body reads and enforces the raw 1 MiB cap', async () => {
+    const f = await ownerFixture({});
+    const upload = vi.fn().mockResolvedValue({ ok: true, value: { record: { id: 'asset' } } });
+    f.services.media = { uploadImage: upload };
+    try {
+        const url = f.origin + '/api/attachments?name=private-name.png';
+        expect((await fetch(url, { method: 'POST', body: attachmentBytes })).status).toBe(401);
+        expect(f.reads()).toBe(0); expect(upload).not.toHaveBeenCalled();
+        const headers = { authorization: 'Bearer ' + f.token, 'content-type': 'application/zip' };
+        expect((await fetch(url, { method: 'POST', headers, body: new Uint8Array(1048577) })).status).toBe(413);
+        expect(upload).not.toHaveBeenCalled();
+        const accepted = await fetch(url, { method: 'POST', headers, body: attachmentBytes });
+        expect(await accepted.json()).toEqual({ ok: true, value: { path: 'asset', name: 'private-name.png', kind: 'image', size: attachmentBytes.length } });
+        expect(upload.mock.calls[0][0]).toMatchObject({ filename: 'private-name.png', contentTypes: ['image/png', 'image/jpeg', 'image/webp'] });
+        expect(JSON.stringify(f.events)).not.toContain('private-name');
+        for (const name of ['bad%00name.png', 'bad%2Fname.png']) expect((await fetch(f.origin + '/api/attachments?name=' + name, { method: 'POST', headers, body: attachmentBytes })).status).toBe(400);
+        expect(upload).toHaveBeenCalledTimes(1);
+    } finally { await f.close(); }
+});
+
+it.each([
+    { code: 'invalid_input', message: 'Unsupported image format', status: 400, expected: 'Unsupported image format' },
+    { code: 'unavailable', message: 'private upstream failure', status: 503, expected: 'Image upload unavailable' },
+])('returns the safe image upload refusal for $code', async ({ code, message, status, expected }) => {
+    const f = await ownerFixture({});
+    f.services.media = { uploadImage: vi.fn().mockResolvedValue({ ok: false, error: { code, message } }) };
+    try {
+        const response = await fetch(f.origin + '/api/attachments?name=image.png', { method: 'POST',
+            headers: { authorization: 'Bearer ' + f.token }, body: attachmentBytes });
+        expect(response.status).toBe(status);
+        expect(await response.json()).toEqual({ ok: false, error: { code, message: expected, retryable: false } });
+    } finally { await f.close(); }
+});
+
+/** Existing real SQLite/Jini acceptance plus canonical memory media; no process/model effects. */
+async function attachmentRunFixture() {
+    const f = await ownerFixture({});
+    for (const file of ['0001_assistant.sql', '0005_chat_backend.sql']) f.native.exec(await fs.readFile(new URL('../migrations/' + file, import.meta.url), 'utf8'));
+    const kernel = f.db.kernel as unknown as StorageKernel<AssistantDatabase>;
+    const conversations = createConversations({ kernel, ids: f.ids, observer: f.observer,
+        db: { query: input => f.db.unit.transaction({ work: ({ session }) => session.query(input) }) },
+        stores: ({ scope }) => createSqliteChatStore({ kernel, scope }, { clock: { nowMs: () => 1000 } }),
+        integrations: { async list() { return { ok: true, value: { items: [], cursor: null } }; } } });
+    const deps = createMemoryJiniDependencies({ clock: f.clock, ids: f.ids });
+    const media = createMediaLibrary({ media: createMemoryJiniMedia({ scope: f.context.scope, dependencies: deps }),
+        repo: createMemoryMediaRepo({ scope: f.context.scope }), audit: createMemoryMediaAudit({ scope: f.context.scope }),
+        importer: createMemoryGuardedAssetImport({ scope: f.context.scope }), transforms: createMemoryImageTransform({ scope: f.context.scope, dependencies: deps }) });
+    const asset = await uploadMedia({ deps, input: { workspaceId: f.context.scope.workspaceId, bytes: attachmentBytes, contentType: 'image/png', filename: 'canonical.png', createdByPrincipal: f.context.scope.ownerId } });
+    const foreign = await uploadMedia({ deps, input: { workspaceId: f.otherContext.scope.workspaceId, bytes: attachmentBytes, contentType: 'image/png', filename: 'foreign.png', createdByPrincipal: f.context.scope.ownerId } });
+    let modelContext: AssistantContext = { settings: { mode: 'model', model: 'fixture-model', provider: 'fixture-provider', connectionId: 'connection' }, protocol: 'anthropic', messages: [] };
+    conversations.settings = async () => ({ ok: true, value: { settings: modelContext.settings, ready: true, status: modelContext.settings.mode === 'model' ? 'ready' : 'sandbox' } });
+    conversations.modelContext = async () => ({ ok: true, value: modelContext });
+    const runs = createAssistantRuns({ kernel, conversations, media, clock: f.clock, ids: f.ids, observer: f.observer,
+        durable: createDurableRunStore({ kernel, isDaemonRunId: () => true }),
+        ledger: createChatRunLedger({ kernel, isDaemonRunId: () => true }, { now: () => 1000 }) });
+    const launch = vi.fn<Parameters<typeof runs.start>[0]['launch']>(async input => ({ ok: true, value: { runId: input.runId, status: 'pending', conversationId: input.conversationId } }));
+    return { ...f, runs, launch, conversations, deps, asset: asset.media, foreign: foreign.media,
+        ref: { path: asset.media.id, name: 'caller-name.png', kind: 'image' as const, size: 1 },
+        sandbox() { modelContext = { settings: { mode: 'sandbox', model: 'sandbox', connectionId: null }, messages: [] }; } };
+}
+it('rejects missing/foreign attachments and partial-invalid batches before acceptance or launch', async () => {
+    const f = await attachmentRunFixture();
+    try {
+        for (const path of ['missing', f.foreign.id]) {
+            expect(await f.runs.start({ context: f.context, prompt: 'Look', attachments: [f.ref, { ...f.ref, path }], launch: f.launch })).toMatchObject({ ok: false, error: { code: 'invalid_input' } });
+        }
+        expect(f.launch).not.toHaveBeenCalled();
+        expect(f.native.prepare('SELECT COUNT(*) AS count FROM om_assistant_runs').get()).toEqual({ count: 0 });
+        expect(f.native.prepare('SELECT COUNT(*) AS count FROM ai_chat_messages').get()).toEqual({ count: 0 });
+    } finally { await f.close(); }
+});
+it('rejects Sandbox images explicitly without launching', async () => {
+    const f = await attachmentRunFixture(); f.sandbox();
+    try {
+        expect(await f.runs.start({ context: f.context, prompt: 'Look', attachments: [f.ref], launch: f.launch })).toMatchObject({ ok: false, error: { message: 'Image attachments need a model connection.' } });
+        expect(f.launch).not.toHaveBeenCalled();
+    } finally { await f.close(); }
+});
+it('freezes canonical refs and resolves only the current run images; trashed assets fail opaque', async () => {
+    const f = await attachmentRunFixture();
+    try {
+        const receipt = value({ result: await f.runs.start({ context: f.context, prompt: 'Look', attachments: [f.ref], launch: f.launch }) });
+        const grant: RunGrantMetadata = { protocolVersion: 1, grantId: 'grant', agentInstanceId: 'agent', scope: f.context.scope,
+            conversationId: receipt.conversationId!, runId: receipt.runId, capabilities: ['context', 'model'], authenticationEpoch: 1000, expiresAt: 10000, revoked: false };
+        const resolved = value({ result: await f.runs.context({ grant }) });
+        expect(resolved).toMatchObject({ attachments: [{ path: f.asset.id, name: 'canonical.png', size: attachmentBytes.length }],
+            images: [{ mimeType: 'image/png', data: Buffer.from(attachmentBytes).toString('base64') }] });
+        const row = f.native.prepare('SELECT settings_json FROM om_assistant_runs WHERE run_id = ?').get(receipt.runId) as { settings_json: string };
+        expect(row.settings_json).not.toContain('base64'); expect(row.settings_json).not.toContain(Buffer.from(attachmentBytes).toString('base64'));
+        const saved = await f.conversations.store({ context: f.context }).messages({ conversationId: receipt.conversationId! });
+        expect(saved.find(message => message.role === 'user')?.attachments).toEqual([{ ...f.ref, name: 'canonical.png', size: attachmentBytes.length }]);
+        expect((await f.runs.context({ grant: { ...grant, scope: f.otherContext.scope } })).ok).toBe(false);
+        expect((await f.runs.context({ grant: { ...grant, runId: 'other-run' } })).ok).toBe(false);
+        const textRun = value({ result: await f.runs.start({ context: f.context, prompt: 'Next', launch: f.launch }) });
+        expect(value({ result: await f.runs.context({ grant: { ...grant, runId: textRun.runId } }) })).not.toHaveProperty('images');
+        await f.deps.mediaRepo.save({ ...f.asset, status: 'trashed' });
+        expect(await f.runs.context({ grant })).toMatchObject({ ok: false, error: { message: 'Run context unavailable' } });
+        expect(JSON.stringify(f.events)).not.toContain('canonical.png');
+    } finally { await f.close(); }
 });

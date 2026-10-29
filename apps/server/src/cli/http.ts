@@ -1,12 +1,13 @@
-import { addonListSchema, addonSummarySchema, addonUninstallReceiptSchema, chartProviderListSchema, integrationListSchema, integrationSummarySchema } from '@open-marketing/contracts';
+import { conversionSettingsStatusSchema, mailProviderSelectionSchema, mailProviderSettingsSchema, pluginSecretStatusSchema, oauthClientStatusSchema, addonListSchema, addonSummarySchema, addonUninstallReceiptSchema, chartProviderListSchema, integrationListSchema, integrationSummarySchema } from '@open-marketing/contracts';
 /** Owner HTTP mapping shared by the server and CLI. */
 import { z } from "zod";
-import { developerTokenStatusSchema, oauthClientStatusSchema, oauthStartResultSchema, oauthStatusSchema } from '../integration-oauth-contracts.js';
+import { oauthStartResultSchema, oauthStatusSchema } from '../integration-oauth-contracts.js';
 import {
-  assistantUsageSchema, assistantSettingsStatusSchema, conversationListSchema, conversationSchema, appErrorSchema, chatMessageSchema, confirmationCardSchema, epochSchema, idSchema, moneySchema, navigationTargetSchema, parseBoundary, runEventSchema,
+  assistantUsageSchema, assistantSettingsStatusSchema, conversationListSchema, conversationSchema, appErrorSchema, chatAttachmentSchema, chatMessageSchema, confirmationCardSchema, epochSchema, idSchema, moneySchema, navigationTargetSchema, parseBoundary, runEventSchema,
   toolDescriptorSchema, toolOperationSchema, toolResultSchema,
 } from "@open-marketing/contracts";
 import type { AppError, Outcome } from "@open-marketing/contracts";
+import { leadSchema } from '@open-marketing/leads';
 
 const campaign = z.strictObject({
   id: idSchema, title: z.string().max(200), detail: z.string().max(1024), status: z.string().max(100),
@@ -35,7 +36,11 @@ export const routes = {
   addonSetEnabled: { method: 'POST', path: '/api/addons/v1/set-enabled', schema: addonSummarySchema },
   addonUninstall: { method: 'POST', path: '/api/addons/v1/uninstall', schema: addonUninstallReceiptSchema },
   integrations: { method: 'GET', path: '/api/addons/v1/integrations', schema: integrationListSchema },
-  integrationDeveloperTokenStatus: { method: 'GET', path: '/api/addons/v1/integrations/developer-token', schema: developerTokenStatusSchema },
+  mailProvider: { method: 'GET', path: '/api/addons/v1/provider-settings/mail', schema: mailProviderSettingsSchema },
+  setMailProvider: { method: 'POST', path: '/api/addons/v1/provider-settings/mail', schema: mailProviderSelectionSchema },
+  integrationConversionSettings: { method: 'GET', path: '/api/addons/v1/integrations/conversion-settings', schema: conversionSettingsStatusSchema },
+  setIntegrationConversionSettings: { method: 'POST', path: '/api/addons/v1/integrations/conversion-settings', schema: conversionSettingsStatusSchema },
+  integrationPluginSecretStatus: { method: 'GET', path: '/api/addons/v1/integrations/plugin-secret', schema: pluginSecretStatusSchema },
   chartProviders: { method: 'GET', path: '/api/addons/v1/chart-providers', schema: chartProviderListSchema },
   integrationConnect: { method: 'POST', path: '/api/addons/v1/integrations/token', schema: integrationSummarySchema },
   integrationDisconnect: { method: 'POST', path: '/api/addons/v1/integrations/disconnect', schema: integrationSummarySchema },
@@ -46,6 +51,7 @@ export const routes = {
   status: { method: "GET", path: "/api/status", schema: z.strictObject({ ready: z.boolean(), mode: z.enum(["production", "local", "unavailable"]) }) },
   snapshot: { method: "GET", path: "/api/studio/snapshot", schema: studioSnapshot },
   campaigns: { method: "GET", path: "/api/campaigns", schema: campaignsPage },
+  setLeadStage: { method: 'POST', path: '/api/leads/stage', schema: leadSchema },
   campaign: { method: "GET", path: "/api/campaigns/:id", schema: campaign },
   approvals: { method: "GET", path: "/api/safety/approvals", schema: approvalsPage },
   approval: { method: "GET", path: "/api/safety/approvals/:id", schema: confirmationCardSchema },
@@ -54,7 +60,9 @@ export const routes = {
     z.strictObject({ accountId: idSchema, status: z.enum(["requested", "pending", "completed"]) }),
     z.strictObject({ accountId: idSchema, status: z.literal("failed"), error: appErrorSchema }),
   ]) },
+  acknowledgeAlert: { method: "POST", path: "/api/alerts/acknowledge", schema: z.strictObject({ status: z.literal("acknowledged") }) },
   allowance: { method: "GET", path: "/api/safety/allowance", schema: allowance },
+  uploadAttachment: { method: 'POST', path: '/api/attachments', schema: chatAttachmentSchema },
   ask: { method: "POST", path: "/api/runs", schema: z.strictObject({ runId: idSchema, status: z.enum(["requested", "pending"]), expiresAt: epochSchema.optional(), conversationId: idSchema.optional(), mode: z.enum(['sandbox', 'model']).optional() }) },
   conversations: { method: "GET", path: "/api/conversations", schema: conversationListSchema },
   conversation: { method: "GET", path: "/api/conversations/:id", schema: conversationSchema },
@@ -122,8 +130,9 @@ interface HttpRequest<T> {
   readonly session: HttpSession;
   readonly route: { readonly method: "GET" | "POST"; readonly path: string; readonly schema: z.ZodType<T> };
   readonly id?: string;
-  readonly query?: { readonly limit: number; readonly cursor?: string; readonly kind?: string } | { readonly after: number } | { readonly transactionId: string } | { readonly pluginId: string };
+  readonly query?: { readonly limit: number; readonly cursor?: string; readonly kind?: string } | { readonly after: number } | { readonly transactionId: string } | { readonly pluginId: string } | { readonly name: string };
   readonly body?: unknown;
+  readonly rawBody?: Uint8Array;
   readonly signal?: AbortSignal;
 }
 
@@ -193,6 +202,7 @@ function queryString(required: { query: NonNullable<HttpRequest<unknown>["query"
   if ('after' in required.query) query.set('after', String(required.query.after));
   else if ('transactionId' in required.query) query.set('transactionId', required.query.transactionId);
   else if ('pluginId' in required.query) query.set('pluginId', required.query.pluginId);
+  else if ('name' in required.query) query.set('name', required.query.name);
   else {
     query.set('limit', String(required.query.limit));
     if (required.query.kind !== undefined) query.set('kind', required.query.kind);
@@ -213,13 +223,13 @@ export async function requestOm<T>(required: HttpRequest<T>): Promise<Outcome<T>
     const url = new URL(route.path.replace(":id", encodeURIComponent(required.id ?? "")), session.baseUrl);
     if (required.query) url.search = queryString({ query: required.query });
     const headers = {
-      authorization: "Bearer " + session.token, accept: "application/json", "content-type": "application/json",
+      authorization: "Bearer " + session.token, accept: "application/json", "content-type": required.rawBody ? "application/octet-stream" : "application/json",
       "x-correlation-id": session.correlationId, "x-trace-id": session.traceId,
       "idempotency-key": session.correlationId,
     };
     const response = await session.runtime.fetch(url, {
       method: route.method, headers, redirect: "error", signal: required.signal ? AbortSignal.any([deadline.signal, required.signal]) : deadline.signal,
-      body: required.body === undefined ? undefined : JSON.stringify(required.body),
+      body: required.rawBody ? Uint8Array.from(required.rawBody) : (required.body === undefined ? undefined : JSON.stringify(required.body)),
     });
     const parsed = await receiveResponse({ response, schema: route.schema });
     if (!parsed.ok) return transportFailure({ method: route.method, ...parsed.error });

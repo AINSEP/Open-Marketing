@@ -1,10 +1,13 @@
+import { digestArguments } from '@open-marketing/safety';
 import { bindSandboxCreative } from './creative.js';
-import { createNoopObservabilityPort, type ObservabilityPort } from '@jini-ai/diagnostics/observability';
+import { createNoopTracker, type Tracker } from '@jini-ai/diagnostics/observability';
 import { createRecentEvents } from '../recent-events.js';
 import { bindSandboxCampaigns, bindPausedCampaignDeployment } from './campaigns.js';
 import { bindCatalogAudit, catalogAuditPort, bindCatalogScope, bindCatalogMeasure, bindCatalogMedia, createCatalogMediaEffects, sandboxPlatformReports } from './catalog.js';
 import type { OmFeatureServices } from '../om-tools.js';
 import { bindServerAddons, type AddonEffects } from './addons.js';
+import { readAddonCatalog } from '../addon-tools.js';
+import type { Addons } from '../addons.js';
 import { createSqlToolOperationStore } from '../tool-operations.js';
 import { buildOmToolDefinitions, createOmTools, toolInputSchema } from '../om-tools.js';
 import { runOmSiteGuide, siteGuideInputSchema } from '../site-guide.js';
@@ -12,7 +15,7 @@ import type { OmTools, OmToolDefinition } from '../om-tools.js';
 import type { YamlReaderPort } from '@jini-ai/agentic/skills/install';
 import type { ExternalMcpSessions } from '../external-mcp.js';
 import { bindAddonFederationSessions } from './addon-federation.js';
-import { bindAgentPluginBackends, bindAgentPluginJobs } from './agent-plugin-backends.js';
+import { bindAgentPluginBackends, bindAgentPluginJobs, countAddonJobs } from './agent-plugin-backends.js';
 import type { AgentPluginEffects } from './agent-plugin-backends.js';
 import type { AddonFederationEffects } from './addon-federation.js';
 /** Sole server resource composition. Imports and factories are inert; boot is explicitly effectful. */
@@ -21,6 +24,8 @@ import { createChatRunLedger, createDurableRunStore } from '@jini-ai/chat/store/
 import type { StorageKernel } from '@jini-ai/db/kernel';
 import { createAssistantRuns, type AssistantDatabase, type AssistantRuns } from '../runs.js';
 import { createConversations } from '../conversations.js';
+import { modelProviderSchema } from '@open-marketing/contracts';
+import { readModelProviders, selectedModel } from '../model-providers.js';
 import { handleModelRequest, type ModelCredentials, type ModelUpstream } from '../inbound/model.js';
 import { createSqlMeasureRepo, createSqlTrackedLink, type MeasureSqlDatabase } from '@open-marketing/measure';
 import { handlePublicRequest } from '../inbound/public.js';
@@ -28,12 +33,18 @@ import { createAesGcmSecretSealer, createCredentialBroker, createCredentialKeyri
     createMemoryCredentialLock, createSqlCredentialAudit, createSqlCredentialRepo, createJiniOAuthClient, createJiniCredentialRefresh } from '@open-marketing/credentials';
 import type { KeyringConfiguration, OAuthClientPort, CredentialBrokerPort } from '@open-marketing/credentials';
 import { createPendingAuthorizationStore, type OAuthHttpPorts } from '@jini-ai/oauth';
-import { metaOAuthChallengeRules, oauthCallbackPath, oauthMetadataSchema, type IntegrationOAuthProvider } from '../integration-oauth-contracts.js';
+import { oauthChallengeRules, oauthCallbackPath, oauthMetadataSchema, type IntegrationOAuthProvider } from '../integration-oauth-contracts.js';
 import { createVendorOAuthBindings } from '../integration-oauth-vendors.js';
 import { createIntegrations, type Integrations, type IntegrationDependencies } from '../integrations.js';
 import { handleIntegrationRequest, handleOAuthBrowserCallback } from '../inbound/integrations.js';
+import { handleProviderSettingsRequest } from '../inbound/provider-settings.js';
+import { resolveAlertSender } from '../alerts/index.js';
+import type { AlertMailPort, ProviderReaders } from '../alerts/index.js';
 import { bindForms, seedSandboxForm } from './forms.js';
-import { bindIdentity, createVisitTokens, localKey } from './identity.js';
+import { bindReporting } from './reporting.js';
+import { bindAlerts } from './alerts.js';
+import { bindIdentity, createVisitTokens, localKey, observedCampaignMembership } from './identity.js';
+import { bindTracking } from './tracking.js';
 import { createSqlContactRepo } from '@open-marketing/contacts';
 import { createSubjectLane } from './subject-lane.js';
 import { bindPrivacy } from './privacy.js';
@@ -148,9 +159,24 @@ function stopResources(required: { resources: BootResources }): Promise<Outcome<
 }
 
 type BootRequestInput = {
+    tracker: Tracker;
+    providerSettings?: ProviderReaders;
     request: HttpRequest; auth: ReturnType<typeof createLocalAuth>; listener: NodeHttpListener;
     fs: LocalFilesystem; studioRoot: string; context: CallContext; services: OwnerServices; integrations: Integrations; ids: IdPort; agent: ReturnType<typeof createLocalAgent>; clock: ClockPort; observer: ObserverPort; model: { credentials: ModelCredentials; upstream: ModelUpstream; usage?: Parameters<typeof handleModelRequest>[0]['usage'] }; publicServices: Omit<Parameters<typeof handlePublicRequest>[0], 'request' | 'context'>;
 };
+
+/** Trace one HTTP handler using only trusted owner identity, method and response status.
+ * Returns the original response; application errors propagate to the listener's existing 503 boundary.
+ * @complexity O(1) instrumentation time/space around one handler invocation; no request data retained.
+ */
+function tracedHttp(required: { tracker: Tracker; name: string; userId: string; method: string; run: () => Promise<HttpResponse> }): Promise<HttpResponse> {
+    return required.tracker.trace({ name: required.name, run: async span => {
+        const response = await required.run();
+        span.setOutcome({ outcome: 'responded', failed: response.status >= 500, attributes: { 'http.status_code': response.status } });
+        return response;
+    } }, { attributes: { 'user.id': required.userId, 'http.method': required.method } });
+}
+
 /** Authenticate before bodies and derive owner scope locally. Studio configuration is supplied
  * in same-origin HTML; the owner cookie stays HttpOnly. Public ingress never uses owner auth.
  */
@@ -161,14 +187,16 @@ async function handleBootRequest(required: BootRequestInput): Promise<HttpRespon
     if (required.request.path === '/health' && required.request.method === 'GET') {
         return { status: 200, body: { ok: true, value: { ready: true, mode: 'local' } } };
     }
-    if (required.request.path.startsWith('/f/') || required.request.path === '/c' || required.request.path === '/web-events.js') {
+    if (required.request.path.startsWith('/f/') || required.request.path === '/c' || required.request.path === '/web-events.js' || required.request.path.startsWith('/hooks/agent-plugins/')) {
         const trace = ownerContext({ request: required.request, context: required.context, ids: required.ids });
         return handlePublicRequest({ ...required.publicServices, request: required.request,
             context: { ...trace, principal: { kind: 'service', serviceId: 'public-ingress' } } });
     }
     if (required.request.path === '/bootstrap') return required.auth.bootstrap({ request: required.request, origin });
     if (required.request.path.startsWith('/api/agent/v1/model/')) return handleModelRequest({ request: required.request, grants: required.agent.grants, clock: required.clock, observer: required.observer, ...required.model });
-    if (required.request.path.startsWith('/api/agent/')) return handleOmRequest({ request: required.request, grants: required.agent.grants, callbacks: required.agent.callbacks, clock: required.clock, tools: required.services.tools, ids: required.ids });
+    if (required.request.path.startsWith('/api/agent/')) return tracedHttp({ tracker: required.tracker, name: 'server.http.agent',
+        userId: required.context.scope.ownerId, method: required.request.method,
+        run: () => handleOmRequest({ request: required.request, grants: required.agent.grants, callbacks: required.agent.callbacks, clock: required.clock, tools: required.services.tools, ids: required.ids }) });
     return handleAuthenticatedBootRequest({ ...required, origin });
 }
 
@@ -179,15 +207,20 @@ async function handleAuthenticatedBootRequest(required: BootRequestInput & { ori
     if (!authenticated.ok) return { status: authenticated.error.code === 'forbidden' ? 403 : 401, body: authenticated };
     if (required.request.path.startsWith('/api/')) {
         const context = ownerContext({ request: required.request, context: required.context, ids: required.ids });
-        return handleOwnerApi({ request: required.request, context, services: required.services, integrations: required.integrations });
+        return tracedHttp({ tracker: required.tracker, name: 'server.http.owner', userId: context.scope.ownerId, method: required.request.method,
+            run: () => handleOwnerApi({ request: required.request, context, services: required.services, integrations: required.integrations, providerSettings: required.providerSettings }) });
     }
     return configuredStudioAsset(required);
 }
 
 /** Dispatch only after boot authentication, retaining the existing owner routes unchanged. */
 function handleOwnerApi(required: {
-    request: HttpRequest; context: CallContext; services: OwnerServices; integrations: Integrations;
+    request: HttpRequest; context: CallContext; services: OwnerServices; integrations: Integrations; providerSettings?: ProviderReaders;
 }): Promise<HttpResponse> {
+    if (required.request.path.startsWith('/api/addons/v1/provider-settings')) {
+        if (!required.providerSettings) return Promise.resolve({ status: 503, body: localFailure({ message: 'Provider settings unavailable' }) });
+        return handleProviderSettingsRequest({ ...required.providerSettings, request: required.request, context: required.context });
+    }
     if (required.request.path.startsWith('/api/addons/v1/integrations')) return handleIntegrationRequest(required);
     return handleOwnerRequest(required);
 }
@@ -223,14 +256,15 @@ function scopedOwnerAuthority(required: { context: CallContext; expected: CallCo
 /** Boot one explicitly owned local database: validate config, provision owner, prepare assets,
  * migrate on one checked kernel, persist workspace, bind HTTP, then publish discovery/readiness.
  * Every failed step closes acquired resources. The forms worker and fixed sandbox child start here.
- * @example await bootServer({ env, io, clock, ids, observer });
+ * Optional tracker injection defaults to Jini's inert facade; provider configuration belongs to the host.
+ * @example await bootServer({ env, io, clock, ids, observer }, { tracker });
  * @returns A loopback bootstrap URL and stop handle, or a stable typed startup failure.
  * @complexity Bounded migration batch; no unbounded work or scheduling queue.
  */
 export async function bootServer(required: {
     env: Readonly<Record<string, string | undefined>>; io: ServerBootIo; clock: ClockPort; ids: IdPort; observer: ObserverPort;
-}, optional: { observability?: ObservabilityPort } = {}): Promise<Outcome<BootedServer>> {
-    const config = parseLocalEnvironment({ env: required.env });
+}, optional: { tracker?: Tracker } = {}): Promise<Outcome<BootedServer>> {
+    const config = parseBootEnvironment({ env: required.env });
     if (!config.ok) return config;
     const resources: BootResources = {};
     let context: CallContext | undefined;
@@ -266,16 +300,17 @@ export async function bootServer(required: {
                 return recorded.ok ? { ok: true, value: undefined } : recorded;
             } });
         const campaignDb: CampaignSqlPort = database.workspace;
+        const providers = new Map<string, IntegrationOAuthProvider>();
         const integrations = bindServerIntegrations({ db: campaignDb, clock: required.clock, ids: required.ids,
             observer: required.observer, io: required.io, stateRoot: config.value.stateRoot, masterHex: required.env.OM_CREDENTIAL_KEY,
-            providers: await loadOAuthProviders({ io: required.io }),
+            providers,
             agentPluginState: async input => resources.addons?.agentPluginState(input) ?? null,
             readCredentialCards: async input => resources.addons?.readCredentialCards(input) ?? localFailure({ message: 'Connection cards unavailable' }),
             readCredentialAsset: async input => resources.addons?.readCredentialAsset(input) ?? localFailure({ message: 'Connection asset unavailable' }),
             redirectUri: () => { const origin = listener.origin({}); return origin ? origin + oauthCallbackPath : null; } });
+        const tracker = optional.tracker ?? createNoopTracker({});
         const services: OwnerServices & OmFeatureServices = {
-            recentEvents: resources.recentEvents = createRecentEvents({ clock: required.clock, observer: required.observer }),
-            observability: optional.observability ?? createNoopObservabilityPort({}),
+            recentEvents: resources.recentEvents = createRecentEvents({}),
             campaigns: createSqlCampaignRepo({ db: campaignDb }, { observer: required.observer }),
             safety: createSqlSafetyRepo({ db: safetyDb, clock: required.clock, ids: required.ids, ownerTimezone: config.value.timezone, observer: required.observer }),
             confirmations: resources.confirmations, integrations, approver: localApprover({ credentials: credentials.value }),
@@ -286,36 +321,37 @@ export async function bootServer(required: {
         const visits = createVisitTokens({ key: localKey({ ownerToken: credentials.value.token, domain: 'visits' }), clock: required.clock, ids: required.ids });
         const digestKey = localKey({ ownerToken: credentials.value.token, domain: 'contacts' });
         const subjectLane = createSubjectLane({ resolveSubject: createSqlContactRepo({ uow: database.unit }).get });
-        const identity = bindIdentity({ unit: database.unit, clock: required.clock, ids: required.ids, observer: required.observer, digestKey, tokens: visits.tokens, subjectLane });
+        const identity = bindIdentity({ unit: database.unit, clock: required.clock, ids: required.ids, observer: required.observer, digestKey, tokens: visits.tokens, subjectLane }, { observedCampaigns: { observed: (i, o) => membership.observed(i, o) } });
         const forms = bindForms({ database, clock: required.clock, ids: required.ids, observer: required.observer, digestKey, tokens: visits.tokens, subjectLane });
         await seedSandboxForm({ binding: forms, context, clock: required.clock, ids: required.ids });
         const measureDb: MeasureSqlDatabase = database.workspace;
         const measure = createSqlMeasureRepo({ database: measureDb, jobs: { async enqueue() { return localFailure({ code: 'forbidden', message: 'Conversions denied in local sandbox' }); } } }, { observer: required.observer });
         resources.privacy = bindPrivacy({ unit: database.unit, identity, subjects: forms.subjects, measure, clock: required.clock, ids: required.ids, observer: required.observer, subjectLane });
-        const publicServices = { forms, identity, visits, clock: required.clock, campaigns: services.campaigns,
+        const publicServices: BootRequestInput['publicServices'] = { forms, identity, visits, clock: required.clock, observer: required.observer, campaigns: services.campaigns, publicOrigin: config.value.publicOrigin,
             links: createSqlTrackedLink({ database: measureDb, ids: required.ids, baseUrl: 'https://sandbox.example.test/l/', allowedOrigins: ['https://sandbox.example.test'] }, { observer: required.observer }) };
         services.formSubjects = forms.subjects;
         const audit = bindCatalogAudit({ unit: database.unit, clock: required.clock, ids: required.ids, observer: required.observer });
         const media = bindCatalogMedia({ db: campaignDb, context, clock: required.clock, ids: required.ids, observer: required.observer, audit,
             effects: createCatalogMediaEffects({ stateRoot: config.value.stateRoot, clock: required.clock }) });
-        Object.assign(services, bindCatalogScope({ database, safetyDb, clock: required.clock, ids: required.ids, observer: required.observer, timezone: config.value.timezone }), {
+        const catalogScope = bindCatalogScope({ database, safetyDb, clock: required.clock, ids: required.ids, observer: required.observer, timezone: config.value.timezone });
+        Object.assign(services, catalogScope, {
             media,
             creative: bindSandboxCreative({ unit: database.unit, media, safetyRepo: services.safety, confirmations: resources.confirmations, clock: required.clock, ids: required.ids, observer: required.observer, audit }),
             campaignWorkflow: bindSandboxCampaigns({ unit: database.unit, repo: services.campaigns, safety: services.safety, clock: required.clock, ids: required.ids, observer: required.observer, audit }),
-            audit, contacts: identity.contacts, forms: forms.forms, webEvents: identity.webEvents, privacy: resources.privacy.privacy,
-            measure: bindCatalogMeasure({ repo: measure, links: publicServices.links, reports: sandboxPlatformReports(required), clock: required.clock, ids: required.ids, observer: required.observer, audit }),
+            audit, contacts: identity.contacts, forms: forms.forms, leads: forms.leads, webEvents: identity.webEvents, privacy: resources.privacy.privacy,
+            measure: bindCatalogMeasure({ repo: measure, links: publicServices.links, reports: sandboxPlatformReports(required), clock: required.clock, observer: required.observer }),
         });
         // Migration 17 supplies these table types on the existing kernel; this assertion opens no second kernel.
         const chatKernel = database.kernel as unknown as StorageKernel<AssistantDatabase>;
-        const conversations = createConversations({ db: campaignDb, kernel: chatKernel, ids: required.ids, observer: required.observer, integrations,
+        const conversations = createConversations({ db: campaignDb, kernel: chatKernel, ids: required.ids, observer: required.observer, integrations, addons: resources.addons,
             stores: ({ scope }) => createSqliteChatStore({ kernel: chatKernel, scope }, { clock: { nowMs: () => required.clock.now({}) } }) });
-        const persistence = createAssistantRuns({ kernel: chatKernel, conversations, clock: required.clock, ids: required.ids, observer: required.observer,
+        const persistence = createAssistantRuns({ kernel: chatKernel, conversations, media, clock: required.clock, ids: required.ids, observer: required.observer,
             durable: createDurableRunStore({ kernel: chatKernel, isDaemonRunId: () => true }),
             ledger: createChatRunLedger({ kernel: chatKernel, isDaemonRunId: () => true }, { now: () => required.clock.now({}) }) });
         const interrupted = await persistence.initialize({ context });
         if (!interrupted.ok) throw new Error('Assistant recovery unavailable');
         services.conversations = conversations;
-        const model = { usage: { db: campaignDb, ids: required.ids }, credentials: bindModelCredentials({ integrations, persistence }), upstream: required.io.modelUpstream ?? createModelUpstream({ fetch }) };
+        const model = { usage: { db: campaignDb, ids: required.ids }, credentials: bindModelCredentials({ integrations, persistence, addons: resources.addons }), upstream: required.io.modelUpstream ?? createModelUpstream({ fetch }) };
         resources.frontend = createFrontendSessions({ clock: required.clock, ids: required.ids, schedule: required.io.schedule, randomToken: required.io.randomToken,
             authorize: input => input.context.principal.kind === 'owner' ? scopedOwnerAuthority({ context: input.context, expected: context! })
                 : resources.agent?.authorize(input) ?? localFailure({ message: 'Agent authority unavailable' }),
@@ -329,6 +365,11 @@ export async function bootServer(required: {
         const pluginBackends = bindBootPluginBackends({ io: required.io, addons: resources.addons, services, integrations, accountLocks, confirmations: resources.confirmations, subjectLane,
             policyForTransaction: ({ unit }) => bindIdentity({ unit, clock: required.clock, ids: required.ids, observer: required.observer, digestKey, tokens: visits.tokens, subjectLane }).policy,
             unit: database.unit, clock: required.clock, ids: required.ids, observer: required.observer });
+        publicServices.webhooks = (input, options) => pluginBackends?.ingestWebhook(input, options)
+            ?? Promise.resolve(localFailure({ code: 'not_implemented', message: 'Webhook unavailable' }));
+        const reporting = bindReporting({ database: measureDb, unit: database.unit, host: pluginBackends, clock: required.clock, ids: required.ids, observer: required.observer, schedule: required.io.schedule }, { leads: forms.leads });
+        services.reporting = reporting;
+        const membership = observedCampaignMembership({ metrics: reporting.repo, accounts: services.accountBindings!, state: i => resources.addons?.agentPluginState(i) ?? Promise.resolve(null) });
         const halt = bindBootHalt({ ...required, unit: database.unit, services, audit, accountLocks, confirmations: resources.confirmations, pluginBackends });
         const campaignUnavailable = async () => localFailure<never>({ code: 'not_implemented', message: 'NEEDS: admitted plugin binding and scoped campaign metadata' });
         services.campaignDeployment = bindPausedCampaignDeployment({ ...required, unit: database.unit, repo: services.campaigns,
@@ -337,7 +378,12 @@ export async function bootServer(required: {
             definitions: input => pluginBackends?.definitions(input) ?? campaignUnavailable(),
             execute: input => pluginBackends?.executeCampaign(input) ?? campaignUnavailable(), read: input => pluginBackends?.readCampaign(input) ?? campaignUnavailable() });
         Object.assign(services, { safety: { ...services.safety, halt: halt.halt } });
-        resources.workers = createFormWorkers({ unit: database.unit, forms, creative: services.creative, halt, clock: required.clock, ids: required.ids, observer: required.observer, context, schedule: required.io.schedule });
+        const ownerSettings = bootOwnerSettings({ addons: resources.addons, unit: database.unit, timezone: config.value.timezone, ownerEmail: config.value.ownerEmail, pluginBackends });
+        const alerts = bindAlerts({ unit: database.unit, clock: required.clock, ids: required.ids, confirmations: resources.confirmations, approver: services.approver!,
+            accountBindings: catalogScope.accountBindings, db: campaignDb, reporting, host: pluginBackends, schedule: required.io.schedule, observer: required.observer });
+        services.alerts = alerts;
+        resources.workers = createFormWorkers({ alerts, reporting, alertEmail: ownerSettings.alertEmail, unit: database.unit, forms, creative: services.creative, halt, clock: required.clock, ids: required.ids, observer: required.observer, context, schedule: required.io.schedule });
+        await alerts.seed({ context });
         const siteGuideCatalog = await loadSiteGuideCatalog({ ...required, context });
         const authorize: Parameters<typeof createOmTools>[0]['authorize'] = input => input.context.principal.kind === 'owner'
                 ? scopedOwnerAuthority({ context: input.context, expected: context! })
@@ -350,22 +396,27 @@ export async function bootServer(required: {
         };
         const definitions: Parameters<typeof createOmTools>[0]['definitions'] = async input => {
                 const base = await buildOmToolDefinitions({ ...input, services, siteGuide,
+                    providerSettings: ownerSettings.providerSettings,
+                    chartProviders: resources.addons?.listChartProviders,
                     addons: services.addons ? { addons: services.addons, integrations, observer: required.observer } : undefined });
                 if (!base.ok) return base;
-                const plugins = await pluginBackends?.definitions(input);
-                if (plugins && !plugins.ok) return plugins;
-                const mcp = await resources.addons?.federation?.definitions(input);
-                if (mcp && !mcp.ok) return mcp;
-                return { ok: true, value: [...base.value, ...(plugins?.value ?? []), ...(mcp?.value ?? [])] };
+                const value = [...base.value];
+                for (const source of [pluginBackends, resources.addons?.federation]) {
+                    const extra = await source?.definitions(input);
+                    if (extra && !extra.ok) return extra;
+                    value.push(...(extra?.value ?? []));
+                }
+                return { ok: true, value };
             };
+        services.tracking = bindTracking({ host: pluginBackends, accounts: services.accountBindings!, webEvents: identity.webEvents, forms: forms.forms, publicOrigin: config.value.publicOrigin });
         resources.tools = createOmTools({ store: createSqlToolOperationStore({ unit: database.unit }), clock: required.clock, observer: required.observer,
             confirmations: resources.confirmations, authorize, definitions });
         await restoreTools({ tools: resources.tools, context });
         services.tools = resources.tools;
         const agent = resources.agent;
         const bootContext = context;
-        resources.app = createServerApp({ listener, handle: request => handleBootRequest({ request, auth, listener, fs: required.io.fs,
-            studioRoot: assets.value, context: bootContext, services, integrations, ids: required.ids, publicServices, agent, model, clock: required.clock, observer: required.observer }) });
+        resources.app = createServerApp({ listener, handle: request => handleBootRequest({ request, auth, listener, providerSettings: ownerSettings.providerSettings, fs: required.io.fs,
+            studioRoot: assets.value, context: bootContext, services, integrations, ids: required.ids, publicServices, agent, model, clock: required.clock, observer: required.observer, tracker }) });
         const started = await resources.app.start({});
         if (!started.ok) { await stopResources({ resources }); return started; }
         const origin = listener.origin({});
@@ -376,6 +427,7 @@ export async function bootServer(required: {
         phase = 'add-ons';
         const addonsStarted = await startBootAddons({ resources });
         if (!addonsStarted.ok) { await stopResources({ resources }); return addonsStarted; }
+        (await loadOAuthProviders({ context, addons: resources.addons, observer: required.observer })).forEach((value, key) => providers.set(key, value));
         phase = 'creative recovery';
         await recoverBootCreative({ creative: services.creative, context, observer: required.observer });
         const workersStarted = resources.workers.start({});
@@ -389,6 +441,37 @@ export async function bootServer(required: {
     } catch {
         return failedBoot({ resources, context, observer: required.observer, phase });
     }
+}
+
+/** Local environment, optional recipient and HTTPS public origin, validated before resources; never echoed. */
+function parseBootEnvironment(required: { env: Readonly<Record<string, string | undefined>> }) {
+    const config = parseLocalEnvironment(required);
+    if (!config.ok) return config;
+    const ownerEmail = z.email().max(254).optional().safeParse(required.env.OM_OWNER_EMAIL);
+    const publicOrigin = z.url({ protocol: /^https$/ }).max(2048).refine(value => {
+        if (!URL.canParse(value)) return false;
+        const url = new URL(value);
+        return !url.username && !url.password && url.pathname === '/' && !url.search && !url.hash;
+    }).transform(value => new URL(value).origin).optional().safeParse(required.env.OM_PUBLIC_ORIGIN);
+    if (!publicOrigin.success) return localFailure<never>({ code: 'invalid_input', message: 'Invalid OM_PUBLIC_ORIGIN' });
+    return ownerEmail.success ? { ok: true as const, value: { ...config.value, ownerEmail: ownerEmail.data, publicOrigin: publicOrigin.data } }
+        : localFailure<never>({ code: 'invalid_input', message: 'Invalid OM_OWNER_EMAIL' });
+}
+
+/** Add-on-backed mail settings and alert email; mail.send rechecks the selected sender inside reserve. */
+export function bootOwnerSettings(required: { addons: BootResources['addons']; unit: ProviderReaders['unit']; timezone: string; ownerEmail?: string; pluginBackends?: ReturnType<typeof bindAgentPluginBackends> }) {
+    if (!required.addons) return { providerSettings: undefined, alertEmail: undefined };
+    const { addons, agentPluginState } = required.addons;
+    return { providerSettings: { unit: required.unit, addons, agentPluginState },
+        alertEmail: { agentPluginState, timezone: required.timezone, ownerEmail: required.ownerEmail,
+            mail: { send: ({ context, pluginId, connectionId, idempotencyKey, message, reserve }: Parameters<AlertMailPort['send']>[0]) => required.pluginBackends
+                ? required.pluginBackends.mail({ context, pluginId, request: { connectionId, idempotencyKey, message,
+                    reserve: async () => {
+                        const sender = await resolveAlertSender({ context, unit: required.unit, agentPluginState });
+                        return sender.ok && sender.value?.pluginId === pluginId && sender.value.connectionId === connectionId
+                            ? reserve() : localFailure<never>({ code: 'forbidden', message: 'Alert sender changed' });
+                    } } })
+                : Promise.resolve({ ok: false as const, retryable: false, errorCode: 'not_implemented', message: 'Alert email sender not bound' }) } } };
 }
 
 /** Boot-only bounded help loading. A missing catalog disables help without blocking the app.
@@ -419,7 +502,7 @@ async function failedBoot(required: { resources: BootResources; context?: CallCo
 
 /** Sole composition binding for credential storage, crypto, locks and operations on the owned SQLite handle.
  * OAuth adapters are lazy until the listener has its exact loopback redirect. Key reads are injected;
- * Meta rechecks server plugin admission for each request; missing lifecycle state denies egress.
+ * Custom exchanges recheck server plugin admission for each request; missing lifecycle state denies egress.
  * importing/constructing integrations opens no file, listener, database or vendor connection.
  * @example const integrations = bindServerIntegrations({ db, clock, ids, observer, io, stateRoot });
  * @complexity O(1) construction; bounded repository/crypto work belongs to the supplied adapters.
@@ -444,7 +527,6 @@ export function bindServerIntegrations(required: {
     const repo = createSqlCredentialRepo({ db: required.db, clock: required.clock });
     const audit = createSqlCredentialAudit({ db: required.db, ids: required.ids, clock: required.clock });
     const providers = required.providers ?? new Map<string, IntegrationOAuthProvider>();
-    const challengeRules = new Map([['meta-ads', metaOAuthChallengeRules]]);
     const randomBytesFn = ({ byteLength }: { byteLength: number }) => new Uint8Array(Buffer.from(z.string().regex(/^[a-f0-9]{64}$/).parse(required.io.randomToken({})), 'hex').subarray(0, byteLength));
     const pending = createPendingAuthorizationStore({ clock: { nowMs: () => required.clock.now({}) }, randomBytesFn });
     const http = required.io.oauth;
@@ -452,19 +534,16 @@ export function bindServerIntegrations(required: {
     const broker: CredentialBrokerPort = createCredentialBroker({ repo, sealer, locks, audit, refresh: dependencies ? { refresh: (input, options) =>
         createJiniCredentialRefresh({ ...dependencies, clientCredentials: { repo, broker } }).refresh(input, options) } : undefined });
     let oauth: OAuthClientPort | undefined;
-    const service = createCredentialService({ repo, sealer, keyring, locks, audit, clock: required.clock, challengeRules,
+    const build = () => createCredentialService({ repo, sealer, keyring, locks, audit, clock: required.clock, challengeRules: oauthChallengeRules({ providers }),
         oauth: {
             async begin(input, options) {
                 const redirect = required.redirectUri?.();
-                if (!dependencies || !redirect) return localFailure({ message: 'OAuth configuration unavailable' });
-                oauth ??= createJiniOAuthClient({ ...dependencies, clientCredentials: { repo, broker }, pending, randomBytesFn, ids: required.ids, allowedReturnUris: [redirect], challengeRules,
+                if (!dependencies || !redirect || providers.size === 0) return localFailure({ message: 'OAuth configuration unavailable' });
+                oauth ??= createJiniOAuthClient({ ...dependencies, clientCredentials: { repo, broker }, pending, randomBytesFn, ids: required.ids, allowedReturnUris: [redirect], challengeRules: oauthChallengeRules({ providers }),
                     allowedAuthorizationOrigins: [...providers.values()].map(value => new URL(value.provider.authorizationEndpoint!).origin),
-                    bindings: ({ standard }) => createVendorOAuthBindings({ standard, metadata: providers.get('meta-ads'), repo, broker, sealer,
+                    bindings: ({ standard }) => createVendorOAuthBindings({ standard, providers, repo, broker, sealer, readCredentialCards: required.readCredentialCards,
                         pending, randomBytesFn, clock: required.clock, http: dependencies, observer: required.observer,
-                        admission: async input => {
-                            const state = await required.agentPluginState?.(input);
-                            return state?.enabled === true && state.bundled && state.admitted;
-                        },
+                        agentPluginState: required.agentPluginState, loadModule: required.io.agentPlugins?.loadModule, moduleDigest: required.io.agentPlugins?.moduleDigest,
                         deadline: { create({ timeoutMs }) {
                             const controller = new AbortController();
                             const dispose = required.io.schedule({ callback: () => controller.abort(), delayMs: timeoutMs });
@@ -475,41 +554,79 @@ export function bindServerIntegrations(required: {
             },
             async complete(input, options) { return oauth ? oauth.complete(input, options) : localFailure({ code: 'expired', message: 'Sign-in expired' }); },
         } });
-    return createIntegrations({ repo, sealer, locks, audit, broker, service, db: required.db, observer: required.observer, redirectUri: required.redirectUri,
+    // Discovery follows listener start. A premature request must not cache empty challenge rules.
+    let cached: ReturnType<typeof build> | undefined;
+    const current = () => cached ?? (providers.size > 0 ? (cached = build()) : build());
+    const service = { beginConnect: (i, o) => current().beginConnect(i, o), completeConnect: (i, o) => current().completeConnect(i, o),
+        connectStatus: (i, o) => current().connectStatus(i, o), revoke: (i, o) => current().revoke(i, o) } satisfies IntegrationDependencies['service'];
+    return createIntegrations({ repo, sealer, locks, audit, broker, service, db: required.db, observer: required.observer, redirectUri: required.redirectUri, oauthProviders: providers,
         readCredentialCards: required.readCredentialCards, readCredentialAsset: required.readCredentialAsset });
 }
 
-/** Parse plugin metadata; client configuration comes only from sealed storage at use time.
- * @throws On invalid/oversized config or metadata; boot reports a fixed startup failure.
- * @complexity Three bounded local reads, <=16 KiB each; no vendor calls or admission changes.
+/** Discover installed OAuth metadata regardless of activation; invalid rows are skipped and observed.
+ * No add-ons or a failed catalog leaves an empty map; client secrets stay in sealed storage.
+ * @complexity <=1000 rows; each reader walks installed packages, O(rows × installed) boot work.
+ * Metadata is bounded to 16 KiB per row; retained space is O(valid providers), no vendor calls.
  */
-export async function loadOAuthProviders(required: { io: ServerBootIo }): Promise<ReadonlyMap<string, IntegrationOAuthProvider>> {
+export async function loadOAuthProviders(required: { context: CallContext; observer: ObserverPort;
+    addons: { addons: Pick<Addons, 'list'>; readOAuthMetadata: ReturnType<typeof bindServerAddons>['readOAuthMetadata'] } | undefined;
+}): Promise<ReadonlyMap<string, IntegrationOAuthProvider>> {
     const providers = new Map<string, IntegrationOAuthProvider>();
-    for (const id of ['google-ads', 'linkedin-ads', 'meta-ads']) {
-        const metadata = oauthMetadataSchema.parse(JSON.parse((await readLocalFile({ fs: required.io.fs,
-            path: join(required.io.projectRoot, 'content/agent-plugins', id, 'io.github.ainsep.openmarketing/oauth.json'), maxBytes: 16384 })).toString('utf8')));
-        if (metadata.provider.providerId !== id) throw new Error('OAuth provider mismatch');
-        providers.set(id, metadata);
+    const addons = required.addons;
+    if (!addons) return providers;
+    const catalog = await readAddonCatalog({ context: required.context, addons: addons.addons, kind: 'agent-plugin' });
+    if (!catalog.ok) {
+        observeBoot({ ...required, operation: 'server.boot.oauth', outcome: 'invalid' });
+        return providers;
+    }
+    for (const row of catalog.value) {
+        const provider = await readOAuthProvider({ ...required, addons, pluginId: row.id });
+        if (provider) providers.set(row.id, provider);
     }
     return providers;
 }
 
-/** Bind the selected run's settings to the server-only sealed connection resolver.
- * @example bindModelCredentials({ integrations, persistence });
- * @complexity One scoped context read plus one fresh credential access; no credential cache.
+/** Isolate tainted metadata/read failures to one installed package; never log its file text.
+ * @complexity One bounded installed read and <=16 KiB JSON parse; absent metadata skips quietly.
  */
-export function bindModelCredentials(required: { integrations: Pick<Integrations, 'access'>; persistence: AssistantRuns }): ModelCredentials {
+async function readOAuthProvider(required: { context: CallContext; observer: ObserverPort; pluginId: string;
+    addons: NonNullable<Parameters<typeof loadOAuthProviders>[0]['addons']>;
+}): Promise<IntegrationOAuthProvider | undefined> {
+    try {
+        const raw = await required.addons.readOAuthMetadata({ context: required.context, pluginId: required.pluginId });
+        if (!raw.ok) throw new Error('OAuth metadata unavailable');
+        if (raw.value === null) return undefined;
+        const parsed = oauthMetadataSchema.safeParse(JSON.parse(raw.value));
+        if (!parsed.success || parsed.data.provider.providerId !== required.pluginId) throw new Error('Invalid OAuth metadata');
+        return parsed.data;
+    } catch {
+        observeBoot({ ...required, operation: 'server.boot.oauth', outcome: 'invalid' });
+        return undefined;
+    }
+}
+
+/** Bind the selected run's settings to the server-only sealed connection resolver.
+ * @example bindModelCredentials({ integrations, persistence, addons });
+ * @complexity One scoped context read, one selected-plugin read, then one credential access; no catalog scan/cache.
+ */
+export function bindModelCredentials(required: { integrations: Pick<Integrations, 'access'>; persistence: AssistantRuns; addons?: Parameters<typeof readModelProviders>[0]['addons'] }): ModelCredentials {
  return { async resolveProviderKey({ grant, signal }) {
   const current = await required.persistence.context({ grant });
   if (!current.ok) return current;
   if (!('settings' in current.value) || current.value.settings.mode !== 'model') return localFailure({ code: 'forbidden', message: 'Model configuration unavailable' });
   const settings = current.value.settings;
   const context: CallContext = { scope: grant.scope, principal: { kind: 'service', serviceId: 'om-model-broker' }, runId: grant.runId, correlationId: grant.grantId, traceId: grant.grantId };
-  if (!settings.connectionId) return localFailure({ code: 'forbidden', message: 'Run credential was not frozen' });
-  const provider = settings.provider ?? 'anthropic';
+  if (!settings.connectionId || !settings.provider) return localFailure({ code: 'forbidden', message: 'Run credential was not frozen' });
+  const provider = settings.provider;
+  const state = await required.addons?.agentPluginState({ context, pluginId: provider });
+  if (!state?.enabled || !state.admitted) return localFailure({ code: 'forbidden', message: 'Model provider unavailable' });
+  const declaration = modelProviderSchema.safeParse(state.metadata.modelProvider);
+  if (!declaration.success) return localFailure({ code: 'forbidden', message: 'Model declaration unavailable' });
+  const selection = selectedModel({ settings, providers: [{ id: provider, declaration: declaration.data }] });
+  if (!selection.ok) return selection;
   const secret = await required.integrations.access({ context, pluginId: provider, connectionId: settings.connectionId }, { signal });
   if (!secret.ok) return secret;
-  return { ok: true, value: { apiKey: secret.value.accessToken, model: settings.model, provider, effort: settings.effort } };
+  return { ok: true, value: { apiKey: secret.value.accessToken, settings, declaration: declaration.data } };
  } };
 }
 /** Host-only provider I/O. Broker fixes the URL and rechecks run authority before every request. */
@@ -527,8 +644,10 @@ function bindBootPluginBackends(required: { io: ServerBootIo; addons: ReturnType
     if (!required.io.agentPlugins || !required.addons || !required.services.accountBindings) return undefined;
     return bindAgentPluginBackends({ ...required.io.agentPlugins, projectRoot: required.io.projectRoot, clock: required.clock, observer: required.observer,
         unit: required.unit, policyForTransaction: required.policyForTransaction, subjectLane: required.subjectLane,
-        state: required.addons.agentPluginState, integrations: required.integrations, accounts: required.services.accountBindings, safetyRepo: required.services.safety,
-        jobs: bindAgentPluginJobs(required), mode: 'read_only', accountLocks: required.accountLocks, confirmations: required.confirmations });
+        addons: required.addons.addons, state: required.addons.agentPluginState, integrations: required.integrations, accounts: required.services.accountBindings, safetyRepo: required.services.safety,
+        jobs: bindAgentPluginJobs(required), mode: 'read_only',
+        messaging: required.services.contacts && required.services.paidSending ? { contacts: required.services.contacts,
+            policy: required.policyForTransaction({ unit: required.unit }), paidSending: required.services.paidSending } : undefined, accountLocks: required.accountLocks, confirmations: required.confirmations });
 }
 
 /** The local host commits halt through SafetyService under the same vendor-write barrier.
@@ -562,8 +681,17 @@ function bindBootAddons(required: { io: ServerBootIo; context: CallContext; db: 
         ? bindAddonFederationSessions({ context: required.context, effects: required.io.addonFederation, integrations: required.integrations, observer: required.observer,
             pluginState: input => binding.agentPluginState(input),
             jobs: bindAgentPluginJobs({ unit: required.unit, clock: required.clock, ids: required.ids, observer: required.observer }) }) : undefined;
+    const audit = bindCatalogAudit(required);
     binding = bindServerAddons({ ...required, projectRoot: required.io.projectRoot,
         effects: required.io.addonEffects({ clock: required.clock, ids: required.ids }), yamlReader: required.io.addonYaml,
-        sessions: required.io.addonSessions ?? federation ?? unavailableAddonSessions() });
+        sessions: required.io.addonSessions ?? federation ?? unavailableAddonSessions(),
+        audit: { async record(input) {
+            const digest = digestArguments({ arguments: { operation: input.operation, pluginId: input.pluginId } });
+            if (!digest.ok) return digest;
+            const recorded = await audit.record({ context: input.context, entry: { operationId: input.operationId,
+                kind: input.operation.endsWith('.requested') ? 'intent' : 'outcome', argumentsDigest: digest.value, references: [input.pluginId] } });
+            return recorded.ok ? { ok: true, value: undefined } : recorded;
+        } },
+        runningJobs: input => countAddonJobs({ ...required, ...input }) });
     return { ...binding, federation };
 }

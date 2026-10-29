@@ -1,34 +1,50 @@
-/** Fixture-only protocol coverage; written for the integrator, not executed in O2-R2. */
-import { readFileSync } from 'node:fs';
+/** Host lifecycle and guarded module fixtures only; plugin owns vendor protocol tests. Written, not run. */
 import { expect, it, vi } from 'vitest';
 import { createOAuthUrlGuard, createPendingAuthorizationStore } from '@jini-ai/oauth';
 import type { OAuthFetch } from '@jini-ai/oauth';
 import { connectCredentialToken, createMemoryCredentialRepo, createMemorySecretSealer, createMemoryCredentialLock,
     createMemoryCredentialAudit, createCredentialBroker } from '@open-marketing/credentials';
 import type { OAuthHostBindings } from '@open-marketing/credentials';
-import type { CallContext, ObserverEvent, Outcome } from '@open-marketing/contracts';
+import type { CallContext, CallOptions, ObserverEvent, Outcome, PluginCapabilityDependencies } from '@open-marketing/contracts';
+import type { AgentPluginState } from '../src/composition/agent-plugin-backends.js';
 import { createVendorOAuthBindings } from '../src/integration-oauth-vendors.js';
+import { credentialOAuthClientFields, parseCredentialCardManifest } from '../src/integration-credential-cards.js';
 import { oauthCallbackPath, oauthMetadataSchema } from '../src/integration-oauth-contracts.js';
 
-const metadata = oauthMetadataSchema.parse(JSON.parse(readFileSync(new URL('../../../content/agent-plugins/meta-ads/io.github.ainsep.openmarketing/oauth.json', import.meta.url), 'utf8')));
+const pluginId = 'fixture-custom';
+const metadata = oauthMetadataSchema.parse({ provider: { providerId: pluginId, label: 'Fixture', supportedGrants: ['authorization_code'],
+    authorizationEndpoint: 'https://fixture.example/dialog', tokenEndpoint: 'https://fixture.example/token', defaultScopes: ['read'], usesPkce: false, clientAuth: 'none' },
+    exchange: { authorizationScopes: [], authorizationParams: { config_id: 'configId' } } });
+const cardManifest = value(parseCredentialCardManifest({ pluginId, raw: JSON.stringify({ name: pluginId, extensions: { 'io.github.ainsep.openmarketing': {
+    credentialCards: [{ target: pluginId, title: 'Fixture', label: 'Save', category: 'Advertising', intro: 'Fixture', usedFor: [], helpUrl: 'https://fixture.example/help', helpLabel: 'Help', baseUrl: 'https://fixture.example', saveKind: 'oauth-client',
+        fields: [{ name: 'clientId', label: 'App ID', required: true }, { name: 'configId', label: 'Configuration', required: true }],
+        secretFields: [{ name: 'clientSecret', label: 'Secret', required: true }] }],
+} } }) }));
 const context: CallContext = { scope: { ownerId: 'owner', workspaceId: 'workspace' }, principal: { kind: 'owner', ownerId: 'owner' }, correlationId: 'correlation', traceId: 'trace', runId: 'run' };
 const client = { clientId: '12345', clientSecret: 'fixture-client-secret', configId: '999' };
 const reference = { scope: context.scope, connectionId: 'connection', version: 1 };
-const request = { pluginId: 'meta-ads', returnUri: 'http://127.0.0.1:43120' + oauthCallbackPath };
-const short = { access_token: 'fixture-short', token_type: 'bearer', expires_in: 3600 };
-const long = { access_token: 'fixture-long', token_type: 'bearer', expires_in: 7200 };
-const debug = { app_id: client.clientId, type: 'USER', is_valid: true, expires_at: 7000, data_access_expires_at: 6500,
-    scopes: [...metadata.provider.defaultScopes, 'email'], granular_scopes: [{ scope: 'ads_read', target_ids: ['123', 456] }] };
+const request = { pluginId, returnUri: 'http://127.0.0.1:43120' + oauthCallbackPath };
+const tokens = { accessToken: 'fixture-token', refreshToken: null, tokenType: 'Bearer', scopes: ['read'], expiresAt: null };
 function value<T>(outcome: Outcome<T>): T { if (!outcome.ok) throw new Error(outcome.error.code); return outcome.value; }
 
-async function fixture(required: { replies?: unknown[]; fetch?: OAuthFetch; client?: unknown;
-    admission?: Parameters<typeof createVendorOAuthBindings>[0]['admission'];
+/** Synthetic plugin deliberately supplies a POST/body: host must enforce the exchange's GET transport. */
+function createOAuthExchange(required: Pick<PluginCapabilityDependencies, 'fetch' | 'clock'>) {
+    return { async exchange(_input: unknown, optional?: CallOptions) {
+        for (const path of ['first', 'second', 'third']) await required.fetch('https://fixture.example/' + path, { method: 'POST', body: 'discard', signal: optional?.signal });
+        return { ok: true, value: tokens };
+    } };
+}
+
+async function fixture(required: { fetch?: OAuthFetch; client?: unknown; cardsAvailable?: boolean; module?: object;
+    state?: () => Promise<AgentPluginState | null>; digest?: () => Promise<string>;
     deadline?: Parameters<typeof createVendorOAuthBindings>[0]['deadline'] } = {}) {
     const repo = createMemoryCredentialRepo({}); const sealer = createMemorySecretSealer({});
     const audit = createMemoryCredentialAudit({}); const locks = createMemoryCredentialLock({});
     const broker = createCredentialBroker({ repo, sealer, locks, audit });
-    value(await connectCredentialToken({ context, connectionId: 'oauth-client.meta-ads', pluginId: 'meta-ads',
-        plaintext: JSON.stringify(required.client === undefined ? client : required.client), purpose: 'oauth-client', repo, sealer, locks, audit }));
+    value(await connectCredentialToken({ context, connectionId: 'oauth-client.' + pluginId, pluginId,
+        plaintext: JSON.stringify(required.client === undefined ? client : required.client), purpose: 'oauth-client',
+        clientFields: credentialOAuthClientFields({ cards: cardManifest.credentialCards }), repo, sealer, locks, audit }));
+    const seal = vi.spyOn(sealer, 'seal');
     const events: ObserverEvent[] = []; const calls: { url: URL; init?: RequestInit }[] = [];
     const pending = createPendingAuthorizationStore({ clock: { nowMs: () => 1000 }, randomBytesFn: ({ byteLength }) => new Uint8Array(byteLength).fill(7) });
     const standard: OAuthHostBindings = { authorize: vi.fn(), exchange: vi.fn() };
@@ -36,19 +52,22 @@ async function fixture(required: { replies?: unknown[]; fetch?: OAuthFetch; clie
     const createDeadline = vi.fn((input: { timeoutMs: number }) => {
         const entry = required.deadline?.create(input) ?? { signal: new AbortController().signal, dispose() {} };
         const deadline = { signal: entry.signal, dispose: vi.fn(() => entry.dispose()) };
-        deadlines.push(deadline);
-        return deadline;
+        deadlines.push(deadline); return deadline;
     });
-    const bindings = createVendorOAuthBindings({ standard, metadata, repo, sealer, broker, pending, clock: { now: () => 1000 },
-        admission: required.admission ?? (async () => true), deadline: { create: createDeadline },
+    const state = vi.fn(required.state ?? (async () => ({ enabled: true, bundled: false, admitted: true, revision: 'r1', entryUrl: 'file:///fixture/index.mjs', metadata: {} })));
+    const loadModule = vi.fn(async () => required.module ?? { createOAuthExchange });
+    const moduleDigest = vi.fn(required.digest ?? (async () => 'a'.repeat(64)));
+    const bindings = createVendorOAuthBindings({ standard, providers: new Map([[pluginId, metadata]]), repo, sealer, broker, pending,
+        readCredentialCards: required.cardsAvailable === false ? undefined : async () => ({ ok: true, value: cardManifest }), clock: { now: () => 1000 },
+        agentPluginState: state, loadModule, moduleDigest, deadline: { create: createDeadline },
         randomBytesFn: ({ byteLength }) => new Uint8Array(byteLength).fill(7), observer: { observe: event => { events.push(event); } },
         http: { guard: createOAuthUrlGuard({ assertAllowed() {} }, { allowLoopbackHttp: true }), fetchFn: async (input, init) => {
             calls.push({ url: new URL(String(input.url)), init });
+            expect(await pending.size({})).toBe(0);
             if (required.fetch) return required.fetch(input, init);
-            const reply = (required.replies ?? [short, long, { data: debug }])[calls.length - 1];
-            return reply instanceof Response ? reply : Response.json(reply);
+            return Response.json({});
         } } });
-    return { bindings, calls, events, standard, pending, deadlines, createDeadline,
+    return { bindings, calls, events, standard, pending, deadlines, createDeadline, loadModule, moduleDigest, state, seal,
         async authorize() { return bindings.authorize({ context, reference, request }); },
         async exchange(input: { signal?: AbortSignal } = {}) {
             const challenge = value(await bindings.authorize({ context, reference, request }));
@@ -61,114 +80,121 @@ async function fixture(required: { replies?: unknown[]; fetch?: OAuthFetch; clie
     };
 }
 
-it('uses config_id without scope/PKCE, exchanges three GETs and seals granted scopes with the earliest expiry', async () => {
+it('uses declared config_id without scope/PKCE and loads the admitted uploaded module per call', async () => {
     const f = await fixture(); const url = new URL(value(await f.authorize()).authorizationUrl);
-    expect(url.origin + url.pathname).toBe('https://www.facebook.com/v26.0/dialog/oauth');
+    expect(url.origin + url.pathname).toBe('https://fixture.example/dialog');
     expect(Object.fromEntries(url.searchParams)).toEqual({ response_type: 'code', client_id: client.clientId, redirect_uri: request.returnUri, state: expect.any(String), config_id: client.configId });
-    // Consume the first authorization before another deterministic-state fixture is created.
     const result = await f.bindings.exchange({ context, reference, request, callback: { transactionId: reference.connectionId, state: url.searchParams.get('state')!, redirectUri: request.returnUri, code: 'fixture-code' } });
-    expect(await f.payload({ secret: value(result) })).toEqual({ accessToken: long.access_token, tokenType: 'Bearer', refreshToken: null, scopes: debug.scopes, expiresAt: new Date(6500000).toISOString() });
-    expect(f.calls).toHaveLength(3);
+    expect(await f.payload({ secret: value(result) })).toEqual(tokens);
+    expect(f.calls).toHaveLength(3); expect(f.loadModule).toHaveBeenCalledWith({ moduleUrl: 'file:///fixture/index.mjs?revision=r1' });
+    expect(f.state).toHaveBeenCalledTimes(4); expect(f.moduleDigest).toHaveBeenCalledTimes(4);
     expect(f.createDeadline).toHaveBeenCalledTimes(2);
     for (const deadline of f.deadlines) expect(deadline.dispose).toHaveBeenCalledTimes(1);
-    expect(new Set(f.calls.map(call => call.init?.signal)).size).toBe(1);
-    expect(f.calls[0].url.searchParams.get('code')).toBe('fixture-code');
-    expect(f.calls[0].url.searchParams.get('redirect_uri')).toBe(request.returnUri);
-    expect(f.calls[1].url.searchParams.get('grant_type')).toBe('fb_exchange_token');
-    expect(f.calls[1].url.searchParams.get('fb_exchange_token')).toBe(short.access_token);
-    expect(f.calls[2].url.searchParams.get('input_token')).toBe(long.access_token);
-    expect(f.calls[2].url.searchParams.get('access_token')).toBe(client.clientId + '|' + client.clientSecret);
     for (const call of f.calls) {
         expect(call.init).toMatchObject({ method: 'GET', redirect: 'error' }); expect(call.init?.body).toBeUndefined();
         expect(new Headers(call.init?.headers).get('x-om-run-id')).toBe('run');
-        expect(call.init?.signal).toBe(f.calls[0].init?.signal);
+        expect(new Headers(call.init?.headers).get('x-om-correlation-id')).toBe('correlation');
+        expect(new Headers(call.init?.headers).get('x-om-trace-id')).toBe('trace');
     }
-    expect(JSON.stringify([result, f.events])).not.toMatch(/fixture-code|fixture-short|fixture-long|fixture-client-secret/);
-});
-
-it.each([
-    { app_id: 'foreign' }, { type: 'SYSTEM_USER' }, { is_valid: false }, { expires_at: 1 }, { data_access_expires_at: 1 },
-    { scopes: undefined }, { scopes: debug.scopes.slice(1) }, { granular_scopes: [{ scope: 'ungranted' }] },
-    { granular_scopes: [{ scope: 'ads_read', target_ids: [true] }] },
-])('rejects invalid inspection evidence %j without accepting requested scopes', async invalid => {
-    const f = await fixture({ replies: [short, long, { data: { ...debug, ...invalid } }] });
-    expect(await f.exchange()).toMatchObject({ ok: false, error: { code: 'protocol_mismatch' } });
-    expect(await f.pending.size({})).toBe(0);
-});
-
-it.each([
-    { token: { ...long, expires_in: 0 }, inspected: { ...debug, expires_at: 0, data_access_expires_at: 0 }, expiry: null },
-    { token: { ...long, expires_in: 0 }, inspected: { ...debug, expires_at: 0 }, expiry: new Date(6500000).toISOString() },
-    { token: { ...long, expires_in: 50 }, inspected: debug, expiry: new Date(51000).toISOString() },
-])('derives expiry from provider evidence, including zero: $expiry', async ({ token, inspected, expiry }) => {
-    const f = await fixture({ replies: [short, token, { data: inspected }] });
-    expect(await f.payload({ secret: value(await f.exchange()) })).toMatchObject({ expiresAt: expiry });
-});
-
-it.each([{}, { ...long, expires_in: -1 }, { ...long, expires_in: '7200' }, { ...long, token_type: 'other' }, { ...long, access_token: '' },
-    new Response('not-json'), new Response('x'.repeat(65537)), new Response('provider-secret', { status: 400 }),
-])('fails closed on malformed/oversized/rejected exchange responses', async reply => {
-    const f = await fixture({ replies: [short, reply] }); const result = await f.exchange();
-    expect(result.ok).toBe(false); expect(f.calls).toHaveLength(2);
-    expect(JSON.stringify([result, f.events])).not.toContain('provider-secret');
+    expect(JSON.stringify([result, f.events])).not.toMatch(/fixture-code|fixture-token|fixture-client-secret/);
 });
 
 it('consumes state before HTTP failure and rejects replay and redirect/provider binding drift', async () => {
-    const f = await fixture({ fetch: async () => { throw new Error('fixture-client-secret'); } });
+    const f = await fixture({ fetch: async () => { throw new Error(client.clientSecret); } });
     const state = new URL(value(await f.authorize()).authorizationUrl).searchParams.get('state')!;
     const input = { context, reference, request, callback: { state, transactionId: 'connection', redirectUri: request.returnUri, code: 'fixture-code' } };
     const failed = await f.bindings.exchange(input);
     expect(failed).toMatchObject({ ok: false, error: { code: 'unavailable' } });
     expect(await f.bindings.exchange(input)).toMatchObject({ ok: false, error: { code: 'expired' } });
-    expect(f.calls).toHaveLength(1); expect(JSON.stringify(failed)).not.toContain(client.clientSecret);
-    const other = await fixture(); const otherState = new URL(value(await other.authorize()).authorizationUrl).searchParams.get('state')!;
-    expect(await other.bindings.exchange({ ...input, callback: { ...input.callback, state: otherState, redirectUri: request.returnUri + '/wrong' } })).toMatchObject({ ok: false, error: { code: 'forbidden' } });
-    expect(other.calls).toHaveLength(0);
+    expect(f.calls).toHaveLength(1); expect(f.seal).not.toHaveBeenCalled(); expect(JSON.stringify(failed)).not.toContain(client.clientSecret);
+    for (const drift of ['redirect', 'provider']) {
+        const other = await fixture();
+        const entry = await other.pending.put({ ownerKey: JSON.stringify([context.scope.ownerId, context.scope.workspaceId, reference.connectionId]),
+            providerId: drift === 'provider' ? 'foreign' : pluginId, redirectUri: request.returnUri, codeVerifier: 'fixture', scopes: [] });
+        expect(await other.bindings.exchange({ ...input, callback: { ...input.callback, state: entry.state,
+            redirectUri: drift === 'redirect' ? request.returnUri + '/wrong' : request.returnUri } })).toMatchObject({ ok: false, error: { code: 'forbidden' } });
+        expect(other.calls).toHaveLength(0); expect(other.loadModule).not.toHaveBeenCalled();
+    }
 });
 
-it('delegates standard providers unchanged and denies missing Meta confidential configuration', async () => {
-    const f = await fixture(); const input = { context, reference, request: { ...request, pluginId: 'google-ads' } };
+it('delegates standard providers unchanged', async () => {
+    const f = await fixture(); const input = { context, reference, request: { ...request, pluginId: 'fixture-standard' } };
     await f.bindings.authorize(input); expect(f.standard.authorize).toHaveBeenCalledWith(input, undefined);
     const exchange = { ...input, callback: { transactionId: 'connection', state: 'state', redirectUri: request.returnUri, code: 'code' } };
     await f.bindings.exchange(exchange); expect(f.standard.exchange).toHaveBeenCalledWith(exchange, undefined);
-    const missing = await fixture({ client: { clientId: client.clientId, configId: client.configId } });
-    expect(await missing.authorize()).toMatchObject({ ok: false }); expect(missing.calls).toEqual([]);
 });
 
-it('uses a single 15-second deadline across the sequence and stops after cancellation', async () => {
+it.each([{ cardsAvailable: false }, { client: null }, { client: { clientId: client.clientId, clientSecret: client.clientSecret } }])('denies missing cards/client/public mapping without module load: %j', async options => {
+    const f = await fixture(options);
+    expect(await f.authorize()).toMatchObject({ ok: false, error: { code: 'unavailable' } });
+    const entry = await f.pending.put({ ownerKey: JSON.stringify([context.scope.ownerId, context.scope.workspaceId, reference.connectionId]),
+        providerId: pluginId, redirectUri: request.returnUri, codeVerifier: 'fixture', scopes: [] });
+    // Missing mapped public fields deny authorize; callback still delegates client parsing to the plugin.
+    if (options.client && options.client !== null) {
+        expect(f.loadModule).not.toHaveBeenCalled(); expect(f.calls).toEqual([]); return;
+    }
+    expect(await f.bindings.exchange({ context, reference, request, callback: { transactionId: 'connection', state: entry.state, redirectUri: request.returnUri, code: 'fixture-code' } })).toMatchObject({ ok: false, error: { code: 'unavailable' } });
+    expect(f.loadModule).not.toHaveBeenCalled(); expect(f.calls).toEqual([]);
+});
+
+it('uses a single 15-second deadline and stops the sequence on cancellation', async () => {
     const deadline = new AbortController(); let calls = 0;
     const f = await fixture({ deadline: { create: () => ({ signal: deadline.signal, dispose() {} }) },
-        fetch: async () => { calls++; if (calls === 2) deadline.abort(); return Response.json(calls === 1 ? short : long); } });
+        fetch: async () => { if (++calls === 2) deadline.abort(); return Response.json({}); } });
     expect(await f.exchange()).toMatchObject({ ok: false, error: { code: 'unavailable' } });
-    expect(f.createDeadline).toHaveBeenCalledTimes(2); // authorize and the complete exchange, never per HTTP request
-    expect(f.createDeadline).toHaveBeenNthCalledWith(2, { timeoutMs: 15000 }); expect(f.calls).toHaveLength(2);
+    expect(f.createDeadline).toHaveBeenCalledTimes(2); expect(f.createDeadline).toHaveBeenNthCalledWith(2, { timeoutMs: 15000 });
+    expect(f.calls).toHaveLength(2); expect(f.seal).not.toHaveBeenCalled();
     for (const entry of f.deadlines) expect(entry.dispose).toHaveBeenCalledTimes(1);
-    expect(new Set(f.calls.map(call => call.init?.signal)).size).toBe(1);
     const cancelled = await fixture(); const controller = new AbortController(); controller.abort();
     expect(await cancelled.exchange({ signal: controller.signal })).toMatchObject({ ok: false, error: { code: 'cancelled' } });
-    expect(cancelled.calls).toHaveLength(0);
-    for (const entry of cancelled.deadlines) expect(entry.dispose).toHaveBeenCalledTimes(1);
+    expect(cancelled.calls).toHaveLength(0); expect(cancelled.loadModule).not.toHaveBeenCalled();
+});
+
+it.each(['admission', 'digest', 'revision', 'entry'])('refuses a second fetch after %s changes and never seals', async change => {
+    let changed = false;
+    const f = await fixture({ fetch: async () => { changed = true; return Response.json({}); }, digest: async () => (changed && change === 'digest' ? 'b' : 'a').repeat(64),
+        state: async () => ({ enabled: true, bundled: false, admitted: !(changed && change === 'admission'),
+            revision: changed && change === 'revision' ? 'r2' : 'r1', entryUrl: changed && change === 'entry' ? 'file:///fixture/other.mjs' : 'file:///fixture/index.mjs', metadata: {} }) });
+    expect(await f.exchange()).toMatchObject({ ok: false, error: { code: 'forbidden' } });
+    expect(f.calls).toHaveLength(1); expect(f.seal).not.toHaveBeenCalled();
+    expect(JSON.stringify(f.events)).not.toContain(client.clientSecret);
 });
 
 it.each([0, 1, 2])('rechecks admission before every request and stops after %s admitted requests', async allowed => {
     let checks = 0;
-    const admission = vi.fn(async () => ++checks <= allowed);
-    const f = await fixture({ admission });
-    const result = await f.exchange();
-    expect(result).toMatchObject({ ok: false, error: { code: 'forbidden', retryable: false } });
-    expect(f.calls).toHaveLength(allowed);
-    expect(admission).toHaveBeenCalledTimes(allowed + 1);
-    expect(admission).toHaveBeenLastCalledWith({ context, pluginId: 'meta-ads' });
-    expect(JSON.stringify([result, f.events])).not.toMatch(/fixture-client-secret|fixture-short|fixture-long/);
-    for (const deadline of f.deadlines) expect(deadline.dispose).toHaveBeenCalledTimes(1);
+    const f = await fixture({ state: async () => ({ enabled: true, bundled: false, admitted: ++checks <= allowed + 1,
+        revision: 'r1', entryUrl: 'file:///fixture/index.mjs', metadata: {} }) });
+    expect(await f.exchange()).toMatchObject({ ok: false, error: { code: 'forbidden' } });
+    expect(f.calls).toHaveLength(allowed); expect(f.seal).not.toHaveBeenCalled();
 });
 
-it('cancels a stalled response body without continuing the exchange', async () => {
-    const controller = new AbortController(); let cancelled = false;
-    const f = await fixture({ fetch: async () => {
-        const body = new ReadableStream({ pull() { controller.abort(); }, cancel() { cancelled = true; } });
-        return new Response(body);
-    } });
-    expect(await f.exchange({ signal: controller.signal })).toMatchObject({ ok: false, error: { code: 'cancelled' } });
-    expect(f.calls).toHaveLength(1); expect(cancelled).toBe(true);
+it('refuses unadmitted state before module loading', async () => {
+    const f = await fixture({ state: async () => ({ enabled: true, bundled: true, admitted: false, revision: 'r1', metadata: {} }) });
+    expect(await f.exchange()).toMatchObject({ ok: false, error: { code: 'forbidden' } });
+    expect(f.loadModule).not.toHaveBeenCalled(); expect(f.calls).toHaveLength(0); expect(f.seal).not.toHaveBeenCalled();
+});
+
+it('returns unavailable for a missing fixed export', async () => {
+    const f = await fixture({ module: {} });
+    expect(await f.exchange()).toMatchObject({ ok: false, error: { code: 'unavailable' } });
+    expect(f.calls).toHaveLength(0); expect(f.seal).not.toHaveBeenCalled();
+});
+
+it.each(['forbidden', 'unknown-code'])('discards secret-bearing plugin failures and accepts only known error codes: %s', async code => {
+    const f = await fixture({ module: { createOAuthExchange: () => ({ exchange: async () => ({ ok: false, error: { code, message: client.clientSecret + tokens.accessToken } }) }) } });
+    const result = await f.exchange();
+    expect(result).toMatchObject({ ok: false, error: { code: code === 'forbidden' ? code : 'unavailable' } });
+    expect(JSON.stringify([result, f.events])).not.toMatch(/fixture-client-secret|fixture-token/); expect(f.seal).not.toHaveBeenCalled();
+});
+
+it('rejects normalized plugin results that fail readCredentialAccess before sealing', async () => {
+    const f = await fixture({ module: { createOAuthExchange: () => ({ exchange: async () => ({ ok: true, value: { ...tokens, expiresAt: client.clientSecret } }) }) } });
+    const result = await f.exchange();
+    expect(result).toMatchObject({ ok: false, error: { code: 'protocol_mismatch' } });
+    expect(f.seal).not.toHaveBeenCalled(); expect(JSON.stringify([result, f.events])).not.toContain(client.clientSecret);
+});
+
+it('bounds replacement HTTP response bodies with the shared Jini reader', async () => {
+    const f = await fixture({ fetch: async () => new Response('x'.repeat(65537)) });
+    expect(await f.exchange()).toMatchObject({ ok: false }); expect(f.calls).toHaveLength(1); expect(f.seal).not.toHaveBeenCalled();
 });

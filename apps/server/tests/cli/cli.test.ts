@@ -38,8 +38,8 @@ function fixture(required: { responses: readonly (Response | Error)[] }) {
   }[] = [];
   const settings: {
     now: number; confirmed: boolean; afterConfirm?: number; promptError?: boolean;
-    confirmError?: boolean; chunks: Uint8Array[];
-  } = { now: 1000, confirmed: false, chunks: [] };
+    confirmError?: boolean; chunks: Uint8Array[]; chunksByPath: Record<string, Uint8Array[]>;
+  } = { now: 1000, confirmed: false, chunks: [], chunksByPath: {} };
   let nextId = 0;
   const runtime: CliRuntime = {
     env: { OM_SERVER_URL: "http://om.fixture", OM_OWNER_TOKEN: "owner-fixture-token" },
@@ -48,7 +48,7 @@ function fixture(required: { responses: readonly (Response | Error)[] }) {
       if (!(input instanceof URL)) throw new Error("Fixture requires a URL object");
       events.push("fetch");
       requests.push({
-        url: String(input), method: init?.method, body: init?.body === undefined ? undefined : JSON.parse(String(init.body)),
+        url: String(input), method: init?.method, body: init?.body instanceof Uint8Array ? Uint8Array.from(init.body) : init?.body === undefined ? undefined : JSON.parse(String(init.body)),
         headers: new Headers(init?.headers), redirect: init?.redirect, signal: init?.signal,
       });
       const response = responses.shift();
@@ -70,7 +70,7 @@ function fixture(required: { responses: readonly (Response | Error)[] }) {
       files.push(path);
       signal.throwIfAborted();
       if (settings.promptError) throw new Error("Fixture read failed");
-      yield* settings.chunks;
+      yield* settings.chunksByPath[path] ?? settings.chunks;
     },
     async confirm() {
       events.push("confirm");
@@ -81,6 +81,64 @@ function fixture(required: { responses: readonly (Response | Error)[] }) {
   };
   return { runtime, requests, stdout, stderr, events, files, deadlines, settings };
 }
+
+describe("ask image attachments", () => {
+  it("uploads raw files in order before starting a run with the returned refs", async () => {
+    const a = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 1]);
+    const b = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 2]);
+    const refs = [
+      { path: 'asset-a', name: 'a.png', kind: 'image', size: a.length },
+      { path: 'asset-b', name: 'b.png', kind: 'image', size: b.length },
+    ];
+    const f = fixture({ responses: [...refs.map(value => success({ value })), success({ value: { runId: 'run-8', status: 'pending' } })] });
+    f.settings.chunksByPath = { 'a.png': [a], 'b.png': [b] };
+    expect(await runOmCli({ argv: ['ask', 'x', '--attach', 'a.png', '--attach', 'b.png', '--json'], runtime: f.runtime })).toEqual({ ok: true, value: undefined });
+    expect(f.files).toEqual(['a.png', 'b.png']);
+    expect(f.requests.map(({ url, method, body, headers }) => ({ url, method, body, contentType: headers.get('content-type') }))).toEqual([
+      { url: 'http://om.fixture/api/attachments?name=a.png', method: 'POST', body: a, contentType: 'application/octet-stream' },
+      { url: 'http://om.fixture/api/attachments?name=b.png', method: 'POST', body: b, contentType: 'application/octet-stream' },
+      { url: 'http://om.fixture/api/runs', method: 'POST', body: { prompt: 'x', attachments: refs }, contentType: 'application/json' },
+    ]);
+  });
+
+  it("rejects a fifth attachment before any I/O", async () => {
+    const f = fixture({ responses: [] });
+    const attachments = ['a.png', 'b.png', 'c.png', 'd.png', 'e.png'].flatMap(path => ['--attach', path]);
+    expect(await runOmCli({ argv: ['ask', 'x', ...attachments, '--json'], runtime: f.runtime })).toMatchObject({ ok: false, error: { code: 'invalid_input' } });
+    expect(f.files).toEqual([]);
+    expect(f.requests).toEqual([]);
+  });
+
+  it("rejects a file over 1 MiB without uploading or starting a run", async () => {
+    const f = fixture({ responses: [] });
+    f.settings.chunksByPath = { 'a.png': [new Uint8Array(1048577)] };
+    expect(await runOmCli({ argv: ['ask', 'x', '--attach', 'a.png', '--json'], runtime: f.runtime })).toMatchObject({ ok: false, error: { code: 'limit_exceeded' } });
+    expect(f.files).toEqual(['a.png']);
+    expect(f.requests).toEqual([]);
+    expect(f.deadlines.every(({ disposed }) => disposed)).toBe(true);
+  });
+
+  it("does not start a run when a later upload fails", async () => {
+    const error = { code: 'invalid_input', message: 'Invalid attachment', retryable: false };
+    const f = fixture({ responses: [
+      success({ value: { path: 'asset-a', name: 'a.png', kind: 'image', size: 1 } }),
+      wire({ input: { ok: false, error }, status: 400 }),
+    ] });
+    f.settings.chunksByPath = { 'a.png': [new Uint8Array([1])], 'b.png': [new Uint8Array([2])] };
+    expect(await runOmCli({ argv: ['ask', 'x', '--attach', 'a.png', '--attach', 'b.png', '--json'], runtime: f.runtime })).toEqual({ ok: false, error });
+    expect(f.files).toEqual(['a.png', 'b.png']);
+    expect(f.requests.map(({ url }) => url)).toEqual([
+      'http://om.fixture/api/attachments?name=a.png', 'http://om.fixture/api/attachments?name=b.png',
+    ]);
+  });
+
+  it("still rejects repeated non-attachment flags before any I/O", async () => {
+    const f = fixture({ responses: [] });
+    expect(await runOmCli({ argv: ['ask', 'x', '--conversation', 'one', '--conversation', 'two', '--json'], runtime: f.runtime })).toMatchObject({ ok: false, error: { code: 'invalid_input' } });
+    expect(f.files).toEqual([]);
+    expect(f.requests).toEqual([]);
+  });
+});
 
 describe("command HTTP and output contracts", () => {
   it.each([
@@ -421,7 +479,7 @@ describe("transport failures and configuration", () => {
 });
 
 it('prints authoritative estimated usage after a completed ask', async () => {
- const usage = { kind: 'usage', inputTokens: 10, outputTokens: 5, durationMs: 8000, costUsd: .07, totalCostUsd: .58, complete: true, costBasis: 'estimated' };
+ const usage = { kind: 'usage', inputTokens: 10, outputTokens: 5, durationMs: 8000, costUsdMicros: '70000', totalCostUsdMicros: '580000', complete: true, costBasis: 'estimated' };
  const event = { protocolVersion: 1, eventId: 'done', runId: 'run-8', sequence: 1, correlationId: 'correlation-7', traceId: 'trace-9', kind: 'ended', payload: {} };
  const f = fixture({ responses: [success({ value: { runId: 'run-8', status: 'pending' } }), success({ value: { runId: 'run-8', status: 'completed', events: [event], usage } })] });
  expect((await runOmCli({ argv: ['ask', 'fixture'], runtime: f.runtime })).ok).toBe(true);

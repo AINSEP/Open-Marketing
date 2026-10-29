@@ -1,11 +1,12 @@
-import { runAddonCli } from './addons.js';
+import { readBytes, runAddonCli } from './addons.js';
 import type { CliRuntime } from './types.js';
 export type { CliRuntime } from './types.js';
 /** Inert owner CLI: terminal commands use HTTP, never features, DB, or vendor configuration. */
 import { parseArgs } from "node:util";
+import { basename } from "node:path";
 import { z } from "zod";
-import { approvalChoiceSchema, boundedJsonSchema, digestSchema, idSchema, pageQuerySchema, parseBoundary, toolCallSchema } from "@open-marketing/contracts";
-import type { ApprovalResponse, Outcome, PageQuery, RunEvent } from "@open-marketing/contracts";
+import { approvalChoiceSchema, boundedJsonSchema, chatAttachmentSchema, digestSchema, idSchema, pageQuerySchema, parseBoundary, toolCallSchema } from "@open-marketing/contracts";
+import type { ApprovalResponse, ChatAttachmentRef, Outcome, PageQuery, RunEvent } from "@open-marketing/contracts";
 import { answerApproval, readCard } from "./approval.js";
 import { createSession, failure, requestOm, routes, terminalText } from "./http.js";
 import type { HttpSession } from "./http.js";
@@ -13,6 +14,7 @@ import type { HttpSession } from "./http.js";
 const options = {
   json: { type: "boolean" }, help: { type: "boolean" }, limit: { type: "string" },
   cursor: { type: "string" }, choice: { type: "string" }, account: { type: "string" },
+  attach: { type: "string", multiple: true },
   "input-file": { type: "string" }, "confirm-digest": { type: "string" }, "prompt-file": { type: "string" }, conversation: { type: "string" },
 } as const;
 type Values = ReturnType<typeof parseCliArgs>["values"];
@@ -25,14 +27,14 @@ type Command =
   | { name: "tools-list"; query: PageQuery }
   | { name: "tools-show"; id: string }
   | { name: "tools-call"; id: string; inputFile: string }
-  | { name: "ask"; prompt?: string; promptFile?: string; conversationId?: string };
+  | { name: "ask"; prompt?: string; promptFile?: string; conversationId?: string; attach?: string[] };
 
 const help = [
   "om status", "om campaigns list [--limit 1..100] [--cursor C]", "om campaigns show <id>",
   "om approvals list [--limit 1..100] [--cursor C]",
   "om approvals answer <card-id> --choice <allow|allow_chat|always_allow|cancel> [--confirm-digest <digest>]",
   "om ads halt --account <id>", "om settings generation show",
-  "om ask <prompt> [--conversation <id>] | om ask --prompt-file <path|-> [--conversation <id>]", "All commands: --json, --help",
+  "om ask <prompt> [--conversation <id>] [--attach <file> ...] | om ask --prompt-file <path|-> [--conversation <id>] [--attach <file> ...] (up to 4 PNG/JPEG/WebP images, 1 MiB each)", "All commands: --json, --help",
   "om tools list [--limit 1..100]", "om tools show <name>", "om tools call <name> --input-file <path|->",
   "Tool calls use the server policy. Text mode displays/answers its exact card; --json returns a pending receipt.",
   "om addons list|install|enable|disable|uninstall --help", "om integrations list|connect|disconnect --help",
@@ -45,6 +47,7 @@ const help = [
 const pathId = idSchema.refine(value => value !== "." && value !== "..");
 const askInput = z.strictObject({
   prompt: z.string().min(1).max(65536).optional(), promptFile: z.string().min(1).max(4096).optional(), conversationId: pathId.optional(),
+  attach: z.array(z.string().min(1).max(4096).refine(path => path !== "-")).min(1).max(4).optional(),
 }).refine(value => (value.prompt === undefined) !== (value.promptFile === undefined));
 
 /** Narrow native parseArgs wrapper; throws are converted at the CLI input boundary. */
@@ -125,8 +128,8 @@ function buildCommand(required: { name: Command["name"]; operands: readonly stri
       return commandInput({ ...required, name, allowed: ["account"], count: 0,
         schema: z.strictObject({ accountId: idSchema }), input: { accountId: values.account } });
     case "ask":
-      return commandInput({ ...required, name, allowed: ["prompt-file", "conversation"], count: values["prompt-file"] === undefined ? 1 : 0,
-        schema: askInput, input: { prompt: operands[0], promptFile: values["prompt-file"], conversationId: values.conversation } });
+      return commandInput({ ...required, name, allowed: ["prompt-file", "conversation", "attach"], count: values["prompt-file"] === undefined ? 1 : 0,
+        schema: askInput, input: { prompt: operands[0], promptFile: values["prompt-file"], conversationId: values.conversation, attach: values.attach } });
     default: { const exhaustive: never = name; return exhaustive; }
   }
 }
@@ -140,7 +143,7 @@ function parseCommand(required: { argv: readonly string[] }): Outcome<{ command:
   }
   try {
     const args = parseCliArgs(required);
-    const names = args.tokens.filter(token => token.kind === "option").map(token => token.name);
+    const names = args.tokens.filter(token => token.kind === "option").map(token => token.name).filter(name => name !== "attach");
     if (new Set(names).size !== names.length) return failure({ code: "invalid_input", message: "Repeated flags are not supported" });
     const identified = commandName({ positionals: args.positionals });
     if (!identified.ok) return identified;
@@ -222,7 +225,28 @@ async function continueToolCall(required: { session: HttpSession; runtime: CliRu
   }
 }
 
-/** Send prompt text only; server owns run IDs, grants, agent configuration, and lifecycle. */
+/** Upload explicit files sequentially; the server sniffs and admits image bytes.
+ * Returns validated refs or the first failure; earlier uploads remain saved, and no retries run.
+ * @complexity O(total bytes) time, O(largest file + ref count) space; <=4 files, <=1 MiB each,
+ * one bounded read and one deadline-bound HTTP upload per file.
+ */
+async function uploadAttachments(required: { session: HttpSession; runtime: CliRuntime; paths: readonly string[] }): Promise<Outcome<ChatAttachmentRef[]>> {
+  const attachments: ChatAttachmentRef[] = [];
+  for (const path of required.paths) {
+    const name = chatAttachmentSchema.shape.name.safeParse(basename(path));
+    if (!name.success) return failure({ code: 'invalid_input', message: 'Invalid attachment file name' });
+    const bytes = await readBytes({ runtime: required.runtime, path, maxBytes: 1048576 });
+    if (!bytes.ok) return bytes;
+    const uploaded = await requestOm({ session: required.session, route: routes.uploadAttachment, query: { name: name.data }, rawBody: bytes.value, signal: required.runtime.signal });
+    if (!uploaded.ok) return uploaded;
+    attachments.push(uploaded.value);
+  }
+  return { ok: true, value: attachments };
+}
+
+/** Validate prompt text and upload any images before starting a run; a failed batch starts none.
+ * Server owns run IDs, grants, image admission, agent configuration, and lifecycle.
+ */
 async function ask(required: { command: Extract<Command, { name: "ask" }>; session: HttpSession; runtime: CliRuntime }): Promise<Outcome<z.infer<typeof routes.ask.schema>>> {
   let prompt = required.command.prompt ?? "";
   if (required.command.promptFile !== undefined) {
@@ -232,7 +256,13 @@ async function ask(required: { command: Extract<Command, { name: "ask" }>; sessi
   }
   if (!prompt.trim()) return failure({ code: "invalid_input", message: "Prompt must contain text" });
   if (new TextEncoder().encode(prompt).byteLength > 65536) return failure({ code: "limit_exceeded", message: "Prompt exceeds 64 KiB" });
-  return requestOm({ session: required.session, route: routes.ask, body: { prompt, conversationId: required.command.conversationId } });
+  let attachments: ChatAttachmentRef[] | undefined;
+  if (required.command.attach) {
+    const uploaded = await uploadAttachments({ session: required.session, runtime: required.runtime, paths: required.command.attach });
+    if (!uploaded.ok) return uploaded;
+    attachments = uploaded.value;
+  }
+  return requestOm({ session: required.session, route: routes.ask, body: { prompt, conversationId: required.command.conversationId, attachments } });
 }
 
 /** Poll spacing is an injected timer/deadline; total observation and owner interruption abort it. */

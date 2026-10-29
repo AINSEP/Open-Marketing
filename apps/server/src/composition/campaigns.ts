@@ -2,11 +2,10 @@
 import { z } from 'zod';
 import { createHash } from 'node:crypto';
 import { callContextSchema, idSchema, boundedJsonSchema, neutralCampaignLaunchSchema, parseBoundary } from '@open-marketing/contracts';
-import type { CallContext, ClockPort, IdPort, NeutralCampaignLaunch, ObserverPort, Outcome, UnitOfWork } from '@open-marketing/contracts';
+import type { CallContext, CampaignValidationEvidence, ClockPort, IdPort, NeutralCampaignLaunch, ObserverPort, Outcome, UnitOfWork } from '@open-marketing/contracts';
 import { createCampaignService } from '@open-marketing/campaigns';
 import type { CampaignRepoPort, CampaignJobPort, CampaignJob, CampaignSafetyPort, CampaignCapabilityPort } from '@open-marketing/campaigns';
-import { createSqlJobRepo, jobTenant, JobStoreError } from '@open-marketing/jobs';
-import type { JobsSqlSession } from '@open-marketing/jobs';
+import { appendJobEvidence, enqueueInlineJob, createSqlJobRepo, jobTenant, JobStoreError } from '@open-marketing/jobs';
 import type { CampaignConstituent, ConfirmationExchangePort, DispatchPermit, EffectRequest, FrozenDispatchRequest, SafetyRepoPort, SafetyService } from '@open-marketing/safety';
 import { digestArguments, effectRequestSchema } from '@open-marketing/safety';
 import type { AuditService } from '@open-marketing/audit';
@@ -22,11 +21,6 @@ const payloadSchema = z.object({ intent: z.object({ kind: z.literal('create'), c
 const jobKeySchema = z.strictObject({ context: callContextSchema, operationId: idSchema });
 const jobFinishSchema = jobKeySchema.extend({ status: z.enum(['submitted', 'unknown']) });
 type Input = Parameters<CampaignJobPort['get']>[0];
-/** Journals each campaign transition in the existing append-only jobs attempt table. */
-async function journal(required: { session: JobsSqlSession; id: string; tenantId: string; event: string; state: string; now: number }): Promise<void> {
-    await required.session.query({ text: 'INSERT INTO job_attempt (job_id, sequence, tenant_id, attempt, event_type, state, observed_at, evidence_id) SELECT $1, COALESCE(MAX(sequence),0)+1, $2, 1, $3, $4, $5, NULL FROM job_attempt WHERE job_id=$1',
-        values: [required.id, required.tenantId, required.event, required.state, required.now] });
-}
 /** Creation intent is the job's immutable payload. Enqueue and reserved lease commit atomically;
  * the generic worker cannot take this inline campaign operation. Expired claims reconcile.
  * No launch enqueue is authorized in this local binding. @complexity Constant bounded queries. */
@@ -63,16 +57,12 @@ export function bindCampaignJobs(required: { unit: UnitOfWork; repo: CampaignRep
             // Campaign jobs bind SHA-256 of schema-ordered draft JSON, independently of safety's tool digest.
             const digest = createHash('sha256').update(JSON.stringify(input.intent.draft)).digest('hex');
             if (digest !== input.argumentsDigest || input.intent.draft.operationId !== input.operationId) return localFailure({ code: 'conflict', message: 'Campaign creation identity mismatch' });
-            return database.transaction({ work: async ({ session }) => {
-                const joined = createSqlJobRepo({ database: session, clock: required.clock, ids: required.ids, retryPolicy: formRetryPolicy });
-                const queued = await joined.enqueue({ context: input.context, job: { handler: 'campaign.create', operationId: input.operationId,
-                    idempotencyKey: 'campaign:' + input.operationId, argumentsDigest: input.argumentsDigest, payload: { intent: input.intent } } });
-                if (!queued.ok) throw new JobStoreError({ code: queued.error.code, message: "Campaign enqueue failed" });
-                const reserved = await session.query({ text: "UPDATE job SET state='leased', attempts=1, lease_token=$1, lease_expires_at=$2 WHERE id=$3 AND tenant_id=$4 AND state='pending' AND attempts=0 RETURNING id",
-                    values: [required.ids.next({}), required.clock.now({}) + 60000, queued.value.jobId, jobTenant(input)] });
-                if (reserved.rows.length) await journal({ session, id: queued.value.jobId, tenantId: jobTenant(input), event: 'claim', state: 'leased', now: required.clock.now({}) });
-                return { ok: true, value: { jobId: queued.value.jobId } };
-            } });
+            const queued = await enqueueInlineJob({ database, clock: required.clock, ids: required.ids, context: input.context, leaseMs: 60000,
+                job: { handler: 'campaign.create', operationId: input.operationId, idempotencyKey: 'campaign:' + input.operationId,
+                    argumentsDigest: input.argumentsDigest, payload: { intent: input.intent } } });
+            if (!queued.ok) return queued;
+            if (queued.value.kind === 'conflict') return localFailure({ code: 'conflict', message: 'Campaign intent changed' });
+            return { ok: true, value: { jobId: queued.value.job.id } };
         }, get,
         async claim(input) {
             const current = await get(input);
@@ -80,23 +70,38 @@ export function bindCampaignJobs(required: { unit: UnitOfWork; repo: CampaignRep
             const stored = await outbox.get({ tenantId: jobTenant(input), id: current.value.jobId });
             if (!stored?.leaseToken) return { ok: true, value: null };
             const claimed = await outbox.beginDispatch({ tenantId: jobTenant(input), id: stored.id, token: stored.leaseToken, now: required.clock.now({}) });
-            return claimed ? get(input) : { ok: true, value: null };
+            if (!claimed) return { ok: true, value: null };
+            return get(input);
         },
         async finish(input) {
             if (!jobFinishSchema.safeParse(input).success) return localFailure({ code: 'invalid_input', message: 'Invalid campaign job completion' });
             const current = await get({ context: input.context, operationId: input.operationId });
             if (!current.ok) return current;
-            if (!current.value || current.value.status === 'queued') return localFailure({ code: 'conflict', message: 'Unclaimed campaign cannot finish' });
-            return database.transaction({ work: async ({ session }) => {
-                const state = input.status === 'submitted' ? 'succeeded' : 'reconcile';
-                const saved = await session.query({ text: "UPDATE job SET state=$1, lease_token=NULL, lease_expires_at=NULL WHERE id=$2 AND tenant_id=$3 AND state IN ('dispatching','reconcile','succeeded') RETURNING id",
-                    values: [state, current.value!.jobId, jobTenant(input)] });
-                if (!saved.rows.length) return localFailure({ code: 'conflict', message: 'Campaign claim changed' });
-                await journal({ session, id: current.value!.jobId, tenantId: jobTenant(input), event: 'complete', state, now: required.clock.now({}) });
-                return { ok: true, value: undefined };
-            } });
+            if (!current.value) return localFailure({ code: 'conflict', message: 'Unclaimed campaign cannot finish' });
+            const tenantId = jobTenant(input), id = current.value.jobId;
+            const stored = await outbox.get({ tenantId, id });
+            if (!stored) return localFailure({ code: 'conflict', message: 'Campaign claim changed' });
+            if (stored.state === 'succeeded') return { ok: true, value: undefined };
+            if (stored.state === 'reconcile') return resolve({ ...input, job: current.value });
+            if (stored.state !== 'dispatching' || !stored.leaseToken) return localFailure({ code: 'conflict', message: 'Campaign claim changed' });
+            const completed = await outbox.complete({ tenantId, id, token: stored.leaseToken, now: required.clock.now({}) },
+                { state: input.status === 'submitted' ? 'succeeded' : 'reconcile' });
+            return completed ? { ok: true, value: undefined } : localFailure({ code: 'conflict', message: 'Campaign completion lost its lease; reconcile' });
         },
     };
+    /** The campaign caller persists verified readback before finish. Resolution uses that reference;
+     * unknown readback leaves uncertainty intact, and no path gains retry authority. */
+    async function resolve(input: { context: CallContext; status: 'submitted' | 'unknown'; job: CampaignJob }): Promise<Outcome<void>> {
+        if (input.status === 'unknown') return { ok: true, value: undefined };
+        if (input.job.intent.kind !== 'create') return localFailure({ code: 'conflict', message: 'Creation intent required' });
+        const record = await required.repo.get({ context: input.context, campaignId: input.job.intent.campaignId });
+        if (!record.ok) return record;
+        const observation = record.value?.observation;
+        if (observation?.state !== 'paused') return localFailure({ code: 'conflict', message: 'Campaign readback evidence required' });
+        const resolved = await outbox.resolve({ tenantId: jobTenant(input), id: input.job.jobId, state: 'succeeded',
+            evidenceId: observation.providerReference, now: required.clock.now({}) });
+        return resolved ? { ok: true, value: undefined } : localFailure({ code: 'conflict', message: 'Campaign reconciliation changed' });
+    }
     return { enqueue: input => campaignBoundary({ ...required, context: input.context, execute: () => ports.enqueue(input) }),
         get: input => campaignBoundary({ ...required, context: input.context, execute: () => ports.get(input) }),
         claim: input => campaignBoundary({ ...required, context: input.context, execute: () => ports.claim(input) }),
@@ -164,7 +169,7 @@ const acknowledgement = z.object({ entityIds: z.array(idSchema).min(1).max(500).
  * @complexity <=4 sequential destinations and <=500 evidence entities, total review <=64KiB. */
 export function bindPausedCampaignDeployment(required: {
     unit: UnitOfWork; repo: CampaignRepoPort; safety: SafetyService; confirmations: ConfirmationExchangePort; clock: ClockPort; ids: IdPort; observer: ObserverPort;
-    prepare(input: { context: CallContext; campaign: NeutralCampaignLaunch; operationId: string }): Promise<Outcome<readonly CampaignConstituent[]>>;
+    prepare(input: { context: CallContext; campaign: NeutralCampaignLaunch; operationId: string }): Promise<Outcome<{ calls: readonly CampaignConstituent[]; validation: readonly CampaignValidationEvidence[] }>>;
     definitions(input: { context: CallContext }): Promise<Outcome<readonly OmToolDefinition[]>>;
     execute(input: { context: CallContext; call: CampaignConstituent; authorization: FrozenDispatchRequest; permit: DispatchPermit; signal?: AbortSignal;
         checkpoint(input: { step: string; phase: string; references?: unknown; record?: unknown }): Promise<Outcome<void>> }): Promise<Outcome<unknown>>;
@@ -174,7 +179,7 @@ export function bindPausedCampaignDeployment(required: {
     const name = 'om_campaign_deploy_paused';
     /** Parse stored v2 intent and prepare all destinations before the owning review;
      * invalid stored intent returns a typed failure. Snapshot every executable/schema.
-     * @complexity <=4 targets, no credentials or egress in preparation. */
+     * @complexity <=4 targets, one guarded vendor dry run per supported destination. */
     async function prepareEffect(input: { context: CallContext; call: import('@open-marketing/contracts').ToolCall }): Promise<Outcome<EffectRequest>> {
         const parsed = deploymentInput.safeParse(input.call.input);
         if (!parsed.success) return localFailure({ code: 'invalid_input', message: 'Invalid neutral campaign key' });
@@ -187,10 +192,10 @@ export function bindPausedCampaignDeployment(required: {
         if (campaign.schedule.window.end <= required.clock.now({})) return localFailure({ code: 'expired', message: 'Campaign schedule has ended' });
         const prepared = await required.prepare({ context: input.context, campaign, operationId: input.call.operationId });
         if (!prepared.ok) return prepared;
-        const calls = prepared.value;
+        const { calls, validation } = prepared.value;
         const checked = await checkCalls({ context: input.context, campaign, calls });
         if (!checked.ok) return checked;
-        const args = { tool: name, input: parsed.data, campaign, budgetSemantics: 'Configured daily budgets are not hard spending caps. Exposure is per destination; no currency totals.', calls };
+        const args = { tool: name, input: parsed.data, campaign, budgetSemantics: 'Configured daily budgets are not hard spending caps. Exposure is per destination; no currency totals.', calls, validation };
         const digest = digestArguments({ arguments: args });
         if (!digest.ok) return digest;
         const effect: EffectRequest = { arguments: args, pausedCampaignCalls: calls, pluginDigest: digest.value, schemaFingerprint: digest.value,
@@ -279,8 +284,8 @@ export function bindPausedCampaignDeployment(required: {
         if (!draft.ok) return draft;
         const definition = await currentDefinition(input);
         if (!definition.ok) return definition;
-        await checkpoint({ ...input, event: 'campaign_dispatch', evidence: { operationId: input.call.envelope.operationId } });
         return required.safety.withDispatch({ context: input.context, request: authority, dispatch: async ({ permit, request: verified }) => {
+            await checkpoint({ ...input, event: 'campaign_dispatch.' + input.call.envelope.operationId, evidence: { phase: 'dispatch', operationId: input.call.envelope.operationId } });
             const result = await required.execute({ context: input.context, call: input.call, authorization: verified, permit, signal: input.signal,
                 checkpoint: evidence => jobs.checkpoint({ context: input.context, jobId: input.jobId, event: 'campaign_step.' + input.call.envelope.operationId + '.' + evidence.step, evidence: { ...evidence, operationId: input.call.envelope.operationId } }) });
             if (!result.ok) return result;
@@ -294,9 +299,9 @@ export function bindPausedCampaignDeployment(required: {
         } }, { signal: input.signal });
     }
     /** Append bounded evidence in the existing attempts journal; never overwrite prior references. */
-    async function checkpoint(input: { context: CallContext; jobId: string; event: string; evidence: unknown }): Promise<void> {
-        await required.unit.transaction({ work: ({ session }) => session.query({ text: 'INSERT INTO job_attempt (job_id,sequence,tenant_id,attempt,event_type,state,observed_at,evidence_id) SELECT $1,COALESCE(MAX(sequence),0)+1,$2,1,$3,$4,$5,$6 FROM job_attempt WHERE job_id=$1',
-            values: [input.jobId, jobTenant(input), input.event, 'dispatching', required.clock.now({}), JSON.stringify(input.evidence)] }) });
+    async function checkpoint(input: { context: CallContext; jobId: string; event: string; evidence: Record<string, unknown> }): Promise<void> {
+        const saved = await appendJobEvidence({ database: required.unit, clock: required.clock, ...input });
+        if (!saved.ok) throw new JobStoreError({ code: saved.error.code, message: saved.error.message });
     }
     /** Recheck the persisted neutral snapshot before enqueue and before each constituent.
      * @complexity One indexed read and bounded JSON comparisons; no metadata resolution. */

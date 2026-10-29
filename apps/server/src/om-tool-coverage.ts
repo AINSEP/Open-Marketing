@@ -10,13 +10,18 @@ export const ownerRouteDisposition = {
     tools: 'Catalog transport', describeTool: 'Catalog transport', callTool: 'Catalog dispatcher transport', toolOperation: 'Catalog operation transport',
     addons: 'catalog', addonInstall: 'catalog', addonSetEnabled: 'catalog', addonUninstall: 'catalog',
     integrations: 'catalog', integrationConnect: 'Owner credential ingress; use /addons/integrations or om integrations connect --token-stdin', integrationDisconnect: 'catalog',
-    integrationDeveloperTokenStatus: 'catalog', chartProviders: 'catalog',
+    chartProviders: 'catalog',
+    mailProvider: 'catalog', setMailProvider: 'catalog',
+    setLeadStage: 'catalog',
+    integrationPluginSecretStatus: 'catalog',
+    integrationConversionSettings: 'catalog', setIntegrationConversionSettings: 'catalog',
     integrationOAuthStart: 'catalog', integrationOAuthStatus: 'catalog',
     integrationOAuthClient: 'Owner-only sealed OAuth client ingress; secrets never enter assistant tools',
     integrationOAuthCallback: 'Single-use browser GET or authenticated CLI POST continuation; authorization codes never enter assistant tools',
     status: 'catalog', snapshot: 'catalog', campaigns: 'catalog', campaign: 'catalog', approvals: 'catalog', approval: 'catalog',
-    answer: 'Authenticated owner approval continuation; a tool cannot answer its own card', halt: 'catalog', allowance: 'catalog',
+    answer: 'Authenticated owner approval continuation; a tool cannot answer its own card', halt: 'catalog', acknowledgeAlert: 'catalog', allowance: 'catalog',
     ask: 'Run transport; no recursive runs', conversations: 'Conversation transport', conversation: 'Conversation transport', createConversation: 'Conversation transport',
+    uploadAttachment: 'Owner binary image ingress; runs receive refs, assistant reads uploads via om_media_list',
     assistantSettings: 'catalog', setAssistantSettings: 'catalog', runEvents: 'Run event transport', cancelRun: 'Run cancellation transport',
 } satisfies Record<keyof typeof routes, string>;
 
@@ -24,8 +29,12 @@ export const ownerRouteDisposition = {
  * This is a capability inventory, not a manually maintained transport coverage table.
  */
 const capabilities = [
+    ['Conversion settings', 'integrations_conversion_settings_get', 'read', 'read', 'FEATURE_COMPOSITION', 'Installed-plugin settings reader'],
+    ['Conversion settings', 'integrations_conversion_settings_set', 'write', 'write', 'FEATURE_COMPOSITION', 'Owner-only installed-plugin settings replacement'],
     ['How Open Marketing works', 'site_guide', 'read', 'read', 'SG1', 'Built-in topic guide and caller-scoped facts'],
     ['Workspace current', 'om_workspace_current', 'read', 'read', 'FEATURE_COMPOSITION', 'Current authenticated scope projection'],
+    ['Mail provider selection', 'om_mail_provider_get', 'read', 'read', 'FEATURE_COMPOSITION', 'Inject provider-settings readers in server composition'],
+    ['Mail provider selection', 'om_mail_provider_set', 'write', 'write', 'FEATURE_COMPOSITION', 'Inject provider-settings readers in server composition'],
     ['Account binding lookup', 'om_account_binding_get', 'read', 'read', 'FEATURE_COMPOSITION', 'Inject the existing AccountBindingLookupPort in server composition'],
     ['Workspace list', 'om_workspaces_list', 'read', 'read', 'FEATURE_COMPOSITION', 'Inject the public scoped workspace listing'],
     ['Account binding', null, 'write', 'write', 'WORKSPACE_SESSION_BINDING', 'WorkspaceService requires its freshly resolved session context; composition must supply authenticated session resolution'],
@@ -38,8 +47,13 @@ const capabilities = [
     ['Form preview', 'om_forms_preview', 'read', 'read', 'FEATURE_COMPOSITION', 'Inject the existing FormsService in server composition'],
     ['Form submissions', 'om_forms_submissions', 'read', 'read', 'FEATURE_COMPOSITION', 'Inject the existing FormsService in server composition'],
     ['Form publish', 'om_forms_publish', 'write', 'write', 'FEATURE_COMPOSITION', 'Bind the owning publication schema and service'],
+    ['Lead inbox', 'om_leads_list', 'read', 'read', 'FEATURE_COMPOSITION', 'Inject the existing scoped LeadsService'],
+    ['Lead detail', 'om_leads_get', 'read', 'read', 'FEATURE_COMPOSITION', 'Inject the existing scoped LeadsService'],
+    ['Lead stage history', 'om_leads_history', 'read', 'read', 'FEATURE_COMPOSITION', 'Inject the existing scoped LeadsService'],
+    ['Lead stage change', 'om_leads_set_stage', 'write', 'write', 'FEATURE_COMPOSITION', 'Fresh exact assistant card; direct owner stage route'],
     ['Attribution touches', 'om_web_events_touches', 'read', 'read', 'FEATURE_COMPOSITION', 'Inject the existing WebEventService in server composition'],
-    ['Tracking snippet', 'om_web_events_snippet', 'read', 'read', 'FEATURE_COMPOSITION', 'Uses the existing fixed /c collector snippet'],
+    ['Tracking snippet', 'om_web_events_snippet', 'read', 'read', 'FEATURE_COMPOSITION', 'Visitor-consented plugin tags and plugin URL templates through scoped server bindings'],
+    ['Destination readiness and hosted-form fallback', 'om_tracking_readiness', 'read', 'read', 'FEATURE_COMPOSITION', 'Collector heartbeat and published form under configured public origin'],
     ['Visitor binding', 'om_web_events_bind_visitor', 'write', 'write', 'FEATURE_COMPOSITION', 'Inject the existing WebEventService and its scoped token verifier in composition'],
     ['Privacy erasure request', 'om_privacy_request_erasure', 'write', 'destructive', 'FEATURE_COMPOSITION', 'Inject the existing PrivacyService in server composition'],
     ['Privacy erasure status', 'om_privacy_status', 'read', 'read', 'FEATURE_COMPOSITION', 'Inject the existing PrivacyService in server composition'],
@@ -60,7 +74,6 @@ const capabilities = [
     ['Neutral campaign draft lookup', 'om_campaign_get_local', 'read', 'read', 'FEATURE_COMPOSITION', 'Inject the neutral local draft service'],
     ['Campaign launch', 'om_campaign_deploy_paused', 'write', 'spend', 'C2R2', 'Owning exact approval/outbox, plugin PAUSED/DRAFT execution and readback are wired for scoped fixtures. NEEDS: production metadata/admission and DS1 UI. Activation remains unavailable.'],
     ['Campaign deployment read-only reconciliation', 'om_campaign_reconcile_deployment', 'read', 'read', 'C2R2', 'Reads saved scoped references/markers only; never creates or resumes. NEEDS: admitted vendor bindings for live reads.'],
-    ['Google developer-token controls', null, 'write', 'owner', 'DS1', 'Owner GET/POST /api/addons/v1/integrations/developer-token; pluginId google-ads, POST token string or null. CLI om integrations developer-token set|clear|status --plugin google-ads; set reads stdin. UI remains DS1-owned.'],
     ['Tracked link creation', 'om_measure_create_link', 'write', 'write', 'FEATURE_COMPOSITION', 'Inject the existing MeasureService in server composition'],
     ['CAC reporting', 'om_measure_report_cac', 'read', 'read', 'FEATURE_COMPOSITION', 'Inject the existing MeasureService/platform report port in composition'],
     ['Safety status', 'om_safety_status', 'read', 'read', 'FEATURE_COMPOSITION', 'Current owning safety repository'],
@@ -70,11 +83,15 @@ const capabilities = [
     ['Typed remote halt stop', null, 'write', 'internal', 'I-2', 'Typed worker and plugin stop mappings are bound; local remoteStatus=pending: vendors unadmitted and verified remote target inventory unavailable; Meta stop unavailable, LinkedIn stop digest incompatible with safety canonical digest'],
     ['Paid-sending allowance get', 'om_paid_sending_allowance_get', 'read', 'read', 'FEATURE_COMPOSITION', 'Inject safety paid-sending settings; default $5/day'],
     ['Paid-sending allowance set', 'om_paid_sending_allowance_set', 'write', 'write', 'FEATURE_COMPOSITION', 'Inject safety paid-sending settings; default $5/day'],
-    ['Live vendor reports', null, 'read', 'read', 'I-2_REPORTING', 'Deferred: neutral reporting backend selection is outside this binding'],
+    ['Measurement grants list', 'om_measure_grants_list', 'read', 'read', 'FEATURE_COMPOSITION', 'Inject measure SQL grants via catalog scope'],
+    ['Grant conversion sharing', 'om_measure_grant', 'write', 'write', 'FEATURE_COMPOSITION', 'Inject measure SQL grants via catalog scope'],
+    ['Revoke conversion sharing', 'om_measure_revoke_grant', 'write', 'write', 'FEATURE_COMPOSITION', 'Inject measure SQL grants via catalog scope'],
+    ['Per-campaign results', 'om_measure_results', 'read', 'read', 'FEATURE_COMPOSITION', 'Inject persisted reporting and creation-cohort counts'],
+    ['Refresh campaign results', 'om_measure_refresh', 'write', 'write', 'FEATURE_COMPOSITION', 'Inject the canonical reporting jobs outbox'],
     ['Higgsfield creative lifecycle', null, 'write', 'generation', 'I-2_PRICING', 'Deferred: verified pricing/cost bounds are unavailable; hosted descriptors use executable federation after admission'],
     ['Meta ads hosted binding', null, 'write', 'write', 'I-2_META_HOSTED', 'Hosted tool names/schemas remain placeholders; organic Instagram has its own plugin backend'],
     ['Uploaded executable agent plugins', null, 'write', 'write', 'I-2_UPLOAD_BACKENDS', 'Deferred: executable backend loading covers bundled packages; uploaded instructions/MCP retain existing lifecycle'],
-    ['Vendor conversions', null, 'write', 'internal', 'I-2_CONVERSION_EVIDENCE', 'LinkedIn delivery/reconcile reuse measure dispatcher; local delivery denied. Google/Meta/TikTok need open-definition/grant mappings and vendor evidence; production job reload/grants remain unavailable'],
+    ['Vendor conversions', null, 'write', 'internal', 'I-2_CONVERSION_EVIDENCE', 'Grants are owner-managed through om_measure_grant and om_measure_revoke_grant. Production conversion producer/worker remains NEEDS (W23-CONVERSION-PRODUCER-WORKER); local delivery denied'],
     ['Page control', 'page.navigate', 'write', 'write', 'A5', 'Bind authenticated frontend-session transport in composition'],
     ['Component discovery', 'search_components', 'read', 'read', 'A5', 'Published Jini component catalog'],
     ['Component description', 'describe_component', 'read', 'read', 'A5', 'Published Jini props schemas'],
@@ -136,9 +153,26 @@ function catalogRow(required: { tool: OmToolDefinition }): ToolCoverageRow {
     const tool = required.tool;
     const reason = tool.unavailableReason ?? unavailableFinancialReason(required);
     return { capability: tool.capability, tool: tool.name, access: tool.policy === 'read' ? 'read' : 'write', policy: tool.policy,
-        http: tool.ownerRoute ? routes[tool.ownerRoute].path : '/api/tools/call', studio: 'chat via execute_tool',
+        http: tool.ownerRoute ? routes[tool.ownerRoute].path : '/api/tools/call', studio: studioSurface({ name: tool.name }),
         cli: 'om tools list/show/call', mcp: 'execute_tool', status: reason ? unavailableStatus({ reason }) : 'connected',
         ...(reason ? { needs: tool.name.startsWith('page.') || tool.name === 'render' ? 'A5_FRONTEND_COMPOSITION' : 'I-2', reason } : {}) };
+}
+const studioSurfaces = new Map([
+    ['integrations_conversion_settings_get', 'Integrations and chat via execute_tool'],
+    ['integrations_conversion_settings_set', 'Integrations and chat via execute_tool'],
+    ['om_measure_grants_list', 'Integrations and chat via execute_tool'],
+    ['om_measure_grant', 'Integrations and chat via execute_tool'],
+    ['om_measure_revoke_grant', 'Integrations and chat via execute_tool'],
+    ['om_measure_results', 'Measure page and chat via execute_tool'],
+    ['om_measure_refresh', 'Measure page and chat via execute_tool'],
+    ['om_web_events_snippet', 'Measure setup and chat via execute_tool'],
+    ['om_tracking_readiness', 'Measure setup and chat via execute_tool'],
+    ['om_leads_list', 'Activity inbox and chat via execute_tool'],
+    ['om_leads_set_stage', 'Activity inbox and chat via execute_tool'],
+]);
+/** Page labels reuse the same catalog transport as assistant calls. */
+function studioSurface(required: { name: string }): string {
+    return studioSurfaces.get(required.name) ?? 'chat via execute_tool';
 }
 /** No financial availability is inferred from effects without both current public safety seams. */
 function unavailableFinancialReason(required: { tool: OmToolDefinition }): string | undefined {

@@ -1,16 +1,17 @@
 /** Server-only connection use cases. Plaintext leaves only through trusted credential access. */
 import { z } from 'zod';
-import { appErrorSchema, callContextSchema, connectIntegrationTokenSchema, disconnectIntegrationSchema, idSchema,
+import { conversionSettingsDeclarationSchema, conversionSettingsValuesSchema, setConversionSettingsSchema, pluginSecretQuerySchema, pluginSecretSetSchema, credentialPluginStatusSchema, digestSchema, oauthClientStatusSchema, oauthChallengeSchema, appErrorSchema, callContextSchema, connectIntegrationTokenSchema, disconnectIntegrationSchema, idSchema,
     integrationListSchema, integrationSummarySchema, parseBoundary } from '@open-marketing/contracts';
 import type { AppError, CallContext, CallOptions, ConnectIntegrationToken, DisconnectIntegration, IntegrationList,
-    IntegrationSummary, ObserverPort, Outcome, PageQuery } from '@open-marketing/contracts';
-import { readCredentialDeveloperToken, readCredentialOAuthClient, connectCredentialToken, listCredentialConnections, readCredentialAccess } from '@open-marketing/credentials';
-import { developerTokenQuerySchema, developerTokenSetSchema } from './integration-oauth-contracts.js';
-import { oauthClientSetSchema, oauthClientStatusSchema, oauthCallbackSchema, oauthChallengeSchema, oauthStartSchema, oauthStatusQuerySchema, oauthStatusSchema } from './integration-oauth-contracts.js';
+    ConversionSettingsDeclaration, ConversionSettingsStatus, ConversionSettingsValues, CredentialCard, IntegrationSummary, ObserverPort, Outcome, PageQuery, PluginSecretStatus } from '@open-marketing/contracts';
+import { credentialPluginSecretStatus, setCredentialPluginSecret, readCredentialPluginSecrets, readCredentialOAuthClient, connectCredentialToken, listCredentialConnections, readCredentialAccess } from '@open-marketing/credentials';
+import { oauthClientSetSchema, oauthCallbackSchema, oauthStartSchema, oauthStatusQuerySchema, oauthStatusSchema } from './integration-oauth-contracts.js';
 import type { ConnectionSummary, CredentialAuditPort, CredentialBrokerPort, CredentialLockPort,
     CredentialRepoPort, CredentialService, CredentialSqlPort, SecretSealerPort } from '@open-marketing/credentials';
-import { credentialDigestSchema, credentialIcon, credentialPluginStatusSchema } from './integration-credential-cards.js';
-import type { CredentialCard, CredentialCardManifest } from './integration-credential-cards.js';
+import { credentialCardAction, credentialIcon, credentialOAuthClientFields } from './integration-credential-cards.js';
+import type { CredentialCardManifest } from './integration-credential-cards.js';
+
+const reservedPurposeId = /^(oauth-client|developer-token|plugin-secret)\./;
 
 /** Concrete ports are supplied once by server composition; no vendor parsing or I/O construction here. */
 export interface IntegrationDependencies {
@@ -23,16 +24,20 @@ export interface IntegrationDependencies {
     readonly redirectUri?: () => string | null;
     readonly db: CredentialSqlPort;
     readonly observer: ObserverPort;
+    readonly oauthProviders: Pick<ReadonlyMap<string, unknown>, 'has'>;
     readonly readCredentialCards?: (required: { context: CallContext; pluginId: string }) => Promise<Outcome<CredentialCardManifest>>;
     readonly readCredentialAsset?: (required: { context: CallContext; pluginId: string; path: string }) => Promise<Outcome<Uint8Array>>;
 }
 /** Owner management returns secret-free contracts. Credential access stays server-only. */
 export interface Integrations {
+    /** Non-secret scoped read; declaration null means this installed plugin has no usable settings form. */
+    conversionSettings(required: { context: CallContext; pluginId: string }, optional?: CallOptions): Promise<Outcome<ConversionSettingsStatus>>;
+    /** Owner-only complete replacement; values: {} clears. Saving never installs or enables a plugin. */
+    setConversionSettings(required: { context: CallContext; request: unknown }, optional?: CallOptions): Promise<Outcome<ConversionSettingsStatus>>;
     credentialAsset(required: { context: CallContext; pluginId: string; digest: string }, optional?: CallOptions): Promise<Outcome<{ bytes: Uint8Array; contentType: 'image/svg+xml' | 'image/png' }>>;
-    /** Owner-only paste/clear and secret-free status; resolve is a Google transport-only host seam. */
-    setDeveloperToken(required: { context: CallContext; request: unknown }, optional?: CallOptions): Promise<Outcome<{ configured: boolean }>>;
-    developerTokenStatus(required: { context: CallContext; pluginId: string }, optional?: CallOptions): Promise<Outcome<{ configured: boolean }>>;
-    resolveDeveloperToken(required: { context: CallContext; pluginId: string }, optional?: CallOptions): Promise<Outcome<string | null>>;
+    /** Owner-only declared-field replacement/clear; responses contain only configured status. */
+    setPluginSecret(required: { context: CallContext; request: unknown }, optional?: CallOptions): Promise<Outcome<PluginSecretStatus>>;
+    pluginSecretStatus(required: { context: CallContext; pluginId: string }, optional?: CallOptions): Promise<Outcome<PluginSecretStatus>>;
     setOAuthClient(required: { context: CallContext; request: unknown }, optional?: CallOptions): Promise<Outcome<z.infer<typeof oauthClientStatusSchema>>>;
     startOAuth(required: { context: CallContext; request: z.infer<typeof oauthStartSchema> }, optional?: CallOptions): Promise<Outcome<z.infer<typeof oauthChallengeSchema>>>;
     completeOAuth(required: { context: CallContext; response: unknown }, optional?: CallOptions): Promise<Outcome<IntegrationSummary>>;
@@ -40,39 +45,42 @@ export interface Integrations {
     connect(required: { context: CallContext; request: ConnectIntegrationToken }, optional?: CallOptions): Promise<Outcome<IntegrationSummary>>;
     list(required: { context: CallContext; query: PageQuery }, optional?: CallOptions): Promise<Outcome<IntegrationList>>;
     disconnect(required: { context: CallContext; request: DisconnectIntegration }, optional?: CallOptions): Promise<Outcome<IntegrationSummary>>;
-    access(required: { context: CallContext; pluginId: string; connectionId: string }, optional?: CallOptions): Promise<Outcome<{ accessToken: string; expiresAt?: number }>>;
+    access(required: { context: CallContext; pluginId: string; connectionId: string }, optional?: CallOptions): Promise<Outcome<{ accessToken: string; expiresAt?: number; secrets?: Readonly<Record<string, string>> }>>;
 }
 
 /** Inert binding to the existing credential lifecycle/sealing; operations use injected I/O, without caches.
- * @example const integrations = createIntegrations({ repo, sealer, locks, audit, broker, service, db, observer });
+ * @example const integrations = createIntegrations({ repo, sealer, locks, audit, broker, service, db, observer, oauthProviders });
  * @complexity O(1) instance space; operations use bounded pages or one credential.
  */
 export function createIntegrations(required: IntegrationDependencies): Integrations {
     return {
+        conversionSettings: (input, options) => integrationBoundary({ dependencies: required, context: input.context, operation: 'integrations.conversion-settings.get',
+            run: () => conversionSettings({ ...input, dependencies: required }) }, options),
+        setConversionSettings: (input, options) => integrationBoundary({ dependencies: required, context: input.context, operation: 'integrations.conversion-settings.set',
+            run: () => setConversionSettings({ ...input, dependencies: required }) }, options),
         credentialAsset: (input, options) => integrationBoundary({ dependencies: required, context: input.context, operation: 'integrations.credential-asset',
             run: () => readCredentialIcon({ ...input, dependencies: required }) }, options),
-        setDeveloperToken: (input, options) => integrationBoundary({ dependencies: required, context: input.context, operation: 'integrations.developer-token.set', run: async () => {
-            const parsed = parseBoundary({ schema: developerTokenSetSchema, input: input.request });
+        setPluginSecret: (input, options) => integrationBoundary({ dependencies: required, context: input.context, operation: 'integrations.plugin-secret.set',
+            run: () => setPluginSecret({ ...input, dependencies: required }, options) }, options),
+        pluginSecretStatus: (input, options) => integrationBoundary({ dependencies: required, context: input.context, operation: 'integrations.plugin-secret.status', run: async () => {
+            const parsed = parseBoundary({ schema: pluginSecretQuerySchema, input: { pluginId: input.pluginId } });
             if (!parsed.ok) return parsed;
-            const saved = await connectCredentialToken({ ...required, context: input.context, pluginId: parsed.value.pluginId, connectionId: 'developer-token.google-ads',
-                plaintext: JSON.stringify(parsed.value.token), purpose: 'developer-token' }, options);
-            return saved.ok ? { ok: true, value: { configured: parsed.value.token !== null } } : saved;
-        } }, options),
-        developerTokenStatus: (input, options) => integrationBoundary({ dependencies: required, context: input.context, operation: 'integrations.developer-token.status', run: async () => {
             if (input.context.principal.kind !== 'owner' || input.context.principal.ownerId !== input.context.scope.ownerId) return integrationFailure({ code: 'forbidden' });
-            if (!developerTokenQuerySchema.safeParse({ pluginId: input.pluginId }).success) return integrationFailure({ code: 'invalid_input' });
-            const token = await readCredentialDeveloperToken({ ...required, pluginId: input.pluginId, context: { ...input.context, principal: { kind: 'service', serviceId: 'developer-token-status' } } }, options);
-            return token.ok ? { ok: true, value: { configured: token.value !== null } } : token;
+            return credentialPluginSecretStatus({ ...required, pluginId: parsed.value.pluginId,
+                context: { ...input.context, principal: { kind: 'service', serviceId: 'plugin-secret-status' } } }, options);
         } }, options),
-        resolveDeveloperToken: (input, options) => integrationBoundary({ dependencies: required, context: input.context, operation: 'integrations.developer-token.resolve',
-            run: () => readCredentialDeveloperToken({ ...required, ...input }, options) }, options),
         setOAuthClient: (input, options) => integrationBoundary({ dependencies: required, context: input.context, operation: 'integrations.oauth.client.set', run: async () => {
             const parsed = parseBoundary({ schema: oauthClientSetSchema, input: input.request });
             if (!parsed.ok) return parsed;
+            if (input.context.principal.kind !== 'owner' || input.context.principal.ownerId !== input.context.scope.ownerId) return integrationFailure({ code: 'forbidden' });
+            if (!required.readCredentialCards) return integrationFailure({ code: 'unavailable' });
+            const manifest = await required.readCredentialCards({ context: input.context, pluginId: parsed.value.pluginId });
+            if (!manifest.ok) return manifest;
+            if (!manifest.value.credentialCards.some(card => card.saveKind === 'oauth-client')) return integrationFailure({ code: 'forbidden' });
             const saved = await connectCredentialToken({ ...required, context: input.context, pluginId: parsed.value.pluginId, connectionId: 'oauth-client.' + parsed.value.pluginId,
-                plaintext: JSON.stringify(parsed.value.client), purpose: 'oauth-client' }, options);
+                plaintext: JSON.stringify(parsed.value.client), purpose: 'oauth-client', clientFields: credentialOAuthClientFields({ cards: manifest.value.credentialCards }) }, options);
             const client = parsed.value.client as { clientId: string } | null; // Successful credential ingress validates the complete client shape.
-            return saved.ok ? oauthClientSummary({ client, pluginId: parsed.value.pluginId }) : saved;
+            return saved.ok ? oauthClientSummary({ client }) : saved;
         } }, options),
         startOAuth: (input, options) => integrationBoundary({ dependencies: required, context: input.context, operation: 'integrations.oauth.start', run: async () => {
             const parsed = parseBoundary({ schema: oauthStartSchema, input: input.request });
@@ -95,7 +103,7 @@ export function createIntegrations(required: IntegrationDependencies): Integrati
             const parsed = parseBoundary({ schema: oauthStatusQuerySchema, input: query });
             if (!parsed.ok) return parsed;
             if ('pluginId' in parsed.value) return oauthPluginStatus({ dependencies: required, context, pluginId: parsed.value.pluginId }, options);
-            if (/^(oauth-client|developer-token)\./.test(parsed.value.transactionId)) return { ok: true, value: { status: 'expired' } };
+            if (reservedPurposeId.test(parsed.value.transactionId)) return { ok: true, value: { status: 'expired' } };
             const status = await required.service.connectStatus({ context, transactionId: parsed.value.transactionId }, options);
             if (!status.ok) return status;
             return parseBoundary({ schema: oauthStatusSchema, input: { status: status.value.status,
@@ -117,11 +125,109 @@ export function createIntegrations(required: IntegrationDependencies): Integrati
         disconnect: (input, options) => integrationBoundary({ dependencies: required, context: input.context, operation: 'integrations.disconnect', run: async () => {
             const parsed = parseBoundary({ schema: disconnectIntegrationSchema, input: input.request });
             if (!parsed.ok) return parsed;
-            if (/^(oauth-client|developer-token)\./.test(parsed.value.connectionId)) return integrationFailure({ code: 'forbidden' });
+            if (reservedPurposeId.test(parsed.value.connectionId)) return integrationFailure({ code: 'forbidden' });
             return disconnect({ dependencies: required, context: input.context, connectionId: parsed.value.connectionId }, options);
         } }, options),
         access: (input, options) => accessCredential({ ...input, dependencies: required }, options),
     };
+}
+
+/** Build strict declared fields only. Empty values explicitly clear the complete configuration.
+ * @complexity O(bytes + fields + entries), <=4096 bytes, 8 fields and 100 entries/map; pure.
+ */
+function validateConversionSettings(required: { declaration: ConversionSettingsDeclaration; values: unknown }): Outcome<ConversionSettingsValues> {
+    const values = conversionSettingsValuesSchema.safeParse(required.values);
+    if (!values.success) return integrationFailure({ code: 'invalid_input' });
+    if (Buffer.byteLength(JSON.stringify(values.data)) > 4096) return integrationFailure({ code: 'limit_exceeded' });
+    if (!Object.keys(values.data).length) return { ok: true, value: {} };
+    const fields = Object.fromEntries(required.declaration.fields.map(field => {
+        const value = z.string().min(1).max(128).regex(field.format === 'decimal-id' ? /^[1-9][0-9]*$/ : /^[A-Za-z0-9_-]+$/);
+        return [field.name, field.kind === 'string' ? value : z.record(idSchema, value).refine(map => Object.keys(map).length <= 100)];
+    }));
+    const parsed = z.strictObject(fields).safeParse(values.data);
+    return parsed.success ? { ok: true, value: values.data } : integrationFailure({ code: 'invalid_input' });
+}
+
+/** One scoped indexed read. Corrupt/obsolete rows are ignored; database errors reach the boundary.
+ * @complexity O(bytes) parsing, <=4096 bytes; no credentials, vendor I/O or retained state.
+ */
+async function readStoredConversionSettings(required: { context: CallContext; db: CredentialSqlPort; pluginId: string; declaration: ConversionSettingsDeclaration }): Promise<ConversionSettingsValues | null> {
+    const result = await required.db.query({ text: 'SELECT value_json FROM om_owner_settings WHERE owner_id=$1 AND workspace_id=$2 AND key=$3',
+        values: [required.context.scope.ownerId, required.context.scope.workspaceId, 'conversion-settings.' + required.pluginId] });
+    const raw = result.rows[0]?.value_json;
+    if (typeof raw !== 'string' || Buffer.byteLength(raw) > 4096) return null;
+    try {
+        const parsed = validateConversionSettings({ declaration: required.declaration, values: JSON.parse(raw) });
+        return parsed.ok ? parsed.value : null;
+    } catch { return null; }
+}
+
+/** Scoped non-secret read for owner and assistant; declarations come only from installed manifests.
+ * @complexity One bounded manifest read and at most one indexed settings query.
+ */
+async function conversionSettings(required: { dependencies: IntegrationDependencies; context: CallContext; pluginId: string }): Promise<Outcome<ConversionSettingsStatus>> {
+    const parsed = z.strictObject({ context: callContextSchema, pluginId: idSchema }).safeParse({ context: required.context, pluginId: required.pluginId });
+    if (!parsed.success) return integrationFailure({ code: 'invalid_input' });
+    if (!required.dependencies.readCredentialCards) return integrationFailure({ code: 'unavailable' });
+    const manifest = await required.dependencies.readCredentialCards(parsed.data);
+    if (!manifest.ok) return manifest;
+    const declaration = manifest.value.conversionSettings ?? null;
+    const values = declaration ? await readStoredConversionSettings({ ...parsed.data, db: required.dependencies.db, declaration }) : null;
+    return { ok: true, value: { pluginId: parsed.data.pluginId, declaration, values } };
+}
+
+/** Owner replacement only; authority precedes all I/O and saving never changes plugin lifecycle.
+ * @complexity One manifest read and one scoped upsert; <=4096 serialized bytes. Fixed errors only.
+ */
+async function setConversionSettings(required: { dependencies: IntegrationDependencies; context: CallContext; request: unknown }): Promise<Outcome<ConversionSettingsStatus>> {
+    const { context, dependencies } = required;
+    if (context.principal.kind !== 'owner' || context.principal.ownerId !== context.scope.ownerId) return integrationFailure({ code: 'forbidden' });
+    if (!callContextSchema.safeParse(context).success) return integrationFailure({ code: 'invalid_input' });
+    const parsed = parseBoundary({ schema: setConversionSettingsSchema, input: required.request });
+    if (!parsed.ok) return parsed;
+    if (!dependencies.readCredentialCards) return integrationFailure({ code: 'unavailable' });
+    const manifest = await dependencies.readCredentialCards({ context, pluginId: parsed.value.pluginId });
+    if (!manifest.ok) return manifest;
+    const declaration = manifest.value.conversionSettings;
+    if (!declaration) return integrationFailure({ code: 'forbidden' });
+    const validated = validateConversionSettings({ declaration, values: parsed.value.values });
+    if (!validated.ok) return validated;
+    await dependencies.db.query({ text: `INSERT INTO om_owner_settings(owner_id,workspace_id,key,value_json) VALUES ($1,$2,$3,$4)
+        ON CONFLICT(owner_id,workspace_id,key) DO UPDATE SET value_json=excluded.value_json`,
+        values: [context.scope.ownerId, context.scope.workspaceId, 'conversion-settings.' + parsed.value.pluginId, JSON.stringify(validated.value)] });
+    return { ok: true, value: { pluginId: parsed.value.pluginId, declaration, values: validated.value } };
+}
+
+/** Merge a validated override without changing admission or disabling unrelated plugin operations.
+ * Invalid/absent declarations or values preserve metadata. DB errors propagate to the caller.
+ * @example await withConversionSettings({ context, db, pluginId, metadata });
+ * @complexity One indexed read, <=4096 bytes plus a shallow metadata copy; no plugin execution.
+ */
+export async function withConversionSettings(required: { context: CallContext; db: CredentialSqlPort; pluginId: string; metadata: Record<string, unknown> }): Promise<Record<string, unknown>> {
+    const declaration = conversionSettingsDeclarationSchema.safeParse(required.metadata.conversionSettings);
+    if (!declaration.success) return required.metadata;
+    const values = await readStoredConversionSettings({ ...required, declaration: declaration.data });
+    return values === null ? required.metadata : { ...required.metadata, conversionConfiguration: values };
+}
+
+/** Require the installed plugin's declared field names before sealing a replacement or clear.
+ * Returns only configured status; the surrounding boundary redacts all foreign failures.
+ * @complexity O(cards + fields + submitted keys), <=32 cards/16 fields each; fixed credential I/O.
+ */
+async function setPluginSecret(required: { dependencies: IntegrationDependencies; context: CallContext; request: unknown }, optional?: CallOptions): Promise<Outcome<PluginSecretStatus>> {
+    const parsed = parseBoundary({ schema: pluginSecretSetSchema, input: required.request });
+    if (!parsed.ok) return parsed;
+    const { context, dependencies } = required;
+    if (context.principal.kind !== 'owner' || context.principal.ownerId !== context.scope.ownerId) return integrationFailure({ code: 'forbidden' });
+    if (!dependencies.readCredentialCards) return integrationFailure({ code: 'unavailable' });
+    const manifest = await dependencies.readCredentialCards({ context, pluginId: parsed.value.pluginId });
+    if (!manifest.ok) return manifest;
+    const fields = manifest.value.credentialCards.filter(card => card.saveKind === 'plugin-secret').flatMap(card => card.secretFields ?? []);
+    if (!fields.length) return integrationFailure({ code: 'forbidden' });
+    const names = new Set(fields.map(field => field.name));
+    const values = parsed.value.values;
+    if (values !== null && (Object.keys(values).some(name => !names.has(name)) || fields.some(field => field.required && !Object.hasOwn(values, field.name)))) return integrationFailure({ code: 'invalid_input' });
+    return setCredentialPluginSecret({ ...dependencies, context, request: parsed.value }, optional);
 }
 
 /** Preserve core lifecycle labels while exposing only the approved public fields. */
@@ -140,25 +246,28 @@ function publicSummary(required: { summary: ConnectionSummary }): Outcome<Integr
 async function oauthPluginStatus(required: { dependencies: IntegrationDependencies; context: CallContext; pluginId: string }, optional?: CallOptions): Promise<Outcome<z.infer<typeof oauthClientStatusSchema> | z.infer<typeof credentialPluginStatusSchema>>> {
     const { context, pluginId } = required;
     if (context.principal.kind !== 'owner' || context.principal.ownerId !== context.scope.ownerId) return integrationFailure({ code: 'forbidden' });
-    const status = await configuredClientStatus(required, optional);
-    if (!status.ok || !required.dependencies.readCredentialCards) return status;
+    if (!required.dependencies.readCredentialCards) return { ok: true, value: { configured: false } };
     const manifest = await required.dependencies.readCredentialCards({ context, pluginId });
     if (!manifest.ok) return manifest;
+    const status = await configuredClientStatus({ ...required, manifest: manifest.value }, optional);
+    if (!status.ok) return status;
     const page = await listCredentialConnections({ context, db: required.dependencies.db, query: { pluginId, limit: 100 } }, optional);
     if (!page.ok) return page;
     const credentialCards: CredentialCard[] = [];
-    for (const card of manifest.value.credentialCards) credentialCards.push(await cardWithIcon({ ...required, card, manifest: manifest.value }));
+    const oauthRegistered = required.dependencies.oauthProviders.has(pluginId);
+    for (const card of manifest.value.credentialCards) credentialCards.push(await cardWithIcon({ ...required, manifest: manifest.value,
+        card: { ...card, actionSupported: credentialCardAction({ card, oauthRegistered }) } }));
     return parseBoundary({ schema: credentialPluginStatusSchema, input: { ...status.value, credentialCards,
         connections: page.value.items.map(summary => summaryDto({ summary })), connectionsCursor: page.value.cursor } });
 }
 
-/** Generic installed packages never enter the supported OAuth-client secret decoder. No vendor I/O. */
-async function configuredClientStatus(required: { dependencies: IntegrationDependencies; context: CallContext; pluginId: string }, optional?: CallOptions): Promise<Outcome<z.infer<typeof oauthClientStatusSchema>>> {
+/** Only manifests declaring an OAuth client enter its sealed decoder. No vendor I/O. */
+async function configuredClientStatus(required: { dependencies: IntegrationDependencies; context: CallContext; pluginId: string; manifest: CredentialCardManifest }, optional?: CallOptions): Promise<Outcome<z.infer<typeof oauthClientStatusSchema>>> {
     const { context, pluginId } = required;
-    if (pluginId === 'tiktok-ads') return { ok: true, value: { configured: false, guidance: 'TikTok uses paste-token. Connect a Marketing API advertiser access token with integrations connect --token-stdin. Saved tokens are unverified.' } };
-    if (!['google-ads', 'linkedin-ads', 'meta-ads'].includes(pluginId)) return { ok: true, value: { configured: false } };
-    const client = await readCredentialOAuthClient({ ...required.dependencies, pluginId, context: { ...context, principal: { kind: 'service', serviceId: 'oauth-client' } } }, optional);
-    return client.ok ? oauthClientSummary({ client: client.value, pluginId }) : client;
+    if (!required.manifest.credentialCards.some(card => card.saveKind === 'oauth-client')) return { ok: true, value: { configured: false } };
+    const client = await readCredentialOAuthClient({ ...required.dependencies, pluginId, clientFields: credentialOAuthClientFields({ cards: required.manifest.credentialCards }),
+        context: { ...context, principal: { kind: 'service', serviceId: 'oauth-client' } } }, optional);
+    return client.ok ? oauthClientSummary({ client: client.value }) : client;
 }
 
 /** Broken icons are omitted without hiding usable cards or affecting existing credential operations.
@@ -180,7 +289,7 @@ async function cardWithIcon(required: { dependencies: IntegrationDependencies; c
  */
 async function readCredentialIcon(required: { dependencies: IntegrationDependencies; context: CallContext; pluginId: string; digest: string }): Promise<Outcome<{ bytes: Uint8Array; contentType: 'image/svg+xml' | 'image/png' }>> {
     const { dependencies, context, pluginId, digest } = required;
-    const input = z.strictObject({ context: callContextSchema, pluginId: idSchema, digest: credentialDigestSchema }).safeParse({ context, pluginId, digest });
+    const input = z.strictObject({ context: callContextSchema, pluginId: idSchema, digest: digestSchema }).safeParse({ context, pluginId, digest });
     if (!input.success) return integrationFailure({ code: 'invalid_input' });
     if (context.principal.kind !== 'owner' || context.principal.ownerId !== context.scope.ownerId) return integrationFailure({ code: 'forbidden' });
     if (!dependencies.readCredentialCards || !dependencies.readCredentialAsset) return integrationFailure({ code: 'unavailable' });
@@ -194,10 +303,9 @@ async function readCredentialIcon(required: { dependencies: IntegrationDependenc
     } catch { return integrationFailure({ code: 'unavailable' }); }
 }
 
-/** Secret-free client status includes Meta callback/configuration guidance. @complexity O(1). */
-function oauthClientSummary(required: { client: { clientId: string } | null; pluginId: string }): Outcome<z.infer<typeof oauthClientStatusSchema>> {
-    const guidance = required.pluginId === 'meta-ads' ? { guidance: 'Meta Business Login needs a user-token config with the required permissions. If Meta rejects the callback, check the exact redirect URI: Strict Mode/Enforce HTTPS may reject http://127.0.0.1. Sign-in must be restarted after expiry.' } : {};
-    return { ok: true, value: required.client ? { configured: true, clientId: required.client.clientId, ...guidance } : { configured: false, ...guidance } };
+/** Configuration status exposes only the public client ID; guidance belongs to plugin cards. */
+function oauthClientSummary(required: { client: { clientId: string } | null }): Outcome<z.infer<typeof oauthClientStatusSchema>> {
+    return { ok: true, value: required.client ? { configured: true, clientId: required.client.clientId } : { configured: false } };
 }
 
 /** Reuse the credential service's locked revocation/audit sequence; no local duplicate lifecycle.
@@ -214,20 +322,41 @@ async function disconnect(required: { dependencies: IntegrationDependencies; con
 
 /** Trusted host access checks plugin ownership before broker use, then unseals the returned version.
  * Tagged OAuth payloads are decoded here; refresh material never reaches a plugin.
+ * Attaches only the bound plugin's declared saved secrets; secret-read failures refuse access.
  * Call immediately before egress. No credential or ciphertext caching is permitted.
  * @tradeoffs Disconnect racing an already authorized in-flight call is accepted on a single server.
  * @example await accessCredential({ context: serviceContext, pluginId, connectionId, dependencies });
- * @complexity O(b) time/space for <=64 KiB token; fixed indexed I/O and at most one bounded refresh.
+ * @complexity O(b + fields) time/space for bounded credential payloads/cards; fixed indexed I/O and at most one bounded refresh.
  */
 export async function accessCredential(required: {
     context: CallContext; pluginId: string; connectionId: string; dependencies: IntegrationDependencies;
-}, optional?: CallOptions): Promise<Outcome<{ accessToken: string; expiresAt?: number }>> {
+}, optional?: CallOptions): Promise<Outcome<{ accessToken: string; expiresAt?: number; secrets?: Readonly<Record<string, string>> }>> {
     return integrationBoundary({ ...required, operation: 'integrations.access', run: async () => {
         const parsed = z.strictObject({ context: callContextSchema, pluginId: idSchema, connectionId: idSchema }).safeParse({ context: required.context, pluginId: required.pluginId, connectionId: required.connectionId });
         if (!parsed.success) return integrationFailure({ code: 'invalid_input' });
         if (parsed.data.context.principal.kind !== 'service') return integrationFailure({ code: 'forbidden' });
-        return accessCurrent({ dependencies: required.dependencies, ...parsed.data }, optional);
+        const credential = await accessCurrent({ dependencies: required.dependencies, ...parsed.data }, optional);
+        if (!credential.ok) return credential;
+        const read = await declaredSecrets({ dependencies: required.dependencies, context: parsed.data.context, pluginId: parsed.data.pluginId }, optional);
+        if (!read.ok) return read;
+        const secrets = read.value;
+        return secrets && Object.keys(secrets).length ? { ok: true, value: { ...credential.value, secrets } } : credential;
     } }, optional);
+}
+
+/** Read declarations afresh; unavailable cards omit secrets so ordinary provider access still works.
+ * The credential reader filters declared plugin-secret fields and fails closed on stored-record errors.
+ * @complexity O(cards + fields + bytes) time/space; <=32 cards/16 fields each, <=64 KiB secrets, fixed I/O.
+ */
+async function declaredSecrets(required: {
+    dependencies: IntegrationDependencies; context: CallContext; pluginId: string;
+}, optional?: CallOptions): Promise<Outcome<Readonly<Record<string, string>> | null>> {
+    const { dependencies, context, pluginId } = required;
+    const manifest = await Promise.resolve().then(() => dependencies.readCredentialCards?.({ context, pluginId })).catch(() => undefined);
+    if (!manifest?.ok) return { ok: true, value: null };
+    const secretFields = [...new Set(manifest.value.credentialCards.filter(card => card.saveKind === 'plugin-secret').flatMap(card => card.secretFields ?? []).map(field => field.name))];
+    if (!secretFields.length) return { ok: true, value: null };
+    return readCredentialPluginSecrets({ ...dependencies, context, pluginId, secretFields }, optional);
 }
 
 /** Only matching plugin records reach the broker. The broker's secret.version reflects refresh.
@@ -237,7 +366,7 @@ async function accessCurrent(required: {
     context: CallContext; pluginId: string; connectionId: string; dependencies: IntegrationDependencies;
 }, optional?: CallOptions): Promise<Outcome<{ accessToken: string; expiresAt?: number; scopes?: readonly string[] }>> {
     const { dependencies, context, connectionId, pluginId } = required;
-    if (/^(oauth-client|developer-token)\./.test(connectionId)) return integrationFailure({ code: 'forbidden' });
+    if (reservedPurposeId.test(connectionId)) return integrationFailure({ code: 'forbidden' });
     const loaded = await dependencies.repo.getSecret({ context, connectionId }, optional);
     if (!loaded.ok) return loaded;
     if (!loaded.value) return integrationFailure({ code: 'unauthenticated' });

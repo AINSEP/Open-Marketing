@@ -1,33 +1,45 @@
 /** One OM catalog and dispatcher. SDK/HTTP adapters share these exact operations. */
 import { z } from 'zod';
 import { buildUiToolDefinitions } from './ui-tools.js';
-import { approvalResponseSchema, approverRefSchema, assistantSettingsSchema, boundedJsonSchema, callContextSchema, generationAllowanceSettingsSchema, idSchema, pageQuerySchema, timeWindowSchema, digestSchema, moneySchema,
-    parseBoundary, toolCallSchema, toolDescriptorSchema, toolSearchSchema, addonToolEffectsSchema, neutralCampaignLaunchSchema } from '@open-marketing/contracts';
-import type { ApproverRef, ApprovalResponse, CallContext, ClockPort, ConfirmationCard, Outcome, ToolCall, ToolDescriptor, ToolOperation, ToolResult } from '@open-marketing/contracts';
+import { conversionSettingsStatusSchema, setConversionSettingsSchema, approvalResponseSchema, approverRefSchema, assistantSettingsSchema, boundedJsonSchema, callContextSchema, generationAllowanceSettingsSchema, idSchema, pageQuerySchema, timeWindowSchema, digestSchema, moneySchema,
+    parseBoundary, toolCallSchema, toolDescriptorSchema, toolSearchSchema, addonToolEffectsSchema, neutralCampaignLaunchSchema, mailProviderSelectionSchema, mailProviderSettingsSchema } from '@open-marketing/contracts';
+import type { AppError, ApproverRef, ApprovalResponse, CallContext, ClockPort, ConfirmationCard, Outcome, ToolCall, ToolDescriptor, ToolOperation, ToolResult } from '@open-marketing/contracts';
 import { digestArguments, mayAnswer } from '@open-marketing/safety';
 import type { DispatchPermit, EffectRequest, FrozenDispatchRequest, ConfirmationExchangePort, SafetyService } from '@open-marketing/safety';
 import { addonManagementTools, addonToolSchemas, integrationOAuthTools, loadAddonToolSources, invokeAddonManagementTool, invokeAddonTool } from './addon-tools.js';
 import type { AddonToolDependencies } from './addon-tools.js';
-import { addonBoundary } from './addons.js';
+import { getMailProviderSettings, putMailProviderSettings, type ProviderReaders } from './alerts/provider-settings.js';
+import { alertQuerySchema } from './alerts/index.js';
+import type { bindAlerts } from './composition/alerts.js';
+import type { bindReporting } from './composition/reporting.js';
+import { addonBoundary } from '@open-marketing/plugins';
 import type { ObserverPort } from '@open-marketing/contracts';
-import { handleOwnerRequest } from './inbound/owner.js';
+import { readCard } from './cli/approval.js';
 import type { OwnerServices } from './inbound/owner.js';
+import { readStudioSnapshot, readCampaigns, readApprovals, campaignRow } from './inbound/owner.js';
 import { routes } from './cli/http.js';
 import { localFailure } from './composition/local-auth.js';
 import type { ContactService, Subject } from '@open-marketing/contacts';
 import { publicationSchema } from '@open-marketing/forms';
 import type { FormsService } from '@open-marketing/forms';
-import { webEventSnippetSource } from '@open-marketing/web-events';
+import { stageSchema as leadStageInputSchema, getSchema as leadGetInputSchema, listSchema as leadListInputSchema, historySchema as leadHistoryInputSchema, type LeadsService } from '@open-marketing/leads';
+import { trackingSnippetInputSchema, trackingSnippetOutputSchema, trackingReadinessInputSchema, trackingReadinessOutputSchema } from './composition/tracking.js';
+import type { bindTracking } from './composition/tracking.js';
+import { grantFieldsSchema } from './composition/conversions.js';
+import type { bindMeasurementGrants } from './composition/conversions.js';
 import type { WebEventService } from '@open-marketing/web-events';
 import type { PrivacyService } from '@open-marketing/privacy';
 import type { MeasureService } from '@open-marketing/measure';
+import { calculateExperimentSampleSize, readExperiment, calculateCreativeFatigue, sampleSizeInputSchema, abReadoutInputSchema, creativeFatigueInputSchema, campaignResultsQuerySchema, campaignResultsSchema, metricSyncRequestSchema } from '@open-marketing/measure';
 import type { CampaignService } from '@open-marketing/campaigns';
 import type { AccountBindingLookupPort, WorkspaceListing } from '@open-marketing/workspaces';
 import type { ScopedJobs } from '@open-marketing/jobs';
 import { paidSendingAllowanceSchema } from '@open-marketing/safety';
 import type { PaidSendingAllowances } from '@open-marketing/safety';
 import type { AuditService } from '@open-marketing/audit';
-import type { MediaLibrary } from '@open-marketing/media-library';
+import { brandKitSchema, brandRevisionSchema, revisionNumberSchema, expectedRevisionSchema, getBrandRevision, getConfirmedBrand, saveBrandDraft, confirmBrandRevision } from '@open-marketing/brand';
+import type { BrandRepoPort } from '@open-marketing/brand';
+import { assetImportRequestSchema, placementCropRequestSchema, provenanceLinkSchema, type MediaLibrary } from '@open-marketing/media-library';
 import { creativeToolInputSchema } from './om-tool-types.js';
 import type { GenerationStatus } from '@open-marketing/creative';
 import type { ToolOperationStore } from './tool-operations.js';
@@ -99,6 +111,11 @@ function financialToolInput(required: { request: EffectRequest; operation: Opera
     if (!required.request.pausedCampaignCalls || required.operation.call.name !== 'om_campaign_deploy_paused') return required.request.arguments;
     return { tool: required.request.arguments.tool, input: required.request.arguments.input };
 }
+/** Pure unknown result for the existing operation; uncertainty never advertises automatic retry. */
+function unknownState(required: { operation: Operation; error: Pick<AppError, 'code' | 'message'> }): Extract<ToolOperation, { status: 'unknown' }> {
+    return { status: 'unknown', operationId: required.operation.call.operationId,
+        error: { code: required.error.code, message: required.error.message, retryable: false } };
+}
 /** Process-owned bounded operation records. Existing durable run events retain card/result evidence.
  * Boot restores snapshots without effects; pending cards use fresh owner authority.
  * @example const tools = createOmTools({ definitions, confirmations, clock, observer, authorize });
@@ -123,8 +140,8 @@ export function createOmTools(required: Dependencies): OmTools {
             const saved = await required.store.save({ context: input.operation.context, operation: input.operation });
             if (saved.ok) return true;
         } catch { /* Storage implementations are isolated here; no effect follows failed persistence. */ }
-        input.operation.state = { status: 'unknown', operationId: input.operation.call.operationId,
-            error: { code: 'unavailable', message: 'Operation persistence failed; reconcile before retrying', retryable: false } };
+        input.operation.state = unknownState({ operation: input.operation,
+            error: { code: 'unavailable', message: 'Operation persistence failed; reconcile before retrying' } });
         return false;
     }
     /** Evict oldest terminal bodies only after their replay identity commits. Actual JSON bytes
@@ -190,8 +207,8 @@ export function createOmTools(required: Dependencies): OmTools {
         const { operation } = input;
         operation.context = { ...operation.context, principal: input.context.principal };
         if (operation.state.status !== 'pending') { operation.executing = false; return { ok: true, value: undefined }; }
-        if (operation.executing) operation.state = { status: 'unknown', operationId: operation.call.operationId,
-            error: { code: 'unavailable', message: 'Dispatch interrupted by restart; reconcile before retrying', retryable: false } };
+        if (operation.executing) operation.state = unknownState({ operation,
+            error: { code: 'unavailable', message: 'Dispatch interrupted by restart; reconcile before retrying' } });
         else if (!operation.card || !input.pending.has(operation.card.cardId) || operation.expiresAt <= required.clock.now({}))
             operation.state = { status: 'interrupted', operationId: operation.call.operationId };
         operation.executing = false;
@@ -240,7 +257,7 @@ export function createOmTools(required: Dependencies): OmTools {
         const operation = input.operation;
         if (operation.state.status !== 'pending') return false;
         operation.state = operation.executing
-            ? { status: 'unknown', operationId: operation.call.operationId, error: { code: 'cancelled', message: 'Dispatch interrupted; reconcile the outcome before retrying', retryable: false } }
+            ? unknownState({ operation, error: { code: 'cancelled', message: 'Dispatch interrupted; reconcile the outcome before retrying' } })
             : { status: input.status, operationId: operation.call.operationId };
         return true;
     }
@@ -299,11 +316,11 @@ export function createOmTools(required: Dependencies): OmTools {
             if (operation.state.status !== 'pending') return;
             const parsed = result.ok ? parseBoundary({ schema: toolOutputSchema, input: result.value }) : result;
             operation.state = parsed.ok ? { status: 'completed', operationId: operation.call.operationId, output: parsed.value }
-                : { status: 'unknown', operationId: operation.call.operationId, error: { ...parsed.error, retryable: false } };
+                : unknownState({ operation, error: parsed.error });
         } catch {
             if (operation.state.status !== 'pending') return;
-            operation.state = { status: 'unknown', operationId: operation.call.operationId,
-                error: { code: 'unavailable', message: 'Tool outcome unknown; reconcile before another attempt', retryable: false } };
+            operation.state = unknownState({ operation,
+                error: { code: 'unavailable', message: 'Tool outcome unknown; reconcile before another attempt' } });
         } finally { await persist({ operation }); operation.executing = false; }
     }
     /** Financial classification uses the owning service's verified quote and current allowance.
@@ -409,12 +426,12 @@ export function createOmTools(required: Dependencies): OmTools {
         if (!await persist({ operation })) return resultOf({ operation });
         const prepared = await prepareFinancial({ operation, definition });
         if (!prepared.ok) {
-            if (operation.state.status === 'pending') operation.state = { status: 'unknown', operationId: operation.call.operationId, error: { ...prepared.error, retryable: false } };
+            if (operation.state.status === 'pending') operation.state = unknownState({ operation, error: prepared.error });
             await persist({ operation });
             return prepared;
         }
-        if (!(await retain({ operation })).ok) { operation.state = { status: 'unknown', operationId: operation.call.operationId,
-            error: { code: 'limit_exceeded', message: 'Prepared financial request exceeds operation retention limit', retryable: false } }; await persist({ operation }); return resultOf({ operation }); }
+        if (!(await retain({ operation })).ok) { operation.state = unknownState({ operation,
+            error: { code: 'limit_exceeded', message: 'Prepared financial request exceeds operation retention limit' } }); await persist({ operation }); return resultOf({ operation }); }
         return dispatchPrepared({ ...input, operation });
     }
     async function dispatchPrepared(input: { operation: Operation; definition: OmToolDefinition; context: CallContext; signal?: AbortSignal }): Promise<Outcome<ToolResult>> {
@@ -432,7 +449,7 @@ export function createOmTools(required: Dependencies): OmTools {
         const card = input.definition.safety && input.definition.prepareEffect
             ? await input.definition.safety.prepareApproval({ context: operation.context, request: operation.request })
             : await required.confirmations.present({ context: operation.context, request: operation.request, policyRevision: 0, classification: operation.classification });
-        if (!card.ok) { operation.state = { status: 'unknown', operationId: operation.call.operationId, error: { ...card.error, retryable: false } }; await persist({ operation }); return; }
+        if (!card.ok) { operation.state = unknownState({ operation, error: card.error }); await persist({ operation }); return; }
         if (operation.state.status !== 'pending') { await required.confirmations.revoke({ context: operation.context, cardId: card.value.cardId }); return; }
         operation.classification = card.value.classification;
         operation.card = card.value;
@@ -582,23 +599,6 @@ function resultOf(required: { operation: Operation }): Outcome<ToolResult> {
     }
 }
 
-/** R3 binds existing reads and assistant settings, without introducing feature business logic. */
-type ReadBinding = { name: string; capability: string; route: keyof typeof routes;
-    schema: z.ZodType<{ id?: string; limit?: number; cursor?: string }> };
-const readBindings: readonly ReadBinding[] = [
-    { name: 'om_status', capability: 'Server status', route: 'status', schema: z.strictObject({}) },
-    { name: 'om_studio_snapshot', capability: 'Studio snapshot', route: 'snapshot', schema: z.strictObject({}) },
-    { name: 'om_campaigns_list', capability: 'Campaign list', route: 'campaigns', schema: pageQuerySchema },
-    { name: 'om_campaigns_get', capability: 'Campaign read', route: 'campaign', schema: z.strictObject({ id: idSchema }) },
-    { name: 'om_approvals_list', capability: 'Scoped pending approvals', route: 'approvals', schema: pageQuerySchema },
-    { name: 'om_approvals_get', capability: 'Scoped exact approval', route: 'approval', schema: z.strictObject({ id: idSchema }) },
-    { name: 'om_allowance_view', capability: 'Generation allowance view', route: 'allowance', schema: z.strictObject({}) },
-    { name: 'om_assistant_settings_get', capability: 'Assistant selection', route: 'assistantSettings', schema: z.strictObject({}) },
-    { name: 'om_conversations_list', capability: 'Conversation list', route: 'conversations', schema: pageQuerySchema.extend({ limit: z.number().int().min(1).max(10) }) },
-    { name: 'om_conversations_get', capability: 'Conversation history (64 KiB output; reduce limit if exceeded)', route: 'conversation', schema: pageQuerySchema.extend({ id: idSchema, limit: z.number().int().min(1).max(5) }) },
-    { name: 'om_chart_providers_list', capability: 'Chart provider inventory', route: 'chartProviders', schema: z.strictObject({}) },
-];
-
 /** Validate Zod's generated schema with the bounded JSON object contract before exposing it.
  * @throws z.ZodError if generated data exceeds the wire contract; Zod rejects unsupported schemas.
  * @example toolInputSchema({ schema: toolSearchSchema });
@@ -622,10 +622,10 @@ export const discoveryTools: readonly ToolDescriptor[] = [
  * A failed package description marks only that source unavailable; catalog-list failures propagate.
  * @complexity Fixed read bindings plus D2's bounded source loading; no second plugin registry.
  */
-export async function buildOmToolDefinitions(required: { context: CallContext; services: OwnerServices & OmFeatureServices; addons?: AddonToolDependencies; siteGuide?: OmToolDefinition }): Promise<Outcome<readonly OmToolDefinition[]>> {
-    const definitions: OmToolDefinition[] = readBindings.map(binding => ownerDefinition({ ...required, binding }));
+export async function buildOmToolDefinitions(required: { context: CallContext; services: OwnerServices & OmFeatureServices; addons?: AddonToolDependencies; providerSettings?: ProviderReaders; siteGuide?: OmToolDefinition; chartProviders?: (required: { context: CallContext }) => Promise<Outcome<z.infer<typeof routes.chartProviders.schema>>> }): Promise<Outcome<readonly OmToolDefinition[]>> {
+    const definitions: OmToolDefinition[] = ownerReadDefinitions(required);
     if (required.siteGuide) definitions.push(required.siteGuide);
-    definitions.push(ownerSettingsDefinition(required), ...assistantDefinitions(required), ...mediaDefinitions({ media: required.services.media }), ...coreDefinitions(required), ...featureDefinitions(required),
+    definitions.push(ownerSettingsDefinition(required), ...mailProviderDefinitions({ readers: required.providerSettings }), ...conversionSettingsDefinitions({ integrations: required.addons?.integrations }), ...assistantDefinitions(required), ...mediaDefinitions({ media: required.services.media }), ...coreDefinitions(required), ...featureDefinitions(required),
         ...buildUiToolDefinitions({ runtime: required.services.ui?.runtime ?? null, frontend: required.services.ui?.frontend }));
     if (!required.addons) return { ok: true, value: definitions };
     const unavailableSources = new Set<string>();
@@ -645,39 +645,101 @@ export async function buildOmToolDefinitions(required: { context: CallContext; s
         invoke: async input => redactAddonOutcome({ outcome: await invokeAddonTool({ ...input, sourceId: source.id, revision: source.revision, dependencies: required.addons! }, { signal: input.signal }) }) });
     return { ok: true, value: definitions };
 }
-function ownerDefinition(required: { services: OwnerServices; binding: ReadBinding }): OmToolDefinition {
-    const { binding, services } = required;
-    return { name: binding.name, capability: binding.capability, description: binding.capability + '. Returns the existing scoped owner read model; unavailable services return a typed failure.',
-        inputSchema: toolInputSchema({ schema: binding.schema }), effects: ['read'], policy: 'read', revision: '1', ownerRoute: binding.route,
-        parse: input => parseBoundary({ schema: binding.schema, input: input.input }),
-        invoke: async input => {
-            const value = binding.schema.parse(input.input);
-            const context: CallContext = { ...input.context, principal: { kind: 'owner', ownerId: input.context.scope.ownerId } };
-            // Only named read projections use owner identity; no agent-supplied route or method.
-            const request = { method: 'GET' as const, path: routes[binding.route].path.replace(':id', encodeURIComponent(value.id ?? '')),
-                query: value.limit === undefined ? {} : { limit: String(value.limit), ...(value.cursor ? { cursor: value.cursor } : {}) } };
-            return (await handleOwnerRequest({ context, services, request })).body as Outcome<unknown>;
-        } };
+/** Named owner read models call their owning service directly and validate the CLI wire schema.
+ * The dispatcher still admits the original caller; serviceDefinition projects read identity only.
+ */
+function ownerReadDefinitions(required: { services: OwnerServices; chartProviders?: (required: { context: CallContext }) => Promise<Outcome<z.infer<typeof routes.chartProviders.schema>>> }): OmToolDefinition[] {
+    const { services } = required;
+    const resourceId = idSchema.refine(value => value !== '.' && value !== '..' && !/[\x00-\x1f/\\]/.test(value));
+    const empty = z.strictObject({}); const id = z.strictObject({ id: resourceId });
+    return [
+        serviceDefinition({ name: 'om_status', capability: 'Server status', schema: empty, policy: 'read', ownerRoute: 'status', outputSchema: routes.status.schema,
+            invoke: async () => ({ ok: true, value: { ready: true, mode: 'local' } }) }),
+        serviceDefinition({ name: 'om_studio_snapshot', capability: 'Studio snapshot', schema: empty, policy: 'read', ownerRoute: 'snapshot', outputSchema: routes.snapshot.schema,
+            invoke: ({ context }) => readStudioSnapshot({ services, context }) }),
+        serviceDefinition({ name: 'om_campaigns_list', capability: 'Campaign list', schema: pageQuerySchema, policy: 'read', ownerRoute: 'campaigns', outputSchema: routes.campaigns.schema,
+            invoke: ({ context, value: query, signal }) => readCampaigns({ context, services, query }, { signal }) }),
+        serviceDefinition({ name: 'om_campaigns_get', capability: 'Campaign read', schema: id, policy: 'read', ownerRoute: 'campaign', outputSchema: routes.campaign.schema,
+            invoke: async ({ context, value, signal }) => {
+                const found = await services.campaigns.get({ context, campaignId: value.id }, { signal });
+                if (!found.ok) return found;
+                return found.value ? { ok: true, value: campaignRow({ record: found.value }) } : localFailure({ code: 'forbidden', message: 'Campaign unavailable in scope' });
+            } }),
+        serviceDefinition({ name: 'om_approvals_list', capability: 'Scoped pending approvals', schema: pageQuerySchema, policy: 'read', ownerRoute: 'approvals', outputSchema: routes.approvals.schema,
+            invoke: ({ context, value: query, signal }) => readApprovals({ context, services, query }, { signal }) }),
+        serviceDefinition({ name: 'om_approvals_get', capability: 'Scoped exact approval', schema: id, policy: 'read', ownerRoute: 'approval', outputSchema: routes.approval.schema,
+            invoke: async ({ context, value, signal }) => {
+                const found = await services.confirmations.get({ context, cardId: value.id }, { signal });
+                if (!found.ok) return found;
+                return found.value ? readCard({ input: found.value }) : localFailure({ code: 'forbidden', message: 'Card unavailable in scope' });
+            } }),
+        serviceDefinition({ name: 'om_allowance_view', capability: 'Generation allowance view', schema: empty, policy: 'read', ownerRoute: 'allowance', outputSchema: routes.allowance.schema,
+            invoke: ({ context, signal }) => services.safety.getGenerationAllowanceView({ context }, { signal }) }),
+        serviceDefinition({ name: 'om_assistant_settings_get', capability: 'Assistant selection', schema: empty, policy: 'read', ownerRoute: 'assistantSettings', outputSchema: routes.assistantSettings.schema,
+            invoke: async ({ context }) => services.conversations?.settings({ context }) ?? localFailure({ message: 'Assistant settings unavailable' }) }),
+        serviceDefinition({ name: 'om_conversations_list', capability: 'Conversation list', schema: pageQuerySchema.extend({ limit: z.number().int().min(1).max(10) }), policy: 'read', ownerRoute: 'conversations', outputSchema: routes.conversations.schema,
+            invoke: async ({ context, value: query }) => services.conversations?.list({ context, query }) ?? localFailure({ message: 'Conversation storage unavailable' }) }),
+        serviceDefinition({ name: 'om_conversations_get', capability: 'Conversation history (64 KiB output; reduce limit if exceeded)', schema: pageQuerySchema.extend({ id: resourceId, limit: z.number().int().min(1).max(5) }), policy: 'read', ownerRoute: 'conversation', outputSchema: routes.conversation.schema,
+            invoke: async ({ context, value: { id: conversationId, ...query } }) => services.conversations?.read({ context, conversationId, query }) ?? localFailure({ message: 'Conversation storage unavailable' }) }),
+        serviceDefinition({ name: 'om_chart_providers_list', capability: 'Chart provider inventory', schema: empty, policy: 'read', ownerRoute: 'chartProviders', outputSchema: routes.chartProviders.schema,
+            invoke: async ({ context }) => required.chartProviders?.({ context }) ?? localFailure({ message: 'Chart providers unavailable' }) }),
+    ];
 }
+
 function ownerSettingsDefinition(required: { services: OwnerServices }): OmToolDefinition {
-    return { name: 'om_assistant_settings_set', capability: 'Assistant selection change', description: 'Change Sandbox/Anthropic model selection. Requires the authenticated owner approval; keys never enter this tool.',
-        inputSchema: toolInputSchema({ schema: assistantSettingsSchema }), effects: ['write'], policy: 'write', revision: '1', ownerOnly: true, ownerRoute: 'setAssistantSettings',
-        parse: input => parseBoundary({ schema: assistantSettingsSchema, input: input.input }),
-        invoke: async input => (await handleOwnerRequest({ context: input.context, services: required.services,
-            request: { method: 'POST', path: routes.setAssistantSettings.path, body: input.input } })).body as Outcome<unknown> };
+    return serviceDefinition({ name: 'om_assistant_settings_set', capability: 'Assistant selection change', schema: assistantSettingsSchema,
+        policy: 'write', ownerOnly: true, ownerRoute: 'setAssistantSettings', outputSchema: routes.setAssistantSettings.schema,
+        invoke: async ({ context, value: settings }) => required.services.conversations?.setSettings({ context, settings }) ?? localFailure({ message: 'Assistant settings unavailable' }) });
+}
+
+/** Bind existing settings readers; each select/clear requires a fresh authenticated owner card.
+ * @complexity O(1) definitions; service-owned catalog/storage reads retain their existing bounds.
+ */
+function mailProviderDefinitions(required: { readers?: ProviderReaders }): OmToolDefinition[] {
+    const readers = required.readers;
+    if (!readers) return [];
+    return [
+        serviceDefinition({ name: 'om_mail_provider_get', capability: 'Mail provider selection', policy: 'read', schema: z.strictObject({}),
+            ownerRoute: 'mailProvider', outputSchema: mailProviderSettingsSchema,
+            invoke: ({ context }) => getMailProviderSettings({ ...readers, context }) }),
+        serviceDefinition({ name: 'om_mail_provider_set', capability: 'Mail provider selection', policy: 'write', schema: mailProviderSelectionSchema,
+            ownerOnly: true, ownerRoute: 'setMailProvider', outputSchema: mailProviderSelectionSchema,
+            invoke: ({ context, value }) => putMailProviderSettings({ ...readers, context, ...value }) }),
+    ];
+}
+
+/** Manifest-declared non-secret settings use the existing exact owner approval continuation.
+ * @complexity O(1) catalog entries; bounded storage validation belongs to integrations.
+ */
+function conversionSettingsDefinitions(required: { integrations?: AddonToolDependencies['integrations'] }): OmToolDefinition[] {
+    const integrations = required.integrations;
+    if (!integrations?.conversionSettings || !integrations.setConversionSettings) return [];
+    return [
+        serviceDefinition({ name: 'integrations_conversion_settings_get', capability: 'Conversion settings', policy: 'read', schema: setConversionSettingsSchema.pick({ pluginId: true }),
+            ownerRoute: 'integrationConversionSettings', outputSchema: conversionSettingsStatusSchema,
+            invoke: async ({ context, value, signal }) => integrations.conversionSettings!({ context, ...value }, { signal }) }),
+        serviceDefinition({ name: 'integrations_conversion_settings_set', capability: 'Conversion settings', policy: 'write', schema: setConversionSettingsSchema,
+            ownerOnly: true, ownerRoute: 'setIntegrationConversionSettings', outputSchema: conversionSettingsStatusSchema,
+            invoke: async ({ context, value: request, signal }) => integrations.setConversionSettings!({ context, request }, { signal }) }),
+    ];
 }
 
 /** Already-public feature services supplied by composition, never constructed in a catalog module.
  * Missing services produce named coverage NEEDS rather than callable stubs.
  */
 export interface OmFeatureServices {
+    alerts?: Pick<ReturnType<typeof bindAlerts>, 'list' | 'acknowledge'>;
+    brand?: { repo: BrandRepoPort; clock: ClockPort };
     media?: MediaLibrary;
     creative?: CreativeToolBinding;
     contacts?: ContactService;
     forms?: FormsService;
+    leads?: LeadsService;
     webEvents?: WebEventService;
+    tracking?: ReturnType<typeof bindTracking>;
     privacy?: PrivacyService;
     measure?: MeasureService;
+    reporting?: Pick<ReturnType<typeof bindReporting>, 'results' | 'enqueue'>;
     campaignWorkflow?: CampaignService;
     campaignDeployment?: OmToolDefinition;
     accountBindings?: AccountBindingLookupPort;
@@ -685,6 +747,7 @@ export interface OmFeatureServices {
     workspaces?: WorkspaceListing;
     jobs?: ScopedJobs;
     paidSending?: PaidSendingAllowances;
+    measurementGrants?: ReturnType<typeof bindMeasurementGrants>;
 }
 
 /** A small schema-bound call to an existing service. The owner identity is projected for named
@@ -692,7 +755,7 @@ export interface OmFeatureServices {
  * @complexity O(input bytes) validation; one injected service call, no dependency construction.
  */
 function serviceDefinition<T>(required: { name: string; capability: string; schema: z.ZodType<T>; policy: 'read' | 'write' | 'destructive';
-    ownerRoute?: keyof typeof routes; ownerOnly?: true;
+    ownerRoute?: keyof typeof routes; ownerOnly?: true; outputSchema?: z.ZodType;
     invoke(input: { context: CallContext; value: T; signal?: AbortSignal }): Promise<Outcome<unknown>> }): OmToolDefinition {
     return { name: required.name, capability: required.capability, description: required.capability + '. Returns the scoped service result. Invalid inputs or missing authority fail explicitly.',
         effects: [required.policy], policy: required.policy, revision: '1', ownerRoute: required.ownerRoute, ownerOnly: required.ownerOnly,
@@ -701,12 +764,53 @@ function serviceDefinition<T>(required: { name: string; capability: string; sche
             const parsed = parseBoundary({ schema: required.schema, input: input.input });
             if (!parsed.ok) return parsed;
             const context = required.policy === 'read' ? scopedReadContext(input) : input.context;
-            return required.invoke({ context, value: parsed.value, signal: input.signal });
+            const result = await required.invoke({ context, value: parsed.value, signal: input.signal });
+            return result.ok && required.outputSchema ? parseBoundary({ schema: required.outputSchema, input: result.value }) : result;
         } };
 }
 /** Fixed owner read projections share the already-authenticated workspace, retaining run/trace IDs. */
 function scopedReadContext(required: { context: CallContext }): CallContext {
     return { ...required.context, principal: { kind: 'owner', ownerId: required.context.scope.ownerId } };
+}
+
+/** Expose the existing revision service through the shared HTTP/MCP/CLI dispatcher.
+ * Confirmation always needs a fresh owner card; the continuation supplies its real actor.
+ * @complexity O(1) declarations; validation is O(b) for kits capped at 60 KiB, one service call.
+ */
+function brandDefinitions(required: { brand?: OmFeatureServices['brand'] }): OmToolDefinition[] {
+    const brand = required.brand;
+    if (!brand) return [];
+    const revision = revisionNumberSchema;
+    const draft = z.strictObject({ kit: brandKitSchema.refine(kit => Buffer.byteLength(JSON.stringify(kit), 'utf8') <= 60 * 1024, 'Kit exceeds 60 KiB'),
+        expectedRevision: expectedRevisionSchema });
+    return [
+        serviceDefinition({ name: 'om_brand_get', capability: 'Latest or exact brand revision', policy: 'read', schema: z.strictObject({ revision: revision.optional() }), outputSchema: brandRevisionSchema.nullable(),
+            invoke: ({ context, value, signal }) => getBrandRevision({ context, repo: brand.repo, ...value }, { signal }) }),
+        serviceDefinition({ name: 'om_brand_confirmed', capability: 'Last confirmed brand facts and offers', policy: 'read', schema: z.strictObject({}), outputSchema: brandRevisionSchema.nullable(),
+            invoke: ({ context, signal }) => getConfirmedBrand({ context, repo: brand.repo }, { signal }) }),
+        serviceDefinition({ name: 'om_brand_save_draft', capability: 'Save a complete brand draft with the loaded expectedRevision', policy: 'write', schema: draft, outputSchema: brandRevisionSchema,
+            invoke: ({ context, value, signal }) => saveBrandDraft({ ...brand, context, ...value }, { signal }) }),
+        serviceDefinition({ name: 'om_brand_confirm', capability: 'Owner confirmation of the exact current brand draft', policy: 'write', ownerOnly: true, schema: z.strictObject({ revision }), outputSchema: brandRevisionSchema,
+            invoke: ({ context, value, signal }) => confirmBrandRevision({ ...brand, context, ...value }, { signal }) }),
+    ];
+}
+
+/** Existing lifecycle schemas own inputs; stage mutations require a fresh exact owner card.
+ * O(1) declarations and one bounded service operation per call. No lead store is created here. */
+function leadDefinitions(required: { leads?: LeadsService }): OmToolDefinition[] {
+    const leads = required.leads;
+    if (!leads) return [];
+    return [
+        serviceDefinition({ name: 'om_leads_list', capability: 'Lead inbox', policy: 'read', schema: leadListInputSchema.omit({ context: true }),
+            invoke: ({ context, value, signal }) => leads.list({ context, ...value }, { signal }) }),
+        serviceDefinition({ name: 'om_leads_get', capability: 'Lead detail', policy: 'read', schema: leadGetInputSchema.omit({ context: true }),
+            invoke: ({ context, value, signal }) => leads.get({ context, ...value }, { signal }) }),
+        serviceDefinition({ name: 'om_leads_history', capability: 'Lead stage history', policy: 'read', schema: leadHistoryInputSchema.omit({ context: true }),
+            invoke: ({ context, value, signal }) => leads.history({ context, ...value }, { signal }) }),
+        serviceDefinition({ name: 'om_leads_set_stage', capability: 'Lead stage change', policy: 'write', ownerOnly: true, ownerRoute: 'setLeadStage',
+            schema: leadStageInputSchema.omit({ context: true }),
+            invoke: ({ context, value, signal }) => leads.setStage({ context, ...value }, { signal }) }),
+    ];
 }
 
 /** Existing owner services supply history/run control. Cancellation may end the calling run
@@ -744,16 +848,6 @@ function runEventsOutput(required: { outcome: Outcome<z.infer<typeof routes.runE
     return { ok: true, value: { ...page, events, status: events.length < page.events.length ? 'running' : page.status } };
 }
 
-/** Tool-boundary schemas mirror the public media DTOs; the owning service still validates
- * rights, digest equality, placement and guarded ingress. No storage or transport is built here.
- */
-const mediaProvenanceSchema = z.strictObject({
-    operationId: idSchema, source: z.string().min(1).max(2048), prompt: z.string().max(16000).nullable(),
-    model: idSchema.nullable(), seed: z.number().int().safe().nullable(), cost: moneySchema.nullable(),
-    vendorTerms: z.strictObject({ url: z.url().max(2048), digest: digestSchema, observedAt: z.number().int().nonnegative().safe() }).nullable(),
-    rights: z.strictObject({ evidenceId: idSchema, license: z.string().min(1).max(1024), permittedUses: idSchema.array().max(100) }),
-    generationId: idSchema.optional(), quoteId: idSchema.optional(), providerJobId: idSchema.optional(), reservationId: idSchema.optional(),
-});
 /** Four thin wrappers over the injected public MediaLibrary; absent composition advertises no
  * callable media stubs. Provenance success is a JSON receipt instead of Outcome<void>.
  * @complexity O(1) calls; inputs and dispatcher outputs are bounded to 64 KiB.
@@ -764,11 +858,11 @@ function mediaDefinitions(required: { media?: MediaLibrary }): OmToolDefinition[
     return [
         serviceDefinition({ name: 'om_media_list', capability: 'Media list', policy: 'read', schema: pageQuerySchema.extend({ limit: z.number().int().min(1).max(5) }),
             invoke: ({ context, value: query, signal }) => media.list({ context, query }, { signal }) }),
-        serviceDefinition({ name: 'om_media_import', capability: 'Import media with rights and expected digest', policy: 'write', schema: z.strictObject({ request: z.strictObject({ sourceUrl: z.url().max(2048), operationId: idSchema, expectedDigest: digestSchema, provenance: mediaProvenanceSchema }) }),
+        serviceDefinition({ name: 'om_media_import', capability: 'Import media with rights and expected digest', policy: 'write', schema: z.strictObject({ request: assetImportRequestSchema }),
             invoke: ({ context, value, signal }) => media.importAsset({ context, ...value }, { signal }) }),
-        serviceDefinition({ name: 'om_media_crop', capability: 'Non-destructive media placement crop', policy: 'write', schema: z.strictObject({ request: z.strictObject({ assetId: idSchema, placement: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/), presetVersion: z.number().int().min(1).max(10000) }) }),
+        serviceDefinition({ name: 'om_media_crop', capability: 'Non-destructive media placement crop', policy: 'write', schema: z.strictObject({ request: placementCropRequestSchema }),
             invoke: ({ context, value, signal }) => media.createCrop({ context, ...value }, { signal }) }),
-        serviceDefinition({ name: 'om_media_record_provenance', capability: 'Append media provenance', policy: 'write', schema: z.strictObject({ link: z.strictObject({ provenance: mediaProvenanceSchema, assetId: idSchema.optional() }) }),
+        serviceDefinition({ name: 'om_media_record_provenance', capability: 'Append media provenance', policy: 'write', schema: z.strictObject({ link: provenanceLinkSchema }),
             invoke: async ({ context, value, signal }) => {
                 const result = await media.recordProvenance({ context, ...value }, { signal });
                 return result.ok ? { ok: true, value: { recorded: true, operationId: value.link.provenance.operationId } } : result;
@@ -786,6 +880,12 @@ function coreDefinitions(required: { services: OwnerServices }): OmToolDefinitio
     return [
         serviceDefinition({ name: 'om_workspace_current', capability: 'Workspace current', schema: empty, policy: 'read',
             invoke: async ({ context }) => ({ ok: true, value: context.scope }) }),
+        serviceDefinition({ name: 'om_measure_experiment_sample_size', capability: 'Approximate A/B sample size; fixed 5% two-sided error, 80% power and absolute lift', schema: sampleSizeInputSchema, policy: 'read',
+            invoke: async ({ value }) => calculateExperimentSampleSize(value) }),
+        serviceDefinition({ name: 'om_measure_experiment_readout', capability: 'A/B qualified-lead readout from caller-supplied randomized assignment, completed observation including lag, and guardrail evidence; CPL goal is separate', schema: abReadoutInputSchema, policy: 'read',
+            invoke: async ({ value }) => readExperiment(value) }),
+        serviceDefinition({ name: 'om_measure_creative_fatigue', capability: 'Descriptive creative trends from comparable whole periods; unchanged setup includes creative, audience, placement, objective and timezone; no causal verdict', schema: creativeFatigueInputSchema, policy: 'read',
+            invoke: async ({ value }) => calculateCreativeFatigue(value) }),
         serviceDefinition({ name: 'om_safety_status', capability: 'Safety status', schema: account, policy: 'read',
             invoke: ({ context, value, signal }) => services.safety.snapshot({ context, ...value }, { signal }) }),
         serviceDefinition({ name: 'om_allowance_get', capability: 'Generation allowance settings', schema: empty, policy: 'read',
@@ -794,8 +894,6 @@ function coreDefinitions(required: { services: OwnerServices }): OmToolDefinitio
             invoke: ({ context, value: settings, signal }) => services.safety.setGenerationAllowance({ context, settings }, { signal }) }),
         serviceDefinition({ name: 'om_halt_account', capability: 'Local account halt', schema: account, policy: 'write', ownerOnly: true, ownerRoute: 'halt',
             invoke: ({ context, value, signal }) => services.safety.halt({ context, adAccountId: value.accountId }, { signal }) }),
-        serviceDefinition({ name: 'om_web_events_snippet', capability: 'Tracking snippet', schema: empty, policy: 'read',
-            invoke: async () => webEventSnippetSource({ collectionPath: '/c' }) }),
     ];
 }
 
@@ -843,6 +941,50 @@ function webEventDefinitions(required: { webEvents: WebEventService }): OmToolDe
             invoke: ({ context, value, signal }) => service.bindVisitor({ context, ...value }, { signal }) }),
     ];
 }
+
+/** Setup shares the authenticated tool transport used by CLI and Studio; output is text only. */
+function trackingDefinitions(required: { tracking?: OmFeatureServices['tracking'] }): OmToolDefinition[] {
+    const service = required.tracking;
+    if (!service) return [];
+    return [
+        serviceDefinition({ name: 'om_web_events_snippet', capability: 'Tracking snippet', schema: trackingSnippetInputSchema, policy: 'read', outputSchema: trackingSnippetOutputSchema,
+            invoke: ({ context, value, signal }) => service.snippet({ context, ...value }, { signal }) }),
+        serviceDefinition({ name: 'om_tracking_readiness', capability: 'Destination readiness and hosted-form fallback', schema: trackingReadinessInputSchema, policy: 'read', outputSchema: trackingReadinessOutputSchema,
+            invoke: ({ context, value, signal }) => service.readiness({ context, ...value }, { signal }) }),
+    ];
+}
+/** Grant changes use the single owner-only exact-card path across HTTP, CLI and assistant.
+ * @complexity O(1) declarations; one schema-bound service call per invocation. */
+function measurementGrantDefinitions(required: { grants?: OmFeatureServices['measurementGrants'] }): OmToolDefinition[] {
+    const service = required.grants;
+    if (!service) return [];
+    return [
+        serviceDefinition({ name: 'om_measure_grants_list', capability: 'Measurement grants list', policy: 'read', schema: pageQuerySchema,
+            invoke: ({ context, value: query, signal }) => service.list({ context, query }, { signal }) }),
+        serviceDefinition({ name: 'om_measure_grant', capability: 'Grant conversion sharing', policy: 'write', ownerOnly: true, schema: grantFieldsSchema,
+            invoke: ({ context, value: grant, signal }) => service.grant({ context, grant }, { signal }) }),
+        serviceDefinition({ name: 'om_measure_revoke_grant', capability: 'Revoke conversion sharing', policy: 'write', ownerOnly: true, schema: z.strictObject({ grantId: idSchema }),
+            invoke: ({ context, value, signal }) => service.revoke({ context, ...value }, { signal }) }),
+    ];
+}
+/** Results and refresh share the existing tool transport and jobs outbox.
+ * Refresh is a normal write, without spend authority or a plugin-specific gate.
+ * @complexity O(1) declarations; one bounded service call per invocation.
+ */
+function reportingDefinitions(required: { reporting?: OmFeatureServices['reporting'] }): OmToolDefinition[] {
+    const service = required.reporting;
+    if (!service) return [];
+    return [
+        serviceDefinition({ name: 'om_measure_results', capability: 'Per-campaign results', policy: 'read',
+            schema: z.strictObject({ query: campaignResultsQuerySchema }), outputSchema: campaignResultsSchema,
+            invoke: ({ context, value, signal }) => service.results({ context, query: value.query }, { signal }) }),
+        serviceDefinition({ name: 'om_measure_refresh', capability: 'Refresh campaign results', policy: 'write',
+            schema: z.strictObject({ syncId: metricSyncRequestSchema.shape.syncId, query: campaignResultsQuerySchema }),
+            invoke: ({ context, value: { syncId, query }, signal }) => service.enqueue({ context, request: { syncId,
+                pluginId: query.pluginId, connectionId: query.connectionId, accountId: query.accountId,
+                input: { grain: 'campaign', days: query.days } } }, { signal }) }),
+    ];
+}
 /** Privacy request blocks further processing; advance remains its server worker's responsibility. */
 function privacyDefinitions(required: { privacy: PrivacyService }): OmToolDefinition[] {
     const service = required.privacy;
@@ -887,10 +1029,14 @@ function campaignDefinitions(required: { campaignWorkflow: CampaignService }): O
 function featureDefinitions(required: { services: OmFeatureServices }): OmToolDefinition[] {
     const services = required.services;
     const definitions: OmToolDefinition[] = [];
+    definitions.push(...brandDefinitions({ brand: services.brand }));
+    definitions.push(...leadDefinitions({ leads: services.leads }));
     if (services.creative) definitions.push(...creativeDefinitions({ creative: services.creative }));
     if (services.contacts) definitions.push(...contactDefinitions({ contacts: services.contacts }));
     if (services.forms) definitions.push(...formDefinitions({ forms: services.forms }));
     if (services.webEvents) definitions.push(...webEventDefinitions({ webEvents: services.webEvents }));
+    definitions.push(...trackingDefinitions({ tracking: services.tracking }));
+    definitions.push(...reportingDefinitions({ reporting: services.reporting }));
     if (services.privacy) definitions.push(...privacyDefinitions({ privacy: services.privacy }));
     if (services.measure) definitions.push(...measureDefinitions({ measure: services.measure }));
     if (services.campaignWorkflow) definitions.push(...campaignDefinitions({ campaignWorkflow: services.campaignWorkflow }));
@@ -908,6 +1054,15 @@ function scopedDefinitions(required: { services: OmFeatureServices }): OmToolDef
     const services = required.services;
     const definitions: OmToolDefinition[] = [];
     const jobId = z.strictObject({ jobId: idSchema });
+    if (services.alerts) definitions.push(
+        serviceDefinition({ name: 'om_alerts_list', capability: 'Alert feed', policy: 'read', schema: alertQuerySchema,
+            invoke: ({ context, value: query }) => services.alerts!.list({ context, query }) }),
+        serviceDefinition({ name: 'om_alerts_acknowledge', capability: 'Acknowledge alert', policy: 'write', ownerOnly: true, ownerRoute: 'acknowledgeAlert',
+            schema: z.strictObject({ noticeId: idSchema }), outputSchema: routes.acknowledgeAlert.schema,
+            invoke: async ({ context, value }) => {
+                const result = await services.alerts!.acknowledge({ context, ...value });
+                return result.ok ? { ok: true, value: { status: 'acknowledged' } } : result;
+            } }));
     if (services.workspaces) definitions.push(serviceDefinition({ name: "om_workspaces_list", capability: "Workspace list", policy: "read", schema: pageQuerySchema,
         invoke: ({ context, value: query, signal }) => services.workspaces!.list({ context, query }, { signal }) }));
     if (services.jobs) definitions.push(
@@ -922,6 +1077,7 @@ function scopedDefinitions(required: { services: OmFeatureServices }): OmToolDef
             invoke: ({ context, signal }) => services.paidSending!.get({ context }, { signal }) }),
         serviceDefinition({ name: "om_paid_sending_allowance_set", capability: "Paid-sending allowance set", policy: "write", ownerOnly: true, schema: paidSendingAllowanceSchema,
             invoke: ({ context, value: settings, signal }) => services.paidSending!.set({ context, settings }, { signal }) }));
+    definitions.push(...measurementGrantDefinitions({ grants: services.measurementGrants }));
     return definitions;
 }
 
@@ -955,7 +1111,7 @@ function creativeStatusOutput(required: { outcome: Outcome<GenerationStatus> }):
 
 const addonRoutes = { addons_list: 'addons', addons_install: 'addonInstall', addons_set_enabled: 'addonSetEnabled',
     addons_uninstall: 'addonUninstall', integrations_list: 'integrations', integrations_disconnect: 'integrationDisconnect',
-    integrations_developer_token_status: 'integrationDeveloperTokenStatus',
+    integrations_plugin_secret_status: 'integrationPluginSecretStatus',
     integrations_oauth_start: 'integrationOAuthStart', integrations_oauth_status: 'integrationOAuthStatus' } as const;
 /** D2 owns installation/lifecycle and credential custody; all management calls use its one seam.
  * After dispatcher admission, only secret-free integration listing uses trusted service identity;

@@ -1,14 +1,12 @@
 /** Owner-only integration HTTP boundary; authentication must precede the lazy body reader. */
 import { z } from 'zod';
-import { callContextSchema, connectIntegrationTokenSchema, disconnectIntegrationSchema, idSchema,
+import { setConversionSettingsSchema, pluginSecretQuerySchema, callContextSchema, connectIntegrationTokenSchema, disconnectIntegrationSchema, digestSchema, idSchema,
     pageQuerySchema, parseBoundary } from '@open-marketing/contracts';
 import type { CallContext, Outcome } from '@open-marketing/contracts';
 import type { Integrations } from '../integrations.js';
 import type { HttpRequest, HttpResponse } from '../ports.js';
 import type { OmTools } from '../om-tools.js';
 import { oauthCallbackPath, oauthStartSchema, oauthStatusQuerySchema } from '../integration-oauth-contracts.js';
-import { developerTokenQuerySchema } from '../integration-oauth-contracts.js';
-import { credentialDigestSchema } from '../integration-credential-cards.js';
 
 /** Owner integration management. Trusted boot supplies authenticated scope; never take it from JSON.
  * Rechecks the principal before any body read, including direct/test callers.
@@ -22,11 +20,14 @@ export async function handleIntegrationRequest(required: {
     if (!context.success) return denied({ code: 'invalid_input' });
     if (context.data.principal.kind !== 'owner' || context.data.principal.ownerId !== context.data.scope.ownerId) return denied({ code: 'forbidden' });
     switch (required.request.method + ' ' + required.request.path) {
-        case 'GET /api/addons/v1/integrations/credential-asset': return credentialAsset(required);
-        case 'POST /api/addons/v1/integrations/developer-token': {
-            return setDeveloperToken(required);
+        case 'GET /api/addons/v1/integrations/conversion-settings': return conversionSettings(required);
+        case 'POST /api/addons/v1/integrations/conversion-settings': {
+            const body = await readBody(required);
+            return respond({ outcome: body.ok ? await required.integrations.setConversionSettings({ context: required.context, request: body.value }, { signal: required.request.signal }) : body });
         }
-        case 'GET /api/addons/v1/integrations/developer-token': return developerTokenStatus(required);
+        case 'GET /api/addons/v1/integrations/credential-asset': return credentialAsset(required);
+        case 'POST /api/addons/v1/integrations/plugin-secret': return setPluginSecret(required);
+        case 'GET /api/addons/v1/integrations/plugin-secret': return pluginSecretStatus(required);
         case 'POST /api/addons/v1/integrations/oauth/client': {
             const body = await readBody(required);
             return respond({ outcome: body.ok ? await required.integrations.setOAuthClient({ context: required.context, request: body.value }, { signal: required.request.signal }) : body });
@@ -49,9 +50,15 @@ export async function handleIntegrationRequest(required: {
 
 type IntegrationInput = Parameters<typeof handleIntegrationRequest>[0];
 
+/** Owner HTTP read; assistant scoped reads use the same service through the tool catalog. */
+async function conversionSettings(required: IntegrationInput): Promise<HttpResponse> {
+    const query = parseBoundary({ schema: setConversionSettingsSchema.pick({ pluginId: true }), input: required.request.query ?? {} });
+    return respond({ outcome: query.ok ? await required.integrations.conversionSettings({ context: required.context, ...query.value }, { signal: required.request.signal }) : query });
+}
+
 /** Binary icon delivery only; specimens are never executed. CSP also confines direct SVG views. */
 async function credentialAsset(required: IntegrationInput): Promise<HttpResponse> {
-    const query = parseBoundary({ schema: z.strictObject({ pluginId: idSchema, digest: credentialDigestSchema }), input: required.request.query ?? {} });
+    const query = parseBoundary({ schema: z.strictObject({ pluginId: idSchema, digest: digestSchema }), input: required.request.query ?? {} });
     if (!query.ok) return respond({ outcome: query });
     const result = await required.integrations.credentialAsset({ context: required.context, ...query.value }, { signal: required.request.signal });
     if (!result.ok) return respond({ outcome: result });
@@ -59,15 +66,16 @@ async function credentialAsset(required: IntegrationInput): Promise<HttpResponse
         headers: { 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox; frame-ancestors 'none'" } };
 }
 
-/** Owner authentication precedes this lazy secret body read; service validates and seals it. */
-async function setDeveloperToken(required: IntegrationInput): Promise<HttpResponse> {
+/** Authenticated owner ingress; the service parses declared fields inside its redacted boundary. */
+async function setPluginSecret(required: IntegrationInput): Promise<HttpResponse> {
     const body = await readBody(required);
-    return respond({ outcome: body.ok ? await required.integrations.setDeveloperToken({ context: required.context, request: body.value }, { signal: required.request.signal }) : body });
+    return respond({ outcome: body.ok ? await required.integrations.setPluginSecret({ context: required.context, request: body.value }, { signal: required.request.signal }) : body });
 }
-/** Strict Google-only query; status contains a boolean and no credential material. */
-async function developerTokenStatus(required: IntegrationInput): Promise<HttpResponse> {
-    const query = parseBoundary({ schema: developerTokenQuerySchema, input: required.request.query ?? {} });
-    return respond({ outcome: query.ok ? await required.integrations.developerTokenStatus({ context: required.context, ...query.value }, { signal: required.request.signal }) : query });
+
+/** Secret-free status accepts only a plugin identity, never credential material. */
+async function pluginSecretStatus(required: IntegrationInput): Promise<HttpResponse> {
+    const query = parseBoundary({ schema: pluginSecretQuerySchema, input: required.request.query ?? {} });
+    return respond({ outcome: query.ok ? await required.integrations.pluginSecretStatus({ context: required.context, ...query.value }, { signal: required.request.signal }) : query });
 }
 
 /** Policy owns start approval and idempotency; callback continues only its single-use state. */

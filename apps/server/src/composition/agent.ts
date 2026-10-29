@@ -344,8 +344,9 @@ export function createLocalAgent(required: { effects: AgentEffects; clock: Clock
             if (!available || !client) return failure({ code: 'unavailable', message: 'OM agent unavailable' });
             const capacity = releaseFinishedRun({ runs, tokens });
             if (!capacity.ok) return capacity;
-            if (required.persistence) return required.persistence.start({ context, prompt, conversationId: options.conversationId,
+            if (required.persistence) return required.persistence.start({ context, prompt, conversationId: options.conversationId, attachments: options.attachments,
                 launch: input => begin({ ...input, context, prompt, frontendSessionId: options.frontendSessionId, frontendBindToken: options.frontendBindToken }) });
+            if (options.attachments?.length) return failure({ code: 'invalid_input', message: 'Image attachments need a model connection.' });
             return begin({ context, prompt, ...options, mode: 'sandbox', runId: required.ids.next({}), conversationId: options.conversationId ?? required.ids.next({}), expiresAt: required.clock.now({}) + 300000 });
         },
         async events(input) {

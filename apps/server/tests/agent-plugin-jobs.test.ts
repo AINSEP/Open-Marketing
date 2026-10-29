@@ -5,7 +5,6 @@ import { createSubjectLane } from '../src/composition/subject-lane.js';
 import { formRetryPolicy } from '../src/composition/forms.js';
 /** R2 fixtures use real safety/measure/jobs services and plugin codecs; all egress is injected. */
 import { readFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { expect, it } from 'vitest';
@@ -13,13 +12,15 @@ import type { CallContext, ClockPort, HaltStopRequest, Outcome, UnitOfWork } fro
 import { createMemoryAccountDispatchLock, createMemoryConfirmationExchange, createMemorySafetyAudit, createMemorySafetyRepo,
     createMemorySpendPolicy, createMemoryPlatformLimitEvidence, createMemoryVerifiedEffectResolver, createSafetyService, digestArguments } from '@open-marketing/safety';
 import { createMemoryConversionDeliveryState, createMemoryConversionVerification, createMemoryMeasurementGrant, createSqlMeasureAudit, createMeasurementShareabilityAdapter } from '@open-marketing/measure';
-import type { ConversionInput, MeasureGrant } from '@open-marketing/measure';
+import type { ConversionDeliveryPort, ConversionInput, MeasureGrant } from '@open-marketing/measure';
 import { createSqlFormsStorage } from '@open-marketing/forms';
 import { bindPrivacy } from '../src/composition/privacy.js';
-import { bindAgentPluginBackends, bindAgentPluginJobs } from '../src/composition/agent-plugin-backends.js';
+import { bindAgentPluginBackends, bindAgentPluginJobs, countAddonJobs } from '../src/composition/agent-plugin-backends.js';
 import { bindAgentPluginHaltJobs, createFormWorkers } from '../src/composition/workers.js';
 import { bindServerDatabase, provisionWorkspace } from '../src/composition/database.js';
 import { migrationManifest } from '../src/composition/migrations.js';
+import * as linkedInSource from '../../../content/agent-plugins/linkedin-ads/io.github.ainsep.openmarketing/src/index.js';
+import * as tikTokSource from '../../../content/agent-plugins/tiktok-ads/io.github.ainsep.openmarketing/src/index.js';
 
 /** Captured approval evidence; each fixture owns its audit records. */
 function answerAudit() {
@@ -36,7 +37,7 @@ const clock = { now: () => 1000 };
 const observer = { observe() {} };
 function value<T>(required: { result: Outcome<T> }): T { if (!required.result.ok) throw new Error(required.result.error.message); return required.result.value; }
 
-async function fixture(required: { pluginId?: 'linkedin-ads' | 'tiktok-ads'; clock?: ClockPort; onFetch?(): Promise<void> } = {}) {
+async function fixture(required: { pluginId?: string; module?: object; clock?: ClockPort; onFetch?(): Promise<void> } = {}) {
     const fixtureClock = required.clock ?? clock;
     const selectedPlugin = required.pluginId ?? 'linkedin-ads';
     const native = new Database(':memory:');
@@ -57,26 +58,28 @@ async function fixture(required: { pluginId?: 'linkedin-ads' | 'tiktok-ads'; clo
     const calls: { url: string; options?: RequestInit }[] = [];
     const credentials: string[] = [];
     let admitted = true; let tokenCallback = async () => {}; let bindingCallback = async () => {};
-    const require = createRequire(import.meta.url);
     const backend = bindAgentPluginBackends({ projectRoot: '/fixture', clock: fixtureClock, observer, mode: 'production', accountLocks: locks, subjectLane,
+        addons: { async list() { return { ok: true, value: { items: [{ kind: 'agent-plugin', id: selectedPlugin, name: selectedPlugin, description: '', version: '1', enabled: true, revision: 'a'.repeat(64) }], cursor: null } }; } },
         jobs: bindAgentPluginJobs({ unit: database.unit, clock: fixtureClock, ids, observer }), safetyRepo: repo, unit: database.unit,
         policyForTransaction: ({ unit }) => identity.forTransaction({ unit }).policy,
         async moduleDigest() { return 'd'.repeat(64); },
         async loadModule() {
-            if (selectedPlugin === 'tiktok-ads') return require('../../../content/agent-plugins/tiktok-ads/io.github.ainsep.openmarketing/dist/index.mjs') as object;
-            return require('../../../content/agent-plugins/linkedin-ads/io.github.ainsep.openmarketing/dist/index.mjs') as object;
+            return required.module ?? (selectedPlugin === 'tiktok-ads' ? tikTokSource : linkedInSource);
         },
         async wait() { return { ok: true, value: undefined }; },
-        async state({ pluginId }) { return pluginId === selectedPlugin ? { enabled: true, admitted, bundled: true, revision: 'a'.repeat(64), metadata: { currency: 'USD', conversionConfiguration: {
-            scope: context.scope, connectionId: 'connection', accountId: '123', currency: 'USD', apiVersion: '202610', bindingId: 'linkedin-ads.stop.v1',
-            destination: 'linkedin', purpose: 'measurement', payloadSchema: 'om.conversion', mode: 'production-server',
+        async state({ pluginId }) { return pluginId === selectedPlugin ? { enabled: true, admitted, bundled: true, entryUrl: 'file:///fixture/' + pluginId + '/io.github.ainsep.openmarketing/dist/index.mjs', revision: 'a'.repeat(64), metadata: { conversionConfiguration: {
+            accountId: '123', purpose: 'measurement', payloadSchema: 'om.conversion',
             conversionRules: { purchase: 'urn:lla:llaPartnerConversion:456' },
         } } } : null; },
         accounts: { async find({ externalAccountId }) { await bindingCallback(); return { ok: true, value: { id: 'binding', scope: context.scope, connectionId: 'connection', externalAccountId } }; } },
         integrations: { async access({ pluginId }) { credentials.push(pluginId); await tokenCallback(); return { ok: true, value: { accessToken: 'fixture-only-token' } }; } },
-        fetch: async (url, options) => { expect(native.inTransaction).toBe(false); calls.push({ url: String(url), options }); await required.onFetch?.(); return new Response(null, { status: 201 }); },
+        fetch: async (url, options) => {
+            expect(native.inTransaction).toBe(false); calls.push({ url: String(url), options }); await required.onFetch?.();
+            if (String(url) === 'https://api.linkedin.com/rest/adAccounts/123' && options?.method === 'GET') return new Response(JSON.stringify({ id: '123', currency: 'USD' }), { status: 200 });
+            return new Response(null, { status: 201 });
+        },
     });
-    return { native, database, ids, locks, repo, backend, calls, credentials, subjectLane, identity, jobs, clock: fixtureClock,
+    return { native, database, ids, locks, repo, backend, calls, credentials, subjectLane, identity, jobs, clock: fixtureClock, pluginId: selectedPlugin,
         onBinding(input: { callback(): Promise<void> }) { bindingCallback = input.callback; },
         unadmit() { admitted = false; }, onToken(input: { callback(): Promise<void> }) { tokenCallback = input.callback; }, close() { native.close(); } };
 }
@@ -124,7 +127,7 @@ it('commits halt before enqueue, obtains a fresh worker permit, and never replay
         // A lost/invalid acknowledgement cannot mark the durable halt stopped.
         expect(value({ result: await f.repo.getHalt({ context, accountId: '123' }) }).remoteStatus).toBe('pending');
         const pause = definitions.find(tool => tool.name === 'vendor_tiktok_ads_tiktok_ads_pause_entity')!;
-        expect(await pause.invoke({ context, input: { operationId: 'after-halt', connectionId: 'connection', accountId: '123', currency: 'USD', arguments: { kind: 'pause-entity', entityType: 'campaign', entityId: '456' } } })).toMatchObject({ ok: false });
+        expect(await pause.invoke({ context, input: { operationId: 'after-halt', connectionId: 'connection', accountId: '123', arguments: { kind: 'pause-entity', entityType: 'campaign', entityId: '456' } } })).toMatchObject({ ok: false });
         expect(f.calls).toHaveLength(1);
     } finally { await workers.stop({}); f.close(); }
 });
@@ -166,11 +169,13 @@ it('rejects a stale halt epoch and unadmitted stop before token/network access',
     } finally { f.close(); }
 });
 
-const event: ConversionInput = { eventId: 'event', definitionId: 'purchase', subjectId: 'subject', occurredAt: 1000, destination: 'linkedin', purpose: 'measurement', identifierDigests: { email: 'a'.repeat(64) } };
-const grant: MeasureGrant = { kind: 'measurement', grantId: 'grant', scope: context.scope, connectionId: 'connection', accountId: '123', definitionIds: ['purchase'], destination: 'linkedin', purpose: 'measurement', payloadSchema: 'om.conversion', payloadVersion: 1, expiresAt: 100000, revoked: false };
+const event: ConversionInput = { eventId: 'event', definitionId: 'purchase', subjectId: 'subject', occurredAt: 1000, destination: 'linkedin-ads', purpose: 'measurement', identifierDigests: { email: 'a'.repeat(64) } };
+const grant: MeasureGrant = { kind: 'measurement', grantId: 'grant', scope: context.scope, connectionId: 'connection', accountId: '123', definitionIds: ['purchase'], destination: 'linkedin-ads', purpose: 'measurement', payloadSchema: 'om.conversion', payloadVersion: 1, expiresAt: 100000, revoked: false };
 async function conversions(required: { f: Awaited<ReturnType<typeof fixture>>; local?: boolean; beforeAssess?(): Promise<void>; beforeAppend?(): Promise<void>;
     admissionErasure?: 'pending' | 'erased'; failAdmissionEvidence?: boolean }) {
     const clock = required.f.clock;
+    const event = { ...conversionRequest.event, destination: required.f.pluginId };
+    const grant = { ...conversionRequest.grant, destination: required.f.pluginId };
     let allowed = true; let withdrawAtAudit = false;
     const records: unknown[] = [];
     const ledger = createMemoryConversionDeliveryState({});
@@ -218,12 +223,154 @@ async function conversions(required: { f: Awaited<ReturnType<typeof fixture>>; l
         identifiers: { async identifiersFor() { return { ok: true, value: { subjectId: 'subject', identifiers: { email: 'b'.repeat(64) }, identifierDigests: event.identifierDigests } }; } },
         verification: createMemoryConversionVerification({ events: [{ scope: context.scope, event }] }),
         ...rootAuthority, policy: createMeasurementShareabilityAdapter({ clock, loadEvidence: rootAuthority.loadEvidence }), authority,
-        ledger: { async begin(input) { records.push(input.record); return ledger.begin(input); }, async append(input) { records.push(input.record); await required.beforeAppend?.(); return ledger.append(input); } },
+        ledger: { read: input => ledger.read(input), async begin(input) { records.push(input.record); return ledger.begin(input); }, async append(input) { records.push(input.record); await required.beforeAppend?.(); return ledger.append(input); } },
     });
     const dispatcher = { dispatch(input: typeof conversionRequest, options?: { signal?: AbortSignal }) { return claimedDispatcher.dispatch({ ...input, claim }, options); } };
     return { dispatcher, claimedDispatcher, claim, records, withdraw() { allowed = false; }, withdrawAtAudit() { withdrawAtAudit = true; } };
 }
 const conversionRequest = { context: { ...serviceContext, serviceId: 'measure-worker' }, event, grant, deliveryId: 'delivery' };
+
+it.each([
+    { result: 'delivered', reason: 'protocol_mismatch' },
+    { result: 'unknown', reason: 'unavailable' },
+    { result: 'throw', reason: 'unavailable' },
+    { result: 'malformed', reason: 'unavailable' },
+] as const)('records $reason when a plugin returns $result without native egress', async ({ result, reason }) => {
+    const f = await fixture({ module: { createConversionDelivery() { return {
+        async deliver() {
+            if (result === 'throw') throw new Error('fixture-secret');
+            if (result === 'malformed') return { ok: true, value: { status: 'not_sent', reason: 'forbidden' } };
+            return { ok: true, value: { status: result } };
+        },
+    }; } } });
+    const c = await conversions({ f });
+    try {
+        expect(await c.dispatcher.dispatch(conversionRequest)).toEqual({ ok: true, value: { status: 'not_sent', reason } });
+        expect(f.calls).toEqual([]);
+        expect(await f.jobs.outbox.get({ tenantId: jobTenant({ context }), id: c.claim.jobId })).toMatchObject({ state: 'failed', leaseToken: null });
+        expect(c.records).toContainEqual(expect.objectContaining({ status: 'not_sent', reason }));
+        expect(JSON.stringify(c.records)).not.toContain('fixture-secret');
+    } finally { f.close(); }
+});
+it('keeps a native-fetch exception uncertain and completes the outbox for reconciliation', async () => {
+    const f = await fixture({ async onFetch() { throw new Error('fixture-secret response lost'); } });
+    const c = await conversions({ f });
+    try {
+        expect(await c.dispatcher.dispatch(conversionRequest)).toEqual({ ok: true, value: { status: 'unknown' } });
+        expect(f.calls).toHaveLength(1);
+        expect(await f.jobs.outbox.get({ tenantId: jobTenant({ context }), id: c.claim.jobId })).toMatchObject({ state: 'reconcile', leaseToken: null });
+        expect(c.records).toContainEqual(expect.objectContaining({ status: 'unknown' }));
+        expect(JSON.stringify(c.records)).not.toContain('fixture-secret');
+    } finally { f.close(); }
+});
+it.each([
+    { method: 'GET', requestObject: false },
+    { method: 'POST', requestObject: false },
+    { method: 'POST', requestObject: true },
+])('claim-less readback enforces $method ($requestObject Request) without outbox changes', async ({ method, requestObject }) => {
+    const diagnostics = { accepted: true, processed: null, attributed: null, observedAt: 1000 };
+    const f = await fixture({ module: { createConversionDelivery(ports: { fetch: typeof fetch }) { return {
+        async deliver() {
+            await ports.fetch('https://fixture.invalid/conversions', { method: 'POST' });
+            return { ok: true, value: { status: 'delivered', receiptId: 'saved-receipt', diagnostics } };
+        },
+        async reconcile(input: Parameters<NonNullable<ConversionDeliveryPort['reconcile']>>[0]) {
+            expect(input.receiptId).toBe('saved-receipt');
+            expect(input.event).not.toHaveProperty('identifiers');
+            if (requestObject) await ports.fetch(new Request('https://fixture.invalid/status', { method }));
+            else await ports.fetch('https://fixture.invalid/status', { method });
+            return { ok: true, value: { status: 'delivered', receiptId: input.receiptId, diagnostics: { ...diagnostics, processed: true } } };
+        },
+    }; } } });
+    const c = await conversions({ f });
+    try {
+        const sent = await c.dispatcher.dispatch(conversionRequest);
+        expect(sent).toMatchObject({ ok: true, value: { status: 'delivered', receiptId: 'saved-receipt' } });
+        const job = await f.jobs.outbox.get({ tenantId: jobTenant({ context }), id: c.claim.jobId });
+        const attempts = f.native.prepare('SELECT * FROM job_attempt ORDER BY rowid').all();
+        const records = c.records.length;
+        const result = await c.claimedDispatcher.reconcile(conversionRequest);
+        if (method === 'GET') expect(result).toMatchObject({ ok: true, value: { receiptId: 'saved-receipt', diagnostics: { processed: true } } });
+        else expect(result).toEqual(sent);
+        expect(f.calls.map(call => call.options?.method ?? 'GET')).toEqual(method === 'GET' ? ['POST', 'GET'] : ['POST']);
+        expect(c.records.length).toBe(records + (method === 'GET' ? 1 : 0));
+        expect(await f.jobs.outbox.get({ tenantId: jobTenant({ context }), id: c.claim.jobId })).toEqual(job);
+        expect(f.native.prepare('SELECT * FROM job_attempt ORDER BY rowid').all()).toEqual(attempts);
+    } finally { f.close(); }
+});
+
+it('hands the worker lease to A3 for exactly one dispatch-start and durable completion', async () => {
+    const f = await fixture(); const c = await conversions({ f });
+    // The shared direct-A3 fixture claims its job; release that fixture claim so the worker claims it.
+    f.native.prepare("UPDATE job SET state='pending', lease_token=NULL, lease_expires_at=NULL WHERE id=?").run(c.claim.jobId);
+    const workers = createFormWorkers({ unit: f.database.unit, clock, ids: f.ids, observer, context,
+        conversions: { dispatch: c.claimedDispatcher.dispatch, async load(input) {
+            expect(input).toEqual({ context: { ...serviceContext, serviceId: 'om-conversion-worker' }, subjectId: event.subjectId, eventId: event.eventId });
+            expect(await f.jobs.outbox.get({ tenantId: jobTenant({ context }), id: c.claim.jobId })).toMatchObject({ state: 'leased' });
+            return { ok: true, value: { event, grant } };
+        } },
+        forms: { async accept() { throw new Error('Unexpected forms job'); } }, schedule() { throw new Error('Manual worker only'); } });
+    try {
+        expect(await workers.processOne()).toEqual({ kind: 'completed', state: 'succeeded', jobId: c.claim.jobId });
+        expect(f.native.prepare("SELECT state FROM job_attempt WHERE event_type='dispatch'").all()).toEqual([{ state: 'dispatching' }]);
+        expect(f.native.prepare("SELECT state FROM job_attempt WHERE event_type='complete'").all()).toEqual([{ state: 'succeeded' }]);
+        expect(await f.jobs.outbox.get({ tenantId: jobTenant({ context }), id: c.claim.jobId })).toMatchObject({ state: 'succeeded', leaseToken: null });
+        expect(f.calls).toHaveLength(1);
+        expect(await workers.processOne()).toEqual({ kind: 'idle' });
+        expect(f.calls).toHaveLength(1);
+    } finally { await workers.stop({}); f.close(); }
+});
+
+it('rejects a worker lease replaced during conversion loading before credentials or egress', async () => {
+    const f = await fixture(); const c = await conversions({ f });
+    f.native.prepare("UPDATE job SET state='pending', lease_token=NULL, lease_expires_at=NULL WHERE id=?").run(c.claim.jobId);
+    const workers = createFormWorkers({ unit: f.database.unit, clock, ids: f.ids, observer, context,
+        conversions: { dispatch: c.claimedDispatcher.dispatch, async load() {
+            f.native.prepare("UPDATE job SET lease_token='foreign' WHERE id=?").run(c.claim.jobId);
+            return { ok: true, value: { event, grant } };
+        } },
+        forms: { async accept() { throw new Error('Unexpected forms job'); } }, schedule() { throw new Error('Manual worker only'); } });
+    try {
+        expect(await workers.processOne()).toEqual({ kind: 'stale' });
+        expect(f.calls).toEqual([]); expect(f.credentials).toEqual([]);
+        expect(f.native.prepare("SELECT state FROM job_attempt WHERE event_type='dispatch'").all()).toEqual([]);
+        expect(f.native.prepare("SELECT state FROM job_attempt WHERE event_type='complete'").all()).toEqual([]);
+        expect(await f.jobs.outbox.get({ tenantId: jobTenant({ context }), id: c.claim.jobId })).toMatchObject({ state: 'leased', leaseToken: 'foreign' });
+    } finally { await workers.stop({}); f.close(); }
+});
+
+it('selects a replacement conversion destination and forwards its install settings through guarded dependencies', async () => {
+    const pluginId = 'fixture-conversions'; let factories = 0;
+    const f = await fixture({ pluginId, module: {
+        createConversionDelivery(ports: Parameters<typeof linkedInSource.createConversionDelivery>[0]) {
+            factories++;
+            expect(ports.configuration).toMatchObject({ scope: context.scope, connectionId: 'connection', accountId: '123', settings: {
+                conversionConfiguration: { accountId: '123', purpose: 'measurement', payloadSchema: 'om.conversion',
+                    conversionRules: { purchase: 'urn:lla:llaPartnerConversion:456' } },
+            } });
+            expect(typeof ports.authority.dispatch).toBe('function');
+            return {
+                async deliver(input: Parameters<ConversionDeliveryPort['deliver']>[0], options?: { signal?: AbortSignal }) {
+                    expect(input.grant.destination).toBe(pluginId);
+                    const access = await ports.credentials.access({ connectionId: input.grant.connectionId, accountId: input.grant.accountId }, options);
+                    if (!access.ok) return access;
+                    await ports.fetch('https://fixture.invalid/conversions', { method: 'POST', signal: options?.signal });
+                    return { ok: true as const, value: { status: 'delivered' as const } };
+                },
+                async reconcile() { return { ok: true as const, value: { status: 'unknown' as const } }; },
+            };
+        },
+    } });
+    const c = await conversions({ f });
+    try {
+        expect(await c.dispatcher.dispatch({ ...conversionRequest, event: { ...event, destination: pluginId }, grant: { ...grant, destination: pluginId } })).toEqual({ ok: true, value: { status: 'delivered' } });
+        expect(factories).toBe(1);
+        expect(f.credentials).toEqual([pluginId]);
+        expect(f.calls).toHaveLength(1);
+        expect(f.calls[0].url).toBe('https://fixture.invalid/conversions');
+        expect(admissionRows({ f })).toHaveLength(1);
+    } finally { f.close(); }
+});
 
 it('rechecks consent at dispatch and after token resolution, with zero egress after withdrawal', async () => {
     for (const phase of ['audit', 'credentials'] as const) {
@@ -232,8 +379,9 @@ it('rechecks consent at dispatch and after token resolution, with zero egress af
             if (phase === 'audit') c.withdrawAtAudit();
             else f.onToken({ async callback() { c.withdraw(); } });
             const result = await c.dispatcher.dispatch(conversionRequest);
-            if (phase === 'audit') expect(result).toMatchObject({ ok: false, error: { code: 'forbidden' } });
-            else { expect(f.credentials).toEqual(['linkedin-ads']); expect(result).toMatchObject({ ok: false, error: { code: 'forbidden' } }); }
+            expect(result).toEqual({ ok: true, value: { status: 'not_sent', reason: 'forbidden' } });
+            if (phase === 'credentials') expect(f.credentials).toEqual(['linkedin-ads']);
+            expect(await f.jobs.outbox.get({ tenantId: jobTenant({ context }), id: c.claim.jobId })).toMatchObject({ state: 'denied', leaseToken: null });
             expect(f.calls).toEqual([]);
             expect(JSON.stringify(c.records)).not.toContain('b'.repeat(64));
         } finally { f.close(); }
@@ -272,8 +420,9 @@ it('refuses conversion egress when halt commits after an earlier unhalted snapsh
         expect(await service.haltAccount({ context, adAccountId: '123' })).toMatchObject({ ok: true });
         expect(value({ result: await snapshot({ context, accountId: '123' }) }).halted).toBe(true);
         resume.resolve();
-        expect(await delivering).toEqual({ ok: true, value: { status: 'unknown' } });
+        expect(await delivering).toEqual({ ok: true, value: { status: 'not_sent', reason: 'forbidden' } });
         expect(f.calls).toEqual([]);
+        expect(await f.jobs.outbox.get({ tenantId: jobTenant({ context }), id: c.claim.jobId })).toMatchObject({ state: 'denied', leaseToken: null });
         expect(await c.dispatcher.dispatch(conversionRequest)).toMatchObject({ ok: false, error: { code: 'conflict' } });
         expect(f.calls).toEqual([]);
     } finally { resume.resolve(); await delivering; f.close(); }
@@ -289,7 +438,7 @@ it('refuses conversion egress when the plugin is unadmitted during the final con
         await entered.promise;
         expect(f.credentials).toEqual(['linkedin-ads']);
         f.unadmit(); resume.resolve();
-        expect(await delivering).toEqual({ ok: true, value: { status: 'unknown' } });
+        expect(await delivering).toEqual({ ok: true, value: { status: 'not_sent', reason: 'forbidden' } });
         expect(f.calls).toEqual([]);
         expect(await safety({ f, requests: [] }).haltAccount({ context, adAccountId: '123' })).toMatchObject({ ok: true });
     } finally { resume.resolve(); await delivering; f.close(); }
@@ -341,7 +490,7 @@ it('serializes an in-flight ordinary write with local halt and rejects later wri
     const f = await fixture(); const service = safety({ f, requests: [] });
     const entered = Promise.withResolvers<void>(); const release = Promise.withResolvers<void>();
     const pause = value({ result: await f.backend.definitions({ context }) }).find(tool => tool.name === 'vendor_linkedin_ads_pause')!;
-    const input = { operationId: 'in-flight', connectionId: 'connection', accountId: '123', currency: 'USD', arguments: { kind: 'pause', campaignId: '456' } };
+    const input = { operationId: 'in-flight', connectionId: 'connection', accountId: '123', arguments: { kind: 'pause', campaignId: '456' } };
     try {
         f.onToken({ async callback() { entered.resolve(); await release.promise; } });
         const writing = pause.invoke({ context, input });
@@ -351,13 +500,14 @@ it('serializes an in-flight ordinary write with local halt and rejects later wri
         release.resolve();
         expect(await writing).toMatchObject({ ok: true });
         expect(await halting).toMatchObject({ ok: true });
-        expect(f.calls).toHaveLength(1);
+        expect(f.calls).toHaveLength(2);
+        expect(f.calls.map(call => call.options?.method)).toEqual(['GET', 'POST']);
         expect(await pause.invoke({ context, input: { ...input, operationId: 'later-write' } })).toMatchObject({ ok: false });
-        expect(f.calls).toHaveLength(1);
+        expect(f.calls).toHaveLength(2);
     } finally { release.resolve(); f.close(); }
 });
 
-it('keeps canonical halt permits fail-closed when LinkedIn uses an incompatible insertion-order digest', async () => {
+it('dispatches the canonical safety-issued permit through the LinkedIn halt capability', async () => {
     const f = await fixture(); const requests: HaltStopRequest[] = [];
     const service = safety({ f, requests });
     try {
@@ -367,8 +517,10 @@ it('keeps canonical halt permits fail-closed when LinkedIn uses an incompatible 
             pluginDigest: value({ result: await f.backend.definitions({ context }) })[0].revision!, bindingId: 'linkedin-ads.stop.v1', argumentsDigest: value({ result: digestArguments({ arguments: args }) }) };
         requests.push(request);
         const permit = value({ result: await service.authorizeHaltStop({ context: serviceContext, request }) });
-        expect(await f.backend.haltStop({ context: { ...context, principal: { kind: 'service', serviceId: serviceContext.serviceId } }, pluginId: 'linkedin-ads', permit })).toMatchObject({ ok: false, error: { code: 'conflict' } });
-        expect(f.calls).toEqual([]); expect(f.credentials).toEqual([]);
+        expect(await f.backend.haltStop({ context: { ...context, principal: { kind: 'service', serviceId: serviceContext.serviceId } }, pluginId: 'linkedin-ads', permit })).toEqual({ ok: true, value: { status: 'unknown', entityIds: ['456'] } });
+        expect(f.calls).toHaveLength(1);
+        expect(f.calls[0].options?.method).toBe('POST');
+        expect(f.credentials).toEqual(['linkedin-ads']);
     } finally { f.close(); }
 });
 
@@ -376,7 +528,7 @@ it('keeps canonical halt permits fail-closed when LinkedIn uses an incompatible 
  * A future Postgres adapter must run these cases with SERIALIZABLE or a shared subject row lock. */
 async function withdrawConsent(required: { f: Awaited<ReturnType<typeof fixture>>; subjectId?: string }) {
     return required.f.identity.policy.appendEvidence({ context, evidence: { id: 'withdrawal', scope: context.scope, subjectId: required.subjectId ?? 'subject', kind: 'withdrawal',
-        recordedAt: clock.now(), sourceId: 'owner', consent: { scope: 'destination', target: 'linkedin', purpose: 'measurement', status: 'withdrawn', start: 1000, end: 100000 } } });
+        recordedAt: clock.now(), sourceId: 'owner', consent: { scope: 'destination', target: 'linkedin-ads', purpose: 'measurement', status: 'withdrawn', start: 1000, end: 100000 } } });
 }
 function admissionRows(required: { f: Awaited<ReturnType<typeof fixture>> }) {
     return required.f.native.prepare("SELECT operation_id,outcome,context_json FROM measure_egress_audit WHERE outcome='egress_admitted' ORDER BY rowid").all();
@@ -502,7 +654,7 @@ it('fails closed on admission audit failure and cannot egress or nest a root tra
     const f = await fixture(); const c = await conversions({ f });
     try {
         f.native.exec("CREATE TRIGGER refuse_admission BEFORE INSERT ON measure_egress_audit WHEN NEW.outcome='egress_admitted' BEGIN SELECT RAISE(ABORT,'fixture audit failure'); END");
-        expect(await c.dispatcher.dispatch(conversionRequest)).toEqual({ ok: true, value: { status: 'unknown' } });
+        expect(await c.dispatcher.dispatch(conversionRequest)).toEqual({ ok: true, value: { status: 'not_sent', reason: 'forbidden' } });
         expect(f.calls).toEqual([]); expect(admissionRows({ f })).toEqual([]);
         expect(f.native.prepare("SELECT state FROM job_attempt WHERE event_type='dispatch'").all()).toEqual([]);
         expect(f.native.inTransaction).toBe(false);
@@ -512,7 +664,7 @@ it('fails closed on admission audit failure and cannot egress or nest a root tra
 it.each(['pending', 'erased'] as const)('evaluates current %s erasure inside admission and commits denial without starting dispatch', async admissionErasure => {
     const f = await fixture(); const c = await conversions({ f, admissionErasure });
     try {
-        expect(await c.dispatcher.dispatch(conversionRequest)).toMatchObject({ ok: false, error: { code: 'forbidden' } });
+        expect(await c.dispatcher.dispatch(conversionRequest)).toMatchObject({ ok: true, value: { status: 'not_sent', reason: 'forbidden' } });
         expect(f.calls).toEqual([]);
         expect(f.native.prepare("SELECT state FROM job_attempt WHERE event_type='dispatch'").all()).toEqual([]);
         expect(await f.jobs.outbox.get({ tenantId: jobTenant({ context }), id: c.claim.jobId })).toMatchObject({ state: 'denied', leaseToken: null });
@@ -521,25 +673,25 @@ it.each(['pending', 'erased'] as const)('evaluates current %s erasure inside adm
     } finally { f.close(); }
 });
 
-it('rolls back admission on a current-evidence failure and leaves possible effects for reconciliation', async () => {
+it('rolls back admission on a current-evidence failure and records a definite refusal', async () => {
     const f = await fixture(); const c = await conversions({ f, failAdmissionEvidence: true });
     try {
-        expect(await c.dispatcher.dispatch(conversionRequest)).toEqual({ ok: true, value: { status: 'unknown' } });
+        expect(await c.dispatcher.dispatch(conversionRequest)).toEqual({ ok: true, value: { status: 'not_sent', reason: 'forbidden' } });
         expect(f.calls).toEqual([]); expect(admissionRows({ f })).toEqual([]);
         expect(f.native.prepare("SELECT state FROM job_attempt WHERE event_type='dispatch'").all()).toEqual([]);
-        expect(await f.jobs.outbox.get({ tenantId: jobTenant({ context }), id: c.claim.jobId })).toMatchObject({ state: 'reconcile', leaseToken: null });
+        expect(await f.jobs.outbox.get({ tenantId: jobTenant({ context }), id: c.claim.jobId })).toMatchObject({ state: 'denied', leaseToken: null });
     } finally { f.close(); }
 });
 
-it('rolls back a policy denial when its admission evidence cannot be appended', async () => {
+it('rolls back failed admission evidence and separately completes the definite refusal', async () => {
     const f = await fixture(); const c = await conversions({ f, admissionErasure: 'pending' });
     try {
         f.native.exec("CREATE TRIGGER refuse_denial BEFORE INSERT ON measure_egress_audit WHEN NEW.outcome='egress_denied' BEGIN SELECT RAISE(ABORT,'fixture audit failure'); END");
-        expect(await c.dispatcher.dispatch(conversionRequest)).toEqual({ ok: true, value: { status: 'unknown' } });
+        expect(await c.dispatcher.dispatch(conversionRequest)).toEqual({ ok: true, value: { status: 'not_sent', reason: 'forbidden' } });
         expect(f.credentials).toEqual(['linkedin-ads']); expect(f.calls).toEqual([]);
         expect(f.native.prepare("SELECT outcome FROM measure_egress_audit WHERE outcome LIKE 'egress_%'").all()).toEqual([]);
-        expect(f.native.prepare("SELECT state FROM job_attempt WHERE state='denied'").all()).toEqual([]);
-        expect(await f.jobs.outbox.get({ tenantId: jobTenant({ context }), id: c.claim.jobId })).toMatchObject({ state: 'reconcile', leaseToken: null });
+        expect(f.native.prepare("SELECT state FROM job_attempt WHERE state='denied'").all()).toEqual([{ state: 'denied' }]);
+        expect(await f.jobs.outbox.get({ tenantId: jobTenant({ context }), id: c.claim.jobId })).toMatchObject({ state: 'denied', leaseToken: null });
     } finally { f.close(); }
 });
 
@@ -565,10 +717,10 @@ it('records exactly one dispatch transition and checks abortion immediately afte
     const f = await fixture(); const c = await conversions({ f }); const controller = new AbortController();
     try {
         f.onBinding({ async callback() { if (admissionRows({ f }).length) controller.abort(); } });
-        expect(await c.dispatcher.dispatch(conversionRequest, { signal: controller.signal })).toEqual({ ok: true, value: { status: 'unknown' } });
+        expect(await c.dispatcher.dispatch(conversionRequest, { signal: controller.signal })).toEqual({ ok: true, value: { status: 'not_sent', reason: 'forbidden' } });
         expect(f.calls).toEqual([]);
         expect(f.native.prepare("SELECT state FROM job_attempt WHERE event_type='dispatch'").all()).toEqual([{ state: 'dispatching' }]);
-        expect(await f.jobs.outbox.get({ tenantId: jobTenant({ context }), id: c.claim.jobId })).toMatchObject({ state: 'reconcile', leaseToken: null });
+        expect(await f.jobs.outbox.get({ tenantId: jobTenant({ context }), id: c.claim.jobId })).toMatchObject({ state: 'denied', leaseToken: null });
     } finally { f.close(); }
 });
 
@@ -599,4 +751,55 @@ it('retains the subject lane until the delivery ledger and outbox outcome are du
         expect(await withdrawing).toMatchObject({ ok: true });
         expect(await f.jobs.outbox.get({ tenantId: jobTenant({ context }), id: c.claim.jobId })).toMatchObject({ state: 'succeeded' });
     } finally { resume.resolve(); await delivering; await withdrawing; f.close(); }
+});
+
+/** Outbox lookup regressions use actual persisted jobs; no capability dispatch or vendor call. */
+it('activity follows direct plugin identities, scope, uncertain states and nested campaign constituents', async () => {
+    const f = await fixture();
+    const activity = (input: { context: CallContext; kind: 'agent-plugin'; id: string }) => countAddonJobs({ ...input, unit: f.database.unit, observer });
+    const lookup = { context, kind: 'agent-plugin' as const, id: 'linkedin-ads' };
+    try {
+        expect(await activity(lookup)).toEqual({ ok: true, value: 0 });
+        value({ result: await f.jobs.enqueue({ context, job: { handler: 'agent-plugin.invoke', operationId: 'direct', idempotencyKey: 'activity-direct', argumentsDigest: 'a'.repeat(64),
+            payload: { pluginId: 'linkedin-ads', input: {} } } }) });
+        expect(await activity(lookup)).toEqual({ ok: true, value: 1 });
+        expect(await activity({ ...lookup, id: 'tiktok-ads' })).toEqual({ ok: true, value: 0 });
+        expect(await activity({ ...lookup, context: { ...context, scope: { ...context.scope, ownerId: 'other' } } })).toEqual({ ok: true, value: 0 });
+        f.native.prepare("UPDATE job SET state='reconcile' WHERE idempotency_key='activity-direct'").run();
+        expect(await activity(lookup)).toEqual({ ok: true, value: 1 });
+        const call = { arguments: { tool: 'vendor_tiktok_ads_campaign_deploy_paused', input: {} }, pluginDigest: 'b'.repeat(64), schemaFingerprint: 'c'.repeat(64),
+            envelope: { operationId: 'child', connectionId: 'connection', accountId: '123', effects: ['ad_spend'], argumentsDigest: 'd'.repeat(64), moneyExposure: null, requiredLimit: null } };
+        const request = { ...call, pausedCampaignCalls: [call] };
+        value({ result: await f.jobs.enqueue({ context, job: { handler: 'agent-plugin.invoke', operationId: 'parent', idempotencyKey: 'activity-parent', argumentsDigest: 'e'.repeat(64),
+            payload: { pluginId: 'om-campaigns', input: { arguments: { request } } } } }) });
+        expect(await activity({ ...lookup, id: 'tiktok-ads' })).toEqual({ ok: true, value: 1 });
+        expect(await activity(lookup)).toEqual({ ok: true, value: 1 });
+        f.native.prepare("UPDATE job SET state='succeeded'").run();
+        expect(await activity(lookup)).toEqual({ ok: true, value: 0 });
+    } finally { f.close(); }
+});
+
+it.each(['creative.generate', 'measure.conversion', 'campaign.create'])('unresolved %s work denies cleanup rather than assuming zero activity', async handler => {
+    const f = await fixture(); const activity = (input: { context: CallContext; kind: 'agent-plugin'; id: string }) => countAddonJobs({ ...input, unit: f.database.unit, observer });
+    try {
+        value({ result: await f.jobs.enqueue({ context, job: { handler, operationId: 'unresolved', idempotencyKey: 'unresolved', argumentsDigest: 'a'.repeat(64), payload: { generationId: 'generation' } } }) });
+        expect(await activity({ context, kind: 'agent-plugin', id: 'linkedin-ads' })).toMatchObject({ ok: false, error: { code: 'unavailable', retryable: false } });
+    } finally { f.close(); }
+});
+
+it.each(['invalid-json', 'oversized', 'missing-constituents', 'wrong-handler', 'overflow'])('invalid activity %s fails closed', async attack => {
+    const f = await fixture(); const activity = (input: { context: CallContext; kind: 'agent-plugin'; id: string }) => countAddonJobs({ ...input, unit: f.database.unit, observer });
+    try {
+        value({ result: await f.jobs.enqueue({ context, job: { handler: 'agent-plugin.invoke', operationId: 'invalid', idempotencyKey: 'invalid', argumentsDigest: 'a'.repeat(64), payload: { pluginId: 'om-campaigns', input: {} } } }) });
+        if (attack === 'invalid-json') f.native.prepare('UPDATE job SET payload=?').run('{');
+        if (attack === 'oversized') f.native.prepare('UPDATE job SET payload=?').run(' '.repeat(65537));
+        if (attack === 'wrong-handler') f.native.prepare('UPDATE job SET payload=?').run(JSON.stringify({ handler: 'wrong', payload: { pluginId: 'linkedin-ads' } }));
+        if (attack === 'overflow') {
+            const row = f.native.prepare('SELECT * FROM job LIMIT 1').get() as Record<string, unknown>;
+            const insert = f.native.prepare('INSERT INTO job(id,tenant_id,idempotency_key,request_digest,operation,payload,state,attempts,available_at,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)');
+            f.native.transaction(() => { for (let index = 0; index < 1000; index++) insert.run('overflow-' + index, row.tenant_id, 'overflow-' + index,
+                row.request_digest, row.operation, row.payload, 'pending', 0, 1000, 1000); })();
+        }
+        expect(await activity({ context, kind: 'agent-plugin', id: 'linkedin-ads' })).toMatchObject({ ok: false });
+    } finally { f.close(); }
 });

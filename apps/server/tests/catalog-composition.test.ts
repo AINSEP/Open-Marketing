@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomUUID } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
-import type { CallContext, ClockPort, IdPort, NeutralCampaignLaunch, ObserverEvent, Outcome, ToolCall, ToolResult } from '@open-marketing/contracts';
+import type { CallContext, ClockPort, IdPort, NeutralCampaignLaunch, ObserverEvent, Outcome, ToolCall, ToolResult, UnitOfWork } from '@open-marketing/contracts';
 import { createMemoryConfirmationExchange, createSqlSafetyRepo, digestArguments } from '@open-marketing/safety';
 import { createSqlCampaignRepo, createMemoryCampaignJob } from '@open-marketing/campaigns';
 import { createSqlMeasureRepo, createSqlTrackedLink } from '@open-marketing/measure';
@@ -29,6 +29,7 @@ import { createNodeBootIo } from '../src/composition/serve.js';
 import { createFormWorkers } from '../src/composition/workers.js';
 import { buildOmToolDefinitions, createOmTools } from '../src/om-tools.js';
 import type { OmFeatureServices } from '../src/om-tools.js';
+import { handleOwnerRequest } from '../src/inbound/owner.js';
 import type { OwnerServices } from '../src/inbound/owner.js';
 import { generateOmToolCoverage } from '../src/om-tool-coverage.js';
 
@@ -79,10 +80,10 @@ async function fixture() {
         } }, async decode() { return { width: 1, height: 1, frames: 1 }; } };
     const media = bindCatalogMedia({ db: campaignDb, context: owner, clock, ids, observer, audit, effects: mediaEffects });
     const creative = bindSandboxCreative({ unit: database.unit, media, safetyRepo: safety, confirmations, clock, ids, observer, audit });
-    const services: OwnerServices & OmFeatureServices = { campaigns, safety, confirmations, contacts: identity.contacts, forms: forms.forms, webEvents: identity.webEvents,
+    const services: OwnerServices & OmFeatureServices = { campaigns, safety, confirmations, contacts: identity.contacts, forms: forms.forms, leads: forms.leads, webEvents: identity.webEvents,
         privacy: privacy.privacy, audit, creative, media, ...bindCatalogScope({ database, safetyDb, clock, ids, observer, timezone: 'UTC' }),
         campaignWorkflow: bindSandboxCampaigns({ unit: database.unit, repo: campaigns, safety, clock, ids, observer, audit }),
-        measure: bindCatalogMeasure({ repo: measureRepo, links, reports: sandboxPlatformReports({ clock, ids }), clock, ids, observer, audit }) };
+        measure: bindCatalogMeasure({ repo: measureRepo, links, reports: sandboxPlatformReports({ clock, ids }), clock, observer }) };
     const tools = createOmTools({ clock, observer, confirmations, authorize: () => ({ ok: true, value: undefined }), definitions: input => buildOmToolDefinitions({ ...input, services }) });
     let scheduled: (() => void) | undefined;
     let settled: (() => void) | undefined;
@@ -379,6 +380,27 @@ describe('real feature catalog composition', () => {
     });
 });
 
+it('returns a successful campaign dispatch fence when the clock advances after the transaction', async () => {
+    const f = await fixture();
+    try {
+        let now = f.clock.now({});
+        const unit: UnitOfWork = { async transaction(request) {
+            const result = await f.database.unit.transaction(request);
+            const dispatched = f.native.prepare("SELECT state FROM job WHERE operation='campaign.create'").get() as { state: string } | undefined;
+            if (dispatched?.state === 'dispatching') now += 60000;
+            return result;
+        } };
+        const jobs = bindCampaignJobs({ unit, repo: f.services.campaigns, clock: { now: () => now }, ids: f.ids, observer: f.observer });
+        const draft = { operationId: 'dispatch-clock', connectionId: 'sandbox-campaigns', accountId: 'sandbox-account', name: 'Fixture', objective: 'awareness', creativeIds: ['sandbox-creative'], creativeDigest: 'a'.repeat(64), placements: ['feed'] };
+        const saved = value({ result: await f.services.campaigns.save({ context: f.owner, draft }) });
+        value({ result: await jobs.enqueue({ context: f.owner, operationId: draft.operationId, argumentsDigest: createHash('sha256').update(JSON.stringify(draft)).digest('hex'), intent: { kind: 'create', campaignId: saved.campaignId, draft } }) });
+        const key = { context: f.owner, operationId: draft.operationId };
+        expect(await jobs.claim(key)).toMatchObject({ ok: true, value: { status: 'dispatching' } });
+        expect(await jobs.finish({ ...key, status: 'submitted' })).toMatchObject({ ok: false, error: { code: 'conflict' } });
+        expect(await jobs.get(key)).toMatchObject({ ok: true, value: { status: 'dispatching' } });
+    } finally { await f.close(); }
+});
+
 for (const adapter of ['memory', 'sql'] as const) it('campaign jobs shared creation suite / ' + adapter, async () => {
     const f = await fixture();
     try {
@@ -402,7 +424,16 @@ for (const adapter of ['memory', 'sql'] as const) it('campaign jobs shared creat
         expect(await jobs.get({ context: foreign, operationId: input.operationId })).toEqual({ ok: true, value: null });
         const claims = await Promise.all([jobs.claim(key), jobs.claim(key)]);
         expect(claims.filter(result => result.ok && result.value !== null)).toHaveLength(1);
+        if (adapter === 'sql') {
+            const expired = bindCampaignJobs({ unit: f.database.unit, repo: f.services.campaigns, clock: { now: () => f.clock.now({}) + 60000 }, ids: f.ids, observer: f.observer });
+            expect(await expired.finish({ ...key, status: 'submitted' })).toMatchObject({ ok: false, error: { code: 'conflict' } });
+            expect(value({ result: await jobs.get(key) })).toMatchObject({ status: 'dispatching' });
+        }
+        value({ result: await jobs.finish({ ...key, status: 'unknown' }) });
+        expect(value({ result: await jobs.get(key) })).toMatchObject({ status: 'unknown' });
+        value({ result: await f.services.campaigns.observe({ context: f.owner, state: { campaignId: saved.campaignId, state: 'paused', observedAt: f.clock.now({}), providerReference: 'fixture-readback' } }) });
         value({ result: await jobs.finish({ ...key, status: 'submitted' }) });
+        expect(await jobs.finish({ ...key, status: 'submitted' })).toEqual({ ok: true, value: undefined });
         expect(value({ result: await jobs.get({ context: input.context, operationId: input.operationId }) })).toMatchObject({ status: 'submitted', intent: input.intent });
         expect(await jobs.claim(key)).toEqual({ ok: true, value: null });
     } finally { await f.close(); }
@@ -460,5 +491,80 @@ it('refuses expired sandbox quotes at the deadline and afterwards without dispat
         expect(dispatches).toBe(0);
         expect(f.native.prepare('SELECT COUNT(*) AS count FROM creative_generation_request').get()).toEqual({ count: 0 });
         expect(f.native.prepare("SELECT COUNT(*) AS count FROM job WHERE operation='creative.generate'").get()).toEqual({ count: 0 });
+    } finally { await f.close(); }
+});
+
+it('real boot injects direct chart inventory into the catalog as providers enable and disable', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'om-catalog-charts-'));
+    let server: BootedServer | undefined;
+    try {
+        const studioRoot = join(directory, 'studio'); await mkdir(studioRoot);
+        await writeFile(join(studioRoot, 'index.html'), '<!doctype html><title>Chart fixture</title>');
+        const io = createNodeBootIo({ projectRoot: fileURLToPath(new URL('../../../', import.meta.url)), studioRoot, ready() {} });
+        server = value({ result: await bootServer({ env: { OM_STATE_ROOT: join(directory, 'state'), OM_PORT: '0' }, io: { ...io, schedule: () => () => {} },
+            clock: { now: () => 1000 }, ids: { next: () => randomUUID() }, observer: { observe() {} } }) });
+        const origin = new URL(server.studioUrl).origin;
+        const bootstrap = await fetch(server.studioUrl, { redirect: 'manual' });
+        const headers = { cookie: bootstrap.headers.get('set-cookie')!.split(';')[0], origin, 'content-type': 'application/json' };
+        let sequence = 0;
+        const inventory = async () => {
+            const response = await fetch(origin + '/api/tools/call', { method: 'POST', headers,
+                body: JSON.stringify({ name: 'om_chart_providers_list', input: {}, operationId: 'chart-read-' + ++sequence }) });
+            expect(response.status).toBe(200);
+            return (await response.json()).value.output;
+        };
+        expect(await inventory()).toEqual({ providers: [] });
+        expect((await fetch(origin + '/api/addons/v1/set-enabled', { method: 'POST', headers,
+            body: JSON.stringify({ kind: 'plugin', id: 'charts-recharts', enabled: true }) })).status).toBe(200);
+        const http = await (await fetch(origin + '/api/addons/v1/chart-providers', { headers })).json();
+        expect(http.value.providers).toHaveLength(1);
+        expect(await inventory()).toEqual(http.value);
+        expect((await fetch(origin + '/api/addons/v1/set-enabled', { method: 'POST', headers,
+            body: JSON.stringify({ kind: 'plugin', id: 'charts-recharts', enabled: false }) })).status).toBe(200);
+        expect(await inventory()).toEqual({ providers: [] });
+    } finally { await server?.stop({}); await rm(directory, { recursive: true, force: true }); }
+});
+
+it('privacy purges a lead through the registered participant and prevents later stage changes', async () => {
+    const f = await fixture();
+    try {
+        const subject = value({ result: await f.identity.contacts.upsert({ context: f.owner, identifiers: [{ kind: 'email', raw: 'lead-erasure@example.test' }] }) });
+        const lead = value({ result: await f.forms.leads.capture({ context: f.owner, subjectId: subject.subjectId,
+            source: { kind: 'manual', ref: 'erase-lead' }, occurredAt: f.clock.now({}),
+            attribution: { campaign: null, touchId: null, touchedAt: null, modelVersion: 'last_paid_touch_30d.v1' } }) });
+        const privacy = f.services.privacy!;
+        const erasure = value({ result: await privacy.requestErasure({ context: f.owner, subjectId: subject.subjectId }) });
+        expect(erasure.participants).toEqual(expect.arrayContaining([expect.objectContaining({ participantId: 'leads' })]));
+        value({ result: await privacy.advance({ context: f.owner, requestId: erasure.requestId }) });
+        value({ result: await privacy.advance({ context: f.owner, requestId: erasure.requestId }) });
+        value({ result: await privacy.advance({ context: f.owner, requestId: erasure.requestId }) });
+        expect(await f.forms.leads.get({ context: f.owner, leadId: lead.leadId })).toMatchObject({ ok: true, value: { erased: true, subjectId: null } });
+        expect(await f.forms.leads.setStage({ context: f.owner, leadId: lead.leadId, to: 'won', expectedRevision: 1, changeId: 'after-erasure' }))
+            .toMatchObject({ ok: false, error: { code: 'forbidden' } });
+    } finally { await f.close(); }
+});
+
+it('lead tools isolate scope and owner stage CAS appends history without an approval card', async () => {
+    const f = await fixture();
+    try {
+        const leads = f.forms.leads;
+        const lead = value({ result: await leads.capture({ context: f.owner, subjectId: 'lead-subject',
+            source: { kind: 'manual', ref: 'owner-stage' }, occurredAt: f.clock.now({}),
+            attribution: { campaign: null, touchId: null, touchedAt: null, modelVersion: 'last_paid_touch_30d.v1' } }) });
+        value({ result: await leads.capture({ context: { ...f.owner, scope: { ...f.owner.scope, workspaceId: 'other-workspace' } },
+            subjectId: 'foreign-subject', source: { kind: 'manual', ref: 'foreign' }, occurredAt: f.clock.now({}),
+            attribution: lead.attribution }) });
+        expect(await f.call({ name: 'om_leads_list', input: { query: { page: { limit: 50 } } } }))
+            .toMatchObject({ status: 'completed', output: { items: [{ leadId: lead.leadId }], cursor: null } });
+        expect(await f.call({ name: 'om_leads_get', input: { leadId: lead.leadId } })).toMatchObject({ status: 'completed', output: { leadId: lead.leadId } });
+        const input = { leadId: lead.leadId, to: 'qualified', expectedRevision: 2, changeId: 'owner-change' };
+        expect(await handleOwnerRequest({ context: f.owner, services: f.services, request: { method: 'POST', path: '/api/leads/stage', body: input } }))
+            .toMatchObject({ status: 409, body: { ok: false, error: { code: 'conflict' } } });
+        expect(await handleOwnerRequest({ context: f.owner, services: f.services, request: { method: 'POST', path: '/api/leads/stage', body: { ...input, expectedRevision: 1 } } }))
+            .toMatchObject({ status: 200, body: { ok: true, value: { stage: 'qualified', revision: 2 } } });
+        expect(await f.call({ name: 'om_leads_history', input: { leadId: lead.leadId, page: { limit: 50 } } }))
+            .toMatchObject({ status: 'completed', output: { items: [{ to: 'new', revision: 1 }, { to: 'qualified', revision: 2, eventId: 'owner-change' }] } });
+        expect(await handleOwnerRequest({ context: f.owner, services: { ...f.services, leads: undefined }, request: { method: 'POST', path: '/api/leads/stage', body: input } }))
+            .toMatchObject({ status: 503, body: { ok: false, error: { code: 'unavailable' } } });
     } finally { await f.close(); }
 });

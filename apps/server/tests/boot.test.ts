@@ -1,6 +1,7 @@
 /** Written-only I1 integration coverage; the Coordinator builds public dist exports before execution. */
 import { request as httpRequest } from 'node:http';
 import { expect, it } from 'vitest';
+import { createNoopTracker, type Tracker } from '@jini-ai/diagnostics/observability';
 import Database from 'better-sqlite3';
 import * as fs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
@@ -10,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import type { CallContext, ClockPort, ObserverEvent } from '@open-marketing/contracts';
 import { createSqlConfirmationExchange, digestArguments } from '@open-marketing/safety';
-import { bootServer, loadOAuthProviders, type BootedServer, type ServerBootIo } from '../src/composition/index.js';
+import { bootServer, type BootedServer, type ServerBootIo } from '../src/composition/index.js';
 import { createNodeBootIo } from '../src/composition/serve.js';
 import { loadCliEnvironment } from '../src/composition/cli.js';
 import { bindServerDatabase } from '../src/composition/database.js';
@@ -19,7 +20,7 @@ import { runOmCli } from '../src/cli/index.js';
 import { createNodeHttpListener, serveStudioAsset } from '../src/inbound/http.js';
 import { migrationManifest } from '../src/composition/migrations.js';
 import { createOAuthUrlGuard } from '@jini-ai/oauth';
-import { oauthCallbackPath } from '../src/integration-oauth-contracts.js';
+import { oauthCallbackPath, oauthMetadataSchema } from '../src/integration-oauth-contracts.js';
 
 /** Real native SQLite/HTTP/filesystem, owned temporary assets/state, deterministic injected time. */
 async function createFixture(_required: Record<string, never>) {
@@ -43,8 +44,8 @@ async function createFixture(_required: Record<string, never>) {
     const io: ServerBootIo = { ...nativeIo, openSqlite(input) { const native = nativeIo.openSqlite(input); handles.push(native); return native; } };
     return { directory, stateRoot, studioRoot, handles, ready, events, ids, clock, observer, io,
         advance({ milliseconds }: { milliseconds: number }) { now += milliseconds; },
-        async start(input: { env?: Record<string, string | undefined>; io?: Partial<ServerBootIo> }) {
-            const result = await bootServer({ env: { OM_STATE_ROOT: stateRoot, ...input.env }, io: { ...io, ...input.io }, clock, ids, observer });
+        async start(input: { env?: Record<string, string | undefined>; io?: Partial<ServerBootIo>; tracker?: Tracker }) {
+            const result = await bootServer({ env: { OM_STATE_ROOT: stateRoot, ...input.env }, io: { ...io, ...input.io }, clock, ids, observer }, { tracker: input.tracker });
             if (result.ok) servers.push(result.value);
             return result;
         },
@@ -113,8 +114,14 @@ it('commits owner identity and audit together through boot HTTP, rejecting agent
 
 it('boots on SQLite, serves built studio, publishes desktop readiness and shares CLI discovery', async () => {
     const fixture = await createFixture({});
+    const records: { name: string; options: unknown; outcome?: unknown }[] = [];
+    const tracker: Tracker = { ...createNoopTracker({}), async trace({ name, run }, options) {
+        const record: typeof records[number] = { name, options };
+        records.push(record);
+        return run({ setOutcome(outcome) { record.outcome = outcome; } });
+    } };
     try {
-        const result = await fixture.start({});
+        const result = await fixture.start({ tracker });
         expect(result.ok).toBe(true);
         if (!result.ok) throw new Error(result.error.message);
         expect(fixture.ready).toEqual(['OM_READY ' + JSON.stringify({ studioUrl: result.value.studioUrl })]);
@@ -125,8 +132,14 @@ it('boots on SQLite, serves built studio, publishes desktop readiness and shares
         const native = fixture.handles[0];
         expect(native.pragma('foreign_keys', { simple: true })).toBe(1);
         expect(native.pragma('busy_timeout', { simple: true })).toBe(5000);
+        expect(migrationManifest.slice(-4)).toEqual([
+            { version: 25, feature: 'measure', local: 3, path: 'features/measure/migrations/0003_metrics.sql' },
+            { version: 26, feature: 'brand', local: 1, path: 'features/brand/migrations/0001_brand.sql' },
+            { version: 27, feature: 'measure', local: 4, path: 'features/measure/migrations/0004_metrics_membership.sql' },
+            { version: 28, feature: 'measure', local: 5, path: 'features/measure/migrations/0005_measurement_grants.sql' },
+        ]);
         expect(native.prepare('SELECT version FROM om_schema_migrations ORDER BY version').all()).toEqual(migrationManifest.map(({ version }) => ({ version })));
-        for (const table of ['contact_subject', 'web_event', 'privacy_request']) {
+        for (const table of ['contact_subject', 'web_event', 'privacy_request', 'lead', 'lead_stage_event', 'server_alert_notice', 'server_alert_ack', 'measure_metrics_batch', 'measure_metrics_day', 'brand_revision', 'brand_current']) {
             expect(native.prepare('SELECT name FROM sqlite_master WHERE name=?').get(table)).toEqual({ name: table });
         }
         expect((await fetch(origin + '/health')).status).toBe(200);
@@ -146,6 +159,16 @@ it('boots on SQLite, serves built studio, publishes desktop readiness and shares
         expect(studio.headers.get('content-type')).toContain('text/html');
         expect(await studio.text()).toContain('OM fixture studio');
         expect(await (await fetch(origin + '/assets/app.js', { headers: { cookie } })).text()).toBe('console.log("fixture")');
+        const owner = await readLocalOwner({ fs, stateRoot: fixture.stateRoot });
+        if (!owner.ok) throw new Error(owner.error.message);
+        expect((await fetch(origin + '/api/status', { headers: { cookie } })).status).toBe(200);
+        expect(records).toEqual([{ name: 'server.http.owner',
+            options: { attributes: { 'user.id': owner.value.ownerId, 'http.method': 'GET' } },
+            outcome: { outcome: 'responded', failed: false, attributes: { 'http.status_code': 200 } } }]);
+        const recorded = JSON.stringify(records);
+        expect(recorded).not.toContain(owner.value.token);
+        expect(recorded).not.toContain('/api/status');
+        expect(recorded).not.toContain(cookie);
         const configured = await loadCliEnvironment({ env: { OM_STATE_ROOT: fixture.stateRoot }, fs, home: fixture.directory });
         expect(configured.ok).toBe(true);
         if (!configured.ok) throw new Error(configured.error.message);
@@ -367,7 +390,8 @@ function statusWithHost(required: { url: string; host: string }): Promise<number
 it.each(['google-ads', 'meta-ads'])('authenticates %s management, approves start once and enforces admission on the exact browser GET', async pluginId => {
     const f = await createFixture({}); let exchanges = 0;
     try {
-        const scopes = (await loadOAuthProviders({ io: f.io })).get('meta-ads')!.provider.defaultScopes;
+        const scopes = oauthMetadataSchema.parse(JSON.parse(await fs.readFile(join(f.io.projectRoot,
+            'content/agent-plugins/meta-ads/io.github.ainsep.openmarketing/oauth.json'), 'utf8'))).provider.defaultScopes;
         const result = await f.start({ io: { oauth: { guard: createOAuthUrlGuard({ assertAllowed() {} }, { allowLoopbackHttp: true }), async fetchFn() {
                 exchanges++;
                 if (pluginId === 'meta-ads' && exchanges === 3) return Response.json({ data: { app_id: 'fixture-client', type: 'USER', is_valid: true, expires_at: 3601, data_access_expires_at: 3601, scopes } });
@@ -410,8 +434,65 @@ it.each(['google-ads', 'meta-ads'])('authenticates %s management, approves start
         const restarted = await f.start({});
         if (!restarted.ok) throw new Error(restarted.error.message);
         const restartedOrigin = new URL(restarted.value.studioUrl).origin;
-        expect(await (await fetch(restartedOrigin + '/api/addons/v1/integrations/oauth/status?pluginId=' + pluginId, { headers })).json()).toEqual({ ok: true, value: { configured: true, clientId: 'fixture-client', ...(pluginId === 'meta-ads' ? { guidance: expect.stringContaining('Strict Mode/Enforce HTTPS') } : {}) } });
+        expect(await (await fetch(restartedOrigin + '/api/addons/v1/integrations/oauth/status?pluginId=' + pluginId, { headers })).json()).toEqual({ ok: true, value: { configured: true, clientId: 'fixture-client' } });
         expect((await fetch(restartedOrigin + '/api/addons/v1/integrations', { headers })).status).toBe(200);
         expect((await fetch(restartedOrigin + oauthCallbackPath + '?' + query)).status).toBe(400);
+    } finally { await f.close(); }
+});
+
+
+it('registers owner mail settings behind bearer and cookie Origin authentication', async () => {
+    const f = await createFixture({});
+    try {
+        const booted = await f.start({});
+        if (!booted.ok) throw new Error(booted.error.message);
+        const local = await readLocalOwner({ fs, stateRoot: f.stateRoot });
+        if (!local.ok) throw new Error(local.error.message);
+        const origin = new URL(booted.value.studioUrl).origin;
+        const path = origin + '/api/addons/v1/provider-settings/mail';
+        expect((await fetch(path)).status).toBe(401);
+        const headers = { authorization: 'Bearer ' + local.value.token, 'content-type': 'application/json' };
+        const read = await fetch(path, { headers });
+        expect(read.status).toBe(200);
+        expect(await read.json()).toMatchObject({ ok: true, value: { selected: null } });
+        const saved = await fetch(path, { method: 'POST', headers, body: JSON.stringify({ selected: null }) });
+        expect(saved.status).toBe(200);
+        expect(await saved.json()).toEqual({ ok: true, value: { selected: null } });
+        const bootstrap = await fetch(booted.value.studioUrl, { redirect: 'manual' });
+        const cookie = bootstrap.headers.get('set-cookie')!.split(';')[0];
+        expect((await fetch(path, { method: 'POST', headers: { cookie, 'content-type': 'application/json' }, body: '{}' })).status).toBe(403);
+        for (const method of ['GET', 'POST']) {
+            expect((await fetch(origin + '/api/addons/v1/integrations/developer-token', { method, headers })).status).toBe(404);
+        }
+    } finally { await f.close(); }
+});
+
+it('rejects invalid owner email before acquiring resources without echoing its value', async () => {
+    const f = await createFixture({}); let acquired = false;
+    try {
+        const result = await f.start({ env: { OM_OWNER_EMAIL: 'not-an-email' }, io: {
+            fs: { ...f.io.fs, async mkdir() { acquired = true; throw new Error('Unexpected filesystem acquisition'); } },
+            openSqlite() { acquired = true; throw new Error('Unexpected database acquisition'); },
+        } });
+        expect(result).toEqual({ ok: false, error: { code: 'invalid_input', message: 'Invalid OM_OWNER_EMAIL', retryable: false } });
+        expect(JSON.stringify(result)).not.toContain('not-an-email');
+        expect(acquired).toBe(false);
+        expect(f.ready).toEqual([]);
+    } finally { await f.close(); }
+});
+
+
+it('keeps provider settings unavailable without add-on effects', async () => {
+    const f = await createFixture({});
+    try {
+        const booted = await f.start({ io: { addonEffects: undefined } });
+        if (!booted.ok) throw new Error(booted.error.message);
+        const local = await readLocalOwner({ fs, stateRoot: f.stateRoot });
+        if (!local.ok) throw new Error(local.error.message);
+        const response = await fetch(new URL(booted.value.studioUrl).origin + '/api/addons/v1/provider-settings/mail', {
+            headers: { authorization: 'Bearer ' + local.value.token },
+        });
+        expect(response.status).toBe(503);
+        expect(await response.json()).toMatchObject({ ok: false, error: { code: 'unavailable' } });
     } finally { await f.close(); }
 });

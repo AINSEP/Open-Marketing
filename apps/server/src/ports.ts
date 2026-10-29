@@ -21,6 +21,8 @@ export interface HttpRequest {
  /** Aborted on client disconnect or listener shutdown. */
  readonly signal?: AbortSignal;
  readonly readBody?: (required: Record<string, never>) => Promise<Outcome<unknown>>;
+ /** Original bounded bytes, cached with readBody for signed public callbacks. */
+ readonly readRawBody?: (required: Record<string, never>) => Promise<Outcome<Uint8Array>>;
 }
 /** JSON by default; contentType selects HTML/text/bytes. Headers never contain tainted values. */
 export interface HttpResponse {

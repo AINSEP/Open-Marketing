@@ -1,14 +1,19 @@
 /** One bounded host loop over the existing jobs outbox, with acceptance registered before start. */
 import { z } from 'zod';
-import { callContextSchema, haltStopRequestSchema, idSchema, parseBoundary } from '@open-marketing/contracts';
+import { haltStopRequestSchema, idSchema, parseBoundary } from '@open-marketing/contracts';
 import type { CallContext, ClockPort, HaltStopPermit, HaltStopRequest, IdPort, ObserverPort, Outcome, UnitOfWork } from '@open-marketing/contracts';
-import { createJobHandlerRegistry, createOutbox, createSqlJobRepo, createSqlOutboxStore, jobTenant, type EnqueueRequest, type TransportResult } from '@open-marketing/jobs';
+import { createJobHandlerRegistry, createJobService, createSqlJobRepo, JobStoreError, type JobHandler, type JobHandlerRegistry, type JobRequest, type ProcessResult, type TransportResult } from '@open-marketing/jobs';
 import { digestArguments } from '@open-marketing/safety';
+import { metricSyncRequestSchema } from '@open-marketing/measure';
 import type { AccountDispatchLockPort, HaltReceipt, SafetyService } from '@open-marketing/safety';
 import type { HttpEffects } from '../inbound/http.js';
 import { formJobDigest, formRetryPolicy, type bindForms } from './forms.js';
 import type { CreativeToolBinding } from '../om-tool-types.js';
 import { localFailure } from './local-auth.js';
+import { reportingJob, type bindReporting } from './reporting.js';
+import type { bindAgentPluginBackends } from './agent-plugin-backends.js';
+import { alertEvaluationJob, alertEvaluationPayloadSchema, evaluateAlerts, alertEmailJob, alertEmailPayloadSchema, dispatchAlertEmail,
+    resolveAlertSender, weeklyReportJob, weeklyReportPayloadSchema, generateWeeklyReport, type AlertEmailDependencies } from '../alerts/index.js';
 
 const payloadSchema = z.strictObject({ publicationId: idSchema, submissionId: idSchema });
 const formJobSchema = z.strictObject({ handler: z.literal('forms.accept'), operationId: idSchema, idempotencyKey: idSchema,
@@ -16,41 +21,159 @@ const formJobSchema = z.strictObject({ handler: z.literal('forms.accept'), opera
 const creativePayloadSchema = z.strictObject({ generationId: idSchema });
 const creativeJobSchema = z.strictObject({ handler: z.literal('creative.generate'), operationId: idSchema, idempotencyKey: idSchema,
     argumentsDigest: z.string().regex(/^[a-f0-9]{64}$/), payload: creativePayloadSchema });
-const stopPayloadSchema = z.strictObject({ pluginId: z.enum(['google-ads', 'linkedin-ads', 'tiktok-ads']), request: haltStopRequestSchema });
+const stopPayloadSchema = z.strictObject({ pluginId: idSchema, request: haltStopRequestSchema });
 const stopJobSchema = z.strictObject({ handler: z.literal('agent-plugin.halt-stop'), operationId: idSchema, idempotencyKey: idSchema,
     argumentsDigest: z.string().regex(/^[a-f0-9]{64}$/), payload: stopPayloadSchema });
-const jobSchema = z.discriminatedUnion('handler', [formJobSchema, creativeJobSchema, stopJobSchema]);
-/** Durable tainted data must agree with operation/key/digest, authenticated local scope and IDs. */
-function decode(required: { request: EnqueueRequest; context: CallContext }) {
-    const context = callContextSchema.parse(required.request.context);
-    const job = jobSchema.parse(JSON.parse(z.string().max(65536).parse(required.request.payload)));
-
-    if (context.scope.ownerId !== required.context.scope.ownerId || context.scope.workspaceId !== required.context.scope.workspaceId
-        || required.request.tenantId !== jobTenant({ context }) || required.request.operation !== job.handler) throw new Error('Worker scope mismatch');
-    if (required.request.idempotencyKey !== job.idempotencyKey || required.request.requestDigest !== job.argumentsDigest) throw new Error('Worker identity mismatch');
-    checkJobIdentity({ job });
-    return { context, job };
+const alertJobSchema = z.strictObject({ handler: z.literal('alerts.evaluate'), operationId: idSchema, idempotencyKey: idSchema,
+    argumentsDigest: z.string().regex(/^[a-f0-9]{64}$/), payload: alertEvaluationPayloadSchema });
+const emailJobSchema = z.strictObject({ handler: z.literal('alerts.email'), operationId: idSchema, idempotencyKey: idSchema,
+    argumentsDigest: z.string().regex(/^[a-f0-9]{64}$/), payload: alertEmailPayloadSchema });
+const reportingJobSchema = z.strictObject({ handler: z.literal('measure.sync_metrics'), operationId: idSchema, idempotencyKey: idSchema,
+    argumentsDigest: z.string().regex(/^[a-f0-9]{64}$/), payload: metricSyncRequestSchema });
+const conversionPayloadSchema = z.strictObject({ subjectId: idSchema, eventId: idSchema, deliveryId: idSchema });
+const conversionJobSchema = z.strictObject({ handler: z.literal('measure.conversion'), operationId: idSchema, idempotencyKey: idSchema,
+    argumentsDigest: z.string().regex(/^[a-f0-9]{64}$/), payload: conversionPayloadSchema });
+const weeklyJobSchema = z.strictObject({ handler: z.literal('alerts.weekly_report'), operationId: idSchema, idempotencyKey: idSchema,
+    argumentsDigest: z.string().regex(/^[a-f0-9]{64}$/), payload: weeklyReportPayloadSchema });
+const jobSchema = z.discriminatedUnion('handler', [formJobSchema, creativeJobSchema, stopJobSchema, alertJobSchema, emailJobSchema, reportingJobSchema, conversionJobSchema, weeklyJobSchema]);
+type ConversionDispatch = ReturnType<ReturnType<typeof bindAgentPluginBackends>['conversions']>['dispatch'];
+/** Jobs validates the durable envelope; this binding owns handler payloads, IDs and local scope. */
+function decode(required: { job: JobRequest; context: CallContext; expectedContext: CallContext }) {
+    const job = jobSchema.parse(required.job);
+    if (required.context.scope.ownerId !== required.expectedContext.scope.ownerId || required.context.scope.workspaceId !== required.expectedContext.scope.workspaceId) throw new Error('Worker scope mismatch');
+    checkJobIdentity({ job, context: required.context });
+    return job;
 }
 /** Handler-specific identities are closed; creative reloads and checks its durable digest again. */
-function checkJobIdentity(required: { job: z.infer<typeof jobSchema> }): void {
+function checkJobIdentity(required: { job: z.infer<typeof jobSchema>; context: CallContext }): void {
     const job = required.job;
-    if (job.handler === 'agent-plugin.halt-stop') {
-        if (job.operationId !== job.payload.request.operationId || job.idempotencyKey !== 'halt-stop:' + job.operationId
-            || job.argumentsDigest !== stopJobDigest({ payload: job.payload })) throw new Error('Stop worker identity mismatch');
-        return;
+    switch (job.handler) {
+        // A3 conversionJob checks identity against the leased row before any effect.
+        case 'measure.conversion': return;
+        case 'measure.sync_metrics': return checkJobIdentityMatch({ job, expected: reportingJob({ context: required.context, request: job.payload }) });
+        case 'alerts.weekly_report': return checkJobIdentityMatch({ job, expected: weeklyReportJob({ context: required.context, ...job.payload }) });
+        case 'alerts.email': {
+            const expected = alertEmailJob({ context: required.context, payload: job.payload });
+            return checkJobIdentityMatch({ job, expected });
+        }
+        case 'alerts.evaluate': {
+            const expected = alertEvaluationJob({ context: required.context, slot: job.payload.slot });
+            return checkJobIdentityMatch({ job, expected });
+        }
+        case 'agent-plugin.halt-stop':
+            if (job.operationId !== job.payload.request.operationId || job.idempotencyKey !== 'halt-stop:' + job.operationId
+                || job.argumentsDigest !== stopJobDigest({ payload: job.payload })) throw new Error('Stop worker identity mismatch');
+            return;
+        case 'creative.generate':
+            if (job.operationId !== job.payload.generationId || job.idempotencyKey !== 'creative:' + job.operationId) throw new Error('Creative worker identity mismatch');
+            return;
+        case 'forms.accept':
+            if (job.operationId !== job.payload.submissionId || job.idempotencyKey !== job.payload.submissionId || formJobDigest(job.payload) !== job.argumentsDigest) throw new Error('Forms worker identity mismatch');
+            return;
+        default: { const exhaustive: never = job; throw new Error('Unknown worker job: ' + exhaustive); }
     }
-    if (job.handler === 'creative.generate') {
-        if (job.operationId !== job.payload.generationId || job.idempotencyKey !== 'creative:' + job.operationId) throw new Error('Creative worker identity mismatch');
-        return;
-    }
-    if (job.operationId !== job.payload.submissionId || job.idempotencyKey !== job.payload.submissionId || formJobDigest(job.payload) !== job.argumentsDigest) throw new Error('Forms worker identity mismatch');
+}
+/** Scoped jobs must match the identity reconstructed from their parsed payload. O(1). */
+function checkJobIdentityMatch(required: { job: JobRequest; expected: JobRequest }): void {
+    const { job, expected } = required;
+    if (job.operationId !== expected.operationId || job.idempotencyKey !== expected.idempotencyKey
+        || job.argumentsDigest !== expected.argumentsDigest) throw new Error('Worker identity mismatch');
 }
 function observe(required: { observer: ObserverPort; context: CallContext; outcome: string }): void {
     try { required.observer.observe({ operation: 'server.forms.worker', outcome: required.outcome,
         correlationId: required.context.correlationId, traceId: required.context.traceId, runId: required.context.runId }); }
     catch { /* Diagnostics cannot change a durable acknowledgement. */ }
 }
-/** Timer-free creation and registration; start admits only this handler, stop cancels scheduling,
+/** Register at most eight inert handlers in order; throw before polling if registration fails.
+ * Unbound email fails permanently without quota reservation; each handler retains its retry policy.
+ * @complexity O(1) time and space: at most eight entries, no I/O until dispatch. */
+function registerWorkers(required: Parameters<typeof createFormWorkers>[0] & { registry: JobHandlerRegistry }): void {
+    const { alerts, halt, creative, reporting } = required;
+    const entries: { name: string; handle: JobHandler['handle'] }[] = [
+        { name: 'forms.accept', async handle(input): Promise<TransportResult> {
+            const payload = payloadSchema.parse(input.job.payload);
+            const result = await required.forms.accept({ context: input.context, ...payload });
+            observe({ ...required, context: input.context, outcome: result.ok ? 'accepted' : result.error.code });
+            return result.ok ? { kind: 'success' } : { kind: 'failure', classification: result.error.code === 'unavailable' ? 'transient' : 'permanent' };
+        } },
+        ...(reporting ? [{ name: 'measure.sync_metrics', async handle(input: Parameters<JobHandler['handle']>[0], options?: Parameters<JobHandler['handle']>[1]): Promise<TransportResult> {
+            const result = await reporting.sync({ context: input.context, request: metricSyncRequestSchema.parse(input.job.payload) }, options);
+            observe({ ...required, context: input.context, outcome: result.ok ? 'metrics_stored' : result.error.code });
+            return result.ok ? { kind: 'success' } : { kind: 'failure', classification: ['unavailable', 'expired', 'cancelled'].includes(result.error.code) ? 'transient' : 'permanent' };
+        } }, { name: 'alerts.weekly_report', async handle(input: Parameters<JobHandler['handle']>[0]): Promise<TransportResult> {
+            const payload = weeklyReportPayloadSchema.parse(input.job.payload);
+            const result = await generateWeeklyReport({ ...required, context: input.context, ...payload, results: reporting.results });
+            observe({ ...required, context: input.context, outcome: result.ok ? 'weekly_report_stored' : result.error.code });
+            return result.ok ? { kind: 'success' } : { kind: 'failure', classification: result.error.code === 'unavailable' ? 'transient' : 'permanent' };
+        } }] : []),
+        { name: 'alerts.email', async handle(input): Promise<TransportResult> {
+            try {
+                const result = await dispatchAlertEmail({ ...required, context: input.context, payload: alertEmailPayloadSchema.parse(input.job.payload) });
+                const outcome = result.ok ? 'email_dispatched' : result.errorCode === 'not_implemented' ? 'sender_not_bound' : 'email_failed';
+                observe({ observer: required.observer, context: input.context, outcome });
+                return result.ok ? { kind: 'success' } : { kind: 'failure', classification: result.unknown ? 'unknown' : 'permanent' };
+            } catch {
+                observe({ observer: required.observer, context: input.context, outcome: 'email_unknown' });
+                return { kind: 'failure', classification: 'unknown' };
+            }
+        } },
+        ...(alerts ? [{ name: 'alerts.evaluate', async handle(input: Parameters<JobHandler['handle']>[0]): Promise<TransportResult> {
+            const payload = alertEvaluationPayloadSchema.parse(input.job.payload);
+            let email: { senderConnectionId: string } | undefined;
+            if (required.alertEmail) {
+                const sender = await resolveAlertSender({ context: input.context, unit: required.unit, agentPluginState: required.alertEmail.agentPluginState });
+                // A broken/unavailable sender must never stop in-app alerts or the successor slot.
+                if (sender.ok && sender.value) email = { senderConnectionId: sender.value.connectionId };
+            }
+            const result = await evaluateAlerts({ ...required, context: input.context, ...payload, sources: alerts.sources, email });
+            return result.ok ? { kind: 'success' } : { kind: 'failure', classification: result.error.code === 'unavailable' ? 'transient' : 'permanent' };
+        } }] : []),
+        ...(halt ? [{ name: 'agent-plugin.halt-stop', async handle(input: Parameters<JobHandler['handle']>[0]): Promise<TransportResult> {
+            const result = await halt.dispatch({ context: input.context, payload: stopPayloadSchema.parse(input.job.payload) });
+            observe({ ...required, context: input.context, outcome: result.ok ? 'halt_stop_dispatched' : result.error.code });
+            // No acknowledgement here establishes remote readback. Never retry uncertain stop writes.
+            return stopCompletion({ result });
+        } }] : []),
+        ...(creative ? [{ name: 'creative.generate', async handle(input: Parameters<JobHandler['handle']>[0]): Promise<TransportResult> {
+            const payload = creativePayloadSchema.parse(input.job.payload);
+            const result = await creative.dispatchQueued({ context: input.context, ...payload, operationId: input.job.operationId, argumentsDigest: input.job.argumentsDigest });
+            observe({ ...required, context: input.context, outcome: result.ok ? 'creative_dispatched' : result.error.code });
+            return result.ok ? { kind: 'success' } : { kind: 'failure', classification: result.error.code === 'cancelled' ? 'permanent' : 'unknown' };
+        } }] : []),
+    ];
+    for (const entry of entries) {
+        const registered = required.registry.register({ name: entry.name, handler: { handle: entry.handle, async dispose() {} } });
+        if (!registered.ok) throw new Error('Worker registration failed: ' + entry.name);
+    }
+    registerConversion(required);
+}
+/** Register a lease-owning conversion handler only when its committed evidence loader is bound.
+ * A3 owns dispatch-start, consent and completion; no ordinary transport may send this job.
+ * @complexity O(1) time/space registration; one bounded load and dispatch per claim. */
+function registerConversion(required: Pick<Parameters<typeof createFormWorkers>[0], 'conversions' | 'observer'> & { registry: JobHandlerRegistry }): void {
+    const { conversions } = required;
+    if (!conversions) return;
+    const registered = required.registry.register({ name: 'measure.conversion', handler: {
+        async handle() { return { kind: 'failure', classification: 'unknown' }; },
+        async handleClaim(claim, options) {
+            const { subjectId, eventId, deliveryId } = conversionPayloadSchema.parse(claim.job.payload);
+            const { scope, correlationId, traceId } = claim.context;
+            const context = { scope, correlationId, traceId, serviceId: 'om-conversion-worker' };
+            const loaded = await conversions.load({ context, subjectId, eventId }, options);
+            if (!loaded.ok) {
+                observe({ observer: required.observer, context: claim.context, outcome: loaded.error.code });
+                return loaded;
+            }
+            const result = await conversions.dispatch({ context, ...loaded.value, deliveryId,
+                claim: { jobId: claim.lease.id, leaseToken: claim.lease.leaseToken! } }, options);
+            observe({ observer: required.observer, context: claim.context, outcome: result.ok ? 'conversion_dispatched' : result.error.code });
+            return result;
+        },
+        async dispose() {},
+    } });
+    if (!registered.ok) throw new Error('Worker registration failed: measure.conversion');
+}
+/** Timer-free creation and registration; admission stays scoped to enabled handlers, stop cancels scheduling,
  * awaits the sole active attempt and disposes the registry before SQLite may close.
  * @example const workers = createFormWorkers({...}); workers.start({}); await workers.stop({});
  * @complexity One job per 250ms tick; one active attempt, no buffer or parallel root transactions. Unknown outcomes reconcile. */
@@ -58,58 +181,32 @@ export function createFormWorkers(required: {
     unit: UnitOfWork; clock: ClockPort; ids: IdPort; observer: ObserverPort; context: CallContext;
     creative?: Pick<CreativeToolBinding, 'dispatchQueued' | 'service'>;
     halt?: Pick<ReturnType<typeof bindAgentPluginHaltJobs>, 'dispatch'>;
+    alerts?: Pick<Parameters<typeof evaluateAlerts>[0], 'sources'>;
+    alertEmail?: AlertEmailDependencies;
+    reporting?: Pick<ReturnType<typeof bindReporting>, 'sync' | 'results'>;
+    conversions?: {
+        dispatch: ConversionDispatch;
+        load(required: Pick<Parameters<ConversionDispatch>[0], 'context'> & Omit<z.infer<typeof conversionPayloadSchema>, 'deliveryId'>,
+            optional?: Parameters<ConversionDispatch>[1]): Promise<Outcome<Omit<Parameters<ConversionDispatch>[0], 'context' | 'claim' | 'deliveryId'>>>;
+    };
     forms: Pick<ReturnType<typeof bindForms>, 'accept'>; schedule: HttpEffects['schedule'];
 }) {
-    const registry = createJobHandlerRegistry({ maxHandlers: 3, maxActive: 1 });
-    const registered = registry.register({ name: 'forms.accept', handler: {
-        async handle(input): Promise<TransportResult> {
-            const payload = payloadSchema.parse(input.job.payload);
-            const result = await required.forms.accept({ context: input.context, ...payload });
-            observe({ ...required, context: input.context, outcome: result.ok ? 'accepted' : result.error.code });
-            return result.ok ? { kind: 'success' } : { kind: 'failure', classification: result.error.code === 'unavailable' ? 'transient' : 'permanent' };
-        }, async dispose() {},
-    } });
-    if (!registered.ok) throw new Error('Forms worker registration failed');
-    if (required.halt) {
-        const halt = required.halt;
-        const result = registry.register({ name: 'agent-plugin.halt-stop', handler: {
-            async handle(input): Promise<TransportResult> {
-                const result = await halt.dispatch({ context: input.context, payload: stopPayloadSchema.parse(input.job.payload) });
-                observe({ ...required, context: input.context, outcome: result.ok ? 'halt_stop_dispatched' : result.error.code });
-                // No acknowledgement here establishes remote readback. Never retry uncertain stop writes.
-                return stopCompletion({ result });
-            }, async dispose() {},
-        } });
-        if (!result.ok) throw new Error('Stop worker registration failed');
-    }
-    if (required.creative) {
-        const creative = required.creative;
-        const registeredCreative = registry.register({ name: 'creative.generate', handler: {
-            async handle(input) {
-                const payload = creativePayloadSchema.parse(input.job.payload);
-                const result = await creative.dispatchQueued({ context: input.context, ...payload, operationId: input.job.operationId, argumentsDigest: input.job.argumentsDigest });
-                observe({ ...required, context: input.context, outcome: result.ok ? 'creative_dispatched' : result.error.code });
-                return result.ok ? { kind: 'success' } : { kind: 'failure', classification: result.error.code === 'cancelled' ? 'permanent' : 'unknown' };
-            }, async dispose() {},
-        } });
-        if (!registeredCreative.ok) throw new Error('Creative worker registration failed');
-    }
-    const store = createSqlOutboxStore({ database: required.unit });
-    const outbox = createOutbox({ inputPolicy: formRetryPolicy, ports: {
-        store, clock: required.clock, generateId: () => required.ids.next({}),
-        async authorize(request) { try { const input = decode({ request, context: required.context }); return workerEnabled({ handler: input.job.handler, creative: !!required.creative, halt: !!required.halt }); } catch { return false; } },
-        transport: { idempotent: false, async dispatch(request): Promise<TransportResult> {
-            const input = decode({ request, context: required.context });
-            const result = await registry.dispatch(input);
-            if (!result.ok || result.value.kind !== 'completed') return { kind: 'failure', classification: 'unknown' };
-            switch (result.value.state) {
-                case 'succeeded': return { kind: 'success' };
-                case 'retry': return { kind: 'failure', classification: 'transient' };
-                case 'denied': case 'failed': return { kind: 'failure', classification: 'permanent' };
-                default: return { kind: 'failure', classification: 'unknown' };
-            }
+    const registry = createJobHandlerRegistry({ maxHandlers: 8, maxActive: 1 });
+    registerWorkers({ ...required, registry });
+    const repo = createSqlJobRepo({ database: required.unit, clock: required.clock, ids: required.ids, retryPolicy: formRetryPolicy });
+    const service = createJobService({ repo, dispatcher: registry, clock: required.clock, ids: required.ids, retryPolicy: formRetryPolicy,
+        authorization: { async authorize(input) {
+            try { const job = decode({ ...input, expectedContext: required.context });
+                return { ok: true, value: { allowed: workerEnabled({ handler: job.handler, creative: !!required.creative, halt: !!required.halt, alerts: !!required.alerts, reporting: !!required.reporting, conversions: !!required.conversions }) } };
+            } catch { return { ok: true, value: { allowed: false } }; }
         } },
-    } });
+    }, { observer: required.observer });
+    /** Retain the binding's raw process result; the service owns dispatch-result translation. */
+    async function processOne(): Promise<ProcessResult> {
+        const result = await service.processOne({ worker: { workerId: 'server-worker' } });
+        if (!result.ok) throw new JobStoreError({ code: result.error.code, message: result.error.message });
+        return result.value;
+    }
     let running = false;
     let cancel: (() => void) | undefined;
     let active: Promise<unknown> | undefined;
@@ -125,14 +222,14 @@ export function createFormWorkers(required: {
     }
     /** Reschedule only after the previous attempt settles; typed busy failures wait for another tick. */
     async function tick(): Promise<void> {
-        try { await outbox.processOne(); await pollCreative(); }
+        try { await processOne(); await pollCreative(); }
         catch { observe({ ...required, outcome: 'unavailable' }); }
         finally { if (running) cancel = required.schedule({ delayMs: 250, callback: onTick }); }
     }
     /** Host scheduler's zero-argument callback ABI. */
     function onTick(): void { active = tick(); }
     return {
-        processOne: () => outbox.processOne(),
+        processOne,
         start(_input: Record<string, never>): Outcome<void> {
             if (running) return localFailure({ code: 'conflict', message: 'Worker already started' });
             running = true;
@@ -148,11 +245,16 @@ export function createFormWorkers(required: {
         },
     };
 }
-function workerEnabled(required: { handler: z.infer<typeof jobSchema>['handler']; creative: boolean; halt: boolean }): boolean {
+function workerEnabled(required: { handler: z.infer<typeof jobSchema>['handler']; creative: boolean; halt: boolean; alerts: boolean; reporting: boolean; conversions: boolean }): boolean {
     switch (required.handler) {
         case 'forms.accept': return true;
+        case 'alerts.email': return true;
         case 'creative.generate': return required.creative;
         case 'agent-plugin.halt-stop': return required.halt;
+        case 'alerts.evaluate': return required.alerts;
+        case 'measure.sync_metrics': return required.reporting;
+        case 'alerts.weekly_report': return required.reporting;
+        case 'measure.conversion': return required.conversions;
         default: { const exhaustive: never = required.handler; return exhaustive; }
     }
 }

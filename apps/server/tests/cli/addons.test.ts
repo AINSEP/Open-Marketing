@@ -41,6 +41,11 @@ describe('add-on command parity', () => {
     { argv: ['addons', 'uninstall', 'fixture-plugin', '--kind', 'plugin'], path: '/api/addons/v1/uninstall', method: 'POST', value: { kind: 'plugin', id: 'fixture-plugin', removed: true }, body: { kind: 'plugin', id: 'fixture-plugin' } },
     { argv: ['integrations', 'list'], path: '/api/addons/v1/integrations?limit=25', method: 'GET', value: { items: [connection], cursor: null }, body: undefined },
     { argv: ['integrations', 'disconnect', 'account-one'], path: '/api/addons/v1/integrations/disconnect', method: 'POST', value: { ...connection, status: 'disconnected' }, body: { connectionId: 'account-one' } },
+    { argv: ['integrations', 'mail-provider', 'get'], path: '/api/addons/v1/provider-settings/mail', method: 'GET', value: { selected: 'fixture-mail', candidates: [{ pluginId: 'fixture-mail', label: 'Fixture mail', status: 'connected' }] }, body: undefined },
+    { argv: ['integrations', 'mail-provider', 'select', '--plugin', 'fixture-mail'], path: '/api/addons/v1/provider-settings/mail', method: 'POST', value: { selected: 'fixture-mail' }, body: { selected: 'fixture-mail' } },
+    { argv: ['integrations', 'mail-provider', 'select', '--plugin', 'p', '--alert-from', 'a@b.co'], path: '/api/addons/v1/provider-settings/mail', method: 'POST', value: { selected: 'p', alertFrom: 'a@b.co' }, body: { selected: 'p', alertFrom: 'a@b.co' } },
+    { argv: ['integrations', 'mail-provider', 'select', '--plugin', 'p', '--clear-alert-from'], path: '/api/addons/v1/provider-settings/mail', method: 'POST', value: { selected: 'p', alertFrom: null }, body: { selected: 'p', alertFrom: null } },
+    { argv: ['integrations', 'mail-provider', 'clear'], path: '/api/addons/v1/provider-settings/mail', method: 'POST', value: { selected: null }, body: { selected: null } },
   ])('routes $argv through the authenticated owner transport', async ({ argv, path, method, value, body }) => {
     const f = fixture({ value });
     expect(await runOmCli({ argv: [...argv, '--json'], runtime: f.runtime })).toEqual({ ok: true, value: undefined });
@@ -75,15 +80,30 @@ describe('add-on command parity', () => {
     ['addons', 'enable', 'one', '--kind', 'future'],
     ['integrations', 'list', '--kind', 'plugin'],
     ['addons', 'uninstall', 'one', 'extra', '--kind', 'plugin'],
+    ['integrations', 'mail-provider', 'select', '--plugin', 'p', '--alert-from', 'synthetic-secret-invalid-email'],
+    ['integrations', 'mail-provider', 'select', '--plugin', 'p', '--alert-from', 'a@b.co', '--clear-alert-from'],
+    ['integrations', 'mail-provider', 'get', '--alert-from', 'x'],
+    ['integrations', 'mail-provider', 'clear', '--clear-alert-from'],
+    ['integrations', 'mail-provider', 'select'],
+    ['integrations', 'mail-provider', 'select', '--plugin', ''],
+    ['integrations', 'mail-provider', 'select', '--plugin', 'x'.repeat(257)],
+    ['integrations', 'mail-provider', 'get', '--plugin', 'fixture-mail'],
+    ['integrations', 'mail-provider', 'clear', '--plugin', 'fixture-mail'],
+    ['integrations', 'mail-provider', 'get', 'extra'],
+    ['integrations', 'mail-provider', 'select', 'extra', '--plugin', 'fixture-mail'],
+    ['integrations', 'mail-provider', 'clear', 'extra'],
+    ['integrations', 'mail-provider', 'unknown'],
   ])('rejects malformed command %s before any read or HTTP effect', async (...argv) => {
     const f = fixture({});
-    expect((await runOmCli({ argv, runtime: f.runtime })).ok).toBe(false);
+    expect(await runOmCli({ argv, runtime: f.runtime })).toMatchObject({ ok: false, error: { code: 'invalid_input' } });
     expect(f.calls).toEqual([]); expect(f.reads).toEqual([]);
+    expect(f.stdout.join('') + f.stderr.join('')).not.toContain('synthetic-secret');
   });
   it('help needs neither credentials nor I/O', async () => {
     const f = fixture({});
     expect((await runOmCli({ argv: ['addons', '--help'], runtime: { ...f.runtime, env: {} } })).ok).toBe(true);
     expect(f.stdout.join('')).toContain('--token-stdin'); expect(f.calls).toEqual([]);
+    expect(f.stdout.join('')).toContain('om integrations mail-provider get|clear | select --plugin ID [--alert-from ADDRESS | --clear-alert-from]');
   });
   it('refuses malformed response contracts', async () => {
     const f = fixture({ value: { ...connection, plaintext: 'should-not-display' } });
@@ -198,18 +218,10 @@ it('keeps TikTok on the existing stdin paste-token command', async () => {
   expect(f.stdout.join('') + f.stderr.join('')).not.toContain('fixture-secret-stdin');
 });
 
-it('sets the Google developer token from stdin and exposes only configured status', async () => {
-  const token = 'A'.repeat(22); const f = fixture({ value: { configured: true } });
-  const runtime = { ...f.runtime, async *readPrompt() { f.reads.push('-'); yield Buffer.from(token + '\n'); } };
-  expect((await runOmCli({ argv: ['integrations', 'developer-token', 'set', '--plugin', 'google-ads', '--json'], runtime })).ok).toBe(true);
-  expect(f.reads).toEqual(['-']); expect(f.calls[0].url).toBe('http://fixture.test/api/addons/v1/integrations/developer-token');
-  expect(f.calls[0].body).toEqual({ pluginId: 'google-ads', token }); expect(f.stdout.join('') + f.stderr.join('')).not.toContain(token);
-  for (const action of ['clear', 'status']) {
-    const next = fixture({ value: { configured: false } });
-    expect((await runOmCli({ argv: ['integrations', 'developer-token', action, '--plugin', 'google-ads', '--json'], runtime: next.runtime })).ok).toBe(true);
-    expect(next.reads).toEqual([]); expect(next.calls[0].init?.method).toBe(action === 'status' ? 'GET' : 'POST');
-    expect(next.calls[0].body).toEqual(action === 'status' ? undefined : { pluginId: 'google-ads', token: null });
-  }
+it.each(['set', 'clear', 'status'])('rejects the removed developer-token %s command before stdin or requests', async action => {
+  const f = fixture({});
+  expect(await runOmCli({ argv: ['integrations', 'developer-token', action, '--plugin', 'fixture-plugin', '--json'], runtime: f.runtime })).toMatchObject({ ok: false, error: { code: 'invalid_input', message: expect.stringContaining('Unknown') } });
+  expect(f.calls).toEqual([]); expect(f.reads).toEqual([]);
 });
 it.each([
   ['integrations', 'developer-token', 'set', '--plugin', 'google-ads', '--token', 'secret-argv'],
@@ -218,4 +230,61 @@ it.each([
 ])('rejects developer-token argv secrets and other plugins before I/O: %s', async (...argv) => {
   const f = fixture({}); expect((await runOmCli({ argv, runtime: f.runtime })).ok).toBe(false);
   expect(f.calls).toEqual([]); expect(f.reads).toEqual([]); expect(f.stdout.join('') + f.stderr.join('')).not.toContain('secret-argv');
+});
+
+it.each([false, true])('maps plugin-secret set/clear/status with secret-free terminal output (json=%s)', async json => {
+  const pluginId = 'fixture-plugin'; const sentinel = 'VN_A4_CLI_SECRET_SENTINEL_7461028'; const values = { firstSecret: sentinel, secondSecret: sentinel };
+  const f = fixture({ value: { configured: true } });
+  const runtime = { ...f.runtime, async *readPrompt() { f.reads.push('-'); yield Buffer.from(JSON.stringify(values)); } };
+  const flags = json ? ['--json'] : [];
+  expect((await runOmCli({ argv: ['integrations', 'plugin-secret', 'set', '--plugin', pluginId, ...flags], runtime })).ok).toBe(true);
+  expect(f.calls).toHaveLength(1); expect(f.reads).toEqual(['-']);
+  expect(f.calls[0]).toMatchObject({ url: 'http://fixture.test/api/addons/v1/integrations/plugin-secret', init: { method: 'POST' }, body: { pluginId, values } });
+  expect(f.stdout.join('') + f.stderr.join('')).not.toContain(sentinel);
+  for (const action of ['clear', 'status']) {
+    const next = fixture({ value: { configured: false } });
+    expect((await runOmCli({ argv: ['integrations', 'plugin-secret', action, '--plugin', pluginId, ...flags], runtime: next.runtime })).ok).toBe(true);
+    expect(next.reads).toEqual([]);
+    expect(next.calls[0]).toMatchObject({ url: 'http://fixture.test/api/addons/v1/integrations/plugin-secret' + (action === 'status' ? '?pluginId=' + pluginId : ''),
+      init: { method: action === 'status' ? 'GET' : 'POST' }, body: action === 'status' ? undefined : { pluginId, values: null } });
+  }
+  const failed = fixture({ failure: sentinel });
+  expect((await runOmCli({ argv: ['integrations', 'plugin-secret', 'set', '--plugin', pluginId, ...flags],
+    runtime: { ...failed.runtime, readPrompt: runtime.readPrompt } })).ok).toBe(false);
+  expect(failed.calls).toHaveLength(1); expect(failed.stdout.join('') + failed.stderr.join('')).not.toContain(sentinel);
+});
+
+it.each(['null', '[]', '{', '{"field":1}', '"VN_A4_CLI_SECRET_SENTINEL_7461028"', 'x'.repeat(65537)])('refuses malformed/oversized plugin-secret stdin without HTTP or echo (%#)', async stdin => {
+  const f = fixture({});
+  const runtime = { ...f.runtime, async *readPrompt() { yield Buffer.from(stdin); } };
+  expect((await runOmCli({ argv: ['integrations', 'plugin-secret', 'set', '--plugin', 'fixture-plugin', '--json'], runtime })).ok).toBe(false);
+  expect(f.calls).toEqual([]); expect(f.stdout.join('') + f.stderr.join('')).not.toContain('VN_A4_CLI_SECRET_SENTINEL_7461028');
+});
+
+it('rejects plugin-secret argv values before I/O and documents stdin-only entry in help', async () => {
+  const f = fixture({});
+  expect((await runOmCli({ argv: ['integrations', 'plugin-secret', 'set', '--plugin', 'fixture-plugin', '--value', 'secret-argv'], runtime: f.runtime })).ok).toBe(false);
+  expect(f.calls).toEqual([]); expect(f.reads).toEqual([]); expect(f.stdout.join('') + f.stderr.join('')).not.toContain('secret-argv');
+  expect((await runOmCli({ argv: ['integrations', '--help'], runtime: { ...f.runtime, env: {} } })).ok).toBe(true);
+  expect(f.stdout.join('')).toContain('plugin-secret set|clear|status --plugin ID');
+});
+
+
+it.each(['get', 'set'])('routes conversion-settings %s with plugin identity and bounded stdin values', async action => {
+  const pluginId = 'fixture-conversions'; const values = { targets: { signup: '123' } };
+  const status = { pluginId, declaration: { fields: [{ name: 'targets', label: 'Targets', kind: 'string-map', format: 'decimal-id' }] }, values };
+  const f = fixture({ value: status });
+  const runtime = { ...f.runtime, readPrompt: async function* ({ path }: { path: string }) { f.reads.push(path); yield Buffer.from(JSON.stringify(values)); } };
+  expect(await runOmCli({ argv: ['integrations', 'conversion-settings', action, '--plugin', pluginId, '--json'], runtime })).toMatchObject({ ok: true });
+  expect(f.calls).toHaveLength(1);
+  expect(f.calls[0]).toMatchObject({ url: 'http://fixture.test/api/addons/v1/integrations/conversion-settings' + (action === 'get' ? '?pluginId=' + pluginId : ''),
+    init: { method: action === 'get' ? 'GET' : 'POST' }, body: action === 'get' ? undefined : { pluginId, values } });
+  expect(f.reads).toEqual(action === 'get' ? [] : ['-']);
+});
+
+it.each(['malformed', 'oversized'])('refuses %s conversion-settings stdin before HTTP', async mode => {
+  const f = fixture({});
+  const runtime = { ...f.runtime, readPrompt: async function* () { yield Buffer.from(mode === 'malformed' ? '{invalid' : ' '.repeat(4097)); } };
+  expect(await runOmCli({ argv: ['integrations', 'conversion-settings', 'set', '--plugin', 'fixture', '--json'], runtime })).toMatchObject({ ok: false });
+  expect(f.calls).toEqual([]);
 });

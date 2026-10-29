@@ -4,7 +4,7 @@ import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { parseBoundary } from '@open-marketing/contracts';
-import type { CallContext, IdPort, Outcome, ToolResult } from '@open-marketing/contracts';
+import type { CallContext, IdPort, ObserverPort, Outcome, ToolResult } from '@open-marketing/contracts';
 import { createMemoryConfirmationExchange, createMemorySafetyRepo } from '@open-marketing/safety';
 import { createMemoryCampaignRepo } from '@open-marketing/campaigns';
 import { createAesGcmSecretSealer, createCredentialBroker, createCredentialKeyring, createCredentialService,
@@ -75,8 +75,8 @@ function fixture(required: { addons?: AddonToolDependencies } = {}) {
                 return input.failure ? { ok: false, error: { code: 'unavailable', message: 'SECRET adapter error', retryable: false } } : { ok: true, value: input.output }; } });
     }
     return { tools, services: { ...services, tools }, ids, clock, call, rpc, read, reads, removed, hiddenForAgent, definitions, authorize,
-        revoke() { active = false; }, catalog(input: unknown) { currentCatalog = input; },
-        direct(input: unknown) { return runOmSiteGuide({ context: agent, input, catalog: currentCatalog, tools, ids, definitions, authorize }); } };
+        revoke() { active = false; }, catalog({ input }: { input: unknown }) { currentCatalog = input; },
+        direct({ input }: { input: unknown }) { return runOmSiteGuide({ context: agent, input, catalog: currentCatalog, tools, ids, definitions, authorize }); } };
 }
 
 /** Real credential SQL/list adapter; add-on inventory is empty and all mutation stubs reject.
@@ -92,14 +92,14 @@ function integrationFixture() {
         return { rows: [], rowCount: statement.run(parameters).changes };
     } };
     const clock = { now: () => 1000 }; const events: unknown[] = [];
-    const observer = { observe(event: unknown) { events.push(event); } };
+    const observer: ObserverPort = { observe(event) { events.push(event); } };
     const keyring = createCredentialKeyring({ loadMaster: async () => ({ ok: true, value: new Uint8Array(32).fill(9) }) });
     let nonce = 0;
     const sealer = createAesGcmSecretSealer({ keyring, configuration: { hkdfSalt: 'fixture-guide-salt', envVarName: 'OM_CREDENTIAL_KEY', keyFilePath: '/fixture/key' },
         randomBytes: ({ size }) => new Uint8Array(size).fill(++nonce) });
     const locks = createMemoryCredentialLock({}); const repo = createSqlCredentialRepo({ db, clock }); const audit = createMemoryCredentialAudit({});
     const service = createCredentialService({ repo, sealer, keyring, locks, audit, clock, oauth: createMemoryOAuthClient({}) });
-    const integrations = createIntegrations({ repo, sealer, locks, audit, service, db, observer, broker: createCredentialBroker({ repo, sealer, locks, audit }) });
+    const integrations = createIntegrations({ repo, sealer, locks, audit, service, db, observer, oauthProviders: new Map<string, unknown>(), broker: createCredentialBroker({ repo, sealer, locks, audit }) });
     const rejected: Outcome<never> = { ok: false, error: { code: 'unavailable', message: 'Fixture mutation unavailable', retryable: false } };
     const addons: AddonToolDependencies = { observer, integrations, addons: {
         async list() { return { ok: true, value: { items: [], cursor: null } }; },
@@ -127,23 +127,23 @@ describe('OM site guide', () => {
         undefined, { ...catalog, unexpected: true }, { ...catalog, topics: [catalog.topics[0], catalog.topics[0]] },
         { ...catalog, topics: [{ ...catalog.topics[0], explanation: 'x'.repeat(6001) }] },
         { ...catalog, topics: Array.from({ length: 13 }, () => catalog.topics[0]) },
-        { ...catalog, topics: catalog.topics.map((topic: object) => ({ ...topic, explanation: 'x'.repeat(6000) })) },
+        { ...catalog, topics: catalog.topics.map((topic: Record<string, unknown>) => ({ ...topic, explanation: 'x'.repeat(6000) })) },
         { ...catalog, version: 'x'.repeat(300) },
     ])('fails explicitly for missing or malformed catalogs', async malformed => {
         const f = fixture();
-        try { f.catalog(malformed); expect(await f.direct({ operation: 'overview' })).toMatchObject({ ok: false, error: { code: 'unavailable' } }); }
+        try { f.catalog({ input: malformed }); expect(await f.direct({ input: { operation: 'overview' } })).toMatchObject({ ok: false, error: { code: 'unavailable' } }); }
         finally { await f.tools.dispose({}); }
     });
 
     it.each([{ operation: 'explain', topic: 'unknown' }, { operation: 'overview', workspaceId: 'b' }, { operation: 'explain' }, { operation: 'overview', topic: 'safety' }])('rejects malformed input and supplied identity', async input => {
         const f = fixture();
-        try { expect(await f.direct(input)).toMatchObject({ ok: false, error: { code: 'invalid_input' } }); expect(f.reads).toEqual([]); }
+        try { expect(await f.direct({ input })).toMatchObject({ ok: false, error: { code: 'invalid_input' } }); expect(f.reads).toEqual([]); }
         finally { await f.tools.dispose({}); }
     });
 
     it('does not invent a missing catalog topic', async () => {
         const f = fixture();
-        try { f.catalog({ ...catalog, topics: [catalog.topics[0]] }); expect(await f.direct({ operation: 'explain', topic: 'media' })).toMatchObject({ ok: false, error: { code: 'invalid_input' } }); }
+        try { f.catalog({ input: { ...catalog, topics: [catalog.topics[0]] } }); expect(await f.direct({ input: { operation: 'explain', topic: 'media' } })).toMatchObject({ ok: false, error: { code: 'invalid_input' } }); }
         finally { await f.tools.dispose({}); }
     });
 
@@ -242,8 +242,8 @@ describe('OM site guide', () => {
         const f = fixture();
         try {
             f.read({ name: 'om_workspace_current', output: owner.scope, after: f.revoke });
-            expect(await f.direct({ operation: 'explain', topic: 'workspaces' })).toMatchObject({ ok: false, error: { code: 'forbidden' } });
-            expect(await f.direct({ operation: 'overview' })).toMatchObject({ ok: false });
+            expect(await f.direct({ input: { operation: 'explain', topic: 'workspaces' } })).toMatchObject({ ok: false, error: { code: 'forbidden' } });
+            expect(await f.direct({ input: { operation: 'overview' } })).toMatchObject({ ok: false });
         } finally { await f.tools.dispose({}); }
     });
 
@@ -350,7 +350,7 @@ describe('OM site guide', () => {
             const response = await f.rpc({ method: 'resources/read', params: { uri: 'jini://site-guide' } });
             const contents = (response.body as { result: { contents: { text: string }[] } }).result.contents;
             expect(JSON.parse(contents[0].text)).toEqual((direct as Extract<ToolResult, { status: 'completed' }>).output);
-            f.catalog({ ...catalog, version: '1.0.1' });
+            f.catalog({ input: { ...catalog, version: '1.0.1' } });
             const fresh = await f.rpc({ method: 'resources/read', params: { uri: 'jini://site-guide' } });
             expect(JSON.stringify(fresh.body)).toContain('1.0.1');
             expect((await f.rpc({ method: 'resources/read', params: { uri: 'file:///secret' } })).body).toMatchObject({ error: { code: -32602 } });

@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import type { CallContext, Outcome } from '@open-marketing/contracts';
 import type { CredentialSqlPort } from '@open-marketing/credentials';
-import { credentialIcon, parseCredentialCardManifest } from '../src/integration-credential-cards.js';
+import { credentialIcon, credentialOAuthClientFields, parseCredentialCardManifest } from '../src/integration-credential-cards.js';
 import { bindServerAddons, createNodeAddonEffects } from '../src/composition/addons.js';
 import { bindServerIntegrations } from '../src/composition/index.js';
 import { createNodeBootIo } from '../src/composition/serve.js';
@@ -81,6 +81,15 @@ it('bounds whole manifests, identities, aggregate fields and integer metadata', 
     expect(parsed.credentialCards[0]).not.toHaveProperty('icon');
 });
 
+it('keeps a plugin-secret card with multiple declared fields in a mixed card list', () => {
+    const secret = { ...card, target: 'fixture-secret', saveKind: 'plugin-secret', secretFields: [
+        { name: 'firstSecret', label: 'First', required: true }, { name: 'secondSecret', label: 'Second' },
+    ] };
+    const parsed = value(parseCredentialCardManifest({ raw: raw({ cards: [card, secret] }), pluginId: 'fixture-plugin' }));
+    expect(parsed.credentialCards).toHaveLength(2);
+    expect(parsed.credentialCards[1]).toMatchObject({ saveKind: 'plugin-secret', actionSupported: true, secretFields: secret.secretFields });
+});
+
 /** Temporary SQLite/lifecycle fixture packages the selected binary icon; module loading is forbidden. */
 async function readerFixture(required: { mode: string; icon: typeof icons[number] }) {
     const { mode, icon } = required;
@@ -110,6 +119,7 @@ async function readerFixture(required: { mode: string; icon: typeof icons[number
     } };
     const clock = { now: () => 1000 }; const ids = { next: () => 'fixture' };
     const binding = bindServerAddons({ context, db, stateRoot: root, projectRoot: root, clock, observer: { observe() {} },
+        audit: { async record() { return { ok: true as const, value: undefined }; } }, async runningJobs() { return { ok: true as const, value: 0 }; },
         effects: createNodeAddonEffects({ clock, ids, async loadModule() { throw new Error('Cards must never import modules'); } }),
         yamlReader: { read: ({ yaml }) => JSON.parse(yaml) }, sessions: { async reload() {}, async close() {} } });
     if (mode === 'bundled') {
@@ -145,7 +155,10 @@ it('rejects corrupt, oversized and mismatched icon payloads', () => {
     const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>');
     expect(credentialIcon({ path: path.replace('.png', '.svg'), digest: createHash('sha256').update(svg).digest('hex'), bytes: svg })).toMatchObject({ ok: true, value: { contentType: 'image/svg+xml' } });
 });
-it.each(['google-ads', 'meta-ads', 'linkedin-ads', 'tiktok-ads', 'higgsfield-media'])('%s ships valid identity-bound cards and all declared asset digests', async pluginId => {
+it.each(['google-ads', 'meta-ads', 'linkedin-ads', 'tiktok-ads', 'higgsfield-media',
+    'amazon-ses', 'apple-search-ads', 'google-business-profile', 'kakao-ads', 'line-ads', 'microsoft-ads', 'naver-ads', 'pinterest-ads',
+    'reddit-ads', 'resend-email', 'snapchat-ads', 'twilio-sms', 'vk-ads', 'whatsapp-business', 'x-ads', 'yandex-direct',
+])('%s ships valid identity-bound cards and all declared asset digests', async pluginId => {
     const root = new URL('../../../content/agent-plugins/' + pluginId + '/', import.meta.url);
     const raw = await fs.readFile(new URL('plugin.json', root), 'utf8');
     expect(JSON.parse(raw).$schema).toBe('https://agent-plugins.org/schemas/1.0.0/plugin.schema.json');
@@ -155,4 +168,20 @@ it.each(['google-ads', 'meta-ads', 'linkedin-ads', 'tiktok-ads', 'higgsfield-med
     expect(parsed.credentialCards.every(card => card.saveTarget === pluginId)).toBe(true);
     if (pluginId === 'higgsfield-media') expect(parsed.credentialCards[0].actionSupported).toBe(false);
     if (pluginId === 'tiktok-ads') expect(parsed.credentialCards[0].saveKind).toBe('api-key');
+});
+
+it('disables empty plugin-secret actions from declarations', () => {
+    const parsed = value(parseCredentialCardManifest({ pluginId: 'fixture-plugin', raw: raw({ cards: [
+        { ...card, saveKind: 'plugin-secret', secretFields: [] },
+    ] }) }));
+    expect(parsed.credentialCards.map(card => card.actionSupported)).toEqual([false]);
+});
+
+it('derives unique OAuth extras from public fields only across client cards', () => {
+    const parsed = value(parseCredentialCardManifest({ pluginId: 'fixture-plugin', raw: raw({ cards: [
+        { ...card, saveKind: 'oauth-client', fields: [{ name: 'clientId', label: 'ID' }, { name: 'tenant', label: 'Tenant' }], secretFields: [{ name: 'clientSecret', label: 'Secret' }] },
+        { ...card, target: 'fixture-second', saveKind: 'oauth-client', fields: [{ name: 'tenant', label: 'Tenant' }, { name: 'region', label: 'Region' }], secretFields: [] },
+        { ...card, target: 'fixture-app', saveKind: 'app-credentials', fields: [{ name: 'ignored', label: 'Ignored' }], secretFields: [] },
+    ] }) }));
+    expect(credentialOAuthClientFields({ cards: parsed.credentialCards })).toEqual(['tenant', 'region']);
 });

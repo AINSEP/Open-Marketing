@@ -17,8 +17,11 @@ import { snapshotPluginModuleGraph, snapshotSitePluginPackage } from '@jini-ai/p
 import type { AddonSummary, CallContext, ClockPort, IdPort, ObserverPort, Outcome } from '@open-marketing/contracts';
 import type { CredentialSqlPort } from '@open-marketing/credentials';
 import { addonSummarySchema, addonToolEffectsSchema, boundedJsonSchema } from '@open-marketing/contracts';
-import { createAddons, createSqlAddonRepository, addonBoundary, addonFailure } from '../addons.js';
-import type { AddonDescription, AddonPackageAdapter, PreparedAddon } from '../addons.js';
+import { createSqlAddonRepository } from '../addons.js';
+import { withConversionSettings } from '../integrations.js';
+import { createPluginService, addonBoundary, addonFailure } from '@open-marketing/plugins';
+import type { AddonDependencies, PluginAuditPort } from '@open-marketing/plugins';
+import type { AddonDescription, AddonPackageAdapter, PreparedAddon } from '@open-marketing/plugins';
 import { addonAgentArchiveReader, decodeAddonUpload } from '../addon-upload.js';
 import type { AddonFiles } from '../addon-upload.js';
 import { createExecutablePluginHost, executablePackageRoot } from '../plugin-host.js';
@@ -47,13 +50,13 @@ export function createNodeAddonEffects(required: { clock: ClockPort; ids: IdPort
 export type AddonEffects = ReturnType<typeof createNodeAddonEffects>;
 
 /** One binding per authenticated owner/workspace. The hash binds both identity fields into paths.
- * No filesystem/network work at construction. start explicitly seeds disabled bundled packages
+ * No filesystem/network work at construction. start seeds bundled packages with declared activation
  * and restores persisted operator choices; dispose closes runtimes without changing those choices.
  * @example const binding = bindServerAddons({ context, db, stateRoot, projectRoot, clock, effects, observer, yamlReader, sessions });
  * @complexity <=1000 catalog entries, <=100 MCP rows; no vendor calls on disabled bundled load.
  */
 export function bindServerAddons(required: { context: CallContext; db: CredentialSqlPort; stateRoot: string; projectRoot: string;
-    clock: ClockPort; effects: AddonEffects; observer: ObserverPort; yamlReader: YamlReaderPort; sessions: ExternalMcpSessions }) {
+    clock: ClockPort; effects: AddonEffects; observer: ObserverPort; yamlReader: YamlReaderPort; sessions: ExternalMcpSessions; audit: PluginAuditPort; runningJobs: AddonDependencies['runningJobs'] }) {
     const scopeId = scopeKey({ context: required.context });
     const root = join(required.stateRoot, 'addons', scopeId);
     const repo = createSqlAddonRepository({ db: required.db });
@@ -114,42 +117,56 @@ export function bindServerAddons(required: { context: CallContext; db: Credentia
     const scopedRepo = { list: async (input: { context: CallContext }) => { assertScope(input); return repo.list(input); },
         save: async (input: Parameters<typeof repo.save>[0]) => { assertScope(input); await repo.save(input); },
         remove: async (input: Parameters<typeof repo.remove>[0]) => { assertScope(input); await repo.remove(input); } };
-    const addons = createAddons({ repo: scopedRepo, packages, archiveReader: required.effects.archiveReader, observer: required.observer });
+    const addons = createPluginService({ repo: scopedRepo, packages, ids: { next: () => required.effects.ids.newId() }, observer: required.observer, audit: required.audit, runningJobs: required.runningJobs,
+        decodeUpload: (input, options) => decodeAddonUpload({ ...input, archiveReader: required.effects.archiveReader }, options) });
     return { addons, externalMcp, registry, charts,
         /** Installed data includes disabled/uploaded packages; no contribution admission or imports. */
         readCredentialCards: (input: { context: CallContext; pluginId: string }) => addonBoundary({ ...input, dependencies: required, operation: 'addons.credential-cards', run: async () => {
             assertScope(input);
             const plugin = await credentialPackage(input);
-            const raw = Buffer.from(await credentialFile({ plugin, path: 'plugin.json', maxBytes: 65536 })).toString('utf8');
+            const raw = await credentialManifest({ plugin });
             return parseCredentialCardManifest({ raw, pluginId: input.pluginId });
+        } }),
+        /** Optional installed OAuth metadata, including disabled packages; bounded to 16 KiB. */
+        readOAuthMetadata: (input: { context: CallContext; pluginId: string }): Promise<Outcome<string | null>> => addonBoundary({ ...input, dependencies: required, operation: 'addons.oauth-metadata', run: async () => {
+            assertScope(input);
+            const plugin = await credentialPackage(input);
+            const path = 'io.github.ainsep.openmarketing/oauth.json';
+            if (!plugin.files.includes(path)) return { ok: true, value: null };
+            return { ok: true, value: Buffer.from(await credentialFile({ plugin, path, maxBytes: 16384 })).toString('utf8') };
         } }),
         /** Binary reader preserves PNG bytes. The installed file list and containment own paths. */
         readCredentialAsset: (input: { context: CallContext; pluginId: string; path: string }) => addonBoundary({ ...input, dependencies: required, operation: 'addons.credential-asset', run: async () => {
             assertScope(input);
             const plugin = await credentialPackage(input);
-            const raw = Buffer.from(await credentialFile({ plugin, path: 'plugin.json', maxBytes: 65536 })).toString('utf8');
+            const raw = await credentialManifest({ plugin });
             const manifest = checked({ result: parseCredentialCardManifest({ raw, pluginId: input.pluginId }) });
             if (!manifest.credentialAssets[input.path]) return addonFailure({ code: 'invalid_input' });
             return { ok: true, value: await credentialFile({ plugin, path: input.path, maxBytes: 262144 }) };
         } }),
-        /** Server-only bundled backend state. Uploaded executable agent packages remain a later binding.
+        /** Server-only installed backend state, shared by bundled and uploaded packages.
          * Disabled plugins are skipped before metadata reads. Admission requires both manifest and
-         * capability metadata; failures are isolated by each catalog source's boundary. */
+         * capability metadata for executable packages; model-only data needs manifest admission. */
         async agentPluginState(input: { context: CallContext; pluginId: string }): Promise<AgentPluginState | null> {
             assertScope(input);
+            const catalog = (await repo.list({ context: input.context })).find(row => row.kind === 'agent-plugin' && row.id === input.pluginId);
+            if (!catalog?.enabled) return null;
             const activation = await lifecycle.readAgentPluginActivations({ workspaceRoot: world.root });
             const record = activation.plugins[input.pluginId];
             if (!record?.enabled) return null;
             const current = await lifecycle.resolveAgentPluginActivation({ workspaceRoot: world.root, pluginId: input.pluginId });
             if (current.verdict !== 'active') return null;
-            const plugin = await installedPlugin({ id: input.pluginId });
-            const manifest = z.record(z.string(), z.unknown()).parse(JSON.parse(await lifecycle.readTrustedPluginFile({ plugin, filename: 'plugin.json' })));
+            const plugin = await credentialPackage({ ...input, catalog });
+            const manifest = z.record(z.string(), z.unknown()).parse(JSON.parse(await credentialManifest({ plugin })));
             const extensions = z.object({ extensions: z.record(z.string(), z.unknown()) }).parse(manifest).extensions;
             const metadata = z.record(z.string(), z.unknown()).parse(extensions['io.github.ainsep.openmarketing']);
-            const text = await lifecycle.readTrustedPluginFile({ plugin, filename: 'io.github.ainsep.openmarketing/capabilities.json' });
-            const capabilities = z.object({ admitted: z.boolean() }).parse(JSON.parse(text));
+            const capabilities = await agentCapabilities({ plugin, metadata });
+            const entryPath = 'io.github.ainsep.openmarketing/dist/index.mjs';
+            const entryUrl = plugin.files.includes(entryPath) ? pathToFileURL(await lifecycle.assertContainedOnDisk({ packageRoot: plugin.packageRoot, entryPath })).href : undefined;
+            // Owner decision 2026-10-28: plugins are unrestricted, so the author's own `admitted` flags are trusted as declared.
             return { enabled: true, bundled: record.origin === 'bundled', revision: plugin.archiveDigest,
-                admitted: metadata.admitted === true && capabilities.admitted, metadata, effects: addonToolEffectsSchema.parse([...new Set(await agentEffects({ plugin, manifest }))]) };
+                admitted: metadata.admitted === true && capabilities.admitted, metadata: await withConversionSettings({ ...input, db: required.db, metadata }), entryUrl, capabilities: capabilities.capabilities,
+                effects: addonToolEffectsSchema.parse([...new Set(await agentEffects({ plugin, manifest }))]) };
         },
         // Coordinator selects this only after the existing owner cookie/origin authentication.
         async handleChartRequest(input: { request: HttpRequest; context: CallContext }) {
@@ -157,8 +174,17 @@ export function bindServerAddons(required: { context: CallContext; db: Credentia
             catch { return { status: 403, body: addonFailure({ code: 'forbidden' }) }; }
             return handleChartAssetRequest({ ...input, charts, observer: required.observer });
         },
+        /** Inventory reads use the same workspace fence as the HTTP asset handler. */
+        listChartProviders: (input: { context: CallContext }) => addonBoundary({ ...input, dependencies: required, operation: 'addons.chart-providers', run: async () => {
+            try { assertScope(input); }
+            catch { return addonFailure({ code: 'forbidden' }); }
+            return { ok: true, value: charts.list({}) };
+        } }),
         start: () => addonBoundary({ context: required.context, dependencies: required, operation: 'addons.start', run: async () => {
-            await seedChartPlugin();
+            await lifecycle.reconcileAgentPluginUpdates({ workspaceId: scopeId });
+            const chartIds = (await bundledSourceEntries({ effects: required.effects, path: join(required.projectRoot, 'content', 'plugins') }))
+                .filter(entry => entry.isDirectory()).map(entry => entry.name).sort();
+            for (const id of chartIds) await seedChartPlugin({ id });
             await seedBundledAgentPlugins({ lifecycle, layout, workspaceId: scopeId, effects: required.effects,
                 sourceRoot: join(required.projectRoot, 'content', 'agent-plugins') });
             const installed = await lifecycle.listInstalledPlugins({ workspaceRoot: world.root });
@@ -178,10 +204,10 @@ export function bindServerAddons(required: { context: CallContext; db: Credentia
      * There is no source/trust relabeling; enabling remains subject to the published Jini loader.
      * @complexity <=5 files/32 MiB, using the same no-follow reader and upload caps as Agent Plugins.
      */
-    async function seedChartPlugin(): Promise<void> {
+    async function seedChartPlugin(input: { id: string }): Promise<void> {
         const previous = await repo.list({ context: required.context });
-        if (previous.some(row => row.kind === 'plugin' && row.id === 'charts-recharts')) return;
-        const sourceDir = join(required.projectRoot, 'content', 'plugins', 'charts-recharts', '0.1.0');
+        if (previous.some(row => row.kind === 'plugin' && row.id === input.id)) return;
+        const sourceDir = join(required.projectRoot, 'content', 'plugins', input.id, '0.1.0');
         const entries = await bundledSourceEntries({ effects: required.effects, path: sourceDir });
         if (!entries.length) return;
         const scan: BundledScan = { files: new Map(), bytes: 0, entries: 0 };
@@ -205,10 +231,10 @@ export function bindServerAddons(required: { context: CallContext; db: Credentia
     }
 
     /** Resolve the catalog's current revision, including uploads. Old digest directories cannot win.
-     * @complexity Two bounded catalog reads, <=1000 rows; no activation or module loading.
+     * @complexity One bounded catalog read when no row was supplied, <=1000 rows; no activation or module loading.
      */
-    async function credentialPackage(input: { pluginId: string }): Promise<InstalledAgentPlugin> {
-        const row = (await repo.list({ context: required.context })).find(row => row.kind === 'agent-plugin' && row.id === input.pluginId);
+    async function credentialPackage(input: { pluginId: string; catalog?: AddonSummary }): Promise<InstalledAgentPlugin> {
+        const row = input.catalog ?? (await repo.list({ context: required.context })).find(row => row.kind === 'agent-plugin' && row.id === input.pluginId);
         if (!row) throw new Error('Credential package unavailable');
         const uploadDigest = createHash('sha256').update(Buffer.from(row.revision, 'hex')).digest('hex');
         const installed = await lifecycle.listInstalledPlugins({ workspaceRoot: world.root });
@@ -223,6 +249,19 @@ export function bindServerAddons(required: { context: CallContext; db: Credentia
         const path = await lifecycle.assertContainedOnDisk({ packageRoot: input.plugin.packageRoot, entryPath: input.path });
         if (await required.effects.filesystem.realpath(path) !== join(input.plugin.packageRoot, input.path)) throw new Error('Credential file link refused');
         return required.effects.skillFilesystem.readFile({ path, maxBytes: input.maxBytes });
+    }
+
+    async function credentialManifest(input: { plugin: InstalledAgentPlugin }): Promise<string> { return Buffer.from(await credentialFile({ plugin: input.plugin, path: 'plugin.json', maxBytes: 65536 })).toString('utf8'); }
+
+    /** Only model-only data packages may omit executable capability metadata; bounded file errors propagate. */
+    async function agentCapabilities(input: { plugin: InstalledAgentPlugin; metadata: Record<string, unknown> }) {
+        const path = 'io.github.ainsep.openmarketing/capabilities.json';
+        const provides = input.metadata.provides;
+        if (!input.plugin.files.includes(path) && Array.isArray(provides) && provides.length === 1 && provides[0] === 'model') {
+            return { admitted: true, capabilities: [] };
+        }
+        const text = Buffer.from(await credentialFile({ plugin: input.plugin, path, maxBytes: 65536 })).toString('utf8');
+        return z.object({ admitted: z.boolean(), capabilities: z.array(z.unknown()).max(100) }).parse(JSON.parse(text));
     }
 
     async function provisionInstalled(input: { installed: InstalledAgentPlugin }): Promise<void> {
@@ -241,9 +280,13 @@ export function bindServerAddons(required: { context: CallContext; db: Credentia
                 const args = { archive, expectedSha256: createHash('sha256').update(archive).digest('hex'), archiveReader: addonAgentArchiveReader(input), layout, workspaceId: scopeId };
                 // Preview owns Jini's full format/identity validation, including bounded staging cleanup.
                 const preview = await lifecycle.installAgentPlugin(args, { previewOnly: true });
+                if (await lifecycle.isAgentPluginRecordedAsBundled({ workspaceRoot: world.root, pluginId: preview.pluginId })) throw new Error('Bundled agent plugin');
                 const summary = agentSummary({ plugin: preview, enabled: false, revision: input.revision });
-                return { summary, async commit() {
-                    const installed = await lifecycle.installAgentPlugin(args);
+                return { summary, async commit({ previous }) {
+                    const current = previous ? await credentialPackage({ pluginId: previous.id, catalog: previous }) : undefined;
+                    const installed = current ? (await lifecycle.updateAgentPlugin({ ...args, pluginId: previous!.id,
+                        expectedOldDigest: current.archiveDigest, actor: actorId({ context: input.context }),
+                        snapshotSettings: async () => ({}) })).plugin : await lifecycle.installAgentPlugin(args);
                     await lifecycle.setAgentPluginEnabled({ workspaceId: scopeId, pluginId: installed.pluginId, enabled: false, actor: actorId({ context: input.context }) });
                     await provisionInstalled({ installed });
                 } };
@@ -292,6 +335,7 @@ export function bindServerAddons(required: { context: CallContext; db: Credentia
             async prepare(input) {
                 const files = [...input.files].map(([path, bytes]) => ({ path, contentBase64: Buffer.from(bytes).toString('base64') }));
                 const prepared = await skillInstaller.prepareSkillInstall({ workspaceId: scopeId, files });
+                if ((await skillInstaller.listManagedSkills({ workspaceId: scopeId })).some(row => row.toolId === prepared.toolId)) throw new Error('Skill already installed');
                 return { summary: { id: prepared.toolId, kind: 'skill', name: prepared.name, description: prepared.description,
                     version: '1', enabled: false, revision: input.revision }, async commit() {
                     await skillInstaller.commitSkillInstall({ workspaceId: scopeId, prepared });
@@ -367,7 +411,7 @@ async function seedBundledAgentPlugins(required: { lifecycle: AgentPluginLifecyc
             await required.lifecycle.installAgentPlugin({ archive, expectedSha256: archiveDigest,
                 archiveReader: addonAgentArchiveReader(source), layout: required.layout, workspaceId: required.workspaceId });
         }
-        await required.lifecycle.recordBundledAgentPluginIfAbsent({ workspaceRoot: world.root, pluginId: source.pluginId }, { enabled: false });
+        await required.lifecycle.recordBundledAgentPluginIfAbsent({ workspaceRoot: world.root, pluginId: source.pluginId }, { enabled: source.enabled });
         seeded.push({ pluginId: source.pluginId, archiveDigest });
     }
     await required.lifecycle.recordBundledAgentPluginDigests({ workspaceRoot: world.root, seeded });
@@ -393,12 +437,17 @@ async function readBundledPackage(required: { effects: AddonEffects; sourceDir: 
     for (const path of cardPaths.filter(path => assets.some(entry => path === 'io.github.ainsep.openmarketing/assets/' + entry.name))) paths.add(path);
     const metadata = await bundledSourceEntries({ effects: required.effects, path: join(sourceDir, 'io.github.ainsep.openmarketing') });
     if (metadata.some(entry => entry.name === 'capabilities.json')) paths.add('io.github.ainsep.openmarketing/capabilities.json');
+    if (metadata.some(entry => entry.name === 'oauth.json')) paths.add('io.github.ainsep.openmarketing/oauth.json');
+    const runtime = await bundledSourceEntries({ effects: required.effects, path: join(sourceDir, 'io.github.ainsep.openmarketing/dist') });
+    if (runtime.some(entry => entry.name === 'index.mjs')) paths.add('io.github.ainsep.openmarketing/dist/index.mjs');
     for (const path of bundledBindings({ value: manifest.manifest.extensions?.['io.github.ainsep.openmarketing'] })) paths.add(path);
     const scan: BundledScan = { files: new Map(), bytes: 0, entries: 0 };
     for (const path of paths) await readBundledPath({ ...required, sourceDir, path, scan });
     const decoded = checked({ result: await decodeAddonUpload({ archiveReader: required.effects.archiveReader, upload: { kind: 'files',
         files: [...scan.files].map(([path, content]) => ({ path, base64: Buffer.from(content).toString('base64') })) } }) });
-    return { ...decoded, pluginId: manifest.manifest.name };
+    const extension = manifest.manifest.extensions?.['io.github.ainsep.openmarketing'];
+    const enabled = z.object({ enabled: z.unknown().optional() }).parse(extension ?? {}).enabled === true;
+    return { ...decoded, pluginId: manifest.manifest.name, enabled };
 }
 
 /** Only validated, package-relative binding paths are copied; caches cannot be declared back in. */

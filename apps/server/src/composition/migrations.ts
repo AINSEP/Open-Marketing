@@ -25,6 +25,12 @@ export const migrationManifest = [
     { version: 20, feature: 'server', local: 3, path: 'apps/server/migrations/0003_tool_operations.sql' },
     { version: 21, feature: 'server', local: 4, path: 'apps/server/migrations/0004_media.sql' },
     { version: 22, feature: 'server', local: 5, path: 'apps/server/migrations/0005_chat_backend.sql' },
+    { version: 23, feature: 'leads', local: 1, path: 'features/leads/migrations/0001_leads.sql' },
+    { version: 24, feature: 'server', local: 6, path: 'apps/server/migrations/0006_alerts.sql' },
+    { version: 25, feature: 'measure', local: 3, path: 'features/measure/migrations/0003_metrics.sql' },
+    { version: 26, feature: 'brand', local: 1, path: 'features/brand/migrations/0001_brand.sql' },
+    { version: 27, feature: 'measure', local: 4, path: 'features/measure/migrations/0004_metrics_membership.sql' },
+    { version: 28, feature: 'measure', local: 5, path: 'features/measure/migrations/0005_measurement_grants.sql' },
 ] as const;
 
 /** Load trusted scripts through injected filesystem access; validate the full batch before execution.

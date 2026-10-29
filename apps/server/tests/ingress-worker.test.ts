@@ -1,9 +1,10 @@
+import { createLeadsService, createSqlLeadsRepo } from '@open-marketing/leads';
 import { createSqlContactRepo } from '@open-marketing/contacts';
 import { createSqlJobRepo, jobTenant } from '@open-marketing/jobs';
 import { formRetryPolicy } from '../src/composition/forms.js';
 import { createSubjectLane } from '../src/composition/subject-lane.js';
 /** Written-only I3 integration: Coordinator builds feature dist exports before running. */
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import * as fs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
@@ -12,7 +13,7 @@ import { removeStateRoot } from './state-root.js';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
-import type { CallContext, ClockPort, ObserverEvent } from '@open-marketing/contracts';
+import { metricBatchSchema, encodeCampaignKey, type CallContext, type ClockPort, type ObserverEvent } from '@open-marketing/contracts';
 import { createSqlMeasureRepo, createSqlTrackedLink, createMeasurementShareabilityAdapter, type MeasureSqlDatabase } from '@open-marketing/measure';
 import { bootServer, type BootedServer, type ServerBootIo } from '../src/composition/index.js';
 import { createNodeBootIo } from '../src/composition/serve.js';
@@ -148,34 +149,34 @@ async function subjectJob(required: { f: Fixture; subjectId: string; id: string;
         token: claimed.value.lease.leaseToken!, now: f.clock.now({}) });
     return queued.value.jobId;
 }
-/** Extract only server-issued hidden IDs/token from a real rendered form. */
+/** Extract server-issued form IDs; loading the page grants no tracking consent. */
 async function form(required: { fixture: Fixture }) {
     const response = await fetch(required.fixture.origin + '/f/lead');
     expect(response.status).toBe(200);
     const html = await response.text();
-    const fields = Object.fromEntries(['om_publication', '_attempt', 'om_vt'].map(name => {
+    const fields = Object.fromEntries(['om_publication', '_attempt'].map(name => {
         const value = new RegExp('name="' + name + '" value="([^"]+)"').exec(html)?.[1];
         if (!value) throw new Error('Missing form metadata');
         return [name, value];
     }));
-    return { html, fields, cookie: response.headers.get('set-cookie')!.split(';')[0] };
+    expect(response.headers.get('set-cookie')).toBeNull();
+    expect(html).not.toContain('name="om_vt"');
+    return { html, fields };
 }
-async function submit(required: { fixture: Fixture; fields: Record<string, string> }) {
+async function submit(required: { fixture: Fixture; fields: Record<string, string>; cookie?: string }) {
     const response = await fetch(required.fixture.origin + '/f/lead', { method: 'POST',
-        headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-correlation-id': 'lead-correlation', 'x-trace-id': 'lead-trace' }, body: new URLSearchParams(required.fields) });
+        headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-correlation-id': 'lead-correlation', 'x-trace-id': 'lead-trace', ...(required.cookie ? { cookie: required.cookie } : {}) }, body: new URLSearchParams(required.fields) });
     const receipt = z.object({ ok: z.literal(true), value: z.object({ status: z.enum(['accepted', 'duplicate']), receipt: z.object({ submissionId: z.string(), publicationId: z.string(), jobId: z.string() }) }) }).parse(await response.json());
     expect(response.status).toBe(202);
     return receipt.value.receipt;
 }
-function count(required: { fixture: Fixture; table: 'contact_subject' | 'policy_evidence' | 'om_form_subject_receipts' | 'job' | 'om_form_submissions' }) {
+function count(required: { fixture: Fixture; table: 'contact_subject' | 'policy_evidence' | 'om_form_subject_receipts' | 'job' | 'om_form_submissions' | 'lead' | 'web_visit' | 'web_event' | 'web_touch' }) {
     return z.object({ n: z.number() }).parse(required.fixture.native.prepare('SELECT COUNT(*) AS n FROM ' + required.table).get()).n;
 }
 
 it('public lead acceptance is async, exact, linked to a landing, visible in studio and replay-safe after restart', async () => {
     const f = await fixture({});
     try {
-        const page = await form({ fixture: f });
-        expect(page.html).not.toMatch(/checked(?:=|\s|>)/);
         const snippet = await fetch(f.origin + '/web-events.js');
         expect(snippet.status).toBe(200);
         expect(await snippet.text()).toContain('om.web.landing');
@@ -184,11 +185,16 @@ it('public lead acceptance is async, exact, linked to a landing, visible in stud
         if (!campaign.ok) throw new Error('Campaign fixture failed');
         const link = await initial.links.create({ context: f.context, request: { destinationUrl: 'https://sandbox.example.test/lead', campaignId: campaign.value.campaignId, utm: {} } });
         if (!link.ok) throw new Error('Link fixture failed');
-        const landing = await fetch(f.origin + '/c', { method: 'POST', headers: { cookie: page.cookie, 'content-type': 'application/json' },
-            body: JSON.stringify({ eventId: 'landing-one', schema: 'om.web.landing', version: 1, source: 'first-party', name: 'landing', properties: { linkId: link.value.linkId, campaignId: campaign.value.campaignId, fbclid: 'untrusted-click' }, occurredAt: f.clock.now({}) }) });
+        const landing = await fetch(f.origin + '/c', { method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ consent: true, eventId: 'landing-one', schema: 'om.web.landing', version: 1, source: 'first-party', name: 'landing', properties: { linkId: link.value.linkId, campaignId: campaign.value.campaignId,
+                utm_source: 'google-ads', utm_medium: 'cpc', om_a: 'account', utm_id: 'campaign', pageUrl: 'https://sandbox.example.test/lead', gclid: 'first-party-click', fbclid: 'untrusted-click', fbc: 'legacy-click', fbp: 'legacy-browser' }, occurredAt: f.clock.now({}) }) });
         expect(landing.status).toBe(202);
+        expect(await landing.json()).toEqual({ ok: true, value: { accepted: true } });
+        const cookie = landing.headers.get('set-cookie')!.split(';')[0];
+        const page = await form({ fixture: f });
+        expect(page.html).not.toMatch(/checked(?:=|\s|>)/);
         const fields = { ...page.fields, email: 'Lead@Example.test', marketing: 'on' };
-        const receipt = await submit({ fixture: f, fields });
+        const receipt = await submit({ fixture: f, fields, cookie });
         expect(count({ fixture: f, table: 'contact_subject' })).toBe(0);
         expect(count({ fixture: f, table: 'job' })).toBe(1);
         expect(JSON.stringify(f.native.prepare('SELECT payload FROM job').all())).not.toContain('Example.test');
@@ -205,15 +211,160 @@ it('public lead acceptance is async, exact, linked to a landing, visible in stud
         const touches = await binding.identity.touches.touchesFor({ context: f.context, subjectId: subject.value.subjectId, window: { start: 0, end: f.clock.now({}) + 1 }, limit: 10 });
         expect(touches).toMatchObject({ ok: true, value: [{ linkId: link.value.linkId, campaignId: campaign.value.campaignId }] });
         expect(JSON.stringify(f.native.prepare('SELECT payload FROM web_event').all())).not.toContain('untrusted-click');
-        expect(JSON.stringify(f.native.prepare('SELECT click_identifiers FROM web_touch').all())).not.toContain('untrusted-click');
+        const storedClicks = JSON.stringify(f.native.prepare('SELECT click_identifiers FROM web_touch').all());
+        expect(storedClicks).toContain('untrusted-click');
+        expect(storedClicks).toContain('first-party-click');
+        expect(storedClicks).not.toContain('legacy-click');
+        expect(storedClicks).not.toContain('legacy-browser');
         const snapshot = await fetch(f.origin + '/api/studio/snapshot', { headers: f.headers });
         expect(await snapshot.json()).toMatchObject({ ok: true, value: { rows: { activity: [{ id: receipt.submissionId, status: 'accepted' }] } } });
         expect(f.events).toEqual(expect.arrayContaining([expect.objectContaining({ operation: 'server.forms.worker', correlationId: 'lead-correlation', traceId: 'lead-trace', outcome: 'accepted' })]));
         await f.restart();
-        expect(await submit({ fixture: f, fields })).toEqual(receipt);
+        // The fixture listener chooses a new port; keep the original consented token for replay.
+        const replayCookie = 'om_visit_' + new URL(f.origin).port + '=' + cookie.slice(cookie.indexOf('=') + 1);
+        expect(await submit({ fixture: f, fields, cookie: replayCookie })).toEqual(receipt);
         const replay = await f.adapters().forms.accept({ context: f.context, ...receipt });
         expect(replay).toMatchObject({ ok: true, value: { subjectId: subject.value.subjectId } });
         expect(count({ fixture: f, table: 'policy_evidence' })).toBe(2);
+    } finally { await f.close(); }
+});
+
+it.each([
+    { origin: 'https://sandbox.example.test', status: 'ready' },
+    { origin: undefined, status: 'missing' },
+    { origin: 'https://other.example.test', status: 'missing' },
+])('binds heartbeat metadata to the validated transport origin: $status / $origin', async ({ origin, status }) => {
+    const f = await fixture({});
+    try {
+        const binding = f.adapters();
+        const campaign = encodeCampaignKey({ key: { pluginId: 'google-ads', accountId: 'account', vendorCampaignId: 'campaign' } });
+        if (!campaign.ok) throw new Error('Invalid fixture key');
+        const get = vi.spyOn(binding.campaigns, 'get');
+        const response = await handlePublicRequest({ context: f.context, ...binding, clock: f.clock,
+            request: { method: 'POST', path: '/c', headers: origin ? { origin } : {}, body: {
+                consent: true, eventId: 'origin-landing', schema: 'om.web.landing', version: 1, source: 'first-party', name: 'landing', occurredAt: f.clock.now({}),
+                properties: { campaignId: campaign.value, utm_source: 'google-ads', utm_medium: 'paid', om_a: 'account', utm_id: 'campaign',
+                    pageUrl: 'https://sandbox.example.test/lead?private=value#fragment', gclid: 'untrusted' },
+            } } });
+        expect(response).toMatchObject({ status: 202, body: { ok: true, value: { accepted: true } } });
+        expect(JSON.stringify(f.native.prepare('SELECT click_identifiers FROM web_touch').all())).toContain('untrusted');
+        expect(get).not.toHaveBeenCalled();
+        expect(await binding.identity.webEvents.destinationReadiness({ context: f.context, destinationUrl: 'https://sandbox.example.test/lead' }))
+            .toMatchObject({ ok: true, value: { status } });
+        const payload = JSON.stringify(f.native.prepare('SELECT payload FROM web_event').all());
+        expect(payload).not.toContain('private');
+        expect(payload).not.toContain('untrusted');
+        expect(await binding.identity.webEvents.destinationReadiness({ context: { ...f.context, scope: { ...f.context.scope, workspaceId: randomUUID() } }, destinationUrl: 'https://sandbox.example.test/lead' }))
+            .toMatchObject({ ok: true, value: { status: 'missing' } });
+    } finally { await f.close(); }
+});
+
+it.each([undefined, false, 'true'])('rejects collection without literal consent before cookie or persistence: %j', async consent => {
+    const f = await fixture({});
+    try {
+        const body = { consent, eventId: 'denied-landing', schema: 'om.web.landing', version: 1, source: 'first-party', name: 'landing',
+            occurredAt: f.clock.now({}), properties: { utm_source: 'fixture-ads', utm_medium: 'paid', om_a: 'account', utm_id: 'campaign', gclid: 'click' } };
+        const headers = { 'content-type': 'application/json' };
+        const denied = await fetch(f.origin + '/c', { method: 'POST', headers, body: JSON.stringify(body) });
+        expect(denied.status).toBe(400);
+        expect(await denied.json()).toMatchObject({ ok: false, error: { code: 'invalid_input' } });
+        expect(denied.headers.get('set-cookie')).toBeNull();
+        for (const table of ['web_visit', 'web_event', 'web_touch'] as const) expect(count({ fixture: f, table })).toBe(0);
+        const accepted = await fetch(f.origin + '/c', { method: 'POST', headers,
+            body: JSON.stringify({ ...body, consent: true, eventId: 'consented-landing' }) });
+        expect(accepted.status).toBe(202);
+        const cookie = accepted.headers.get('set-cookie')!.split(';')[0];
+        const deniedWithCookie = await fetch(f.origin + '/c', { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify(body) });
+        expect(deniedWithCookie.status).toBe(400);
+        expect(deniedWithCookie.headers.get('set-cookie')).toBeNull();
+        for (const table of ['web_visit', 'web_event', 'web_touch'] as const) expect(count({ fixture: f, table })).toBe(1);
+    } finally { await f.close(); }
+});
+
+it('leaves hosted GET untracked, issues Secure visits after consent and keeps the CSP unchanged', async () => {
+    const f = await fixture({});
+    try {
+        const response = await handlePublicRequest({ context: f.context, ...f.adapters(), clock: f.clock, publicOrigin: 'https://public.example',
+            request: { method: 'GET', path: '/f/lead', headers: { host: 'public.example' } } });
+        expect(response.status).toBe(200);
+        expect(response.headers?.['set-cookie']).toBeUndefined();
+        expect(response.body).not.toContain('name="om_vt"');
+        expect(response.headers?.['content-security-policy']).toBe("default-src 'none'; script-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
+        for (const table of ['web_visit', 'web_event', 'web_touch'] as const) expect(count({ fixture: f, table })).toBe(0);
+        const collected = await handlePublicRequest({ context: f.context, ...f.adapters(), clock: f.clock, publicOrigin: 'https://public.example',
+            request: { method: 'POST', path: '/c', headers: { host: 'public.example' }, body: { consent: true, eventId: 'secure-landing',
+                schema: 'om.web.landing', version: 1, source: 'first-party', name: 'landing', occurredAt: f.clock.now({}), properties: {} } } });
+        expect(collected.status).toBe(202);
+        expect(collected.headers?.['set-cookie']).toContain('; Secure');
+    } finally { await f.close(); }
+});
+
+it.each(['expired', 'duplicate', 'forged'])('keeps a form lead unattributed with an unusable visit cookie: %s', async reason => {
+    const f = await fixture({});
+    try {
+        const binding = f.adapters();
+        const { visit, token } = binding.visits.issue({ context: f.context });
+        expect(await binding.identity.webRepo.saveVisit({ context: f.context, visit })).toMatchObject({ ok: true });
+        const validCookie = 'om_visit_' + new URL(f.origin).port + '=' + token;
+        let cookie = validCookie;
+        if (reason === 'expired') f.advance({ ms: 3600001 });
+        if (reason === 'duplicate') cookie += '; ' + validCookie;
+        if (reason === 'forged') cookie += '0';
+        const page = await form({ fixture: f });
+        const receipt = await submit({ fixture: f, fields: { ...page.fields, email: 'unattributed@example.test' }, cookie });
+        expect(await binding.forms.accept({ context: f.context, ...receipt })).toMatchObject({ ok: true });
+        const leads = await leadService({ f }).list({ context: f.context, query: { page: { limit: 50 } } });
+        expect(leads).toMatchObject({ ok: true, value: { items: [{ attribution: { campaign: null, touchId: null, touchedAt: null } }] } });
+        expect(JSON.parse(z.object({ data_json: z.string() }).parse(f.native.prepare('SELECT data_json FROM om_form_submissions').get()).data_json)).not.toHaveProperty('om_vt');
+        expect(f.native.prepare('SELECT subject_id FROM web_visit').all()).toEqual([{ subject_id: null }]);
+        expect(count({ fixture: f, table: 'web_visit' })).toBe(1);
+    } finally { await f.close(); }
+});
+
+it('attributes a bare OM campaign ID only after a scoped lookup and rejects unknown or foreign IDs', async () => {
+    const f = await fixture({});
+    try {
+        const binding = f.adapters();
+        const foreign = { ...f.context, scope: { ...f.context.scope, workspaceId: randomUUID() } };
+        const draft = { operationId: 'direct-campaign', connectionId: 'sandbox', accountId: 'sandbox', name: 'Direct campaign', objective: 'leads' as const,
+            creativeIds: ['fixture-creative'], creativeDigest: 'a'.repeat(64), placements: ['search'] };
+        const own = await binding.campaigns.save({ context: f.context, draft });
+        const other = await binding.campaigns.save({ context: foreign, draft });
+        if (!own.ok || !other.ok) throw new Error('Missing fixture campaigns');
+        const record = vi.spyOn(binding.identity.webEvents, 'recordTouch');
+        const get = vi.spyOn(binding.campaigns, 'get');
+        for (const campaignId of ['missing-campaign', other.value.campaignId]) {
+            const rejected = await handlePublicRequest({ context: f.context, ...binding, clock: f.clock, request: { method: 'POST', path: '/c', body: {
+                consent: true, eventId: 'rejected-' + campaignId, schema: 'om.web.landing', version: 1, source: 'first-party', name: 'landing', occurredAt: f.clock.now({}), properties: { campaignId },
+            } } });
+            expect(rejected.status).toBe(403);
+        }
+        expect(record).not.toHaveBeenCalled();
+        expect(f.native.prepare('SELECT COUNT(*) AS n FROM web_event').get()).toEqual({ n: 0 });
+        const request = { method: 'POST' as const, path: '/c', body: { consent: true, eventId: 'direct-landing', schema: 'om.web.landing', version: 1,
+            source: 'first-party', name: 'landing', occurredAt: f.clock.now({}), properties: { campaignId: own.value.campaignId } } };
+        const response = await handlePublicRequest({ context: f.context, ...binding, clock: f.clock, request });
+        expect(response).toMatchObject({ status: 202, body: { ok: true, value: { accepted: true } } });
+        expect(get).toHaveBeenLastCalledWith({ context: f.context, campaignId: own.value.campaignId });
+        expect(f.native.prepare('SELECT campaign_id FROM web_touch').all()).toEqual([{ campaign_id: own.value.campaignId }]);
+    } finally { await f.close(); }
+});
+
+it('rejects a tracked-link campaign outside scope and a conflicting campaign claim before collection', async () => {
+    const f = await fixture({});
+    try {
+        const binding = f.adapters();
+        const foreign = { ...f.context, scope: { ...f.context.scope, workspaceId: randomUUID() } };
+        const campaign = await binding.campaigns.save({ context: foreign, draft: { operationId: 'foreign-campaign', connectionId: 'sandbox', accountId: 'sandbox', name: 'Foreign campaign', objective: 'leads', creativeIds: ['fixture-creative'], creativeDigest: 'a'.repeat(64), placements: ['search'] } });
+        if (!campaign.ok) throw new Error('Missing foreign campaign');
+        const link = await binding.links.create({ context: f.context, request: { destinationUrl: 'https://sandbox.example.test/lead', campaignId: campaign.value.campaignId, utm: {} } });
+        if (!link.ok) throw new Error('Missing fixture link');
+        const base = { consent: true, eventId: 'foreign-campaign', schema: 'om.web.landing', version: 1, source: 'first-party', name: 'landing', occurredAt: f.clock.now({}) };
+        for (const campaignId of [undefined, 'conflicting-campaign']) {
+            const response = await fetch(f.origin + '/c', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...base, properties: { linkId: link.value.linkId, campaignId } }) });
+            expect(response.status).toBe(403);
+        }
+        expect(f.native.prepare('SELECT COUNT(*) AS n FROM web_event').get()).toEqual({ n: 0 });
     } finally { await f.close(); }
 });
 
@@ -261,10 +412,12 @@ it('worker failure rolls back contact/evidence/visit; retry and lost acknowledge
         expect(count({ fixture: f, table: 'contact_subject' })).toBe(0);
         expect(count({ fixture: f, table: 'policy_evidence' })).toBe(0);
         expect(count({ fixture: f, table: 'om_form_subject_receipts' })).toBe(0);
+        expect(f.native.prepare('SELECT state,attempts FROM job WHERE id=?').get(receipt.jobId)).toEqual({ state: 'retry', attempts: 1 });
         f.native.exec('DROP TRIGGER fail_capture');
         f.advance({ ms: 1100 });
         await f.drain();
         const binding = f.adapters();
+        expect(f.native.prepare('SELECT state,attempts FROM job WHERE id=?').get(receipt.jobId)).toEqual({ state: 'succeeded', attempts: 2 });
         const accepted = await binding.forms.accept({ context: f.context, ...receipt });
         expect(accepted.ok).toBe(true);
         // Commit happened but the caller lost the acknowledgement: retry reads the durable receipt.
@@ -279,17 +432,18 @@ it('duplicate fields, wrong scope, forged/expired visits and address properties 
     const f = await fixture({});
     try {
         const page = await form({ fixture: f });
+        const binding = f.adapters();
+        const { token } = binding.visits.issue({ context: f.context });
         const data = new URLSearchParams({ ...page.fields, email: 'denied@example.test' });
         data.append('email', 'another@example.test');
         const duplicate = await fetch(f.origin + '/f/lead', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: data });
         expect(duplicate.status).toBe(400);
-        const forged = { ...page.fields, email: 'denied@example.test', om_vt: page.fields.om_vt + '0' };
+        const forged = { ...page.fields, email: 'denied@example.test', om_vt: token + '0' };
         expect((await fetch(f.origin + '/f/lead', { method: 'POST', body: new URLSearchParams(forged) })).status).toBe(403);
-        const binding = f.adapters();
-        expect(await binding.visits.tokens.verify({ context: { ...f.context, scope: { ...f.context.scope, workspaceId: randomUUID() } }, visitToken: page.fields.om_vt })).toMatchObject({ ok: false });
+        expect(await binding.visits.tokens.verify({ context: { ...f.context, scope: { ...f.context.scope, workspaceId: randomUUID() } }, visitToken: token })).toMatchObject({ ok: false });
         f.advance({ ms: 3600001 });
-        expect(await binding.visits.tokens.verify({ context: f.context, visitToken: page.fields.om_vt })).toMatchObject({ ok: false });
-        const collected = await fetch(f.origin + '/c', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ eventId: 'bad-event', schema: 'om.web.landing', version: 1, source: 'first-party', name: 'landing', occurredAt: f.clock.now({}), properties: { email: 'denied@example.test' } }) });
+        expect(await binding.visits.tokens.verify({ context: f.context, visitToken: token })).toMatchObject({ ok: false });
+        const collected = await fetch(f.origin + '/c', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ consent: true, eventId: 'bad-event', schema: 'om.web.landing', version: 1, source: 'first-party', name: 'landing', occurredAt: f.clock.now({}), properties: { email: 'denied@example.test' } }) });
         expect(collected.status).toBe(400);
         expect(count({ fixture: f, table: 'om_form_submissions' })).toBe(0);
         expect((await fetch(f.origin + '/api/studio/snapshot')).status).toBe(401);
@@ -349,7 +503,7 @@ it('the actual boot root seeds the public form and starts/stops its acceptance w
         const page = await fetch(origin + '/f/lead');
         expect(page.status).toBe(200);
         const html = await page.text();
-        const fields = Object.fromEntries(['om_publication', '_attempt', 'om_vt'].map(name => [name, new RegExp('name="' + name + '" value="([^"]+)"').exec(html)![1]]));
+        const fields = Object.fromEntries(['om_publication', '_attempt'].map(name => [name, new RegExp('name="' + name + '" value="([^"]+)"').exec(html)![1]]));
         const submitted = await fetch(origin + '/f/lead', { method: 'POST', body: new URLSearchParams({ ...fields, email: 'boot@example.test' }) });
         expect(submitted.status).toBe(202);
         expect(next).toBeTypeOf('function');
@@ -473,5 +627,113 @@ it('rolls back identity drift in acceptance and retries once under the newly res
         expect(count({ fixture: f, table: 'contact_subject' })).toBe(1);
         expect(count({ fixture: f, table: 'policy_evidence' })).toBe(2);
         expect(count({ fixture: f, table: 'om_form_subject_receipts' })).toBe(1);
+    } finally { await f.close(); }
+});
+
+/** Reuse the actual lifecycle and SQL repository without a second fixture lead store. */
+function leadService(required: { f: Fixture }) {
+    return createLeadsService({ repo: createSqlLeadsRepo({ unitOfWork: required.f.adapters().database.unit }),
+        clock: required.f.clock, ids: { next: () => randomUUID() } });
+}
+
+it('captures one new form lead through worker retry, receipt replay and restart', async () => {
+    const f = await fixture({});
+    try {
+        const page = await form({ fixture: f });
+        const receipt = await submit({ fixture: f, fields: { ...page.fields, email: 'one-lead@example.test' } });
+        f.native.exec("CREATE TRIGGER fail_lead BEFORE INSERT ON lead BEGIN SELECT RAISE(ABORT,'fixture failure'); END");
+        await f.drain();
+        expect(count({ fixture: f, table: 'lead' })).toBe(0);
+        expect(count({ fixture: f, table: 'om_form_subject_receipts' })).toBe(0);
+        expect(count({ fixture: f, table: 'contact_subject' })).toBe(0);
+        f.native.exec('DROP TRIGGER fail_lead');
+        f.advance({ ms: 1100 });
+        await f.drain();
+        const accepted = await f.adapters().forms.accept({ context: f.context, ...receipt });
+        expect(accepted.ok).toBe(true);
+        const leads = await leadService({ f }).list({ context: f.context, query: { page: { limit: 50 } } });
+        expect(leads).toMatchObject({ ok: true, value: { items: [{ stage: 'new', revision: 1,
+            source: { kind: 'form', ref: receipt.submissionId }, attribution: { campaign: null } }] } });
+        expect(count({ fixture: f, table: 'lead' })).toBe(1);
+        await f.restart();
+        expect(await f.adapters().forms.accept({ context: f.context, ...receipt })).toEqual(accepted);
+        expect(count({ fixture: f, table: 'lead' })).toBe(1);
+        expect(f.native.prepare('SELECT COUNT(*) AS n FROM lead_stage_event').get()).toEqual({ n: 1 });
+    } finally { await f.close(); }
+});
+
+it('a conflicting source rolls back acceptance without adding a lead or receipt', async () => {
+    const f = await fixture({});
+    try {
+        const page = await form({ fixture: f });
+        const receipt = await submit({ fixture: f, fields: { ...page.fields, email: 'conflict-lead@example.test' } });
+        const leads = leadService({ f });
+        expect(await leads.capture({ context: f.context, subjectId: 'other-subject', source: { kind: 'form', ref: receipt.submissionId },
+            occurredAt: f.clock.now({}), attribution: { campaign: null, touchId: null, touchedAt: null, modelVersion: 'last_paid_touch_30d.v1' } })).toMatchObject({ ok: true });
+        expect(await f.adapters().forms.accept({ context: f.context, ...receipt })).toMatchObject({ ok: false, error: { code: 'conflict' } });
+        expect(count({ fixture: f, table: 'om_form_subject_receipts' })).toBe(0);
+        expect(count({ fixture: f, table: 'contact_subject' })).toBe(0);
+        expect(count({ fixture: f, table: 'policy_evidence' })).toBe(0);
+        // The pre-existing conflicting lead is preserved; no acceptance lead was committed.
+        expect(count({ fixture: f, table: 'lead' })).toBe(1);
+        expect(f.native.prepare('SELECT subject_id FROM lead').get()).toEqual({ subject_id: 'other-subject' });
+    } finally { await f.close(); }
+});
+
+/** Seed schema-validated metrics evidence, observed only in this fixture's workspace. */
+function observedLeadCampaign(required: { f: Fixture; foreign?: boolean }) {
+    const { f } = required;
+    const key = { pluginId: 'fixture-ads', accountId: 'fixture-account', vendorCampaignId: 'paid-campaign' };
+    const encoded = encodeCampaignKey({ key });
+    if (!encoded.ok) throw new Error('Invalid campaign fixture');
+    const batch = metricBatchSchema.parse({ schema: 'report.metrics.v1', pluginId: key.pluginId, accountId: key.accountId,
+        connectionId: 'fixture-connection', currency: 'USD', timezone: 'UTC', grain: 'campaign',
+        days: { start: '2026-10-14', end: '2026-10-15' }, retrievedAt: f.clock.now({}), dataThrough: f.clock.now({}),
+        complete: true, freshness: 'fresh', finality: 'provisional', restated: false,
+        mapping: { pluginId: key.pluginId, version: 'v1', grains: { campaign: {} } },
+        rows: [{ day: '2026-10-14', entity: { grain: 'campaign', vendorCampaignId: key.vendorCampaignId }, metrics: {} }] });
+    f.native.prepare('INSERT INTO measure_metrics_batch VALUES (?,?,?,?,?,?,?,?,?)').run(
+        JSON.stringify([f.context.scope.ownerId, required.foreign ? 'foreign-workspace' : f.context.scope.workspaceId]),
+        'lead-sync', key.pluginId, 'fixture-connection', key.accountId, 'campaign', f.clock.now({}), '{}', JSON.stringify(batch));
+    return { key, encoded: encoded.value };
+}
+
+it.each([
+    { age: 0, evidence: 'observed', attributed: true },
+    { age: 30 * 86400000, evidence: 'observed', attributed: true },
+    { age: 30 * 86400000 + 1, evidence: 'observed', attributed: false },
+    { age: 0, evidence: 'foreign', attributed: false },
+    { age: 0, evidence: 'missing', attributed: false },
+    { age: 0, evidence: 'failed', attributed: false },
+    { age: 0, evidence: 'saturated', attributed: true },
+    { age: 0, evidence: 'over-limit', attributed: true },
+])('freezes scoped paid evidence, preserving the enquiry: $evidence / age $age', async ({ age, evidence, attributed }) => {
+    const f = await fixture({});
+    try {
+        const page = await form({ fixture: f });
+        const campaign = observedLeadCampaign({ f, foreign: evidence === 'foreign' });
+        if (evidence === 'missing') f.native.prepare('DELETE FROM measure_metrics_batch').run();
+        if (evidence === 'failed') f.native.prepare("UPDATE measure_metrics_batch SET batch_json='{}'").run();
+        const binding = f.adapters();
+        const { visit, token } = binding.visits.issue({ context: f.context });
+        expect(await binding.identity.webRepo.saveVisit({ context: f.context, visit })).toMatchObject({ ok: true });
+        const cookie = 'om_visit_' + new URL(f.origin).port + '=' + token;
+        const total = evidence === 'over-limit' ? 101 : evidence === 'saturated' ? 100 : 2;
+        for (let i = 0; i < total; i++) {
+            const occurredAt = f.clock.now({}) - age;
+            // Reverse insertion proves repository tie ordering selects the highest touch ID.
+            const id = 'paid-' + String(total - i - 1).padStart(3, '0');
+            expect(await binding.identity.webRepo.recordTouch({ context: f.context,
+                event: { eventId: id, schema: 'om.web.landing', version: 1, source: 'first-party', name: 'landing',
+                    anonymousId: visit.anonymousId, properties: { campaignId: campaign.encoded }, occurredAt, receivedAt: f.clock.now({}), cursor: 0, traceId: f.context.traceId },
+                touch: { touchId: id, eventId: id, occurredAt, campaignId: campaign.encoded, linkId: null, clickIdentifiers: {} } })).toMatchObject({ ok: true });
+        }
+        const receipt = await submit({ fixture: f, fields: { ...page.fields, email: 'paid-lead@example.test' }, cookie });
+        // An observed claim must succeed without connection_busy: membership borrows the session.
+        expect(await binding.forms.accept({ context: f.context, ...receipt })).toMatchObject({ ok: true });
+        const leads = await leadService({ f }).list({ context: f.context, query: { page: { limit: 50 } } });
+        expect(leads).toMatchObject({ ok: true, value: { items: [{ attribution: attributed
+            ? { campaign: campaign.key, touchId: 'paid-' + String(total - 1).padStart(3, '0'), touchedAt: f.clock.now({}) - age }
+            : { campaign: null, touchId: null, touchedAt: null } }] } });
     } finally { await f.close(); }
 });

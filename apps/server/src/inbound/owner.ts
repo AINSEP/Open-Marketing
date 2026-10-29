@@ -1,10 +1,10 @@
 import { handleAddonRequest } from './addons.js';
 import { handleIntegrationRequest } from './integrations.js';
-import type { Addons } from '../addons.js';
+import type { MediaLibrary } from '@open-marketing/media-library';
+import type { PluginService } from '@open-marketing/plugins';
 import type { Integrations } from '../integrations.js';
 /** Owner HTTP translation. Authentication/scope are supplied by the local server dispatcher. */
 import { z } from 'zod';
-import type { ObservabilityPort, RequestTracker } from '@jini-ai/diagnostics/observability';
 import type { createRecentEvents } from '../recent-events.js';
 import { captureEventSchema, recentEventsSchema } from '@open-marketing/contracts';
 import type { UiFrontendPort } from '../ui-tools.js';
@@ -12,9 +12,10 @@ import type { FrontendSessions } from './frontend.js';
 import type { AssistantRunRequest } from '@open-marketing/contracts';
 import { surfaceAcknowledgementSchema } from '@open-marketing/contracts';
 import type { ClockPort, IdPort } from '@open-marketing/contracts';
-import { assistantRunRequestSchema, assistantSettingsSchema, approvalResponseSchema, idSchema, pageQuerySchema, parseBoundary, toolCallSchema, toolDescriptorSchema, toolOperationSchema, toolResultSchema, toolSearchSchema } from '@open-marketing/contracts';
-import type { ApproverRef, CallContext, Money, Outcome, PageQuery } from '@open-marketing/contracts';
+import { chatAttachmentSchema, assistantRunRequestSchema, assistantSettingsSchema, approvalResponseSchema, idSchema, pageQuerySchema, parseBoundary, toolCallSchema, toolDescriptorSchema, toolOperationSchema, toolResultSchema, toolSearchSchema } from '@open-marketing/contracts';
+import type { ApproverRef, CallContext, CallOptions, Money, Outcome, PageQuery } from '@open-marketing/contracts';
 import type { FormSubjectPort } from '@open-marketing/forms';
+import { stageSchema as leadStageInputSchema, type LeadsService } from '@open-marketing/leads';
 import type { CampaignRecord, CampaignRepoPort } from '@open-marketing/campaigns';
 import type { ConfirmationExchangePort, SafetyRepoPort } from '@open-marketing/safety';
 import { routes } from '../cli/http.js';
@@ -24,29 +25,33 @@ import type { HttpRequest, HttpResponse } from '../ports.js';
 import type { Conversations } from '../conversations.js';
 import type { OwnerRunPort } from '../ports.js';
 import type { OmTools } from '../om-tool-types.js';
+import type { bindAlerts } from '../composition/alerts.js';
 
 /** Existing owning repositories/exchange; tests inject the same public memory adapters. */
 export interface OwnerServices {
     /** Trusted composition identity, never populated from HTTP bodies or agent credentials. */
     readonly approver?: ApproverRef;
     recentEvents?: ReturnType<typeof createRecentEvents>;
-    observability?: ObservabilityPort;
     ui?: { runtime: { clock: ClockPort; ids: IdPort }; frontend?: UiFrontendPort; sessions?: FrontendSessions };
     readonly campaigns: CampaignRepoPort;
     readonly safety: SafetyRepoPort;
     readonly confirmations: ConfirmationExchangePort;
     formSubjects?: FormSubjectPort;
+    leads?: LeadsService;
     runs?: Omit<OwnerRunPort, 'start'> & {
         start(required: Parameters<OwnerRunPort['start']>[0], optional?: Omit<AssistantRunRequest, 'prompt'>): ReturnType<OwnerRunPort['start']>;
     };
+    media?: Pick<MediaLibrary, 'uploadImage'>;
     conversations?: Conversations;
-    addons?: Addons;
+    addons?: PluginService;
     handleChartRequest?: (required: { request: HttpRequest; context: CallContext }) => Promise<HttpResponse>;
     integrations?: Integrations;
     tools?: OmTools;
+    alerts?: Pick<ReturnType<typeof bindAlerts>, 'list' | 'acknowledge'>;
 }
 type OwnerInput = { request: HttpRequest; context: CallContext; services: OwnerServices };
 type CampaignRow = z.infer<typeof routes.campaign.schema>;
+const uploadRefusalCodes = new Set(['invalid_input', 'limit_exceeded']);
 
 /** Map Outcomes consistently; validate successes using the same schema the CLI reads. */
 function respond<T>(required: { outcome: Outcome<T>; schema: z.ZodType<T> }): HttpResponse {
@@ -63,7 +68,7 @@ function pageQuery(required: { request: HttpRequest }): Outcome<PageQuery> {
         input: required.request.query ?? {} });
 }
 
-function campaignRow(required: { record: CampaignRecord }): CampaignRow {
+export function campaignRow(required: { record: CampaignRecord }): CampaignRow {
     return { id: required.record.receipt.campaignId, title: required.record.draft.name, detail: required.record.draft.objective,
         status: required.record.observation?.state ?? 'unknown' };
 }
@@ -78,9 +83,7 @@ function displayMoney(required: { money: Money }): string {
 async function campaigns(required: OwnerInput): Promise<HttpResponse> {
     const query = pageQuery(required);
     if (!query.ok) return respond({ outcome: query, schema: routes.campaigns.schema });
-    const result = await required.services.campaigns.list({ context: required.context, query: query.value });
-    const outcome = result.ok ? { ok: true as const, value: { items: result.value.items.map(record => campaignRow({ record })), cursor: result.value.cursor } } : result;
-    return respond({ outcome, schema: routes.campaigns.schema });
+    return respond({ outcome: await readCampaigns({ ...required, query: query.value }), schema: routes.campaigns.schema });
 }
 
 /** Validate cards intact using the existing terminal safety boundary; no changed reviewed values. */
@@ -97,40 +100,51 @@ function safeCards(required: { cards: readonly unknown[] }): Outcome<z.infer<typ
 async function approvals(required: OwnerInput): Promise<HttpResponse> {
     const query = pageQuery(required);
     if (!query.ok) return respond({ outcome: query, schema: routes.approvals.schema });
-    const result = await required.services.confirmations.list({ context: required.context, query: query.value });
-    if (!result.ok) return respond({ outcome: result, schema: routes.approvals.schema });
+    return respond({ outcome: await readApprovals({ ...required, query: query.value }), schema: routes.approvals.schema });
+}
+
+/** One scoped campaign page for owner surfaces; cancellation and repository failures propagate.
+ * @complexity O(n) time/space for <=100 rows; one repository read, no per-item I/O. */
+export async function readCampaigns(required: { context: CallContext; services: OwnerServices; query: PageQuery }, optional?: CallOptions): Promise<Outcome<z.infer<typeof routes.campaigns.schema>>> {
+    const result = await required.services.campaigns.list({ context: required.context, query: required.query }, optional);
+    return result.ok ? { ok: true, value: { items: result.value.items.map(record => campaignRow({ record })), cursor: result.value.cursor } } : result;
+}
+
+/** One scoped approval page, rejecting the whole page on an invalid card; forwards cancellation/failures.
+ * @complexity O(n) time/space for <=100 bounded cards; one exchange read, no per-item I/O. */
+export async function readApprovals(required: { context: CallContext; services: OwnerServices; query: PageQuery }, optional?: CallOptions): Promise<Outcome<z.infer<typeof routes.approvals.schema>>> {
+    const result = await required.services.confirmations.list({ context: required.context, query: required.query }, optional);
+    if (!result.ok) return result;
     const cards = safeCards({ cards: result.value.items });
-    return respond({ outcome: cards.ok ? { ok: true, value: { items: cards.value, cursor: result.value.cursor } } : cards, schema: routes.approvals.schema });
+    return cards.ok ? { ok: true, value: { items: cards.value, cursor: result.value.cursor } } : cards;
 }
 
 /** SQL-backed campaigns/allowance and the existing process-local pending card exchange. Reads are
  * sequential on the single kernel; this projection does not promise a multi-feature atomic snapshot.
  * @complexity <=3 bounded reads, <=100 campaigns/50 cards and <=256 KiB presentation data.
  */
-async function snapshot(required: OwnerInput): Promise<HttpResponse> {
-    const campaigns = await required.services.campaigns.list({ context: required.context, query: { limit: 100 } });
-    if (!campaigns.ok) return respond({ outcome: campaigns, schema: routes.snapshot.schema });
-    const approvals = await required.services.confirmations.list({ context: required.context, query: { limit: 50 } });
-    if (!approvals.ok) return respond({ outcome: approvals, schema: routes.snapshot.schema });
-    const cards = safeCards({ cards: approvals.value.items });
-    if (!cards.ok) return respond({ outcome: cards, schema: routes.snapshot.schema });
+export async function readStudioSnapshot(required: { context: CallContext; services: OwnerServices }): Promise<Outcome<z.infer<typeof routes.snapshot.schema>>> {
+    const campaigns = await readCampaigns({ ...required, query: { limit: 100 } });
+    if (!campaigns.ok) return campaigns;
+    const approvals = await readApprovals({ ...required, query: { limit: 50 } });
+    if (!approvals.ok) return approvals;
     const allowance = await required.services.safety.getGenerationAllowanceView({ context: required.context });
-    if (!allowance.ok) return respond({ outcome: allowance, schema: routes.snapshot.schema });
+    if (!allowance.ok) return allowance;
     const activity = required.services.formSubjects ? await required.services.formSubjects.list({ context: required.context, limit: 50 }) : { ok: true as const, value: [] };
-    if (!activity.ok) return respond({ outcome: activity, schema: routes.snapshot.schema });
+    if (!activity.ok) return activity;
     const activityRows = activity.value.map(item => ({ id: item.submissionId, title: 'Sandbox lead accepted', detail: 'Subject ' + item.subjectId, status: 'accepted' }));
-    const rows = campaigns.value.items.map(record => campaignRow({ record }));
+    const rows = campaigns.value.items;
     const value: z.infer<typeof routes.snapshot.schema> = {
         workspace: required.context.scope.workspaceId, mode: 'connected',
         metrics: [{ label: 'Server', value: 'Local sandbox', detail: 'Vendor effects unavailable. Use om ask for a labeled sandbox run.' },
-            { label: 'Campaigns', value: String(campaigns.value.items.length), detail: campaigns.value.cursor ? 'First 100 records; use om campaigns list for more.' : 'Recorded campaigns in this workspace.' },
+            { label: 'Campaigns', value: String(rows.length), detail: campaigns.value.cursor ? 'First 100 records; use om campaigns list for more.' : 'Recorded campaigns in this workspace.' },
             { label: 'Generation remaining', value: displayMoney({ money: allowance.value.remaining }), detail: allowance.value.timezone + '. Includes unresolved reservations.' }],
         rows: { workspaces: rows, creative: [], 'media-library': [], campaigns: rows,
             measure: [], connections: [], plugins: [], activity: activityRows, settings: [] },
-        messages: [], cards: cards.value, allowance: allowance.value,
+        messages: [], cards: approvals.value.items, allowance: allowance.value,
     };
-    if (JSON.stringify(value).length > 262144) return respond({ outcome: localFailure({ code: 'limit_exceeded', message: 'Studio snapshot exceeds display bound' }), schema: routes.snapshot.schema });
-    return respond({ outcome: { ok: true, value }, schema: routes.snapshot.schema });
+    if (JSON.stringify(value).length > 262144) return localFailure({ code: 'limit_exceeded', message: 'Studio snapshot exceeds display bound' });
+    return { ok: true, value };
 }
 
 /** Decode one resource ID once, rejecting URL-normalized dot segments and separators. */
@@ -169,33 +183,6 @@ async function answerResponse(required: OwnerInput & { id: string }): Promise<Ht
     return respond({ outcome: continued.ok ? { ok: true, value: { status: 'recorded' as const } } : continued, schema: routes.answer.schema });
 }
 
-/** Jini's foreign two-argument ABI takes a fixed route and the existing request correlation ID. */
-function approvalTracker(required: OwnerInput): RequestTracker | undefined {
-    try { return required.services.observability?.trackRequest({ method: 'POST', path: '/api/safety/approvals/:id/answer' },
-        { requestId: required.context.correlationId }); }
-    catch { return undefined; }
-}
-
-/** One tracker encloses existing awaited confirmation work, without retrying or changing errors.
- * @complexity O(1) diagnostic work; approval behavior belongs to answerResponse.
- */
-async function answer(required: OwnerInput & { id: string }): Promise<HttpResponse> {
-    const tracker = approvalTracker(required);
-    let statusCode = 503;
-    try {
-        const response = await answerResponse(required);
-        statusCode = response.status;
-        return response;
-    } finally {
-        try { tracker?.end({ statusCode, routePattern: '/api/safety/approvals/:id/answer' }); }
-        catch { /* Tracker completion must not replace the approval response. */ }
-        try { required.services.recentEvents?.observer.observe({ operation: 'approval.submit',
-            outcome: statusCode === 200 ? 'recorded' : 'error',
-            correlationId: required.context.correlationId, traceId: required.context.traceId }); }
-        catch { /* Observer failure must not replace the approval response. */ }
-    }
-}
-
 /** Authenticated browser ingestion accepts only product/error variants; never server trace claims.
  * @complexity One <=2 KiB event, one bounded buffer append; no recursive capture.
  */
@@ -222,6 +209,19 @@ async function halt(required: OwnerInput): Promise<HttpResponse> {
     return respond({ outcome: result.ok ? { ok: true, value: { accountId: parsed.value.accountId, status: 'pending' as const } } : result, schema: routes.halt.schema });
 }
 
+/** Owner acknowledgement uses the existing bound service; identity never comes from the body.
+ * @complexity One bounded notice input and one local persistence call; no approval card or retry.
+ */
+async function acknowledgeAlert(required: OwnerInput): Promise<HttpResponse> {
+    const body = await requestBody(required);
+    if (!body.ok) return respond({ outcome: body, schema: routes.acknowledgeAlert.schema });
+    const parsed = parseBoundary({ schema: z.strictObject({ noticeId: idSchema }), input: body.value });
+    if (!parsed.ok) return respond({ outcome: parsed, schema: routes.acknowledgeAlert.schema });
+    if (!required.services.alerts) return respond({ outcome: localFailure({ message: 'Alerts unavailable' }), schema: routes.acknowledgeAlert.schema });
+    const result = await required.services.alerts.acknowledge({ context: required.context, noticeId: parsed.value.noticeId });
+    return respond({ outcome: result.ok ? { ok: true, value: { status: 'acknowledged' as const } } : result, schema: routes.acknowledgeAlert.schema });
+}
+
 /** Fixed owner route dispatcher. Caller MUST authenticate and derive scope before invocation.
  * Success on answer is recorded only; no route constructs or dispatches vendor dependencies.
  * @example handleOwnerRequest({ request, context: authenticatedOwner, services });
@@ -237,16 +237,19 @@ export async function handleOwnerRequest(required: OwnerInput): Promise<HttpResp
         case 'GET /api/dev/events': return respond({ outcome: required.services.recentEvents
             ? { ok: true, value: required.services.recentEvents.recent({}) } : localFailure({ message: 'Local events unavailable' }), schema: recentEventsSchema });
         case 'GET /api/status': return respond({ outcome: { ok: true, value: { ready: true, mode: 'local' as const } }, schema: routes.status.schema });
-        case 'GET /api/studio/snapshot': return snapshot(required);
+        case 'GET /api/studio/snapshot': return respond({ outcome: await readStudioSnapshot(required), schema: routes.snapshot.schema });
         case 'GET /api/campaigns': return campaigns(required);
         case 'GET /api/safety/approvals': return approvals(required);
         case 'GET /api/safety/allowance': return respond({ outcome: await required.services.safety.getGenerationAllowanceView({ context: required.context }), schema: routes.allowance.schema });
         case 'POST /api/safety/halt': return halt(required);
+        case 'POST /api/alerts/acknowledge': return acknowledgeAlert(required);
+        case 'POST /api/attachments': return uploadAttachment(required);
         case 'POST /api/runs': return startRun(required);
         case 'GET /api/conversations': return conversationList(required);
         case 'POST /api/conversations': return conversationCreate(required);
         case 'GET /api/assistant/settings': return assistantSettings(required);
         case 'POST /api/assistant/settings': return assistantSettingsWrite(required);
+        case 'POST /api/leads/stage': return setLeadStage(required);
         default: return resourceRequest(required);
     }
 }
@@ -303,9 +306,26 @@ async function resourceRequest(required: OwnerInput): Promise<HttpResponse> {
     switch (required.request.method + ' ' + match[1] + (match[3] ?? '')) {
         case 'GET campaigns': return campaign({ ...required, id: id.value });
         case 'GET safety/approvals': return approval({ ...required, id: id.value });
-        case 'POST safety/approvals/answer': return answer({ ...required, id: id.value });
+        case 'POST safety/approvals/answer': return answerResponse({ ...required, id: id.value });
         default: return { status: 405, body: localFailure({ code: 'invalid_input', message: 'Method unavailable for owner resource' }) };
     }
+}
+
+/** Owner authentication precedes this lazy raw read. Sniffed media admission ignores Content-Type.
+ * @complexity One <=1 MiB upload, no retry; fixed failures never include filenames or upstream text.
+ */
+async function uploadAttachment(required: OwnerInput): Promise<HttpResponse> {
+    const query = parseBoundary({ schema: z.strictObject({ name: chatAttachmentSchema.shape.name }), input: required.request.query ?? {} });
+    if (!query.ok) return respond({ outcome: localFailure({ code: 'invalid_input', message: 'Invalid attachment.' }), schema: chatAttachmentSchema });
+    if (!required.services.media || !required.request.readRawBody) return respond({ outcome: localFailure({ message: 'Image upload unavailable' }), schema: chatAttachmentSchema });
+    const bytes = await required.request.readRawBody({});
+    if (!bytes.ok) return respond({ outcome: bytes, schema: chatAttachmentSchema });
+    if (!bytes.value.length || bytes.value.length > 1048576) return respond({ outcome: localFailure({ code: 'limit_exceeded', message: 'Image exceeds byte limit' }), schema: chatAttachmentSchema });
+    const asset = await required.services.media.uploadImage({ context: required.context, bytes: bytes.value, filename: query.value.name,
+        contentTypes: ['image/png', 'image/jpeg', 'image/webp'] }, { signal: required.request.signal });
+    if (!asset.ok) return respond({ outcome: localFailure({ code: asset.error.code,
+        message: uploadRefusalCodes.has(asset.error.code) ? asset.error.message : 'Image upload unavailable' }), schema: chatAttachmentSchema });
+    return respond({ outcome: { ok: true, value: { path: asset.value.record.id, name: query.value.name, kind: 'image' as const, size: bytes.value.length } }, schema: chatAttachmentSchema });
 }
 
 /** Owner prompts are bounded plain text; the server creates all IDs, scope and grants. */
@@ -315,7 +335,7 @@ async function startRun(required: OwnerInput): Promise<HttpResponse> {
     if (!body.ok) return respond({ outcome: body, schema: routes.ask.schema });
     const parsed = parseBoundary({ schema: assistantRunRequestSchema.refine(value => value.prompt.trim().length > 0 && Buffer.byteLength(value.prompt, 'utf8') <= 65536), input: body.value });
     if (!parsed.ok) return respond({ outcome: parsed, schema: routes.ask.schema });
-    return respond({ outcome: await required.services.runs.start({ context: required.context, prompt: parsed.value.prompt }, { conversationId: parsed.value.conversationId, frontendSessionId: parsed.value.frontendSessionId, frontendBindToken: parsed.value.frontendBindToken }), schema: routes.ask.schema });
+    return respond({ outcome: await required.services.runs.start({ context: required.context, prompt: parsed.value.prompt }, { attachments: parsed.value.attachments, conversationId: parsed.value.conversationId, frontendSessionId: parsed.value.frontendSessionId, frontendBindToken: parsed.value.frontendBindToken }), schema: routes.ask.schema });
 }
 
 /** Polling uses the shared CLI read model. The fixed sandbox requests no navigation, so
@@ -384,6 +404,17 @@ async function assistantSettingsWrite(required: OwnerInput): Promise<HttpRespons
  if (!parsed.ok) return respond({ outcome: parsed, schema: routes.setAssistantSettings.schema });
  const outcome = required.services.conversations ? await required.services.conversations.setSettings({ context: required.context, settings: parsed.value }) : localFailure({ message: 'Assistant settings unavailable' });
  return respond({ outcome, schema: routes.setAssistantSettings.schema });
+}
+
+/** Owner UI changes apply directly; the existing service enforces scoped revision CAS/history.
+ * One bounded body parse and one service call; missing composition returns unavailable. */
+async function setLeadStage(required: OwnerInput): Promise<HttpResponse> {
+    const body = await requestBody(required);
+    const parsed = body.ok ? parseBoundary({ schema: leadStageInputSchema.omit({ context: true }), input: body.value }) : body;
+    if (!parsed.ok) return respond({ outcome: parsed, schema: routes.setLeadStage.schema });
+    const outcome = required.services.leads ? await required.services.leads.setStage({ context: required.context, ...parsed.value }, { signal: required.request.signal })
+        : localFailure({ message: 'Lead inbox unavailable' });
+    return respond({ outcome, schema: routes.setLeadStage.schema });
 }
 
 /** Authenticated add-on management uses D1/D2's owner boundaries and existing services. */
