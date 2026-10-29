@@ -1,0 +1,2140 @@
+=== PLUGIN content/agent-plugins/amazon-ads
+
+> @open-marketing-plugin/amazon-ads@0.1.0 test /home/user/Open-Marketing/content/agent-plugins/amazon-ads
+> vitest run io.github.ainsep.openmarketing/tests
+
+
+ RUN  v3.2.4 /home/user/Open-Marketing/content/agent-plugins/amazon-ads
+
+ ✓ io.github.ainsep.openmarketing/tests/metrics-status.test.ts (2 tests) 9ms
+ ✓ io.github.ainsep.openmarketing/tests/plugin.test.ts (53 tests) 156ms
+ ✓ io.github.ainsep.openmarketing/tests/campaign-deployment.test.ts (56 tests) 247ms
+
+ Test Files  3 passed (3)
+      Tests  111 passed (111)
+   Start at  18:59:26
+   Duration  1.02s (transform 432ms, setup 0ms, collect 1.45s, tests 412ms, environment 1ms, prepare 259ms)
+
+=== PLUGIN content/agent-plugins/amazon-ses
+
+> @open-marketing-plugin/amazon-ses@0.1.0 test /home/user/Open-Marketing/content/agent-plugins/amazon-ses
+> vitest run io.github.ainsep.openmarketing/tests
+
+
+ RUN  v3.2.4 /home/user/Open-Marketing/content/agent-plugins/amazon-ses
+
+ ✓ io.github.ainsep.openmarketing/tests/manifests.test.ts (1 test) 10ms
+ ✓ io.github.ainsep.openmarketing/tests/dispatch.test.ts (28 tests) 55ms
+ ❯ io.github.ainsep.openmarketing/tests/mail.test.ts (53 tests | 2 failed) 191ms
+   ✓ default-exports a valid Jini module and signs a fixture send from install settings and time 14ms
+   ✓ refuses missing default settings or clock before HTTP, including sendBatch 4ms
+   ✓ keeps default-module credential parsing and transport errors secret-free 3ms
+   ✓ memory synthetic policy wiring > accepts one exact payload, deduplicates it and rejects a conflicting replay 4ms
+   ✓ memory synthetic policy wiring > never reclaims uncertain outcomes or invents a provider message id 2ms
+   × memory synthetic policy wiring > wires readiness, synthetic authority denial and Jini suppression without egress 9ms
+     → MAILER_SEND_REFUSED_NO_DURABLE_PATH: notification-lane mailer send refused for capability "broadcast" — no durable outbox path registered
+   ✓ memory synthetic policy wiring > refuses attachments, header injection, invalid unsubscribe and oversized bodies 1ms
+   ✓ memory synthetic policy wiring > rejects provider batches larger than one without partially sending 4ms
+   ✓ http synthetic policy wiring > accepts one exact payload, deduplicates it and rejects a conflicting replay 5ms
+   ✓ http synthetic policy wiring > never reclaims uncertain outcomes or invents a provider message id 2ms
+   × http synthetic policy wiring > wires readiness, synthetic authority denial and Jini suppression without egress 1ms
+     → MAILER_SEND_REFUSED_NO_DURABLE_PATH: notification-lane mailer send refused for capability "broadcast" — no durable outbox path registered
+   ✓ http synthetic policy wiring > refuses attachments, header injection, invalid unsubscribe and oversized bodies 1ms
+   ✓ http synthetic policy wiring > rejects provider batches larger than one without partially sending 1ms
+   ✓ signs the exact SES body and advertises no provider idempotency 2ms
+   ✓ authenticates SNS variants and applies hard-bounce suppression once 47ms
+   ✓ rejects unknown/expired certificates, foreign topics, tampering and foreign senders 14ms
+   ✓ maps configured DKIM records and rejects foreign domains 2ms
+   ✓ uses Jini's lane limiter with injected time and defers a second bulk recipient 2ms
+   ✓ requires authority on both send and single-message sendBatch with an ordinary HTTP client 1ms
+   ✓ freezes the approved input and permits at most one execution even concurrently 2ms
+   ✓ preserves uncertainty when authority fails after HTTP submission 1ms
+   ✓ retains a mailto plus HTTPS unsubscribe list and the exact one-click header 1ms
+   ✓ refuses unsafe unsubscribe list <mailto:leave@example.com> without egress 0ms
+   ✓ refuses unsafe unsubscribe list <https://user:secret@example.com/leave> without egress 0ms
+   ✓ refuses unsafe unsubscribe list <https://example.com/leave#fragment> without egress 1ms
+   ✓ refuses unsafe unsubscribe list <http://example.com/leave> without egress 0ms
+   ✓ returns retryable provider back-pressure with Retry-After '2' 1ms
+   ✓ returns retryable provider back-pressure with Retry-After 'Mon, 26 Oct 2026 07:48:34 GMT' 1ms
+   ✓ returns retryable provider back-pressure with Retry-After '999999999' 0ms
+   ✓ returns retryable provider back-pressure with Retry-After 'Mon, 26 Oct 2026 07:48:30 GMT' 1ms
+   ✓ returns retryable provider back-pressure with Retry-After 'invalid' 0ms
+   ✓ supports Jini test-mode redirect while retaining unsubscribe and X-Original-To headers 1ms
+   ✓ refuses reserved custom header From 1ms
+   ✓ refuses reserved custom header To 0ms
+   ✓ refuses reserved custom header Bcc 0ms
+   ✓ refuses reserved custom header Reply-To 0ms
+   ✓ refuses reserved custom header Subject 1ms
+   ✓ refuses reserved custom header MIME-Version 0ms
+   ✓ refuses reserved custom header Content-Type 0ms
+   ✓ refuses reserved custom header Content-Transfer-Encoding 1ms
+   ✓ refuses case-insensitive duplicate custom headers 1ms
+   ✓ fetches only the validated certificate, caches it for an hour and follows URL rotation 9ms
+   ✓ rejects untrusted certificate URL http://sns.us-east-1.amazonaws.com/SimpleNotificationService-fixture.pem before fetching 2ms
+   ✓ rejects untrusted certificate URL https://sns.us-east-1.amazonaws.com.evil.invalid/SimpleNotificationService-fixture.pem before fetching 2ms
+   ✓ rejects untrusted certificate URL https://sns.us-west-2.amazonaws.com/SimpleNotificationService-fixture.pem before fetching 2ms
+   ✓ rejects untrusted certificate URL https://user@sns.us-east-1.amazonaws.com/SimpleNotificationService-fixture.pem before fetching 2ms
+   ✓ rejects untrusted certificate URL https://sns.us-east-1.amazonaws.com/other.pem before fetching 2ms
+   ✓ rejects untrusted certificate URL https://sns.us-east-1.amazonaws.com/SimpleNotificationService-fixture.pem?next=evil before fetching 4ms
+   ✓ rejects untrusted certificate URL https://sns.us-east-1.amazonaws.com/SimpleNotificationService-fixture.pem#fragment before fetching 2ms
+   ✓ rejects foreign topics, oversized bodies and cancellation before certificate I/O 5ms
+   ✓ bounds streamed PEM bytes and rejects redirects, malformed certificates and fetch failures 13ms
+   ✓ never falls back to an expired certificate when refresh fails 4ms
+   ✓ rejects a certificate that is not yet valid and enforces the injected deadline 5ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  io.github.ainsep.openmarketing/tests/mail.test.ts > memory synthetic policy wiring > wires readiness, synthetic authority denial and Jini suppression without egress
+ FAIL  io.github.ainsep.openmarketing/tests/mail.test.ts > http synthetic policy wiring > wires readiness, synthetic authority denial and Jini suppression without egress
+Error: MAILER_SEND_REFUSED_NO_DURABLE_PATH: notification-lane mailer send refused for capability "broadcast" — no durable outbox path registered
+ ❯ refusalError ../../../node_modules/.pnpm/@jini-ai+platform@0.6.15-rc.2_express@5.2.1_hast-util-from-parse5@8.0.3_hast-util-to-md_b750bb773601f5115e3ddca4f1f27412/node_modules/@jini-ai/platform/dist/mail/purpose-scoped-mailer.js:10:12
+ ❯ checkGate ../../../node_modules/.pnpm/@jini-ai+platform@0.6.15-rc.2_express@5.2.1_hast-util-from-parse5@8.0.3_hast-util-to-md_b750bb773601f5115e3ddca4f1f27412/node_modules/@jini-ai/platform/dist/mail/purpose-scoped-mailer.js:44:19
+ ❯ Object.send ../../../node_modules/.pnpm/@jini-ai+platform@0.6.15-rc.2_express@5.2.1_hast-util-from-parse5@8.0.3_hast-util-to-md_b750bb773601f5115e3ddca4f1f27412/node_modules/@jini-ai/platform/dist/mail/purpose-scoped-mailer.js:51:13
+ ❯ io.github.ainsep.openmarketing/tests/mail.test.ts:112:29
+    110|       const f = make({ transport });
+    111|       f.state.ready = false;
+    112|       expect(await f.mailer.send(mailInput, { purpose: "bulk" })).toMa…
+       |                             ^
+    113|       f.state.ready = true;
+    114|       f.state.allowed = false;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+
+ Test Files  1 failed | 2 passed (3)
+      Tests  2 failed | 80 passed (82)
+   Start at  18:59:28
+   Duration  949ms (transform 401ms, setup 0ms, collect 1.37s, tests 257ms, environment 4ms, prepare 352ms)
+
+ ELIFECYCLE  Test failed. See above for more details.
+TEST FAIL content/agent-plugins/amazon-ses
+=== PLUGIN content/agent-plugins/apple-search-ads
+
+> @open-marketing-plugin/apple-search-ads@0.1.0 test /home/user/Open-Marketing/content/agent-plugins/apple-search-ads
+> vitest run io.github.ainsep.openmarketing/tests
+
+
+ RUN  v3.2.4 /home/user/Open-Marketing/content/agent-plugins/apple-search-ads
+
+ ✓ io.github.ainsep.openmarketing/tests/manifests.test.ts (1 test) 4ms
+ ✓ io.github.ainsep.openmarketing/tests/adapter.test.ts (42 tests) 69ms
+ ✓ io.github.ainsep.openmarketing/tests/deployment.test.ts (15 tests) 168ms
+
+ Test Files  3 passed (3)
+      Tests  58 passed (58)
+   Start at  18:59:30
+   Duration  827ms (transform 272ms, setup 0ms, collect 1.12s, tests 241ms, environment 1ms, prepare 278ms)
+
+=== PLUGIN content/agent-plugins/google-ads
+
+> @open-marketing/plugin-google-ads@0.1.0 test /home/user/Open-Marketing/content/agent-plugins/google-ads
+> node --test io.github.ainsep.openmarketing/tests/*.test.ts
+
+(node:4753) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ host manifest retains disabled admission and valid capability envelopes (10.804476ms)
+✔ tool catalogue excludes conversions, arbitrary HTTP/mutate, shell and backend halt permits (0.950287ms)
+✔ real REST authentication is server-contained and omits developer-token (1.579217ms)
+✔ HTTP rejects oversized output, redirects and non-Google destinations (21.867661ms)
+✔ REST and HTTP agree on v26 search/mutate and retain Data Manager v1 (3.889893ms)
+✔ HTTP rejects obsolete Ads versions and wrong methods before network access (0.293477ms)
+✔ journal evidence appends, isolates same customer across scopes, and disposes (22.946924ms)
+✔ optional developer token is call-time Google Ads configuration and never reaches Data Manager (0.481957ms)
+✔ REST transport needs only scope, connection and selected customer identity (0.651749ms)
+✔ inline canonical declarations have no orphaned binding files; tracked backend bindings remain (8.314033ms)
+(node:4754) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ hosted three-ad deploy sends one atomic PAUSED batch and acknowledges every ad (81.729529ms)
+✔ hosted leads deploy acknowledges multiple ads with the existing conversion goals (13.418164ms)
+✔ reversed multi-ad readback still acknowledges the same copy/URL records (8.35003ms)
+✔ one later-ad URL drift conflicts at activation without another write (6.073092ms)
+✔ activate and pause update and confirm every multi-ad child (19.870499ms)
+✔ mutation references append before failed readback; reconcile and restart never replay creation (4.656768ms)
+✔ failure acknowledgement checkpoint preserves references and stops execution (2.249772ms)
+✔ throw acknowledgement checkpoint preserves references and stops execution (1.80333ms)
+✔ final-throw acknowledgement checkpoint preserves references and stops execution (3.324864ms)
+✔ malformed ACK preserves only valid scoped references and cannot claim completion (1.690408ms)
+✔ hosted deploy retains references after observation checkpoint failure and reconciles without mutate (10.129254ms)
+✔ hosted deploy with a saved claim never sends another mutate or checkpoint (9.341429ms)
+✔ hosted proximity deployment acknowledges complete readback and ignores Google's address label (9.951761ms)
+✔ all 200 postal criteria acknowledge even when Google returns them in reverse order (4.38926ms)
+✔ proximity readback with radius drift cannot acknowledge the deployment (7.609895ms)
+✔ proximity readback with country drift cannot acknowledge the deployment (5.654348ms)
+✔ proximity readback with miles drift cannot acknowledge the deployment (6.740321ms)
+✔ proximity readback with duplicate drift cannot acknowledge the deployment (5.077138ms)
+✔ proximity readback with malformed drift cannot acknowledge the deployment (6.593812ms)
+✔ legacy create_paused rejects empty, mixed or invalid proximity geography before I/O (0.853087ms)
+✔ legacy create_paused rejects objective plus CPC or traffic without CPC before I/O (0.690505ms)
+✔ leads deployment selects standard bidding and explicitly sets every observed goal (8.498159ms)
+✔ sales deployment selects standard bidding and explicitly sets every observed goal (2.678437ms)
+✔ traffic preserves its digest and makes no conversion-goal reads or writes (2.375368ms)
+✔ missing account conversion goals refuse before mutation (0.87757ms)
+✔ truncated account conversion goals refuse before mutation (0.513428ms)
+✔ malformed account conversion goals refuse before mutation (0.769481ms)
+✔ duplicate account conversion goals refuse before mutation (0.655294ms)
+✔ over-limit account conversion goals refuse before mutation (0.604291ms)
+✔ optimized unrelated drift blocks readback and activation without another write (4.253179ms)
+✔ optimized selected drift blocks readback and activation without another write (2.757665ms)
+✔ optimized missing drift blocks readback and activation without another write (2.87614ms)
+✔ optimized duplicate drift blocks readback and activation without another write (2.496645ms)
+✔ optimized truncated drift blocks readback and activation without another write (2.783044ms)
+✔ optimized config drift blocks readback and activation without another write (4.06111ms)
+✔ optimized custom drift blocks readback and activation without another write (2.901124ms)
+✔ optimized extra-config drift blocks readback and activation without another write (5.85618ms)
+✔ optimized strategy drift blocks readback and activation without another write (3.106513ms)
+✔ optimized portfolio drift blocks readback and activation without another write (2.396487ms)
+✔ optimized tcpa drift blocks readback and activation without another write (2.351821ms)
+✔ optimized troas drift blocks readback and activation without another write (2.349256ms)
+✔ 200 postal criteria, 50 keywords and three goal updates retain ACK references above 256 responses (5.563938ms)
+✔ real validate factory uses the identical traffic creation body without writes or checkpoints (10.472655ms)
+✔ real validate factory uses the identical multi-ad traffic creation body without writes or checkpoints (9.64393ms)
+✔ real validate factory uses the identical postal leads creation body without writes or checkpoints (8.559303ms)
+✔ real validate factory uses the identical proximity sales creation body without writes or checkpoints (11.251217ms)
+✔ validate http response fails without exposing credential or vendor text (7.730009ms)
+✔ validate partialFailure response fails without exposing credential or vendor text (2.247846ms)
+✔ validate malformed response fails without exposing credential or vendor text (13.42312ms)
+(node:4760) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ projected plan schema validates decimal radius bounds and rejects unknown schema types (30.056278ms)
+✔ neutral shape produces the existing Search plan and an entirely PAUSED serving hierarchy (2.531329ms)
+✔ the selected ad destination wins over the URL in resolved metadata (0.909122ms)
+✔ four ads reject before metadata is read (0.324022ms)
+✔ two-ad traffic binds each creative copy to its own intended URL (1.898029ms)
+✔ missing, extra, mismatched or duplicated later creative resolutions conflict (1.033425ms)
+✔ invalid later-ad URLs and duplicate or oversized copy reject the whole plan (1.967198ms)
+✔ website leads and sales translate with objective and no manual CPC (0.935507ms)
+✔ postal targeting uses only country-qualified postal IDs, never the broad country (1.263101ms)
+✔ missing, wrong-country or duplicate postal resolution returns invalid_input (0.55051ms)
+✔ radius translates rounded microdegrees and decimal kilometers with no LOCATION operation (2.052821ms)
+✔ explicit zero and three decimal currency metadata convert without floating-point rounding (0.703366ms)
+✔ incomplete resolution and mismatched authority data return typed errors (0.818828ms)
+(node:4787) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ memory shared lifecycle/scoping suite (73.165132ms)
+✔ real REST adapter/local fixtures shared lifecycle/scoping suite (30.42378ms)
+✔ stable operation reconciliation: timeout_before (1.870469ms)
+✔ stable operation reconciliation: timeout_after (13.633848ms)
+✔ stable operation reconciliation: partial (1.289754ms)
+✔ concurrent duplicates produce exactly one mutation (5.137303ms)
+✔ sandbox rejects a production account readback before mutation (0.602222ms)
+(node:4788) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ A3-shaped real factory accepts canonical credentials and makes one Data Manager POST (55.366796ms)
+✔ supports open granted definitions without inventing a Google event age limit (2.181356ms)
+✔ ignores other destinations' identifier keys and refuses an empty supported set (2.392621ms)
+✔ unmapped and ungranted definitions refuse before credentials or fetch (1.315093ms)
+✔ preserves click-only/digest-only payloads and currency-specific minor-unit exponents (0.578111ms)
+✔ missing or malformed requestId is unknown: {} (2.170265ms)
+✔ missing or malformed requestId is unknown: null (1.563674ms)
+✔ missing or malformed requestId is unknown: {"requestId":""} (2.143076ms)
+✔ missing or malformed requestId is unknown: {"requestId":123} (1.47439ms)
+✔ lost acknowledgement and reconciliation never cause a second send (2.780256ms)
+✔ reconciliation has zero credentials, authority calls or fetch (4.264841ms)
+✔ receipt readback makes one GET and reports SUCCESS (1.984005ms)
+✔ receipt readback makes one GET and reports FAILED (1.183779ms)
+✔ receipt readback makes one GET and reports PROCESSING (1.289966ms)
+✔ receipt readback makes one GET and reports PARTIAL_SUCCESS (1.257719ms)
+✔ receipt readback makes one GET and reports REQUEST_STATUS_UNKNOWN (1.057788ms)
+✔ inconclusive status body retains acceptance without confirming processing: {} (1.132491ms)
+✔ inconclusive status body retains acceptance without confirming processing: null (1.867638ms)
+✔ inconclusive status body retains acceptance without confirming processing: {"requestStatusPerDestination":[]} (1.000702ms)
+✔ inconclusive status body retains acceptance without confirming processing: {"requestStatusPerDestination":[{"requestStatus":"SUCCESS"},{"requestStatus":"SUCCESS"}]} (1.024634ms)
+✔ inconclusive status body retains acceptance without confirming processing: {"requestStatusPerDestination":[{"requestStatus":"SUCCESS","destination":{"operatingAccount":{"accountId":"9999999999"}}}]} (1.170778ms)
+✔ inconclusive status body retains acceptance without confirming processing: {"requestStatusPerDestination":[{"requestStatus":"unexpected"}]} (2.014496ms)
+✔ a failed status GET retains acceptance and never retries ingestion (0.982684ms)
+✔ withdrawal after credential resolution prevents the single POST (1.123253ms)
+✔ a false current-authority fence prevents credential access (0.878453ms)
+✔ cancellation at before prevents POST (0.255981ms)
+✔ cancellation at credentials prevents POST (1.385989ms)
+✔ credential and transport failure text never echoes a token (4.354724ms)
+✔ stale and mismatched grants fail before effects (2.93373ms)
+✔ malformed known identifiers and future times fail even alongside valid identifiers (6.028008ms)
+✔ malformed conversion settings, foreign context and missing deliveryId have no effects (2.357754ms)
+✔ Data Manager rejects a Search-only HTTP port before ingestion (0.225063ms)
+✔ each advertiser resolves its own server token and Data Manager never sends Ads auth headers (0.695452ms)
+✔ HTTP diagnostics are bounded, method-specific and propagate trace/run/correlation without secrets (0.819315ms)
+(node:4809) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ same-day 10 -> 50 -> 5 budget retains $100 daily billed bound (14.734407ms)
+✔ missing/stale/day-mismatched history and unverified production controls fail closed (8.539215ms)
+✔ money rounds upward in currency units and rejects overflow (1.015985ms)
+✔ stop-only binding emits only PAUSED campaign status updates (0.838577ms)
+✔ stop rejects activation/budget/duplicate/foreign-account payloads before authority (0.399137ms)
+✔ canonical halt handler acknowledges PAUSED/status-only mutations without account facts (39.154595ms)
+(node:4820) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ transport double: exact daily metrics at account grain (32.592788ms)
+✔ transport double: exact daily metrics at campaign grain (2.737407ms)
+✔ transport double: exact daily metrics at ad_group grain (3.582682ms)
+✔ transport double: exact daily metrics at ad grain (3.008162ms)
+✔ transport double: missing supported metrics are null and absent reach is unsupported (1.804787ms)
+✔ transport double: partial child disapproval stays active and missing campaigns stay incomplete (2.826204ms)
+✔ transport double: lifetime flight and unavailable budgets preserve checked zero child counts (5.765185ms)
+✔ transport double: saturated children omit counts and foreign children fail (4.462281ms)
+✔ transport double: tag text stays inert and fragment URLs retain query and literal macros (2.77523ms)
+✔ transport double: invalid input, foreign binding and cancellation perform no I/O (1.787854ms)
+✔ transport double: rejects duplicate day/entity (2.140316ms)
+✔ transport double: rejects mixed foreign account (0.94924ms)
+✔ transport double: rejects 5001 rows (1.00173ms)
+✔ transport double: rejects decimal overflow (1.743043ms)
+✔ transport double: rejects lost decimal source (1.65436ms)
+✔ transport double: rejects non-object metrics (1.503159ms)
+✔ transport double: rejects out-of-window row (0.638801ms)
+✔ transport double: rejects malformed envelope (0.698035ms)
+✔ transport double: empty reports, service contexts and unavailable tags are explicit (1.772705ms)
+✔ transport double: campaign serving states and unknown vendor enums stay explicit (2.154595ms)
+✔ transport double: adapter exceptions return sanitized typed failures (0.837764ms)
+✔ transport double: a continuation token marks metrics partial and rejects partial status/tag evidence (1.912749ms)
+✔ transport double: rounds 0.3333333333333333 half-even without dropping spend (2.330003ms)
+✔ transport double: rounds 0.0000005 half-even without dropping spend (2.883624ms)
+✔ transport double: rounds 0.0000015 half-even without dropping spend (1.318086ms)
+✔ transport double: rounds 1.2345665 half-even without dropping spend (1.402458ms)
+✔ transport double: rounds 1.2345675 half-even without dropping spend (1.231188ms)
+✔ transport double: rounds 9.9999995 half-even without dropping spend (1.387549ms)
+✔ transport double: rounds 5e-7 half-even without dropping spend (1.388126ms)
+✔ real REST + bounded HTTP: exact daily metrics at account grain (24.079445ms)
+✔ real REST + bounded HTTP: exact daily metrics at campaign grain (2.967435ms)
+✔ real REST + bounded HTTP: exact daily metrics at ad_group grain (2.680595ms)
+✔ real REST + bounded HTTP: exact daily metrics at ad grain (2.395673ms)
+✔ real REST + bounded HTTP: missing supported metrics are null and absent reach is unsupported (2.824307ms)
+✔ real REST + bounded HTTP: partial child disapproval stays active and missing campaigns stay incomplete (1.863392ms)
+✔ real REST + bounded HTTP: lifetime flight and unavailable budgets preserve checked zero child counts (5.921223ms)
+✔ real REST + bounded HTTP: saturated children omit counts and foreign children fail (22.660731ms)
+✔ real REST + bounded HTTP: tag text stays inert and fragment URLs retain query and literal macros (1.308283ms)
+✔ real REST + bounded HTTP: invalid input, foreign binding and cancellation perform no I/O (0.55746ms)
+✔ real REST + bounded HTTP: rejects duplicate day/entity (1.758973ms)
+✔ real REST + bounded HTTP: rejects mixed foreign account (0.77957ms)
+✔ real REST + bounded HTTP: rejects 5001 rows (7.613386ms)
+✔ real REST + bounded HTTP: rejects decimal overflow (1.860857ms)
+✔ real REST + bounded HTTP: rejects non-object metrics (1.555273ms)
+✔ real REST + bounded HTTP: rejects out-of-window row (0.947465ms)
+✔ real REST + bounded HTTP: rejects malformed envelope (0.7375ms)
+✔ real REST + bounded HTTP: empty reports, service contexts and unavailable tags are explicit (1.961257ms)
+✔ real REST + bounded HTTP: campaign serving states and unknown vendor enums stay explicit (2.879205ms)
+✔ real REST + bounded HTTP: adapter exceptions return sanitized typed failures (0.795761ms)
+✔ real REST + bounded HTTP: a continuation token marks metrics partial and rejects partial status/tag evidence (2.125259ms)
+✔ real REST + bounded HTTP: rounds 0.3333333333333333 half-even without dropping spend (1.922912ms)
+✔ real REST + bounded HTTP: rounds 0.0000005 half-even without dropping spend (1.680472ms)
+✔ real REST + bounded HTTP: rounds 0.0000015 half-even without dropping spend (1.803217ms)
+✔ real REST + bounded HTTP: rounds 1.2345665 half-even without dropping spend (1.71734ms)
+✔ real REST + bounded HTTP: rounds 1.2345675 half-even without dropping spend (1.992969ms)
+✔ real REST + bounded HTTP: rounds 9.9999995 half-even without dropping spend (1.73089ms)
+✔ real REST + bounded HTTP: rounds 5e-7 half-even without dropping spend (1.769325ms)
+✔ real HTTP preserves raw conversion decimal tokens beyond double precision, including exponents (2.116527ms)
+✔ raw data-driven fractional tokens round to millionths without losing spend (2.112294ms)
+✔ 1000 realistic ad rows return bounded metrics and truthful completeness (51.337643ms)
+✔ 1001 realistic ad rows return bounded metrics and truthful completeness (40.706537ms)
+✔ Google manifests declare exactly the four unadmitted read bindings with source fingerprints (2.055281ms)
+✖ canonical factory is inert and calls all three handlers through shared credentials/fetch (1.771597ms)
+✔ canonical factory rejects invalid config, foreign calls and cancellation without I/O (2.105002ms)
+✔ hosted tools reject invalid operation IDs before credential access or fetch (0.513031ms)
+✔ double: twelve campaigns over ninety days are complete (22.525834ms)
+✔ double: split saturated windows without counting their parent rows (24.655602ms)
+✔ double: 50 dense days respect the 5000-row ceiling (87.193067ms)
+✔ double: 51 dense days respect the 5000-row ceiling (73.671422ms)
+✔ double: stop splitting at the report request budget (2.057504ms)
+✔ REST: twelve campaigns over ninety days are complete (31.617312ms)
+✔ REST: split saturated windows without counting their parent rows (46.727819ms)
+✔ REST: 50 dense days respect the 5000-row ceiling (183.811367ms)
+✔ REST: 51 dense days respect the 5000-row ceiling (227.218275ms)
+✔ REST: stop splitting at the report request budget (5.155313ms)
+✔ canonical token-only credentials produce valid catalog output (3.334434ms)
+✔ canonical secrets and settings supply headers; top-level credential fields are ignored (4.750319ms)
+✔ malformed developer credentials return a sanitized typed failure before fetch (0.845605ms)
+✔ malformed manager settings fail before credentials or fetch without echoing the value (0.259304ms)
+✔ Google metadata is required even for empty reports and foreign vendor accounts fail (2.030589ms)
+✔ double: status rows reject foreign, malformed, unexpected and duplicate campaigns (1.513414ms)
+✔ REST: status rows reject foreign, malformed, unexpected and duplicate campaigns (1.668832ms)
+✔ Google cancellation between windows stops all later fetches (6.624416ms)
+✔ REST: split a response over 1 MiB into successful child windows without parent rows (40.425184ms)
+✔ REST: single-day response overflow remains a typed limit failure (2.824276ms)
+✔ REST: failed oversized searches count against the report request budget (39.605205ms)
+(node:4831) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ hosted search terms aggregate the window, preserve exact metrics/nulls and return valid output (48.580454ms)
+✔ search terms truncation: 50 rows, token=false (9.765209ms)
+✔ search terms truncation: 51 rows, token=false (3.229276ms)
+✔ search terms truncation: 1 rows, token=true (2.688889ms)
+✔ search terms reject foreign rows and malformed/negative metrics (7.336496ms)
+✔ search terms reject unsafe IDs and invalid/oversized windows before I/O (1.406252ms)
+✔ one exact campaign negative uses membership -> lookup -> one mutate (6.86822ms)
+✔ existing campaign exact negative returns already_present without mutating (3.906811ms)
+✔ one exact ad_group negative uses membership -> lookup -> one mutate (3.488704ms)
+✔ existing ad_group exact negative returns already_present without mutating (2.795657ms)
+✔ foreign ad group/campaign, non-Search, absent or ambiguous membership never mutates (7.106577ms)
+✔ ambiguous/malformed/incomplete exact-negative evidence never mutates (9.286737ms)
+✔ malformed ACKs and response/timeout failures after send stay unknown without retry/readback (24.447457ms)
+✔ a Google HTTP rejection remains the transport's typed unavailable failure (3.213694ms)
+✔ unsafe keyword text, match-type options and connection smuggling reject at parse before I/O (3.152798ms)
+ℹ tests 220
+ℹ suites 0
+ℹ pass 219
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2912.927801
+
+✖ failing tests:
+
+test at io.github.ainsep.openmarketing/tests/read-capabilities.test.ts:233:1
+✖ canonical factory is inert and calls all three handlers through shared credentials/fetch (1.771597ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+      'campaign.halt-stop.v1',
+      'campaign.status.v1',
+  +   'campaign.validate.v1',
+      'report.metrics.v1',
+      'tracking.tag.v1'
+    ]
+  
+      at TestContext.<anonymous> (file:///home/user/Open-Marketing/content/agent-plugins/google-ads/io.github.ainsep.openmarketing/tests/read-capabilities.test.ts:246:10)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1062:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:752:18)
+      at Test.postRun (node:internal/test_runner/test:1191:19)
+      at Test.run (node:internal/test_runner/test:1119:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:752:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ 'campaign.halt-stop.v1', 'campaign.status.v1', 'campaign.validate.v1', 'report.metrics.v1', 'tracking.tag.v1' ],
+    expected: [ 'campaign.halt-stop.v1', 'campaign.status.v1', 'report.metrics.v1', 'tracking.tag.v1' ],
+    operator: 'deepStrictEqual'
+  }
+ ELIFECYCLE  Test failed. See above for more details.
+ WARN   Local package.json exists, but node_modules missing, did you mean to install?
+TEST FAIL content/agent-plugins/google-ads
+=== PLUGIN content/agent-plugins/google-business-profile
+
+> @open-marketing/plugin-google-business-profile@0.1.0 test /home/user/Open-Marketing/content/agent-plugins/google-business-profile
+> node --test io.github.ainsep.openmarketing/tests/*.test.ts
+
+(node:4869) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+node:internal/modules/package_json_reader:255
+  throw new ERR_MODULE_NOT_FOUND(packageName, fileURLToPath(base), null);
+        ^
+
+Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@cfworker/json-schema' imported from /home/user/Open-Marketing/node_modules/.pnpm/@jini-ai+mcp@0.6.15-rc.2_@jini-ai+platform@0.6.15-rc.2_express@5.2.1_hast-util-from-par_6287882d0fc0ec7b142cdb7559143bdf/node_modules/@jini-ai/mcp/dist/server/tool-protocol.js
+    at Object.getPackageJSONURL (node:internal/modules/package_json_reader:255:9)
+    at packageResolve (node:internal/modules/esm/resolve:767:81)
+    at moduleResolve (node:internal/modules/esm/resolve:853:18)
+    at defaultResolve (node:internal/modules/esm/resolve:983:11)
+    at ModuleLoader.defaultResolve (node:internal/modules/esm/loader:801:12)
+    at #cachedDefaultResolve (node:internal/modules/esm/loader:725:25)
+    at ModuleLoader.resolve (node:internal/modules/esm/loader:708:38)
+    at ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:309:38)
+    at #link (node:internal/modules/esm/module_job:201:49) {
+  code: 'ERR_MODULE_NOT_FOUND'
+}
+
+Node.js v24.2.0
+✖ io.github.ainsep.openmarketing/tests/boundaries.test.ts (228.217336ms)
+(node:4870) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ memory: shared location/performance/scoping contract (5.816088ms)
+✔ REST: shared location/performance/scoping contract (50.674423ms)
+✔ exact integer mapping labels website clicks/impressions, omits unsupported metrics and handles detached ABI (5.779062ms)
+✔ existing omitted values are zero, absent dates/series are unavailable, partial views are not summed (2.946878ms)
+✔ all observed zeros stay zero; max-int64 impression categories sum exactly; order does not change output (4.416449ms)
+✔ rejects duplicate series/points, invalid counts/dates, out-of-window points and unexpected breakdowns (16.237602ms)
+✔ native reads need no reporting metadata; unsupported grain/mismatched binding fails before egress (3.554054ms)
+✔ pure mapping rejects host-supplied coverage/currency, duplicate native rows and invalid metadata (0.919497ms)
+✔ half-open dates become inclusive Google dates across leap day; enforces 366-day maximum (2.016229ms)
+✔ native and report reads accept 90 observed days with timezone alone (38.624828ms)
+✔ native and report reads accept 366 observed days with timezone alone (118.809835ms)
+✔ 367 input days fail before I/O and 367 wire points cannot overflow a 366-day report (19.130849ms)
+✔ real canonical factory accepts server-shaped configuration and publishes one exact Update (3.407218ms)
+✔ publish receipt maps LIVE without guessing publication (1.056205ms)
+✔ publish receipt maps PROCESSING without guessing publication (0.619861ms)
+✔ publish receipt maps REJECTED without guessing publication (0.687399ms)
+✔ publish receipt maps SCHEDULED without guessing publication (0.486788ms)
+✔ publish receipt maps toString without guessing publication (1.195136ms)
+✔ publish omits an unsafe URL and optional language; credentials may include expiresAt (0.976671ms)
+✔ publish rejects unusable or foreign receipts: {"name":"accounts/9/locations/2/localPosts/3","state":"LIVE"} (0.616673ms)
+✔ publish rejects unusable or foreign receipts: {"name":"accounts/1/locations/2/localPosts/","state":"LIVE"} (0.741747ms)
+✔ publish rejects unusable or foreign receipts: {"name":"accounts/1/locations/2/localPosts/3"} (0.924998ms)
+✔ publish rejects unusable or foreign receipts: {} (0.85146ms)
+✔ publish rejects 1501 characters and nested connection input before credentials (0.691309ms)
+✔ connection, account and scope mismatches fail before credential access (0.550999ms)
+✔ abort before submission cancels without a POST, including abort during credentials (0.527528ms)
+✔ publish HTTP 400 returns a sanitized definite rejection (0.742162ms)
+✔ publish HTTP 401 returns a sanitized definite rejection (0.479717ms)
+✔ publish HTTP 403 returns a sanitized definite rejection (0.343192ms)
+✔ publish HTTP 404 returns a sanitized definite rejection (0.397611ms)
+✔ publish HTTP 429 returns a sanitized definite rejection (0.396664ms)
+✔ publish 500 after submission is unknown and never retried (0.69287ms)
+✔ publish invalid JSON after submission is unknown and never retried (0.560427ms)
+✔ publish network after submission is unknown and never retried (0.477858ms)
+✔ publish oversize after submission is unknown and never retried (5.90587ms)
+✔ publish abort after submission is unknown and never retried (0.356671ms)
+✔ publish credential failures and malformed tokens never expose secrets or send a POST (0.712878ms)
+ℹ tests 38
+ℹ suites 0
+ℹ pass 37
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 635.227935
+
+✖ failing tests:
+
+test at io.github.ainsep.openmarketing/tests/boundaries.test.ts:1:1
+✖ io.github.ainsep.openmarketing/tests/boundaries.test.ts (228.217336ms)
+  'test failed'
+ ELIFECYCLE  Test failed. See above for more details.
+ WARN   Local package.json exists, but node_modules missing, did you mean to install?
+TEST FAIL content/agent-plugins/google-business-profile
+=== PLUGIN content/agent-plugins/higgsfield-media
+
+> @open-marketing-plugin/higgsfield-media@0.1.0 test /home/user/Open-Marketing/content/agent-plugins/higgsfield-media
+> pnpm --dir io.github.ainsep.openmarketing test
+
+
+> @open-marketing/plugin-higgsfield-media@0.1.0 test /home/user/Open-Marketing/content/agent-plugins/higgsfield-media/io.github.ainsep.openmarketing
+> vitest run tests
+
+
+ RUN  v3.2.4 /home/user/Open-Marketing/content/agent-plugins/higgsfield-media/io.github.ainsep.openmarketing
+
+ ✓ tests/package.test.ts (1 test) 4ms
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/bridge.test.ts [ tests/bridge.test.ts ]
+ FAIL  tests/pricing-effects.test.ts [ tests/pricing-effects.test.ts ]
+ FAIL  tests/provider-results.test.ts [ tests/provider-results.test.ts ]
+Error: Cannot find package '@jini-ai/integrations/media-providers' imported from '/home/user/Open-Marketing/content/agent-plugins/higgsfield-media/io.github.ainsep.openmarketing/src/index.ts'
+ ❯ src/index.ts:16:1
+     14|   HiggsfieldJobOwnershipPort, HiggsfieldRuntimeBinding, HiggsfieldRend…
+     15| /** Published durable runtime for creative's generic runtime injection…
+     16| export { startOperation, pollDueOperations, recoverAfterRestart } from…
+       | ^
+     17| 
+
+Caused by: Error: Failed to load url @jini-ai/integrations/media-providers (resolved id: @jini-ai/integrations/media-providers) in /home/user/Open-Marketing/content/agent-plugins/higgsfield-media/io.github.ainsep.openmarketing/src/index.ts. Does the file exist?
+ ❯ loadAndTransform ../../../../node_modules/.pnpm/vite@7.2.2_@types+node@24.10.1_jiti@2.7.0_tsx@4.20.6_yaml@2.8.1/node_modules/vite/dist/node/chunks/config.js:23280:33
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  tests/federation-integration.test.ts [ tests/federation-integration.test.ts ]
+Error: Cannot find package '@open-marketing/federation' imported from '/home/user/Open-Marketing/content/agent-plugins/higgsfield-media/io.github.ainsep.openmarketing/tests/federation-integration.test.ts'
+ ❯ tests/federation-integration.test.ts:2:1
+      1| import { expect, it } from "vitest";
+      2| import { createFederationHost, createMemoryFederationConnectionRepo, c…
+       | ^
+      3|   createMemoryFederatedCallConfirmation, createMemoryExternalMcpToolAp…
+      4|   createMemoryFederationAudit, createMemoryToolRegistry, createMemoryM…
+
+Caused by: Error: Failed to load url @open-marketing/federation (resolved id: @open-marketing/federation) in /home/user/Open-Marketing/content/agent-plugins/higgsfield-media/io.github.ainsep.openmarketing/tests/federation-integration.test.ts. Does the file exist?
+ ❯ loadAndTransform ../../../../node_modules/.pnpm/vite@7.2.2_@types+node@24.10.1_jiti@2.7.0_tsx@4.20.6_yaml@2.8.1/node_modules/vite/dist/node/chunks/config.js:23280:33
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  tests/runtime.test.ts [ tests/runtime.test.ts ]
+Error: Cannot find package '@jini-ai/integrations/media-providers' imported from '/home/user/Open-Marketing/content/agent-plugins/higgsfield-media/io.github.ainsep.openmarketing/tests/runtime.test.ts'
+ ❯ tests/runtime.test.ts:2:1
+      1| import { describe, expect, it } from "vitest";
+      2| import { createInMemoryAsyncOperationStore } from "@jini-ai/integratio…
+       | ^
+      3| import { createHiggsfieldRuntimeBinding, startOperation, pollDueOperat…
+      4| import { completeData, failedData, fixture, intent, NOW, pendingData, …
+
+Caused by: Error: Failed to load url @jini-ai/integrations/media-providers (resolved id: @jini-ai/integrations/media-providers) in /home/user/Open-Marketing/content/agent-plugins/higgsfield-media/io.github.ainsep.openmarketing/src/index.ts. Does the file exist?
+ ❯ loadAndTransform ../../../../node_modules/.pnpm/vite@7.2.2_@types+node@24.10.1_jiti@2.7.0_tsx@4.20.6_yaml@2.8.1/node_modules/vite/dist/node/chunks/config.js:23280:33
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+
+ FAIL  tests/safety-integration.test.ts [ tests/safety-integration.test.ts ]
+Error: Cannot find package '@open-marketing/safety' imported from '/home/user/Open-Marketing/content/agent-plugins/higgsfield-media/io.github.ainsep.openmarketing/tests/safety-integration.test.ts'
+ ❯ tests/safety-integration.test.ts:2:1
+      1| import { describe, expect, it } from "vitest";
+      2| import { createSafetyService, createMemorySafetyRepo, createMemoryConf…
+       | ^
+      3|   createMemoryPlatformLimitEvidence, createMemorySpendPolicy, createMe…
+      4| import type { EffectRequest } from "@open-marketing/safety";
+
+Caused by: Error: Failed to load url @open-marketing/safety (resolved id: @open-marketing/safety) in /home/user/Open-Marketing/content/agent-plugins/higgsfield-media/io.github.ainsep.openmarketing/tests/safety-integration.test.ts. Does the file exist?
+ ❯ loadAndTransform ../../../../node_modules/.pnpm/vite@7.2.2_@types+node@24.10.1_jiti@2.7.0_tsx@4.20.6_yaml@2.8.1/node_modules/vite/dist/node/chunks/config.js:23280:33
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/6]⎯
+
+
+ Test Files  6 failed | 1 passed (7)
+      Tests  1 passed (1)
+   Start at  18:59:36
+   Duration  1.10s (transform 485ms, setup 0ms, collect 28ms, tests 4ms, environment 1ms, prepare 604ms)
+
+ ELIFECYCLE  Test failed. See above for more details.
+ ELIFECYCLE  Test failed. See above for more details.
+ WARN   Local package.json exists, but node_modules missing, did you mean to install?
+TEST FAIL content/agent-plugins/higgsfield-media
+=== PLUGIN content/agent-plugins/kakao-ads
+
+> @open-marketing-plugin/kakao-ads@0.1.0 test /home/user/Open-Marketing/content/agent-plugins/kakao-ads
+> vitest run io.github.ainsep.openmarketing/tests
+
+
+ RUN  v3.2.4 /home/user/Open-Marketing/content/agent-plugins/kakao-ads
+
+ ✓ io.github.ainsep.openmarketing/tests/manifests.test.ts (2 tests) 16ms
+ ✓ io.github.ainsep.openmarketing/tests/capabilities.test.ts (19 tests) 63ms
+ ❯ io.github.ainsep.openmarketing/tests/transport.test.ts (40 tests | 1 failed) 86ms
+   ✓ Real plugin with synthetic broker Kakao read contract > discovers accounts with an owned connection before account binding 23ms
+   ✓ Real plugin with synthetic broker Kakao read contract > honors the host guarded-fetch denial after credentials 1ms
+   × Real plugin with synthetic broker Kakao read contract > requires scope and a bound account for campaigns 9ms
+     → expected { ok: false, error: { …(3) } } to match object { ok: false, …(1) }
+(2 matching properties omitted from actual)
+   ✓ Real plugin with synthetic broker Kakao read contract > returns no token/provider additions and observes correlation IDs 1ms
+   ✓ Kakao reads > constructs inertly and sends one scoped campaign GET 2ms
+   ✓ Kakao reads > rejects entire invalid, duplicate, foreign or over-cap pages 1ms
+   ✓ Kakao reads > rejects entire invalid, duplicate, foreign or over-cap pages 1ms
+   ✓ Kakao reads > rejects entire invalid, duplicate, foreign or over-cap pages 1ms
+   ✓ Kakao reads > rejects entire invalid, duplicate, foreign or over-cap pages 1ms
+   ✓ Kakao reads > rejects entire invalid, duplicate, foreign or over-cap pages 8ms
+   ✓ Kakao reads > returns requested account page metadata without following provider links 1ms
+   ✓ Kakao reads > rejects unsupported/inflated commands before I/O 1ms
+   ✓ Kakao reads > rejects unsupported/inflated commands before I/O 0ms
+   ✓ Kakao reads > rejects unsupported/inflated commands before I/O 1ms
+   ✓ Kakao reads > rejects unsupported/inflated commands before I/O 1ms
+   ✓ Kakao reads > rejects unsupported/inflated commands before I/O 0ms
+   ✓ Kakao reads > uses inclusive 31-day windows, explicit yyyyMMdd encoding and BASIC metrics 3ms
+   ✓ Kakao reads > rejects today at the KST boundary before resolving credentials 1ms
+   ✓ Kakao reads > preserves the documented no-data response without fabricating metrics 1ms
+   ✓ Kakao reads > rejects invalid report batches atomically 1ms
+   ✓ Kakao reads > rejects invalid report batches atomically 0ms
+   ✓ Kakao reads > rejects invalid report batches atomically 2ms
+   ✓ Kakao reads > rejects invalid report batches atomically 1ms
+   ✓ Kakao reads > rejects invalid report batches atomically 1ms
+   ✓ Kakao reads > maps HTTP 401 without retry or raw errors 2ms
+   ✓ Kakao reads > maps HTTP 403 without retry or raw errors 1ms
+   ✓ Kakao reads > maps HTTP 429 without retry or raw errors 1ms
+   ✓ Kakao reads > maps HTTP 400 without retry or raw errors 1ms
+   ✓ Kakao reads > maps HTTP 500 without retry or raw errors 1ms
+   ✓ Kakao reads > denies malformed/expired credentials 1ms
+   ✓ Kakao reads > denies malformed/expired credentials 0ms
+   ✓ Kakao reads > uses the host egress fence after credential resolution 0ms
+   ✓ Kakao reads > honors cancellation before and during credential resolution 1ms
+   ✓ Kakao reads > bounds actual streamed bytes and rejects malformed JSON 6ms
+   ✓ Kakao reads > bounds input and tolerates observer failure 1ms
+   ✓ Kakao reads > settles pending fetch on caller abort without retry 1ms
+   ✓ Kakao reads > settles pending fetch on deadline abort without retry 1ms
+   ✓ Kakao reads > settles pending body read on caller abort and releases the reader 1ms
+   ✓ Kakao reads > settles pending body read on deadline abort and releases the reader 1ms
+   ✓ Kakao reads > redacts thrown credential and network failures 2ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  io.github.ainsep.openmarketing/tests/transport.test.ts > Real plugin with synthetic broker Kakao read contract > requires scope and a bound account for campaigns
+AssertionError: expected { ok: false, error: { …(3) } } to match object { ok: false, …(1) }
+(2 matching properties omitted from actual)
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[2m    "error": {[22m
+[32m-     "code": "unavailable",[39m
+[31m+     "code": "forbidden",[39m
+[2m    },[22m
+[2m    "ok": false,[22m
+[2m  }[22m
+
+ ❯ io.github.ainsep.openmarketing/tests/contract/dispatch-suite.ts:29:136
+     27|       const input = { ...invocation(), context: { ...invocation().cont…
+     28|       expect(await f.adapter.invoke(input)).toMatchObject({ ok: false,…
+     29|       expect(await f.adapter.invoke({ ...input, context: { ...input.co…
+       |                                                                                                                                        ^
+     30|       expect(f.calls).toHaveLength(0); expect(f.credentialCalls).toHav…
+     31|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 2 passed (3)
+      Tests  1 failed | 60 passed (61)
+   Start at  18:59:38
+   Duration  759ms (transform 331ms, setup 0ms, collect 1.04s, tests 165ms, environment 1ms, prepare 281ms)
+
+ ELIFECYCLE  Test failed. See above for more details.
+TEST FAIL content/agent-plugins/kakao-ads
+=== PLUGIN content/agent-plugins/line-ads
+
+> @open-marketing-plugin/line-ads@0.1.0 test /home/user/Open-Marketing/content/agent-plugins/line-ads
+> vitest run io.github.ainsep.openmarketing/tests
+
+
+ RUN  v3.2.4 /home/user/Open-Marketing/content/agent-plugins/line-ads
+
+ ❯ io.github.ainsep.openmarketing/tests/capabilities.test.ts (22 tests | 1 failed) 115ms
+   ✓ LINE canonical capabilities > binds status and daily metrics without startup effects 5ms
+   × LINE canonical capabilities > reports two TW days through the real factory with BOM and a quoted comma 54ms
+     → expected false to be true // Object.is equality
+   ✓ LINE canonical capabilities > returns retryable unavailable on budget exhaustion without resubmitting or downloading 9ms
+   ✓ LINE canonical capabilities > reads only named IDs including removed campaigns; projects rejection and missing evidence 6ms
+   ✓ LINE canonical capabilities > uses delivery evidence ACTIVE, rather than configured ACTIVE 2ms
+   ✓ LINE canonical capabilities > uses delivery evidence PAUSED, rather than configured ACTIVE 2ms
+   ✓ LINE canonical capabilities > uses delivery evidence NOT_DELIVERING, rather than configured ACTIVE 1ms
+   ✓ LINE canonical capabilities > uses delivery evidence NOT_DELIVERING, rather than configured ACTIVE 3ms
+   ✓ LINE canonical capabilities > uses delivery evidence NOT_APPROVED, rather than configured ACTIVE 2ms
+   ✓ LINE canonical capabilities > uses delivery evidence ACTIVE, rather than configured ACTIVE 1ms
+   ✓ LINE canonical capabilities > uses delivery evidence NOT_APPROVED, rather than configured ACTIVE 2ms
+   ✓ LINE canonical capabilities > uses delivery evidence undefined, rather than configured ACTIVE 2ms
+   ✓ LINE canonical capabilities > rejects duplicates, unsolicited IDs and inconsistent coverage 2ms
+   ✓ LINE canonical capabilities > rejects duplicates, unsolicited IDs and inconsistent coverage 1ms
+   ✓ LINE canonical capabilities > rejects duplicates, unsolicited IDs and inconsistent coverage 1ms
+   ✓ LINE canonical capabilities > rejects duplicates, unsolicited IDs and inconsistent coverage 1ms
+   ✓ LINE canonical capabilities > preserves service identity and correlation without inventing a run ID 3ms
+   ✓ LINE canonical capabilities > rejects account, scope, vendor-ID and input inflation before custody 3ms
+   ✓ LINE canonical capabilities > reads 'TW' status with exact server configuration and vendor account metadata 2ms
+   ✓ LINE canonical capabilities > reads 'TH' status with exact server configuration and vendor account metadata 2ms
+   ✓ LINE canonical capabilities > uses caller cancellation during custody without a plugin deadline 1ms
+   ✓ LINE canonical capabilities > propagates caller cancellation and rejects malformed/oversized response bodies 6ms
+ ❯ io.github.ainsep.openmarketing/tests/transport.test.ts (39 tests | 2 failed) 128ms
+   ✓ fixture LINE reads/auth contract > reads exactly one bound campaign page and emits correlated observations 35ms
+   ✓ fixture LINE reads/auth contract > leaves admission to host guarded fetch 2ms
+   ✓ fixture LINE reads/auth contract > rejects foreign scope and cancellation before credentials 1ms
+   ✓ fixture LINE reads/auth contract > requires account binding except for account discovery 0ms
+   ✓ LINE read boundaries > matches the official GET signing procedure with numeric account 123 3ms
+   ✓ LINE read boundaries > discovers accounts with only connection custody and authenticated group 2ms
+   ✓ LINE read boundaries > reads TW through the shared regional API 1ms
+   ✓ LINE read boundaries > reads TH through the shared regional API 2ms
+   ✓ LINE read boundaries > preserves binding checks during credential resolution 1ms
+   ✓ LINE read boundaries > relies on host guarded fetch for admission withdrawal 1ms
+   ✓ LINE read boundaries > rejects malformed credential bundle bearer 1ms
+   ✓ LINE read boundaries > rejects malformed credential bundle {"accessKey":"LINEADSAMPLE","secretKey":"LINEADSECRETKEYSAMPLE","groupId":"../foreign"} 1ms
+   ✓ LINE read boundaries > rejects malformed credential bundle {"accessKey":"LINEADSAMPLE","secretKey":"","groupId":"G1"} 1ms
+   ✓ LINE read boundaries > maps HTTP 401 without retry or body leakage 1ms
+   ✓ LINE read boundaries > maps HTTP 403 without retry or body leakage 1ms
+   ✓ LINE read boundaries > maps HTTP 429 without retry or body leakage 1ms
+   ✓ LINE read boundaries > maps HTTP 302 without retry or body leakage 1ms
+   ✓ LINE read boundaries > maps HTTP 500 without retry or body leakage 1ms
+   ✓ LINE read boundaries > bounds one page and never follows vendor links 1ms
+   ✓ LINE read boundaries > rejects invalid pages atomically 1ms
+   ✓ LINE read boundaries > rejects invalid pages atomically 1ms
+   ✓ LINE read boundaries > rejects invalid pages atomically 2ms
+   ✓ LINE read boundaries > rejects invalid pages atomically 1ms
+   ✓ LINE read boundaries > preserves report dates, source and missing metrics without summing pages 3ms
+   ✓ LINE read boundaries > rejects conflicting report provenance 1ms
+   ✓ LINE read boundaries > rejects conflicting report provenance 1ms
+   ✓ LINE read boundaries > rejects conflicting report provenance 1ms
+   ✓ LINE read boundaries > does not infer zero spend when report statistics are absent 2ms
+   ✓ LINE read boundaries > rejects malformed JSON 1ms
+   ✓ LINE read boundaries > rejects an oversized valid page despite a misleading Content-Length 7ms
+   ✓ LINE read boundaries > denies inflated input without credentials 1ms
+   ✓ LINE read boundaries > reports the input byte limit before field validation or credential access 0ms
+   ✓ LINE read boundaries > maps custody/telemetry failures without leaking secrets 1ms
+   × LINE read boundaries > uses an injected 15-second deadline and maps its abort (caller signal: false) 11ms
+     → expected { ok: false, error: { …(3) } } to match object { ok: false, error: { …(2) } }
+(1 matching property omitted from actual)
+   × LINE read boundaries > uses an injected 15-second deadline and maps its abort (caller signal: true) 5ms
+     → expected { ok: false, error: { …(3) } } to match object { ok: false, error: { …(2) } }
+(1 matching property omitted from actual)
+   ✓ LINE read boundaries > keeps actual JP deployment and reconciliation unavailable even when admitted 8ms
+   ✓ LINE read boundaries > keeps actual TW deployment and reconciliation unavailable even when admitted 1ms
+   ✓ LINE read boundaries > keeps actual TH deployment and reconciliation unavailable even when admitted 1ms
+   ✓ LINE read boundaries > packages unadmitted reads and a private grouped deployment with matching fingerprints 12ms
+ ❯ io.github.ainsep.openmarketing/tests/campaign-deployment.test.ts (46 tests | 1 failed) 351ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > translates exact integer micros, local schedule, image and explicit Taiwan declaration 26ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > rejects invalid/overflowing daily minor units 0 2ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > rejects invalid/overflowing daily minor units 0.1 1ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > rejects invalid/overflowing daily minor units 9007199254740991 1ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > rejects widened countries, mismatched creatives, precision loss and absent AI declaration 2ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > translates Thailand with an explicit country/currency/timezone and optional AI declaration 1ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > creates PAUSED parents/child after exact enriched readback, projecting response-only fields 42ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > stops on campaign dispatch checkpoint failure and preserves refs 4ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > stops on campaign acknowledged checkpoint failure and preserves refs 6ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > stops on adgroup dispatch checkpoint failure and preserves refs 5ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > stops on adgroup acknowledged checkpoint failure and preserves refs 5ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > stops on ad dispatch checkpoint failure and preserves refs 10ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > stops on ad acknowledged checkpoint failure and preserves refs 12ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > stops uncertain second create (reject); retries only GETs 9ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > stops uncertain second create (throttle); retries only GETs 8ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > stops uncertain second create (timeout); retries only GETs 7ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > stops uncertain second create (json); retries only GETs 7ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > stops uncertain second create (missing-id); retries only GETs 8ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > stops uncertain second create (unsafe-number); retries only GETs 7ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > stops uncertain second create (unsafe-string); retries only GETs 15ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > treats conflicting campaigns readback as unknown and creates no further child 5ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > treats conflicting campaigns readback as unknown and creates no further child 6ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > treats conflicting campaigns readback as unknown and creates no further child 9ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > treats conflicting campaigns readback as unknown and creates no further child 7ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > treats conflicting adgroups readback as unknown and creates no further child 9ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > treats conflicting adgroups readback as unknown and creates no further child 7ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > treats conflicting adgroups readback as unknown and creates no further child 7ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > treats conflicting adgroups readback as unknown and creates no further child 7ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > treats conflicting ads readback as unknown and creates no further child 9ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > treats conflicting ads readback as unknown and creates no further child 18ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > treats conflicting ads readback as unknown and creates no further child 8ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > treats conflicting ads readback as unknown and creates no further child 9ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > treats conflicting ads readback as unknown and creates no further child 8ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > treats conflicting ads readback as unknown and creates no further child 8ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > checks account provenance before POST 3ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > checks account provenance before POST 1ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > checks account provenance before POST 2ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > checks account provenance before POST 1ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > rejects contradictory account pagination before writes 2ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > requires exactly one row and explicit non-serving evidence 11ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > reconciles saved IDs with GETs only and preserves them when configuration drifts 11ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > denies unadmitted, out-of-scope and inflated plans without credentials 1ms
+   × LINE documented fixture deployment (regional evidence replaced only in this file) > rechecks live authority after custody and retains the validated plan snapshot across awaits 14ms
+     → expected { ok: true, value: { …(4) } } to match object { ok: true, value: { …(2) } }
+(2 matching properties omitted from actual)
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > rejects activation, missing declarations, wrong parent slots and unsafe micros at the plan boundary 1ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > stops on a rejected checkpoint and cancellation after a known parent 4ms
+   ✓ LINE documented fixture deployment (regional evidence replaced only in this file) > bounds plan bytes and rejects unsafe references without credentials or discovery 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  io.github.ainsep.openmarketing/tests/campaign-deployment.test.ts > LINE documented fixture deployment (regional evidence replaced only in this file) > rechecks live authority after custody and retains the validated plan snapshot across awaits
+AssertionError: expected { ok: true, value: { …(4) } } to match object { ok: true, value: { …(2) } }
+(2 matching properties omitted from actual)
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[2m    "ok": true,[22m
+[2m    "value": {[22m
+[2m      "references": {},[22m
+[32m-     "status": "unknown",[39m
+[31m+     "status": "acknowledged",[39m
+[2m    },[22m
+[2m  }[22m
+
+ ❯ io.github.ainsep.openmarketing/tests/campaign-deployment.test.ts:123:55
+    121|   it("rechecks live authority after custody and retains the validated …
+    122|     const revoked = make({ credentialHook: ({ state }) => { state.admi…
+    123|     expect(await deployCampaignPaused(revoked.input)).toMatchObject({ …
+       |                                                       ^
+    124|     const rebound = make({ credentialHook: ({ binding }) => { binding.…
+    125|     const f = make({ checkpoint: () => { f.input.plan.campaign.name = …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  io.github.ainsep.openmarketing/tests/capabilities.test.ts > LINE canonical capabilities > reports two TW days through the real factory with BOM and a quoted comma
+AssertionError: expected false to be true // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ io.github.ainsep.openmarketing/tests/capabilities.test.ts:27:23
+     25|     const configuration = pluginConfigurationSchema.parse({ scope: con…
+     26|     const result = await createCapabilities({ ...f.dependencies, confi…
+     27|     expect(result.ok).toBe(true);
+       |                       ^
+     28|     if (result.ok) {
+     29|       expect(metricBatchSchema.safeParse(result.value).success).toBe(t…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  io.github.ainsep.openmarketing/tests/transport.test.ts > LINE read boundaries > uses an injected 15-second deadline and maps its abort (caller signal: false)
+ FAIL  io.github.ainsep.openmarketing/tests/transport.test.ts > LINE read boundaries > uses an injected 15-second deadline and maps its abort (caller signal: true)
+AssertionError: expected { ok: false, error: { …(3) } } to match object { ok: false, error: { …(2) } }
+(1 matching property omitted from actual)
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[2m    "error": {[22m
+[32m-     "code": "unavailable",[39m
+[31m+     "code": "cancelled",[39m
+[2m      "retryable": false,[22m
+[2m    },[22m
+[2m    "ok": false,[22m
+[2m  }[22m
+
+ ❯ io.github.ainsep.openmarketing/tests/transport.test.ts:105:27
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+
+ Test Files  3 failed (3)
+      Tests  4 failed | 103 passed (107)
+   Start at  18:59:40
+   Duration  1.14s (transform 480ms, setup 0ms, collect 1.49s, tests 594ms, environment 1ms, prepare 295ms)
+
+ ELIFECYCLE  Test failed. See above for more details.
+TEST FAIL content/agent-plugins/line-ads
+=== PLUGIN content/agent-plugins/linkedin-ads
+
+> @open-marketing-plugin/linkedin-ads@0.1.0 test /home/user/Open-Marketing/content/agent-plugins/linkedin-ads
+> vitest run io.github.ainsep.openmarketing/tests
+
+
+ RUN  v3.2.4 /home/user/Open-Marketing/content/agent-plugins/linkedin-ads
+
+ ✓ io.github.ainsep.openmarketing/tests/campaign-deployment.test.ts (34 tests) 200ms
+ ✓ io.github.ainsep.openmarketing/tests/dispatch.test.ts (92 tests) 175ms
+ ✓ io.github.ainsep.openmarketing/tests/capabilities.test.ts (54 tests) 400ms
+ ✓ io.github.ainsep.openmarketing/tests/codecs.test.ts (43 tests) 34ms
+ ✓ io.github.ainsep.openmarketing/tests/capi.test.ts (52 tests) 95ms
+ ✓ io.github.ainsep.openmarketing/tests/manifests.test.ts (6 tests) 36ms
+ ✓ io.github.ainsep.openmarketing/tests/campaign-translation.test.ts (23 tests) 14ms
+
+ Test Files  7 passed (7)
+      Tests  304 passed (304)
+   Start at  18:59:42
+   Duration  2.07s (transform 554ms, setup 0ms, collect 2.39s, tests 955ms, environment 1ms, prepare 638ms)
+
+=== PLUGIN content/agent-plugins/meta-ads
+
+> @open-marketing-plugin/meta-ads@0.1.0 test /home/user/Open-Marketing/content/agent-plugins/meta-ads
+> vitest run io.github.ainsep.openmarketing/tests
+
+
+ RUN  v3.2.4 /home/user/Open-Marketing/content/agent-plugins/meta-ads
+
+ ✓ io.github.ainsep.openmarketing/tests/audiences.test.ts (55 tests) 136ms
+ ✓ io.github.ainsep.openmarketing/tests/campaign-deployment.test.ts (33 tests) 235ms
+ ✓ io.github.ainsep.openmarketing/tests/contract/gateway.test.ts (60 tests) 91ms
+ ✓ io.github.ainsep.openmarketing/tests/capi.test.ts (70 tests) 127ms
+ ✓ io.github.ainsep.openmarketing/tests/campaign-translation.test.ts (30 tests) 57ms
+ ✓ io.github.ainsep.openmarketing/tests/instagram.test.ts (40 tests) 45ms
+ ✓ io.github.ainsep.openmarketing/tests/oauth-exchange.test.ts (22 tests) 27ms
+ ✓ io.github.ainsep.openmarketing/tests/reporting.test.ts (19 tests) 44ms
+ ✓ io.github.ainsep.openmarketing/tests/codecs.test.ts (30 tests) 29ms
+ ✓ io.github.ainsep.openmarketing/tests/boundary.test.ts (4 tests) 14ms
+ ✓ io.github.ainsep.openmarketing/tests/manifests.test.ts (7 tests) 10ms
+ ✓ io.github.ainsep.openmarketing/tests/read-capabilities.test.ts (94 tests) 2841ms
+   ✓ dispatch double > accepts exactly 5000 rows across pages and rejects one more  1011ms
+   ✓ real bounded Graph fetch > accepts exactly 5000 rows across pages and rejects one more  1343ms
+
+ Test Files  12 passed (12)
+      Tests  464 passed (464)
+   Start at  18:59:45
+   Duration  3.71s (transform 676ms, setup 0ms, collect 3.61s, tests 3.66s, environment 2ms, prepare 978ms)
+
+=== PLUGIN content/agent-plugins/microsoft-ads
+
+> @open-marketing-plugin/microsoft-ads@0.1.0 test /home/user/Open-Marketing/content/agent-plugins/microsoft-ads
+> vitest run io.github.ainsep.openmarketing/tests
+
+
+ RUN  v3.2.4 /home/user/Open-Marketing/content/agent-plugins/microsoft-ads
+
+ ❯ io.github.ainsep.openmarketing/tests/reporting.test.ts (19 tests | 2 failed) 69ms
+   ✓ submits once, downloads without credentials and preserves fractional conversions/zeros 19ms
+   ✓ submits once, downloads without credentials and preserves fractional conversions/zeros 4ms
+   ✓ stops at the 60-second deadline between polls without another RPC or download 3ms
+   ✓ does not start a download when the deadline expires while waiting for the gateway 2ms
+   × applies the total deadline during download at 59999 milliseconds 16ms
+     → expected { ok: false, error: { …(3) } } to match object { ok: true, value: { data: { …(1) } } }
+(4 matching properties omitted from actual)
+   ✓ applies the total deadline during download at 60000 milliseconds 2ms
+   × distinguishes no-data and six exhausted polls without resubmission 5ms
+     → expected [ { …(2) }, { …(2) }, { …(2) }, …(3) ] to have a length of 7 but got 6
+   ✓ rejects tainted rows atomically 2ms
+   ✓ rejects tainted rows atomically 2ms
+   ✓ rejects tainted rows atomically 1ms
+   ✓ rejects tainted rows atomically 2ms
+   ✓ rejects tainted rows atomically 1ms
+   ✓ bounds archives and rows 1ms
+   ✓ bounds archives and rows 1ms
+   ✓ bounds archives and rows 1ms
+   ✓ bounds archives and rows 1ms
+   ✓ bounds archives and rows 1ms
+   ✓ bounds archives and rows 1ms
+   ✓ bounds archives and rows 3ms
+ ✓ io.github.ainsep.openmarketing/tests/campaign-deployment.test.ts (62 tests) 289ms
+ ✓ io.github.ainsep.openmarketing/tests/capi.test.ts (28 tests) 60ms
+ ❯ io.github.ainsep.openmarketing/tests/capabilities.test.ts (44 tests | 8 failed) 814ms
+   ✓ Microsoft canonical factory > uses vendor account facts, per-RPC credentials and a credential-free real ZIP download 37ms
+   ✓ Microsoft canonical factory > fails without a developer token before any fetch 2ms
+   ✓ Microsoft canonical factory > rejects a malformed plugin secret without echoing it or fetching 1ms
+   ✓ Microsoft canonical factory > never returns secret-bearing vendor error text 1ms
+   ✓ Microsoft canonical factory > expires pending polling at 25 seconds instead of returning an empty batch 3ms
+   ✓ Microsoft frozen reporting capabilities > declares validated support and actual conversion definitions 0ms
+   × Microsoft frozen reporting capabilities > requests and decodes the account grain 14ms
+     → expected false to be true // Object.is equality
+   × Microsoft frozen reporting capabilities > requests and decodes the campaign grain 3ms
+     → expected false to be true // Object.is equality
+   × Microsoft frozen reporting capabilities > requests and decodes the ad_group grain 4ms
+     → expected false to be true // Object.is equality
+   × Microsoft frozen reporting capabilities > requests and decodes the ad grain 3ms
+     → expected false to be true // Object.is equality
+   × Microsoft frozen reporting capabilities > whole JPY units are a million micros 7ms
+     → expected { ok: false, error: { …(3) } } to match object { ok: true, value: { …(2) } }
+(4 matching properties omitted from actual)
+   × Microsoft frozen reporting capabilities > whole KRW units are a million micros 5ms
+     → expected { ok: false, error: { …(3) } } to match object { ok: true, value: { …(2) } }
+(4 matching properties omitted from actual)
+   × Microsoft frozen reporting capabilities > returns UTC buckets without requiring account-timezone metadata 4ms
+     → expected { ok: false, error: { …(3) } } to match object { ok: true, value: { …(3) } }
+(4 matching properties omitted from actual)
+   × Microsoft frozen reporting capabilities > does not invent a zero row for a successful empty report 3ms
+     → expected { ok: false, error: { …(3) } } to match object { ok: true, value: { rows: [], …(2) } }
+(4 matching properties omitted from actual)
+   ✓ Microsoft frozen reporting capabilities > rejects duplicate entity/day without returning a partial batch 16ms
+   ✓ Microsoft frozen reporting capabilities > rejects foreign account without returning a partial batch 2ms
+   ✓ Microsoft frozen reporting capabilities > rejects wrong currency without returning a partial batch 1ms
+   ✓ Microsoft frozen reporting capabilities > rejects outside date without returning a partial batch 2ms
+   ✓ Microsoft frozen reporting capabilities > rejects fractional precision without returning a partial batch 1ms
+   ✓ Microsoft frozen reporting capabilities > rejects malformed column without returning a partial batch 1ms
+   ✓ Microsoft frozen reporting capabilities > rejects row limit without returning a partial batch 2ms
+   ✓ Microsoft frozen reporting capabilities > rejects wrong binding, invalid input and cancellation before I/O 1ms
+   ✓ Microsoft frozen reporting capabilities > preserves a service principal and blocks admission withdrawn during credentials 1ms
+   ✓ Microsoft frozen reporting capabilities > fails expired polling without resubmitting 3ms
+   ✓ Microsoft campaign status > preserves earlier observations when 160 groups exhaust the 25-second soft budget 157ms
+   ✓ Microsoft campaign status > skips an oversized campaign and still reads a later small campaign 8ms
+   ✓ Microsoft campaign status > keeps caller cancellation and expired credentials as failures 2ms
+   ✓ Microsoft campaign status > keeps valid Search results when another requested position fails 4ms
+   ✓ Microsoft campaign status > rejects invalid partial-error index -1 1ms
+   ✓ Microsoft campaign status > rejects invalid partial-error index 2 1ms
+   ✓ Microsoft campaign status > deduplicates and bounds reasons across 21 ad groups 36ms
+   ✓ Microsoft campaign status > deduplicates and bounds reasons across 40 ad groups 61ms
+   ✓ Microsoft campaign status > preserves a completed campaign when a later campaign exhausts requests 218ms
+   ✓ Microsoft campaign status > carries scoped editorial codes and marks missing campaigns unknown 4ms
+   ✓ Microsoft campaign status > rejects foreign status evidence 1ms
+   ✓ Microsoft campaign status > rejects duplicate status evidence 0ms
+   ✓ Microsoft campaign status > rejects partial_error status evidence 1ms
+   ✓ Microsoft campaign status > rejects foreign_reason status evidence 1ms
+   ✓ Microsoft campaign status > does not mistake Active with no ads for editorial approval 2ms
+   ✓ Microsoft campaign status > does not mistake Paused with no ads for editorial approval 1ms
+   ✓ Microsoft campaign status > does not mistake Deleted with no ads for editorial approval 1ms
+   ✓ Microsoft campaign status > does not mistake Suspended with no ads for editorial approval 1ms
+   ✓ Microsoft campaign status > preserves partial status at the RPC cap 186ms
+   ✓ Microsoft campaign status > rejects duplicate input IDs before I/O and leaves unsupported campaign types unknown 2ms
+ ✓ io.github.ainsep.openmarketing/tests/read.test.ts (17 tests) 49ms
+ ✓ io.github.ainsep.openmarketing/tests/manifests.test.ts (1 test) 6ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 10 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  io.github.ainsep.openmarketing/tests/capabilities.test.ts > Microsoft frozen reporting capabilities > requests and decodes the account grain
+ FAIL  io.github.ainsep.openmarketing/tests/capabilities.test.ts > Microsoft frozen reporting capabilities > requests and decodes the campaign grain
+ FAIL  io.github.ainsep.openmarketing/tests/capabilities.test.ts > Microsoft frozen reporting capabilities > requests and decodes the ad_group grain
+ FAIL  io.github.ainsep.openmarketing/tests/capabilities.test.ts > Microsoft frozen reporting capabilities > requests and decodes the ad grain
+AssertionError: expected false to be true // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ io.github.ainsep.openmarketing/tests/capabilities.test.ts:107:23
+    105|     const f = metricsFixture({ grain });
+    106|     const result = await metricsCall({ f, grain });
+    107|     expect(result.ok).toBe(true);
+       |                       ^
+    108|     if (!result.ok) return;
+    109|     expect(metricBatchSchema.safeParse(result.value).success).toBe(tru…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/10]⎯
+
+ FAIL  io.github.ainsep.openmarketing/tests/capabilities.test.ts > Microsoft frozen reporting capabilities > whole JPY units are a million micros
+ FAIL  io.github.ainsep.openmarketing/tests/capabilities.test.ts > Microsoft frozen reporting capabilities > whole KRW units are a million micros
+AssertionError: expected { ok: false, error: { …(3) } } to match object { ok: true, value: { …(2) } }
+(4 matching properties omitted from actual)
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "ok": true,[39m
+[32m-   "value": {[39m
+[32m-     "currency": "JPY",[39m
+[32m-     "rows": [[39m
+[32m-       {[39m
+[32m-         "metrics": {[39m
+[32m-           "spend": "123000000",[39m
+[32m-         },[39m
+[32m-       },[39m
+[32m-     ],[39m
+[32m-   },[39m
+[31m+   "ok": false,[39m
+[2m  }[22m
+
+ ❯ io.github.ainsep.openmarketing/tests/capabilities.test.ts:120:38
+    118|   it.each(["JPY", "KRW"])("whole %s units are a million micros", async…
+    119|     const f = metricsFixture({ grain: "campaign", currency }); f.state…
+    120|     expect(await metricsCall({ f })).toMatchObject({ ok: true, value: …
+       |                                      ^
+    121|   });
+    122|   it("returns UTC buckets without requiring account-timezone metadata"…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/10]⎯
+
+ FAIL  io.github.ainsep.openmarketing/tests/capabilities.test.ts > Microsoft frozen reporting capabilities > returns UTC buckets without requiring account-timezone metadata
+AssertionError: expected { ok: false, error: { …(3) } } to match object { ok: true, value: { …(3) } }
+(4 matching properties omitted from actual)
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "ok": true,[39m
+[32m-   "value": {[39m
+[32m-     "complete": true,[39m
+[32m-     "dataThrough": 1791849600000,[39m
+[32m-     "timezone": "UTC",[39m
+[32m-   },[39m
+[31m+   "ok": false,[39m
+[2m  }[22m
+
+ ❯ io.github.ainsep.openmarketing/tests/capabilities.test.ts:124:38
+    122|   it("returns UTC buckets without requiring account-timezone metadata"…
+    123|     const f = metricsFixture({ grain: "campaign" });
+    124|     expect(await metricsCall({ f })).toMatchObject({ ok: true, value: …
+       |                                      ^
+    125|     expect(f.calls).toHaveLength(2);
+    126|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/10]⎯
+
+ FAIL  io.github.ainsep.openmarketing/tests/capabilities.test.ts > Microsoft frozen reporting capabilities > does not invent a zero row for a successful empty report
+AssertionError: expected { ok: false, error: { …(3) } } to match object { ok: true, value: { rows: [], …(2) } }
+(4 matching properties omitted from actual)
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "ok": true,[39m
+[32m-   "value": {[39m
+[32m-     "complete": true,[39m
+[32m-     "freshness": "stale",[39m
+[32m-     "rows": [],[39m
+[32m-   },[39m
+[31m+   "ok": false,[39m
+[2m  }[22m
+
+ ❯ io.github.ainsep.openmarketing/tests/capabilities.test.ts:129:38
+    127|   it("does not invent a zero row for a successful empty report", async…
+    128|     const f = reportFixture(); f.state.responses[1] = { ReportRequestS…
+    129|     expect(await metricsCall({ f })).toMatchObject({ ok: true, value: …
+       |                                      ^
+    130|     expect(f.downloads).toHaveLength(0);
+    131|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/10]⎯
+
+ FAIL  io.github.ainsep.openmarketing/tests/reporting.test.ts > applies the total deadline during download at 59999 milliseconds
+AssertionError: expected { ok: false, error: { …(3) } } to match object { ok: true, value: { data: { …(1) } } }
+(4 matching properties omitted from actual)
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "ok": true,[39m
+[32m-   "value": {[39m
+[32m-     "data": {[39m
+[32m-       "availability": "reported",[39m
+[32m-     },[39m
+[32m-   },[39m
+[31m+   "ok": false,[39m
+[2m  }[22m
+
+ ❯ io.github.ainsep.openmarketing/tests/reporting.test.ts:37:26
+     35|   f.state.downloadHook = () => f.advanceTime({ milliseconds });
+     36|   const result = await f.adapter.invoke(invocation({ command: reportCo…
+     37|   if (ok) expect(result).toMatchObject({ ok: true, value: { data: { av…
+       |                          ^
+     38|   else expect(result).toMatchObject({ ok: false, error: { code: "expir…
+     39|   expect(f.dispatches).toHaveLength(3); expect(f.downloads).toHaveLeng…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/10]⎯
+
+ FAIL  io.github.ainsep.openmarketing/tests/reporting.test.ts > distinguishes no-data and six exhausted polls without resubmission
+AssertionError: expected [ { …(2) }, { …(2) }, { …(2) }, …(3) ] to have a length of 7 but got 6
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 7[39m
+[31m+ 6[39m
+
+ ❯ io.github.ainsep.openmarketing/tests/reporting.test.ts:48:19
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/10]⎯
+
+
+ Test Files  2 failed | 4 passed (6)
+      Tests  10 failed | 161 passed (171)
+   Start at  18:59:49
+   Duration  1.83s (transform 541ms, setup 0ms, collect 2.11s, tests 1.29s, environment 1ms, prepare 515ms)
+
+ ELIFECYCLE  Test failed. See above for more details.
+TEST FAIL content/agent-plugins/microsoft-ads
+=== PLUGIN content/agent-plugins/naver-ads
+
+> @open-marketing-plugin/naver-ads@0.1.0 test /home/user/Open-Marketing/content/agent-plugins/naver-ads
+> vitest run io.github.ainsep.openmarketing/tests
+
+
+ RUN  v3.2.4 /home/user/Open-Marketing/content/agent-plugins/naver-ads
+
+ ✓ io.github.ainsep.openmarketing/tests/transport.test.ts (49 tests) 79ms
+ ✓ io.github.ainsep.openmarketing/tests/campaign-deployment.test.ts (34 tests) 112ms
+ ✓ io.github.ainsep.openmarketing/tests/capabilities.test.ts (44 tests) 425ms
+ ✓ io.github.ainsep.openmarketing/tests/manifests.test.ts (2 tests) 11ms
+
+ Test Files  4 passed (4)
+      Tests  129 passed (129)
+   Start at  18:59:52
+   Duration  1.29s (transform 461ms, setup 0ms, collect 1.54s, tests 627ms, environment 1ms, prepare 345ms)
+
+=== PLUGIN content/agent-plugins/pinterest-ads
+
+> @open-marketing-plugin/pinterest-ads@0.1.0 test /home/user/Open-Marketing/content/agent-plugins/pinterest-ads
+> vitest run io.github.ainsep.openmarketing/tests
+
+
+ RUN  v3.2.4 /home/user/Open-Marketing/content/agent-plugins/pinterest-ads
+
+ ✓ io.github.ainsep.openmarketing/tests/metrics-status.test.ts (40 tests) 118ms
+ ✓ io.github.ainsep.openmarketing/tests/campaign-deployment.test.ts (49 tests) 166ms
+ ✓ io.github.ainsep.openmarketing/tests/capi.test.ts (40 tests) 92ms
+ ✓ io.github.ainsep.openmarketing/tests/dispatch.test.ts (22 tests) 81ms
+ ✓ io.github.ainsep.openmarketing/tests/manifests.test.ts (2 tests) 14ms
+ ✓ io.github.ainsep.openmarketing/tests/codecs.test.ts (21 tests) 46ms
+
+ Test Files  6 passed (6)
+      Tests  174 passed (174)
+   Start at  18:59:54
+   Duration  1.35s (transform 416ms, setup 0ms, collect 1.79s, tests 517ms, environment 1ms, prepare 495ms)
+
+=== PLUGIN content/agent-plugins/reddit-ads
+
+> @open-marketing-plugin/reddit-ads@0.1.0 test /home/user/Open-Marketing/content/agent-plugins/reddit-ads
+> vitest run io.github.ainsep.openmarketing/tests
+
+
+ RUN  v3.2.4 /home/user/Open-Marketing/content/agent-plugins/reddit-ads
+
+ ✓ io.github.ainsep.openmarketing/tests/campaign-deployment.test.ts (21 tests) 39ms
+ ❯ io.github.ainsep.openmarketing/tests/adapter.test.ts (48 tests | 1 failed) 126ms
+   ✓ fixture Reddit dispatch > binds credentials and projects one business page without secret metadata 31ms
+   ✓ fixture Reddit dispatch > denies foreign scope and pre-cancellation without credential or fetch calls 2ms
+   ✓ fixture Reddit dispatch > sends a report POST as one read with fixed fields and exact UTC timestamps 4ms
+   ✓ fixture Reddit dispatch > requests both account and campaign breakdowns for a campaign report 2ms
+   ✓ Reddit bounds and evidence > offers exactly four read descriptors and blocks unsourced operations before credentials 2ms
+   ✓ Reddit bounds and evidence > allows null-account business discovery and requires binding for reports 2ms
+   ✓ Reddit bounds and evidence > cancels after credentials and sanitizes broker denials 2ms
+   ✓ Reddit bounds and evidence > propagates deadline aborts to fetch without real timers or retries 2ms
+   ✓ Reddit bounds and evidence > propagates deadline_with_caller aborts to fetch without real timers or retries 1ms
+   ✓ Reddit bounds and evidence > propagates caller aborts to fetch without real timers or retries 1ms
+   ✓ Reddit bounds and evidence > snapshots parsed commands before an awaited credential broker can mutate caller input 3ms
+   ✓ Reddit bounds and evidence > rejects malformed or expired paste tokens: {"accessToken":"unsafe\r\nvalue"} 2ms
+   ✓ Reddit bounds and evidence > rejects malformed or expired paste tokens: {"accessToken":"synthetic-secret","expiresAt":1792800000000} 1ms
+   ✓ Reddit bounds and evidence > rejects invalid commands before I/O: {"kind":"list_businesses","pageSize":101} 1ms
+   ✓ Reddit bounds and evidence > rejects invalid commands before I/O: {"kind":"list_businesses","pageToken":"https://bad.invalid/next path"} 1ms
+   ✓ Reddit bounds and evidence > rejects invalid commands before I/O: {"kind":"report","pivot":"ACCOUNT","window":{"start":1792800000000,"end":1795564800000}} 1ms
+   ✓ Reddit bounds and evidence > rejects invalid commands before I/O: {"kind":"report","pivot":"ACCOUNT","window":{"start":1792800000001,"end":1792886400000}} 1ms
+   ✓ Reddit bounds and evidence > rejects invalid commands before I/O: {"kind":"activate"} 1ms
+   ✓ Reddit bounds and evidence > rejects invalid commands before I/O: {"kind":"list_businesses","token":"untrusted"} 2ms
+   ✓ Reddit bounds and evidence > returns a validated continuation without following it, then encodes only the token 3ms
+   ✓ Reddit bounds and evidence > rejects malicious continuation https://evil.invalid/next without forwarding credentials 1ms
+   ✓ Reddit bounds and evidence > rejects malicious continuation http://ads-api.reddit.com/api/v3/me/businesses?page.token=x without forwarding credentials 2ms
+   ✓ Reddit bounds and evidence > rejects malicious continuation https://ads-api.reddit.com/api/v3/me/businesses?page.token=x&account_id=foreign without forwarding credentials 2ms
+   ✓ Reddit bounds and evidence > rejects malicious continuation https://user@ads-api.reddit.com/api/v3/me/businesses?page.token=x without forwarding credentials 1ms
+   ✓ Reddit bounds and evidence > rejects malicious continuation https://ads-api.reddit.com/api/v3/me/businesses?page.token=x&page.token=y without forwarding credentials 1ms
+   ✓ Reddit bounds and evidence > rejects malicious continuation https://ads-api.reddit.com/api/v3/me/businesses?page.token=x&page.size=101 without forwarding credentials 1ms
+   ✓ Reddit bounds and evidence > rejects malicious continuation https://ads-api.reddit.com/api/v3/ad_accounts/foreign/reports?page.token=x without forwarding credentials 1ms
+   ✓ Reddit bounds and evidence > rejects malicious continuation not a url without forwarding credentials 1ms
+   ✓ Reddit bounds and evidence > rejects an entire mixed report page: {"account_id":"a2_fixture","currency":"USD","spend":9007199254740992,"impressions":100,"clicks":3} 3ms
+   ✓ Reddit bounds and evidence > rejects an entire mixed report page: {"account_id":"a2_fixture","currency":"USD","spend":-1,"impressions":100,"clicks":3} 2ms
+   ✓ Reddit bounds and evidence > rejects an entire mixed report page: {"account_id":"a2_fixture","currency":"USD","spend":1.5,"impressions":100,"clicks":3} 1ms
+   × Reddit bounds and evidence > rejects an entire mixed report page: {"account_id":"a2_fixture","currency":"USD","spend":123456789,"impressions":100,"clicks":"3"} 9ms
+     → expected { ok: true, value: { …(4) } } to match object { ok: false, …(1) }
+(5 matching properties omitted from actual)
+   ✓ Reddit bounds and evidence > rejects an entire mixed report page: {"account_id":"a2_foreign","currency":"USD","spend":123456789,"impressions":100,"clicks":3} 1ms
+   ✓ Reddit bounds and evidence > rejects an entire mixed report page: {"account_id":"a2_fixture","currency":"EUR","spend":123456789,"impressions":100,"clicks":3} 1ms
+   ✓ Reddit bounds and evidence > rejects duplicate campaigns and preserves large IDs and exact safe microcurrency 2ms
+   ✓ Reddit bounds and evidence > keeps null metrics and empty pages distinct from zero 3ms
+   ✓ Reddit bounds and evidence > rejects fractional source metrics even when native double parsing would round to a safe integer 8ms
+   ✓ Reddit bounds and evidence > maps HTTP 401 without retrying or echoing errors 1ms
+   ✓ Reddit bounds and evidence > maps HTTP 403 without retrying or echoing errors 1ms
+   ✓ Reddit bounds and evidence > maps HTTP 429 without retrying or echoing errors 1ms
+   ✓ Reddit bounds and evidence > maps HTTP 503 without retrying or echoing errors 1ms
+   ✓ Reddit bounds and evidence > maps HTTP 302 without retrying or echoing errors 1ms
+   ✓ Reddit bounds and evidence > rejects malformed and oversized provider responses 1ms
+   ✓ Reddit bounds and evidence > rejects malformed and oversized provider responses 1ms
+   ✓ Reddit bounds and evidence > rejects malformed and oversized provider responses 1ms
+   ✓ Reddit bounds and evidence > rejects malformed and oversized provider responses 3ms
+   ✓ Reddit bounds and evidence > rejects overfull pages, duplicate businesses and repeated continuation tokens 2ms
+   ✓ Reddit bounds and evidence > sanitizes thrown I/O errors and isolates telemetry failure 2ms
+ ✓ io.github.ainsep.openmarketing/tests/metrics-status.test.ts (42 tests) 359ms
+ ✓ io.github.ainsep.openmarketing/tests/manifests.test.ts (2 tests) 10ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  io.github.ainsep.openmarketing/tests/adapter.test.ts > Reddit bounds and evidence > rejects an entire mixed report page: {"account_id":"a2_fixture","currency":"USD","spend":123456789,"impressions":100,"clicks":"3"}
+AssertionError: expected { ok: true, value: { …(4) } } to match object { ok: false, …(1) }
+(5 matching properties omitted from actual)
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "error": {[39m
+[32m-     "code": "protocol_mismatch",[39m
+[32m-   },[39m
+[32m-   "ok": false,[39m
+[31m+   "ok": true,[39m
+[2m  }[22m
+
+ ❯ io.github.ainsep.openmarketing/tests/adapter.test.ts:69:102
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 3 passed (4)
+      Tests  1 failed | 112 passed (113)
+   Start at  18:59:56
+   Duration  1.14s (transform 335ms, setup 0ms, collect 1.30s, tests 534ms, environment 1ms, prepare 351ms)
+
+ ELIFECYCLE  Test failed. See above for more details.
+TEST FAIL content/agent-plugins/reddit-ads
+=== PLUGIN content/agent-plugins/resend-email
+
+> @open-marketing-plugin/resend-email@0.1.0 test /home/user/Open-Marketing/content/agent-plugins/resend-email
+> vitest run io.github.ainsep.openmarketing/tests
+
+
+ RUN  v3.2.4 /home/user/Open-Marketing/content/agent-plugins/resend-email
+
+ ✓ io.github.ainsep.openmarketing/tests/manifests.test.ts (1 test) 9ms
+ ❯ io.github.ainsep.openmarketing/tests/mail.test.ts (47 tests | 2 failed) 70ms
+   ✓ default-exports a valid Jini module and sends with the host clock and fixture HTTP 9ms
+   ✓ keeps default-module credential and transport errors secret-free 2ms
+   ✓ memory synthetic policy wiring > accepts one exact payload, deduplicates it and rejects a conflicting replay 4ms
+   ✓ memory synthetic policy wiring > never reclaims uncertain outcomes or invents a provider message id 2ms
+   × memory synthetic policy wiring > wires readiness, synthetic authority denial and Jini suppression without egress 7ms
+     → MAILER_SEND_REFUSED_NO_DURABLE_PATH: notification-lane mailer send refused for capability "broadcast" — no durable outbox path registered
+   ✓ memory synthetic policy wiring > refuses attachments, header injection, invalid unsubscribe and oversized bodies 1ms
+   ✓ memory synthetic policy wiring > rejects provider batches larger than one without partially sending 2ms
+   ✓ http synthetic policy wiring > accepts one exact payload, deduplicates it and rejects a conflicting replay 4ms
+   ✓ http synthetic policy wiring > never reclaims uncertain outcomes or invents a provider message id 2ms
+   × http synthetic policy wiring > wires readiness, synthetic authority denial and Jini suppression without egress 0ms
+     → MAILER_SEND_REFUSED_NO_DURABLE_PATH: notification-lane mailer send refused for capability "broadcast" — no durable outbox path registered
+   ✓ http synthetic policy wiring > refuses attachments, header injection, invalid unsubscribe and oversized bodies 1ms
+   ✓ http synthetic policy wiring > rejects provider batches larger than one without partially sending 1ms
+   ✓ verifies raw Svix bytes before suppression and makes repeated recipients/replays harmless 5ms
+   ✓ rejects tampered, stale, missing-secret and oversized feedback with no suppression 3ms
+   ✓ passes the stable idempotency key and refuses duplicate header casing 6ms
+   ✓ uses Jini's lane limiter with injected time and defers a second bulk recipient 2ms
+   ✓ reads configured domain DNS with the same Full access credential and rejects foreign evidence 3ms
+   ✓ complaints suppress bulk without blocking transactional sign-in mail 2ms
+   ✓ requires authority on both send and single-message sendBatch with an ordinary HTTP client 1ms
+   ✓ freezes the approved input and permits at most one execution even concurrently 1ms
+   ✓ preserves uncertainty when authority fails after HTTP submission 1ms
+   ✓ retains a mailto plus HTTPS unsubscribe list and the exact one-click header 1ms
+   ✓ refuses unsafe unsubscribe list <mailto:leave@example.com> without egress 0ms
+   ✓ refuses unsafe unsubscribe list <https://user:secret@example.com/leave> without egress 0ms
+   ✓ refuses unsafe unsubscribe list <https://example.com/leave#fragment> without egress 0ms
+   ✓ refuses unsafe unsubscribe list <http://example.com/leave> without egress 0ms
+   ✓ returns retryable provider back-pressure with Retry-After '2' 1ms
+   ✓ returns retryable provider back-pressure with Retry-After 'Tue, 13 Oct 2026 00:00:03 GMT' 1ms
+   ✓ returns retryable provider back-pressure with Retry-After '999999999' 1ms
+   ✓ returns retryable provider back-pressure with Retry-After 'Mon, 12 Oct 2026 23:59:59 GMT' 0ms
+   ✓ returns retryable provider back-pressure with Retry-After 'invalid' 1ms
+   ✓ retains Jini test redirect and original-recipient headers in the Resend payload 1ms
+   ✓ rejects reserved header Bcc before authority or HTTP 0ms
+   ✓ rejects reserved header bCc before authority or HTTP 0ms
+   ✓ rejects reserved header To before authority or HTTP 0ms
+   ✓ rejects reserved header FROM before authority or HTTP 0ms
+   ✓ rejects reserved header Cc before authority or HTTP 0ms
+   ✓ rejects reserved header Sender before authority or HTTP 0ms
+   ✓ rejects reserved header Reply-To before authority or HTTP 0ms
+   ✓ rejects reserved header Subject before authority or HTTP 0ms
+   ✓ rejects reserved header Return-Path before authority or HTTP 0ms
+   ✓ rejects reserved header Message-ID before authority or HTTP 0ms
+   ✓ rejects reserved header Date before authority or HTTP 0ms
+   ✓ rejects reserved header MIME-Version before authority or HTTP 0ms
+   ✓ rejects reserved header Content-Type before authority or HTTP 0ms
+   ✓ rejects reserved header Content-Transfer-Encoding before authority or HTTP 0ms
+   ✓ preserves allowed custom headers through authority and the Resend payload 1ms
+ ✓ io.github.ainsep.openmarketing/tests/dispatch.test.ts (23 tests) 59ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  io.github.ainsep.openmarketing/tests/mail.test.ts > memory synthetic policy wiring > wires readiness, synthetic authority denial and Jini suppression without egress
+ FAIL  io.github.ainsep.openmarketing/tests/mail.test.ts > http synthetic policy wiring > wires readiness, synthetic authority denial and Jini suppression without egress
+Error: MAILER_SEND_REFUSED_NO_DURABLE_PATH: notification-lane mailer send refused for capability "broadcast" — no durable outbox path registered
+ ❯ refusalError ../../../node_modules/.pnpm/@jini-ai+platform@0.6.15-rc.2_express@5.2.1_hast-util-from-parse5@8.0.3_hast-util-to-md_b750bb773601f5115e3ddca4f1f27412/node_modules/@jini-ai/platform/dist/mail/purpose-scoped-mailer.js:10:12
+ ❯ checkGate ../../../node_modules/.pnpm/@jini-ai+platform@0.6.15-rc.2_express@5.2.1_hast-util-from-parse5@8.0.3_hast-util-to-md_b750bb773601f5115e3ddca4f1f27412/node_modules/@jini-ai/platform/dist/mail/purpose-scoped-mailer.js:44:19
+ ❯ Object.send ../../../node_modules/.pnpm/@jini-ai+platform@0.6.15-rc.2_express@5.2.1_hast-util-from-parse5@8.0.3_hast-util-to-md_b750bb773601f5115e3ddca4f1f27412/node_modules/@jini-ai/platform/dist/mail/purpose-scoped-mailer.js:51:13
+ ❯ io.github.ainsep.openmarketing/tests/mail.test.ts:91:29
+     89|       const f = make({ transport });
+     90|       f.state.ready = false;
+     91|       expect(await f.mailer.send(mailInput, { purpose: "bulk" })).toMa…
+       |                             ^
+     92|       f.state.ready = true;
+     93|       f.state.allowed = false;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+
+ Test Files  1 failed | 2 passed (3)
+      Tests  2 failed | 69 passed (71)
+   Start at  18:59:58
+   Duration  769ms (transform 338ms, setup 0ms, collect 973ms, tests 138ms, environment 1ms, prepare 276ms)
+
+ ELIFECYCLE  Test failed. See above for more details.
+TEST FAIL content/agent-plugins/resend-email
+=== PLUGIN content/agent-plugins/snapchat-ads
+
+> @open-marketing-plugin/snapchat-ads@0.1.0 test /home/user/Open-Marketing/content/agent-plugins/snapchat-ads
+> vitest run io.github.ainsep.openmarketing/tests
+
+
+ RUN  v3.2.4 /home/user/Open-Marketing/content/agent-plugins/snapchat-ads
+
+ ✓ io.github.ainsep.openmarketing/tests/adapter.test.ts (50 tests) 127ms
+ ✓ io.github.ainsep.openmarketing/tests/campaign-deployment.test.ts (39 tests) 179ms
+ ✓ io.github.ainsep.openmarketing/tests/metrics-status.test.ts (30 tests) 200ms
+ ✓ io.github.ainsep.openmarketing/tests/capi.test.ts (24 tests) 48ms
+
+ Test Files  4 passed (4)
+      Tests  143 passed (143)
+   Start at  19:00:00
+   Duration  1.46s (transform 467ms, setup 0ms, collect 1.61s, tests 555ms, environment 1ms, prepare 376ms)
+
+=== PLUGIN content/agent-plugins/tiktok-ads
+
+> @open-marketing-plugin/tiktok-ads@0.1.0 test /home/user/Open-Marketing/content/agent-plugins/tiktok-ads
+> vitest run io.github.ainsep.openmarketing/tests
+
+
+ RUN  v3.2.4 /home/user/Open-Marketing/content/agent-plugins/tiktok-ads
+
+ ✓ io.github.ainsep.openmarketing/tests/campaign-deployment.test.ts (30 tests) 158ms
+ ✓ io.github.ainsep.openmarketing/tests/contract/gateway.test.ts (77 tests) 148ms
+ ✓ io.github.ainsep.openmarketing/tests/capabilities.test.ts (53 tests) 723ms
+ ✓ io.github.ainsep.openmarketing/tests/events.test.ts (52 tests) 98ms
+ ✓ io.github.ainsep.openmarketing/tests/transport.test.ts (85 tests) 145ms
+ ✓ io.github.ainsep.openmarketing/tests/manifests.test.ts (5 tests) 22ms
+ ✓ io.github.ainsep.openmarketing/tests/campaign-translation.test.ts (18 tests) 14ms
+
+ Test Files  7 passed (7)
+      Tests  320 passed (320)
+   Start at  19:00:02
+   Duration  2.05s (transform 480ms, setup 0ms, collect 2.32s, tests 1.31s, environment 1ms, prepare 658ms)
+
+=== PLUGIN content/agent-plugins/twilio-sms
+
+> @open-marketing-plugin/twilio-sms@0.1.0 test /home/user/Open-Marketing/content/agent-plugins/twilio-sms
+> vitest run io.github.ainsep.openmarketing/tests
+
+
+ RUN  v3.2.4 /home/user/Open-Marketing/content/agent-plugins/twilio-sms
+
+ ✓ io.github.ainsep.openmarketing/tests/webhooks.test.ts (9 tests) 51ms
+ ✓ io.github.ainsep.openmarketing/tests/dispatch.test.ts (41 tests) 80ms
+ ✓ io.github.ainsep.openmarketing/tests/broadcast.test.ts (21 tests) 150ms
+
+ Test Files  3 passed (3)
+      Tests  71 passed (71)
+   Start at  19:00:05
+   Duration  840ms (transform 422ms, setup 0ms, collect 1.21s, tests 281ms, environment 1ms, prepare 261ms)
+
+=== PLUGIN content/agent-plugins/vk-ads
+
+> @open-marketing-plugin/vk-ads@0.1.0 test /home/user/Open-Marketing/content/agent-plugins/vk-ads
+> vitest run io.github.ainsep.openmarketing/tests
+
+
+ RUN  v3.2.4 /home/user/Open-Marketing/content/agent-plugins/vk-ads
+
+ ✓ io.github.ainsep.openmarketing/tests/manifests.test.ts (3 tests) 21ms
+ ❯ io.github.ainsep.openmarketing/tests/campaign-deployment.test.ts (18 tests | 1 failed) 39ms
+   ✓ VK R2 evidence hold > rejects unverified campaign_deploy_paused before all I/O even when admitted 9ms
+   ✓ VK R2 evidence hold > rejects unverified deploy_campaign_paused before all I/O even when admitted 1ms
+   ✓ VK R2 evidence hold > rejects unverified create_campaign_paused before all I/O even when admitted 1ms
+   ✓ VK R2 evidence hold > rejects unverified create_ad_group_paused before all I/O even when admitted 1ms
+   ✓ VK R2 evidence hold > rejects unverified create_ad_paused before all I/O even when admitted 1ms
+   ✓ VK R2 evidence hold > rejects unverified read_campaign_deployment before all I/O even when admitted 1ms
+   × VK R2 evidence hold > denies missing admission before inspecting an unverified launch 13ms
+     → expected { ok: false, error: { …(3) } } to deeply equal { ok: false, error: { …(3) } }
+   ✓ VK R2 evidence hold > does not turn repeated launch or recovery inputs into effects across adapter recreation 2ms
+   ✓ VK unavailable deployment API > rejects every unverified plan: undefined 2ms
+   ✓ VK unavailable deployment API > rejects every unverified plan: {} 0ms
+   ✓ VK unavailable deployment API > rejects every unverified plan: {"campaign":{"status":"blocked"},"group":{},"ad":{}} 0ms
+   ✓ VK unavailable deployment API > returns unavailable instead of inventing translation fields from resolved metadata 0ms
+   ✓ VK unavailable deployment API > returns unavailable without I/O or consuming saved references: function deployCampaignPaused(required, optional) {
+  return Promise.resolve(deploymentHold({ dependencies: required.dependencies }, optional));
+} 1ms
+   ✓ VK unavailable deployment API > returns unavailable without I/O or consuming saved references: function readCampaignDeployment(required, optional) {
+  return Promise.resolve(deploymentHold({ dependencies: required.dependencies }, optional));
+} 1ms
+   ✓ VK unavailable deployment API > returns cancellation, else unavailable: function deployCampaignPaused(required, optional) {
+  return Promise.resolve(deploymentHold({ dependencies: required.dependencies }, optional));
+} 1ms
+   ✓ VK unavailable deployment API > returns cancellation, else unavailable: function readCampaignDeployment(required, optional) {
+  return Promise.resolve(deploymentHold({ dependencies: required.dependencies }, optional));
+} 1ms
+   ✓ VK unavailable deployment API > honors cancellation before the evidence hold: function deployCampaignPaused(required, optional) {
+  return Promise.resolve(deploymentHold({ dependencies: required.dependencies }, optional));
+} 1ms
+   ✓ VK unavailable deployment API > honors cancellation before the evidence hold: function readCampaignDeployment(required, optional) {
+  return Promise.resolve(deploymentHold({ dependencies: required.dependencies }, optional));
+} 1ms
+ ✓ io.github.ainsep.openmarketing/tests/dispatch.test.ts (48 tests) 89ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  io.github.ainsep.openmarketing/tests/campaign-deployment.test.ts > VK R2 evidence hold > denies missing admission before inspecting an unverified launch
+AssertionError: expected { ok: false, error: { …(3) } } to deeply equal { ok: false, error: { …(3) } }
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[2m    "error": {[22m
+[32m-     "code": "forbidden",[39m
+[32m-     "message": "VK request forbidden",[39m
+[31m+     "code": "invalid_input",[39m
+[31m+     "message": "VK request invalid_input",[39m
+[2m      "retryable": false,[22m
+[2m    },[22m
+[2m    "ok": false,[22m
+[2m  }[22m
+
+ ❯ io.github.ainsep.openmarketing/tests/campaign-deployment.test.ts:37:43
+     35|     f.state.admitted = false;
+     36|     const input = { ...invocation(), command: { kind: "campaign_deploy…
+     37|     expect(await f.adapter.invoke(input)).toEqual({
+       |                                           ^
+     38|       ok: false,
+     39|       error: { code: "forbidden", message: "VK request forbidden", ret…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 2 passed (3)
+      Tests  1 failed | 68 passed (69)
+   Start at  19:00:07
+   Duration  772ms (transform 333ms, setup 0ms, collect 1.12s, tests 149ms, environment 0ms, prepare 289ms)
+
+ ELIFECYCLE  Test failed. See above for more details.
+TEST FAIL content/agent-plugins/vk-ads
+=== PLUGIN content/agent-plugins/whatsapp-business
+
+> @open-marketing-plugin/whatsapp-business@0.1.0 test /home/user/Open-Marketing/content/agent-plugins/whatsapp-business
+> vitest run io.github.ainsep.openmarketing/tests
+
+
+ RUN  v3.2.4 /home/user/Open-Marketing/content/agent-plugins/whatsapp-business
+
+ ✓ io.github.ainsep.openmarketing/tests/boundaries.test.ts (17 tests) 46ms
+ ✓ io.github.ainsep.openmarketing/tests/dispatch.test.ts (23 tests) 61ms
+ ✓ io.github.ainsep.openmarketing/tests/broadcast.test.ts (51 tests) 153ms
+ ✓ io.github.ainsep.openmarketing/tests/manifests.test.ts (1 test) 6ms
+ ✓ io.github.ainsep.openmarketing/tests/webhooks.test.ts (24 tests) 49ms
+
+ Test Files  5 passed (5)
+      Tests  116 passed (116)
+   Start at  19:00:09
+   Duration  1.26s (transform 394ms, setup 0ms, collect 1.52s, tests 314ms, environment 1ms, prepare 517ms)
+
+=== PLUGIN content/agent-plugins/x-ads
+
+> @open-marketing-plugin/x-ads@0.1.0 test /home/user/Open-Marketing/content/agent-plugins/x-ads
+> vitest run io.github.ainsep.openmarketing/tests
+
+
+ RUN  v3.2.4 /home/user/Open-Marketing/content/agent-plugins/x-ads
+
+ ❯ io.github.ainsep.openmarketing/tests/capi.test.ts (10 tests | 1 failed) 84ms
+   ✓ server-only X conversion delivery > sends exactly one account-bound event/hash and stable dedupe identity, accepts processed count 34ms
+   ✓ server-only X conversion delivery > keeps malformed/incorrect processed count 0 unknown without resending 8ms
+   ✓ server-only X conversion delivery > keeps malformed/incorrect processed count 2 unknown without resending 4ms
+   ✓ server-only X conversion delivery > keeps malformed/incorrect processed count 1 unknown without resending 3ms
+   ✓ server-only X conversion delivery > keeps malformed/incorrect processed count undefined unknown without resending 3ms
+   ✓ server-only X conversion delivery > lost response, wrong account and non-200 acknowledgement stay unknown 6ms
+   ✓ server-only X conversion delivery > denies unadmitted, local-mode, foreign/revoked/expired grants and unresolved mappings before credentials 3ms
+   ✓ server-only X conversion delivery > rejects raw/extra identifiers atomically and performs zero I/O in reconciliation 2ms
+   × server-only X conversion delivery > rechecks grant/consent and admission after successful credential resolution 17ms
+     → expected { ok: true, …(1) } to match object { ok: false, …(1) }
+(2 matching properties omitted from actual)
+   ✓ server-only X conversion delivery > guards repeated execute and freezes payload before the host callback 4ms
+ ❯ io.github.ainsep.openmarketing/tests/codecs.test.ts (13 tests | 1 failed) 127ms
+   ✓ closed X commands and OAuth signing > keeps private read commands out of the public invoke boundary 6ms
+   ✓ closed X commands and OAuth signing > keeps private read commands out of the public invoke boundary 1ms
+   ✓ closed X commands and OAuth signing > keeps private read commands out of the public invoke boundary 2ms
+   × closed X commands and OAuth signing > signs filtered IDs and active-window ISO query values with an independent HMAC oracle 103ms
+     → expected 'OAuth oauth_consumer_key="consumer", …' to contain 'oauth_signature="g845MboQNJxqDGC8M8D%…'
+   ✓ closed X commands and OAuth signing > rejects unsupported/oversized input before credentials 2ms
+   ✓ closed X commands and OAuth signing > rejects unsupported/oversized input before credentials 1ms
+   ✓ closed X commands and OAuth signing > rejects unsupported/oversized input before credentials 1ms
+   ✓ closed X commands and OAuth signing > rejects unsupported/oversized input before credentials 1ms
+   ✓ closed X commands and OAuth signing > rejects unsupported/oversized input before credentials 1ms
+   ✓ closed X commands and OAuth signing > rejects unsupported/oversized input before credentials 1ms
+   ✓ closed X commands and OAuth signing > rejects unsupported/oversized input before credentials 1ms
+   ✓ closed X commands and OAuth signing > signs the exact GET query using injected time/nonce (independent HMAC oracle) 3ms
+   ✓ closed X commands and OAuth signing > denies a foreign ACCOUNT report before credential access 1ms
+ ❯ io.github.ainsep.openmarketing/tests/capabilities.test.ts (45 tests | 3 failed) 632ms
+   ✓ X real server factory > uses distinct OAuth nonces across factories with identical frozen call identity 38ms
+   ✓ X real server factory > accepts read configuration without legacy binding or admission fields 47ms
+   ✓ X real server factory > returns catalog output using vendor currency and unique signed nonces, cancelling every wait 28ms
+   ✓ X real server factory > returns typed cancellation and host-denial failures through the real factory 4ms
+   ✓ X real server factory > rejects foreign bindings and malformed configuration before credentials 1ms
+   ✓ X frozen metrics > keeps earlier entity batches when the 25s budget expires 21ms
+   ✓ X frozen metrics > maps an in-flight soft deadline to incomplete metrics and preserves caller cancellation 9ms
+   ✓ X frozen metrics > keeps native tools unchanged and declares account impressions separately 0ms
+   ✓ X frozen metrics > preserves daily account hierarchy and sums each placement exactly once 9ms
+   ✓ X frozen metrics > preserves daily campaign hierarchy and sums each placement exactly once 30ms
+   ✓ X frozen metrics > preserves daily ad_group hierarchy and sums each placement exactly once 24ms
+   ✓ X frozen metrics > preserves daily ad hierarchy and sums each placement exactly once 25ms
+   ✓ X frozen metrics > preserves unavailable supported cells and omits unsupported conversions 15ms
+   ✓ X frozen metrics > adds a serving placement to null arrays and null cells without losing spend 12ms
+   × X frozen metrics > samples currency once, then requests active IDs and their declared placements 20ms
+     → expected { ok: true, value: { …(16) } } to match object { ok: true, value: { …(2) } }
+(19 matching properties omitted from actual)
+   ✓ X frozen metrics > filters ad metadata and parent metadata to the active hierarchy 23ms
+   ✓ X frozen metrics > rejects duplicate active-entity evidence before metadata or analytics 6ms
+   ✓ X frozen metrics > rejects placement active-entity evidence before metadata or analytics 6ms
+   ✓ X frozen metrics > rejects foreign_account active-entity evidence before metadata or analytics 5ms
+   ✓ X frozen metrics > rejects window active-entity evidence before metadata or analytics 6ms
+   ✓ X frozen metrics > reports a timezone-adjusted exclusive coverage cutoff capped at retrieval 20ms
+   ✓ X frozen metrics > missing placement coverage becomes incomplete and null, never a smaller total 9ms
+   ✓ X frozen metrics > an account with no campaign currency returns an explicit metadata gap 6ms
+   ✓ X frozen metrics > rejects duplicate analytics atomically 11ms
+   ✓ X frozen metrics > rejects foreign analytics atomically 8ms
+   ✓ X frozen metrics > rejects wrongEcho analytics atomically 8ms
+   ✓ X frozen metrics > rejects malformed array lengths/negative counts/fractional micros 7ms
+   ✓ X frozen metrics > rejects malformed array lengths/negative counts/fractional micros 11ms
+   ✓ X frozen metrics > rejects malformed array lengths/negative counts/fractional micros 9ms
+   ✓ X frozen metrics > rejects numeric source that would round a fractional charge into a safe integer 7ms
+   ✓ X frozen metrics > rejects repeated catalog cursors/IDs and foreign hierarchy links 43ms
+   ✓ X frozen metrics > rejects unverified timezone history and cross-DST windows 16ms
+   ✓ X frozen metrics > bounds active entities and output rows before analytics 63ms
+   × X frozen metrics > uses current whole-hour account offset without assuming two decimal currency units 12ms
+     → expected { ok: true, value: { …(16) } } to match object { ok: true, value: { …(2) } }
+(19 matching properties omitted from actual)
+   × X frozen metrics > keeps whole JPY micros exactly as supplied by X 12ms
+     → expected { ok: true, value: { …(16) } } to match object { ok: true, value: { …(2) } }
+(19 matching properties omitted from actual)
+   ✓ X frozen metrics > blocks large windows, foreign connections, duplicate inputs and cancellation before network 2ms
+   ✓ X frozen metrics > preserves service identity and stops when admission is withdrawn 20ms
+   ✓ X campaign status > reads only requested IDs, keeps missing IDs unknown and validates output 2ms
+   ✓ X campaign status > maps known lifecycle and leaves unverified rejection taxonomy unknown 2ms
+   ✓ X campaign status > maps known lifecycle and leaves unverified rejection taxonomy unknown 2ms
+   ✓ X campaign status > maps known lifecycle and leaves unverified rejection taxonomy unknown 1ms
+   ✓ X campaign status > maps known lifecycle and leaves unverified rejection taxonomy unknown 10ms
+   ✓ X campaign status > maps known lifecycle and leaves unverified rejection taxonomy unknown 2ms
+   ✓ X campaign status > rejects a campaign page with more than 20 reason descriptions 11ms
+   ✓ X campaign status > rejects foreign response IDs and duplicate requested IDs 2ms
+ ✓ io.github.ainsep.openmarketing/tests/dispatch.test.ts (43 tests) 133ms
+ ✓ io.github.ainsep.openmarketing/tests/campaign-deployment.test.ts (34 tests) 274ms
+ ✓ io.github.ainsep.openmarketing/tests/manifests.test.ts (2 tests) 98ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  io.github.ainsep.openmarketing/tests/capabilities.test.ts > X frozen metrics > samples currency once, then requests active IDs and their declared placements
+AssertionError: expected { ok: true, value: { …(16) } } to match object { ok: true, value: { …(2) } }
+(19 matching properties omitted from actual)
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -2,12 +2,31 @@[39m
+[2m    "ok": true,[22m
+[2m    "value": {[22m
+[2m      "complete": true,[22m
+[2m      "rows": [[22m
+[2m        {[22m
+[31m+         "day": "2026-10-20",[39m
+[31m+         "entity": {[39m
+[31m+           "grain": "campaign",[39m
+[31m+           "vendorCampaignId": "camp1",[39m
+[31m+         },[39m
+[2m          "metrics": {[22m
+[31m+           "clicks": "0",[39m
+[31m+           "impressions": "10",[39m
+[2m            "spend": "9007199254740993",[22m
+[31m+         },[39m
+[31m+       },[39m
+[31m+       {[39m
+[31m+         "day": "2026-10-21",[39m
+[31m+         "entity": {[39m
+[31m+           "grain": "campaign",[39m
+[31m+           "vendorCampaignId": "camp1",[39m
+[31m+         },[39m
+[31m+         "metrics": {[39m
+[31m+           "clicks": "2",[39m
+[31m+           "impressions": "0",[39m
+[31m+           "spend": "0",[39m
+[2m          },[22m
+[2m        },[22m
+[2m      ],[22m
+[2m    },[22m
+[2m  }[22m
+
+ ❯ io.github.ainsep.openmarketing/tests/capabilities.test.ts:138:38
+    136|     const f = metricsFixture();
+    137|     f.state.active = { CAMPAIGN: [{ entity_id: "camp1", activity_start…
+    138|     expect(await metricsCall({ f })).toMatchObject({ ok: true, value: …
+       |                                      ^
+    139|     const urls = f.calls.map(call => new URL(call.url));
+    140|     expect(urls.some(url => url.pathname.endsWith("/active_entities"))…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  io.github.ainsep.openmarketing/tests/capabilities.test.ts > X frozen metrics > uses current whole-hour account offset without assuming two decimal currency units
+AssertionError: expected { ok: true, value: { …(16) } } to match object { ok: true, value: { …(2) } }
+(19 matching properties omitted from actual)
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -2,10 +2,31 @@[39m
+[2m    "ok": true,[22m
+[2m    "value": {[22m
+[2m      "rows": [[22m
+[2m        {[22m
+[2m          "day": "2026-10-20",[22m
+[31m+         "entity": {[39m
+[31m+           "grain": "campaign",[39m
+[31m+           "vendorCampaignId": "camp1",[39m
+[31m+         },[39m
+[31m+         "metrics": {[39m
+[31m+           "clicks": "0",[39m
+[31m+           "impressions": "30",[39m
+[31m+           "spend": "27021597764222979",[39m
+[31m+         },[39m
+[31m+       },[39m
+[31m+       {[39m
+[31m+         "day": "2026-10-21",[39m
+[31m+         "entity": {[39m
+[31m+           "grain": "campaign",[39m
+[31m+           "vendorCampaignId": "camp1",[39m
+[31m+         },[39m
+[31m+         "metrics": {[39m
+[31m+           "clicks": "6",[39m
+[31m+           "impressions": "0",[39m
+[31m+           "spend": "0",[39m
+[31m+         },[39m
+[2m        },[22m
+[2m      ],[22m
+[2m      "timezone": "Asia/Tokyo",[22m
+[2m    },[22m
+[2m  }[22m
+
+ ❯ io.github.ainsep.openmarketing/tests/capabilities.test.ts:235:20
+    233|     f.state.pages.account = { data: { id: "abc1", timezone: "Asia/Toky…
+    234|     const result = await metricsCall({ f });
+    235|     expect(result).toMatchObject({ ok: true, value: { timezone: "Asia/…
+       |                    ^
+    236|     const call = f.calls.find(call => new URL(call.url).searchParams.h…
+    237|     expect(new URL(call.url).searchParams.get("start_time")).toBe("202…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  io.github.ainsep.openmarketing/tests/capabilities.test.ts > X frozen metrics > keeps whole JPY micros exactly as supplied by X
+AssertionError: expected { ok: true, value: { …(16) } } to match object { ok: true, value: { …(2) } }
+(19 matching properties omitted from actual)
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -2,12 +2,31 @@[39m
+[2m    "ok": true,[22m
+[2m    "value": {[22m
+[2m      "currency": "JPY",[22m
+[2m      "rows": [[22m
+[2m        {[22m
+[31m+         "day": "2026-10-20",[39m
+[31m+         "entity": {[39m
+[31m+           "grain": "campaign",[39m
+[31m+           "vendorCampaignId": "camp1",[39m
+[31m+         },[39m
+[2m          "metrics": {[22m
+[31m+           "clicks": "0",[39m
+[31m+           "impressions": "30",[39m
+[2m            "spend": "27021597764222979",[22m
+[31m+         },[39m
+[31m+       },[39m
+[31m+       {[39m
+[31m+         "day": "2026-10-21",[39m
+[31m+         "entity": {[39m
+[31m+           "grain": "campaign",[39m
+[31m+           "vendorCampaignId": "camp1",[39m
+[31m+         },[39m
+[31m+         "metrics": {[39m
+[31m+           "clicks": "6",[39m
+[31m+           "impressions": "0",[39m
+[31m+           "spend": "0",[39m
+[2m          },[22m
+[2m        },[22m
+[2m      ],[22m
+[2m    },[22m
+[2m  }[22m
+
+ ❯ io.github.ainsep.openmarketing/tests/capabilities.test.ts:243:108
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  io.github.ainsep.openmarketing/tests/capi.test.ts > server-only X conversion delivery > rechecks grant/consent and admission after successful credential resolution
+AssertionError: expected { ok: true, …(1) } to match object { ok: false, …(1) }
+(2 matching properties omitted from actual)
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "error": {[39m
+[32m-     "code": "forbidden",[39m
+[32m-   },[39m
+[32m-   "ok": false,[39m
+[31m+   "ok": true,[39m
+[2m  }[22m
+
+ ❯ io.github.ainsep.openmarketing/tests/capi.test.ts:71:42
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ FAIL  io.github.ainsep.openmarketing/tests/codecs.test.ts > closed X commands and OAuth signing > signs filtered IDs and active-window ISO query values with an independent HMAC oracle
+AssertionError: expected 'OAuth oauth_consumer_key="consumer", …' to contain 'oauth_signature="g845MboQNJxqDGC8M8D%…'
+
+Expected: [32m"[7moauth_signature="g845MboQNJxqDGC8M8D%2BBth2Ojk%3D[27m""[39m
+Received: [31m"[7mOAuth oauth_consumer_key="consumer", oauth_nonce="nonce", oauth_signature="iw%2BwQlvN8C5Ifx0L5UUUSeCKUUU%3D", oauth_signature_method="HMAC-SHA1", oauth_timestamp="1792800000", oauth_token="token", oauth_version="1.0[27m""[39m
+
+ ❯ io.github.ainsep.openmarketing/tests/codecs.test.ts:26:76
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯
+
+
+ Test Files  3 failed | 3 passed (6)
+      Tests  5 failed | 142 passed (147)
+   Start at  19:00:11
+   Duration  2.09s (transform 533ms, setup 0ms, collect 2.26s, tests 1.35s, environment 1ms, prepare 613ms)
+
+ ELIFECYCLE  Test failed. See above for more details.
+TEST FAIL content/agent-plugins/x-ads
+=== PLUGIN content/agent-plugins/yandex-direct
+
+> @open-marketing-plugin/yandex-direct@0.1.0 test /home/user/Open-Marketing/content/agent-plugins/yandex-direct
+> vitest run io.github.ainsep.openmarketing/tests
+
+
+ RUN  v3.2.4 /home/user/Open-Marketing/content/agent-plugins/yandex-direct
+
+ ❯ io.github.ainsep.openmarketing/tests/read.test.ts (46 tests | 12 failed) 134ms
+   × fixture Yandex dispatch > uses one read-classified account-bound get with exact page bytes 32ms
+     → expected { ok: false, error: { …(3) } } to match object { ok: true, value: { …(2) } }
+(4 matching properties omitted from actual)
+   ✓ fixture Yandex dispatch > host broker rejects denied discovery, listing and reporting before egress 5ms
+   ✓ fixture Yandex dispatch > rejects scope inflation and pre-cancellation before credentials 1ms
+   × fixture Yandex dispatch > denies current authority and redacts token data from receipts and observations 4ms
+     → expected false to be true // Object.is equality
+   × Yandex read boundaries > uses the host fence and credential login rather than local admission or configured login 7ms
+     → expected { ok: false, error: { …(3) } } to match object { ok: true }
+(4 matching properties omitted from actual)
+   × Yandex read boundaries > factory is inert; accountless connected/agency discovery uses credential Client-Login 4ms
+     → expected { ok: false, error: { …(3) } } to match object { ok: true, value: { data: { …(1) } } }
+(4 matching properties omitted from actual)
+   ✓ Yandex read boundaries > revocation of admission after token lookup prevents egress 1ms
+   ✓ Yandex read boundaries > revocation of connection after token lookup prevents egress 1ms
+   ✓ Yandex read boundaries > rechecks admission inside execute and rejects a second callback send 6ms
+   ✓ Yandex read boundaries > rejects expired/malformed credentials without leaking them 2ms
+   ✓ Yandex read boundaries > rejects unsupported writes, extra fields, duplicate/unsafe IDs and oversized/cyclic inputs before I/O 2ms
+   × Yandex read boundaries > normalizes filtered IDs and preserves bounded continuation without following provider links 3ms
+     → expected { ok: false, error: { …(3) } } to match object { ok: true, value: { data: { …(3) } } }
+(4 matching properties omitted from actual)
+   × Yandex read boundaries > rejects an entire duplicate/foreign/malformed campaign page 3ms
+     → expected { ok: false, error: { …(3) } } to match object { ok: false, …(1) }
+(2 matching properties omitted from actual)
+   × Yandex read boundaries > rejects an entire duplicate/foreign/malformed campaign page 2ms
+     → expected { ok: false, error: { …(3) } } to match object { ok: false, …(1) }
+(2 matching properties omitted from actual)
+   × Yandex read boundaries > rejects an entire duplicate/foreign/malformed campaign page 2ms
+     → expected { ok: false, error: { …(3) } } to match object { ok: false, …(1) }
+(2 matching properties omitted from actual)
+   × Yandex read boundaries > rejects an entire duplicate/foreign/malformed campaign page 2ms
+     → expected { ok: false, error: { …(3) } } to match object { ok: false, …(1) }
+(2 matching properties omitted from actual)
+   ✓ Yandex read boundaries > does not retry HTTP 401 1ms
+   ✓ Yandex read boundaries > does not retry HTTP 403 1ms
+   ✓ Yandex read boundaries > does not retry HTTP 429 1ms
+   ✓ Yandex read boundaries > does not retry HTTP 500 1ms
+   ✓ Yandex read boundaries > does not retry HTTP 201 1ms
+   ✓ Yandex read boundaries > does not retry HTTP 202 1ms
+   ✓ Yandex read boundaries > rejects malformed/error/oversized responses 1ms
+   ✓ Yandex read boundaries > rejects malformed/error/oversized responses 1ms
+   ✓ Yandex read boundaries > rejects malformed/error/oversized responses 4ms
+   × Yandex read boundaries > rejects foreign connected identity, excessive rows and stale continuations atomically 2ms
+     → expected { ok: false, error: { …(3) } } to match object { ok: false, …(1) }
+(2 matching properties omitted from actual)
+   × Yandex read boundaries > preserves incompleteness at the offset cap and bounds a stream with misleading Content-Length 4ms
+     → expected { ok: false, error: { …(3) } } to match object { ok: true, value: { data: { …(2) } } }
+(4 matching properties omitted from actual)
+   ✓ Yandex read boundaries > redacts thrown credential errors and records the failed operation with context IDs 1ms
+   ✓ Yandex read boundaries > rechecks cancellation and injected clock validity inside the host callback 2ms
+   × Yandex read boundaries > maps fetch failures and cancellation to redacted outcomes; telemetry cannot change a read 9ms
+     → expected false to be true // Object.is equality
+   ✓ Yandex read boundaries > deadline aborts a pending fetch with one request and a typed failure 1ms
+   ✓ Yandex read boundaries > deadline aborts a pending body with one request and a typed failure 2ms
+   ✓ fixed Yandex TSV reports > preserves exact micros, provider dates and provenance; full pages are potentially incomplete 3ms
+   ✓ fixed Yandex TSV reports > supports the fixed account view and preserves empty as no-data/access-unconfirmed 1ms
+   ✓ fixed Yandex TSV reports > atomically rejects duplicate/foreign/out-of-window/malformed rows 1ms
+   ✓ fixed Yandex TSV reports > atomically rejects duplicate/foreign/out-of-window/malformed rows 1ms
+   ✓ fixed Yandex TSV reports > atomically rejects duplicate/foreign/out-of-window/malformed rows 1ms
+   ✓ fixed Yandex TSV reports > atomically rejects duplicate/foreign/out-of-window/malformed rows 1ms
+   ✓ fixed Yandex TSV reports > atomically rejects duplicate/foreign/out-of-window/malformed rows 1ms
+   ✓ fixed Yandex TSV reports > atomically rejects duplicate/foreign/out-of-window/malformed rows 1ms
+   ✓ fixed Yandex TSV reports > rejects impossible/long/reversed windows, inconsistent views and over-cap pages before secrets 1ms
+   ✓ fixed Yandex TSV reports > rejects impossible/long/reversed windows, inconsistent views and over-cap pages before secrets 0ms
+   ✓ fixed Yandex TSV reports > rejects impossible/long/reversed windows, inconsistent views and over-cap pages before secrets 0ms
+   ✓ fixed Yandex TSV reports > rejects impossible/long/reversed windows, inconsistent views and over-cap pages before secrets 0ms
+   ✓ fixed Yandex TSV reports > rejects impossible/long/reversed windows, inconsistent views and over-cap pages before secrets 1ms
+   ✓ fixed Yandex TSV reports > rejects impossible/long/reversed windows, inconsistent views and over-cap pages before secrets 11ms
+ ✓ io.github.ainsep.openmarketing/tests/deployment.test.ts (60 tests) 262ms
+ ✓ io.github.ainsep.openmarketing/tests/capabilities.test.ts (34 tests) 303ms
+ ✓ io.github.ainsep.openmarketing/tests/manifests.test.ts (3 tests) 26ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 12 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  io.github.ainsep.openmarketing/tests/read.test.ts > fixture Yandex dispatch > uses one read-classified account-bound get with exact page bytes
+AssertionError: expected { ok: false, error: { …(3) } } to match object { ok: true, value: { …(2) } }
+(4 matching properties omitted from actual)
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "ok": true,[39m
+[32m-   "value": {[39m
+[32m-     "data": {[39m
+[32m-       "items": [[39m
+[32m-         {[39m
+[32m-           "Id": "456",[39m
+[32m-           "Status": "DRAFT",[39m
+[32m-         },[39m
+[32m-       ],[39m
+[32m-     },[39m
+[32m-     "status": "succeeded",[39m
+[32m-   },[39m
+[31m+   "ok": false,[39m
+[2m  }[22m
+
+ ❯ io.github.ainsep.openmarketing/tests/contract/dispatch-suite.ts:10:52
+      8|     it("uses one read-classified account-bound get with exact page byt…
+      9|       const f = required.makeFixture();
+     10|       expect(await f.adapter.invoke(invocation())).toMatchObject({ ok:…
+       |                                                    ^
+     11|       expect(f.calls).toHaveLength(1);
+     12|       expect(f.calls[0].url).toBe("https://api.direct.yandex.com/json/…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/12]⎯
+
+ FAIL  io.github.ainsep.openmarketing/tests/read.test.ts > fixture Yandex dispatch > denies current authority and redacts token data from receipts and observations
+AssertionError: expected false to be true // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ io.github.ainsep.openmarketing/tests/contract/dispatch-suite.ts:39:25
+     37|       f.state.authorized = true;
+     38|       const result = await f.adapter.invoke(invocation());
+     39|       expect(result.ok).toBe(true);
+       |                         ^
+     40|       expect(JSON.stringify({ result, observations: f.observations }))…
+     41|       expect(f.observations.at(-1)).toEqual({ operation: "yandex-direc…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/12]⎯
+
+ FAIL  io.github.ainsep.openmarketing/tests/read.test.ts > Yandex read boundaries > uses the host fence and credential login rather than local admission or configured login
+AssertionError: expected { ok: false, error: { …(3) } } to match object { ok: true }
+(4 matching properties omitted from actual)
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "ok": true,[39m
+[31m+   "ok": false,[39m
+[2m  }[22m
+
+ ❯ io.github.ainsep.openmarketing/tests/read.test.ts:11:112
+      9|   it("uses the host fence and credential login rather than local admis…
+     10|     const f = fixture({ configuration: { ...configuration, clientLogin…
+     11|     expect(await createYandexDirectAdapter({ ...f.dependencies, admitt…
+       |                                                                                                                ^
+     12|     expect(new Headers(f.calls[0].init.headers).get("Client-Login")).t…
+     13|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/12]⎯
+
+ FAIL  io.github.ainsep.openmarketing/tests/read.test.ts > Yandex read boundaries > factory is inert; accountless connected/agency discovery uses credential Client-Login
+AssertionError: expected { ok: false, error: { …(3) } } to match object { ok: true, value: { data: { …(1) } } }
+(4 matching properties omitted from actual)
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "ok": true,[39m
+[32m-   "value": {[39m
+[32m-     "data": {[39m
+[32m-       "items": [[39m
+[32m-         {[39m
+[32m-           "ClientId": "123",[39m
+[32m-           "Login": "fixture-login",[39m
+[32m-           "Type": "AGENCY",[39m
+[32m-         },[39m
+[32m-       ],[39m
+[32m-     },[39m
+[32m-   },[39m
+[31m+   "ok": false,[39m
+[2m  }[22m
+
+ ❯ io.github.ainsep.openmarketing/tests/read.test.ts:20:22
+     18|     for (const view of ["connected", "agency"] as const) {
+     19|       const result = await f.adapter.invoke(invocation({ command: { ki…
+     20|       expect(result).toMatchObject({ ok: true, value: { data: { items:…
+       |                      ^
+     21|       expect(JSON.stringify(result)).not.toContain("synthetic-secret");
+     22|       const call = f.calls.at(-1)!;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/12]⎯
+
+ FAIL  io.github.ainsep.openmarketing/tests/read.test.ts > Yandex read boundaries > normalizes filtered IDs and preserves bounded continuation without following provider links
+AssertionError: expected { ok: false, error: { …(3) } } to match object { ok: true, value: { data: { …(3) } } }
+(4 matching properties omitted from actual)
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "ok": true,[39m
+[32m-   "value": {[39m
+[32m-     "data": {[39m
+[32m-       "items": [[39m
+[32m-         {[39m
+[32m-           "Id": "456",[39m
+[32m-         },[39m
+[32m-       ],[39m
+[32m-       "nextOffset": 11,[39m
+[32m-       "potentiallyIncomplete": true,[39m
+[32m-     },[39m
+[32m-   },[39m
+[31m+   "ok": false,[39m
+[2m  }[22m
+
+ ❯ io.github.ainsep.openmarketing/tests/read.test.ts:61:20
+     59|     const f = fixture({ response: () => Response.json({ result: { Camp…
+     60|     const result = await f.adapter.invoke(invocation({ command: { kind…
+     61|     expect(result).toMatchObject({ ok: true, value: { data: { items: […
+       |                    ^
+     62|     expect(JSON.stringify(result)).not.toContain("foreign.invalid");
+     63|     expect(JSON.parse(String(f.calls[0].init.body)).params.SelectionCr…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/12]⎯
+
+ FAIL  io.github.ainsep.openmarketing/tests/read.test.ts > Yandex read boundaries > rejects an entire duplicate/foreign/malformed campaign page
+ FAIL  io.github.ainsep.openmarketing/tests/read.test.ts > Yandex read boundaries > rejects an entire duplicate/foreign/malformed campaign page
+ FAIL  io.github.ainsep.openmarketing/tests/read.test.ts > Yandex read boundaries > rejects an entire duplicate/foreign/malformed campaign page
+ FAIL  io.github.ainsep.openmarketing/tests/read.test.ts > Yandex read boundaries > rejects an entire duplicate/foreign/malformed campaign page
+AssertionError: expected { ok: false, error: { …(3) } } to match object { ok: false, …(1) }
+(2 matching properties omitted from actual)
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[2m    "error": {[22m
+[32m-     "code": "protocol_mismatch",[39m
+[31m+     "code": "unavailable",[39m
+[2m    },[22m
+[2m    "ok": false,[22m
+[2m  }[22m
+
+ ❯ io.github.ainsep.openmarketing/tests/read.test.ts:67:103
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/12]⎯
+
+ FAIL  io.github.ainsep.openmarketing/tests/read.test.ts > Yandex read boundaries > rejects foreign connected identity, excessive rows and stale continuations atomically
+AssertionError: expected { ok: false, error: { …(3) } } to match object { ok: false, …(1) }
+(2 matching properties omitted from actual)
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[2m    "error": {[22m
+[32m-     "code": "forbidden",[39m
+[31m+     "code": "unavailable",[39m
+[2m    },[22m
+[2m    "ok": false,[22m
+[2m  }[22m
+
+ ❯ io.github.ainsep.openmarketing/tests/read.test.ts:79:114
+     77|   it("rejects foreign connected identity, excessive rows and stale con…
+     78|     const identity = fixture({ response: () => Response.json({ result:…
+     79|     expect(await identity.adapter.invoke(invocation({ command: { kind:…
+       |                                                                                                                  ^
+     80|     for (const result of [{ Campaigns: [campaign], LimitedBy: 10 }, { …
+     81|       const f = fixture({ response: () => Response.json({ result }) });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/12]⎯
+
+ FAIL  io.github.ainsep.openmarketing/tests/read.test.ts > Yandex read boundaries > preserves incompleteness at the offset cap and bounds a stream with misleading Content-Length
+AssertionError: expected { ok: false, error: { …(3) } } to match object { ok: true, value: { data: { …(2) } } }
+(4 matching properties omitted from actual)
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "ok": true,[39m
+[32m-   "value": {[39m
+[32m-     "data": {[39m
+[32m-       "nextOffset": null,[39m
+[32m-       "potentiallyIncomplete": true,[39m
+[32m-     },[39m
+[32m-   },[39m
+[31m+   "ok": false,[39m
+[2m  }[22m
+
+ ❯ io.github.ainsep.openmarketing/tests/read.test.ts:87:116
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/12]⎯
+
+ FAIL  io.github.ainsep.openmarketing/tests/read.test.ts > Yandex read boundaries > maps fetch failures and cancellation to redacted outcomes; telemetry cannot change a read
+AssertionError: expected false to be true // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ io.github.ainsep.openmarketing/tests/read.test.ts:113:87
+    111|     const controller = new AbortController(); const cancelled = fixtur…
+    112|     expect(await cancelled.adapter.invoke(invocation(), { signal: cont…
+    113|     expect((await fixture({ observerThrows: true }).adapter.invoke(inv…
+       |                                                                                       ^
+    114|   });
+    115|   it.each(["fetch", "body"] as const)("deadline aborts a pending %s wi…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/12]⎯
+
+
+ Test Files  1 failed | 3 passed (4)
+      Tests  12 failed | 131 passed (143)
+   Start at  19:00:14
+   Duration  1.47s (transform 471ms, setup 0ms, collect 1.58s, tests 725ms, environment 1ms, prepare 392ms)
+
+ ELIFECYCLE  Test failed. See above for more details.
+TEST FAIL content/agent-plugins/yandex-direct

@@ -1,0 +1,235 @@
+Scope: 25 of 26 workspace projects
+packages/contracts typecheck$ tsc --noEmit && tsc -p tsconfig.tests.json
+packages/om-clock typecheck$ tsc --noEmit && tsc -p tsconfig.tests.json
+packages/om-clock typecheck: Done
+packages/contracts typecheck: Done
+apps/agent typecheck$ tsc --noEmit && tsc -p tsconfig.tests.json
+apps/desktop typecheck$ tsc --noEmit && tsc -p tsconfig.tests.json
+features/federation typecheck$ tsc --noEmit && tsc -p tsconfig.tests.json
+apps/studio typecheck$ tsc --noEmit && tsc -p tsconfig.tests.json
+apps/desktop typecheck: Done
+features/plugins typecheck$ tsc --noEmit && tsc -p tsconfig.tests.json
+apps/agent typecheck: Done
+packages/om-db typecheck$ tsc --noEmit && tsc -p tsconfig.tests.json
+features/federation typecheck: Done
+features/plugins typecheck: Done
+packages/om-db typecheck: Done
+apps/studio typecheck: Done
+features/audit typecheck$ tsc --noEmit && tsc -p tsconfig.tests.json
+features/campaigns typecheck$ tsc --noEmit && tsc -p tsconfig.tests.json
+features/contacts typecheck$ tsc --noEmit && tsc -p tsconfig.tests.json
+features/brand typecheck$ tsc --noEmit && tsc -p tsconfig.tests.json
+features/brand typecheck: Done
+features/creative typecheck$ tsc --noEmit && tsc -p tsconfig.tests.json
+features/audit typecheck: Done
+features/credentials typecheck$ tsc --noEmit && tsc -p tsconfig.tests.json
+features/contacts typecheck: Done
+features/forms typecheck$ tsc --noEmit && tsc -p tsconfig.tests.json
+features/campaigns typecheck: tests/neutral-launch.test.ts(19,7): error TS2739: Type '{ campaign: { schemaVersion: 2; operationId: string; name: string; objective: "traffic" | "leads" | "sales"; schedule: { window: { start: number; end: number; }; timezone: string; }; audience: { countries: string[]; localTargeting?: { ...; } | ... 1 more ... | undefined; searchTerms?: string[] | undefined; }; ads: {...' is missing the following properties from type 'CampaignTranslationInput': context, dependencies
+features/campaigns typecheck: Failed
+features/jobs typecheck$ tsc --noEmit && tsc -p tsconfig.tests.json
+features/creative typecheck: Done
+features/leads typecheck$ tsc --noEmit && tsc -p tsconfig.tests.json
+features/forms typecheck: Done
+features/media-library typecheck$ tsc --noEmit && tsc -p tsconfig.tests.json
+features/credentials typecheck: Done
+features/policy typecheck$ tsc --noEmit && tsc -p tsconfig.tests.json
+features/jobs typecheck: Done
+features/privacy typecheck$ tsc --noEmit && tsc -p tsconfig.tests.json
+features/leads typecheck: Done
+features/safety typecheck$ tsc --noEmit && tsc -p tsconfig.tests.json
+features/policy typecheck: Done
+features/web-events typecheck$ tsc --noEmit && tsc -p tsconfig.tests.json
+features/media-library typecheck: Done
+features/workspaces typecheck$ tsc --noEmit && tsc -p tsconfig.tests.json
+features/privacy typecheck: Done
+features/workspaces typecheck: Done
+features/web-events typecheck: Done
+features/safety typecheck: Done
+features/measure typecheck$ tsc --noEmit && tsc -p tsconfig.tests.json
+features/measure typecheck: Done
+apps/server typecheck$ tsc --noEmit && tsc -p tsconfig.tests.json
+apps/server typecheck: Done
+ ERR_PNPM_RECURSIVE_FAIL  
+
+
+Summary: 1 fails, 24 passes
+
+/home/user/Open-Marketing/features/campaigns:
+ ERROR  @open-marketing/campaigns@0.0.0 typecheck: `tsc --noEmit && tsc -p tsconfig.tests.json`
+Exit status 2
+=== PLUGIN content/agent-plugins/amazon-ads
+
+> @open-marketing-plugin/amazon-ads@0.1.0 typecheck /home/user/Open-Marketing/content/agent-plugins/amazon-ads
+> tsc --noEmit -p tsconfig.json
+
+=== PLUGIN content/agent-plugins/amazon-ses
+
+> @open-marketing-plugin/amazon-ses@0.1.0 typecheck /home/user/Open-Marketing/content/agent-plugins/amazon-ses
+> tsc --noEmit -p tsconfig.json
+
+=== PLUGIN content/agent-plugins/apple-search-ads
+
+> @open-marketing-plugin/apple-search-ads@0.1.0 typecheck /home/user/Open-Marketing/content/agent-plugins/apple-search-ads
+> tsc --noEmit -p tsconfig.json
+
+=== PLUGIN content/agent-plugins/google-ads
+
+> @open-marketing/plugin-google-ads@0.1.0 typecheck /home/user/Open-Marketing/content/agent-plugins/google-ads
+> tsc -p tsconfig.json --noEmit
+
+=== PLUGIN content/agent-plugins/google-business-profile
+
+> @open-marketing/plugin-google-business-profile@0.1.0 typecheck /home/user/Open-Marketing/content/agent-plugins/google-business-profile
+> tsc -p tsconfig.json --noEmit
+
+=== PLUGIN content/agent-plugins/higgsfield-media
+
+> @open-marketing-plugin/higgsfield-media@0.1.0 typecheck /home/user/Open-Marketing/content/agent-plugins/higgsfield-media
+> pnpm --dir io.github.ainsep.openmarketing typecheck
+
+
+> @open-marketing/plugin-higgsfield-media@0.1.0 typecheck /home/user/Open-Marketing/content/agent-plugins/higgsfield-media/io.github.ainsep.openmarketing
+> tsc --noEmit -p tsconfig.json
+
+src/adapter.ts(3,94): error TS2307: Cannot find module '@jini-ai/integrations/media-providers' or its corresponding type declarations.
+src/adapter.ts(39,24): error TS7006: Parameter 'input' implicitly has an 'any' type.
+src/adapter.ts(43,31): error TS7006: Parameter 'input' implicitly has an 'any' type.
+src/adapter.ts(51,22): error TS7006: Parameter 'input' implicitly has an 'any' type.
+src/adapter.ts(56,29): error TS7006: Parameter 'input' implicitly has an 'any' type.
+src/bridge.ts(4,43): error TS2307: Cannot find module '@jini-ai/integrations/media-providers' or its corresponding type declarations.
+src/bridge.ts(39,47): error TS7006: Parameter 'input' implicitly has an 'any' type.
+src/bridge.ts(52,13): error TS7006: Parameter 'input' implicitly has an 'any' type.
+src/index.ts(16,72): error TS2307: Cannot find module '@jini-ai/integrations/media-providers' or its corresponding type declarations.
+src/types.ts(2,95): error TS2307: Cannot find module '@jini-ai/integrations/media-providers' or its corresponding type declarations.
+src/types.ts(5,97): error TS2339: Property 'ctx' does not exist on type 'unknown'.
+tests/federation-integration.test.ts(4,110): error TS2307: Cannot find module '@open-marketing/federation' or its corresponding type declarations.
+tests/federation-integration.test.ts(5,73): error TS2307: Cannot find module '@open-marketing/federation' or its corresponding type declarations.
+tests/federation-integration.test.ts(24,58): error TS2322: Type '{ generationSchemaFingerprint: unknown; pluginId: "higgsfield-media"; pluginDigest: string; configurationDigest: string; connectionId: string; accountId: string; scope: CallContext["scope"]; statusSchemaFingerprint: string; evidenceId: string; expiresAt: number; }' is not assignable to type 'VerifiedBinding'.
+  Types of property 'generationSchemaFingerprint' are incompatible.
+    Type 'unknown' is not assignable to type 'string'.
+tests/federation-integration.test.ts(24,102): error TS2322: Type '{ generationSchemaFingerprint: unknown; evidenceId: string; source: string; observedAt: number; expiresAt: number; pluginDigest: string; configurationDigest: string; accountId: string; model: string; argumentsDigest: string; unitUpperBound: Money; creditRate: { readonly minorUnits: number; readonly creditUnits: numb...' is not assignable to type 'PricingEvidence'.
+  Types of property 'generationSchemaFingerprint' are incompatible.
+    Type 'unknown' is not assignable to type 'string'.
+tests/federation-integration.test.ts(34,21): error TS7006: Parameter 'input' implicitly has an 'any' type.
+tests/federation-integration.test.ts(34,28): error TS7006: Parameter 'options' implicitly has an 'any' type.
+tests/federation-integration.test.ts(42,16): error TS7006: Parameter 'input' implicitly has an 'any' type.
+tests/federation-integration.test.ts(42,23): error TS7006: Parameter 'options' implicitly has an 'any' type.
+tests/federation-integration.test.ts(44,79): error TS7006: Parameter 'input' implicitly has an 'any' type.
+tests/federation-integration.test.ts(52,63): error TS7006: Parameter 'input' implicitly has an 'any' type.
+tests/federation-integration.test.ts(59,36): error TS7006: Parameter 'input' implicitly has an 'any' type.
+tests/federation-integration.test.ts(59,75): error TS2322: Type '{ generationSchemaFingerprint: unknown; pluginId: "higgsfield-media"; pluginDigest: string; configurationDigest: string; connectionId: string; accountId: string; scope: CallContext["scope"]; statusSchemaFingerprint: string; evidenceId: string; expiresAt: number; }' is not assignable to type 'VerifiedBinding'.
+  Types of property 'generationSchemaFingerprint' are incompatible.
+    Type 'unknown' is not assignable to type 'string'.
+tests/federation-integration.test.ts(62,40): error TS2322: Type '{ generationSchemaFingerprint: unknown; pluginId: "higgsfield-media"; pluginDigest: string; configurationDigest: string; connectionId: string; accountId: string; scope: CallContext["scope"]; statusSchemaFingerprint: string; evidenceId: string; expiresAt: number; }' is not assignable to type 'VerifiedBinding'.
+  Types of property 'generationSchemaFingerprint' are incompatible.
+    Type 'unknown' is not assignable to type 'string'.
+tests/federation-integration.test.ts(62,66): error TS2322: Type '{ generationSchemaFingerprint: unknown; evidenceId: string; source: string; observedAt: number; expiresAt: number; pluginDigest: string; configurationDigest: string; accountId: string; model: string; argumentsDigest: string; unitUpperBound: Money; creditRate: { readonly minorUnits: number; readonly creditUnits: numb...' is not assignable to type 'PricingEvidence'.
+  Types of property 'generationSchemaFingerprint' are incompatible.
+    Type 'unknown' is not assignable to type 'string'.
+tests/runtime.test.ts(2,51): error TS2307: Cannot find module '@jini-ai/integrations/media-providers' or its corresponding type declarations.
+tests/safety-integration.test.ts(3,130): error TS2307: Cannot find module '@open-marketing/safety' or its corresponding type declarations.
+tests/safety-integration.test.ts(4,36): error TS2307: Cannot find module '@open-marketing/safety' or its corresponding type declarations.
+tests/safety-integration.test.ts(37,105): error TS18046: 'card' is of type 'unknown'.
+tests/safety-integration.test.ts(37,131): error TS18046: 'card' is of type 'unknown'.
+tests/safety-integration.test.ts(37,166): error TS18046: 'card' is of type 'unknown'.
+tests/safety-integration.test.ts(41,106): error TS18046: 'card' is of type 'unknown'.
+tests/safety-integration.test.ts(45,12): error TS2571: Object is of type 'unknown'.
+tests/safety-integration.test.ts(46,90): error TS18046: 'card' is of type 'unknown'.
+tests/safety-integration.test.ts(54,12): error TS18046: 'card' is of type 'unknown'.
+tests/safety-integration.test.ts(64,116): error TS18046: 'card' is of type 'unknown'.
+tests/safety-integration.test.ts(64,142): error TS18046: 'card' is of type 'unknown'.
+tests/safety-integration.test.ts(64,177): error TS18046: 'card' is of type 'unknown'.
+tests/safety-integration.test.ts(65,101): error TS18046: 'card' is of type 'unknown'.
+tests/safety-integration.test.ts(72,116): error TS18046: 'card' is of type 'unknown'.
+tests/safety-integration.test.ts(72,142): error TS18046: 'card' is of type 'unknown'.
+tests/safety-integration.test.ts(72,177): error TS18046: 'card' is of type 'unknown'.
+tests/safety-integration.test.ts(74,50): error TS18046: 'card' is of type 'unknown'.
+tests/safety-integration.test.ts(75,105): error TS7006: Parameter 'input' implicitly has an 'any' type.
+ ELIFECYCLE  Command failed with exit code 2.
+ ELIFECYCLE  Command failed with exit code 2.
+ WARN   Local package.json exists, but node_modules missing, did you mean to install?
+TYPECHECK FAIL content/agent-plugins/higgsfield-media
+=== PLUGIN content/agent-plugins/kakao-ads
+
+> @open-marketing-plugin/kakao-ads@0.1.0 typecheck /home/user/Open-Marketing/content/agent-plugins/kakao-ads
+> tsc --noEmit -p tsconfig.json
+
+=== PLUGIN content/agent-plugins/line-ads
+
+> @open-marketing-plugin/line-ads@0.1.0 typecheck /home/user/Open-Marketing/content/agent-plugins/line-ads
+> tsc --noEmit -p tsconfig.json
+
+=== PLUGIN content/agent-plugins/linkedin-ads
+
+> @open-marketing-plugin/linkedin-ads@0.1.0 typecheck /home/user/Open-Marketing/content/agent-plugins/linkedin-ads
+> tsc --noEmit -p tsconfig.json
+
+=== PLUGIN content/agent-plugins/meta-ads
+
+> @open-marketing-plugin/meta-ads@0.1.0 typecheck /home/user/Open-Marketing/content/agent-plugins/meta-ads
+> tsc --noEmit -p tsconfig.json
+
+=== PLUGIN content/agent-plugins/microsoft-ads
+
+> @open-marketing-plugin/microsoft-ads@0.1.0 typecheck /home/user/Open-Marketing/content/agent-plugins/microsoft-ads
+> tsc --noEmit -p tsconfig.json
+
+=== PLUGIN content/agent-plugins/naver-ads
+
+> @open-marketing-plugin/naver-ads@0.1.0 typecheck /home/user/Open-Marketing/content/agent-plugins/naver-ads
+> tsc --noEmit -p tsconfig.json
+
+=== PLUGIN content/agent-plugins/pinterest-ads
+
+> @open-marketing-plugin/pinterest-ads@0.1.0 typecheck /home/user/Open-Marketing/content/agent-plugins/pinterest-ads
+> tsc --noEmit -p tsconfig.json
+
+=== PLUGIN content/agent-plugins/reddit-ads
+
+> @open-marketing-plugin/reddit-ads@0.1.0 typecheck /home/user/Open-Marketing/content/agent-plugins/reddit-ads
+> tsc --noEmit -p tsconfig.json
+
+=== PLUGIN content/agent-plugins/resend-email
+
+> @open-marketing-plugin/resend-email@0.1.0 typecheck /home/user/Open-Marketing/content/agent-plugins/resend-email
+> tsc --noEmit -p tsconfig.json
+
+=== PLUGIN content/agent-plugins/snapchat-ads
+
+> @open-marketing-plugin/snapchat-ads@0.1.0 typecheck /home/user/Open-Marketing/content/agent-plugins/snapchat-ads
+> tsc --noEmit -p tsconfig.json
+
+=== PLUGIN content/agent-plugins/tiktok-ads
+
+> @open-marketing-plugin/tiktok-ads@0.1.0 typecheck /home/user/Open-Marketing/content/agent-plugins/tiktok-ads
+> tsc --noEmit -p tsconfig.json
+
+=== PLUGIN content/agent-plugins/twilio-sms
+
+> @open-marketing-plugin/twilio-sms@0.1.0 typecheck /home/user/Open-Marketing/content/agent-plugins/twilio-sms
+> tsc --noEmit -p tsconfig.json
+
+=== PLUGIN content/agent-plugins/vk-ads
+
+> @open-marketing-plugin/vk-ads@0.1.0 typecheck /home/user/Open-Marketing/content/agent-plugins/vk-ads
+> tsc --noEmit -p tsconfig.json
+
+io.github.ainsep.openmarketing/tests/dispatch.test.ts(11,58): error TS2353: Object literal may only specify known properties, and 'admitted' does not exist in type 'VkDependencies'.
+ ELIFECYCLE  Command failed with exit code 2.
+TYPECHECK FAIL content/agent-plugins/vk-ads
+=== PLUGIN content/agent-plugins/whatsapp-business
+
+> @open-marketing-plugin/whatsapp-business@0.1.0 typecheck /home/user/Open-Marketing/content/agent-plugins/whatsapp-business
+> tsc --noEmit -p tsconfig.json
+
+=== PLUGIN content/agent-plugins/x-ads
+
+> @open-marketing-plugin/x-ads@0.1.0 typecheck /home/user/Open-Marketing/content/agent-plugins/x-ads
+> tsc --noEmit -p tsconfig.json
+
+=== PLUGIN content/agent-plugins/yandex-direct
+
+> @open-marketing-plugin/yandex-direct@0.1.0 typecheck /home/user/Open-Marketing/content/agent-plugins/yandex-direct
+> tsc --noEmit -p tsconfig.json
+

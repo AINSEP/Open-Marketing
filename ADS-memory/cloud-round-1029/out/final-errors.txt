@@ -1,0 +1,95 @@
+features/campaigns/tests/neutral-launch.test.ts:19: typecheck TS2739: Type '{ campaign: { schemaVersion: 2; operationId: string; name: string; objective: "traffic" | "leads" | "sales"; schedule: { window: { start: number; end: number; }; timezone: string; }; audience: { countries: string[]; localTargeting?: { ...; } | ... 1 more ... | undefined; searchTerms?: 
+content/agent-plugins/higgsfield-media/src/adapter.ts:3: typecheck TS2307: Cannot find module '@jini-ai/integrations/media-providers' or its corresponding type declarations.
+content/agent-plugins/higgsfield-media/src/adapter.ts:39: typecheck TS7006: Parameter 'input' implicitly has an 'any' type.
+content/agent-plugins/higgsfield-media/src/adapter.ts:43: typecheck TS7006: Parameter 'input' implicitly has an 'any' type.
+content/agent-plugins/higgsfield-media/src/adapter.ts:51: typecheck TS7006: Parameter 'input' implicitly has an 'any' type.
+content/agent-plugins/higgsfield-media/src/adapter.ts:56: typecheck TS7006: Parameter 'input' implicitly has an 'any' type.
+content/agent-plugins/higgsfield-media/src/bridge.ts:4: typecheck TS2307: Cannot find module '@jini-ai/integrations/media-providers' or its corresponding type declarations.
+content/agent-plugins/higgsfield-media/src/bridge.ts:39: typecheck TS7006: Parameter 'input' implicitly has an 'any' type.
+content/agent-plugins/higgsfield-media/src/bridge.ts:52: typecheck TS7006: Parameter 'input' implicitly has an 'any' type.
+content/agent-plugins/higgsfield-media/src/index.ts:16: typecheck TS2307: Cannot find module '@jini-ai/integrations/media-providers' or its corresponding type declarations.
+content/agent-plugins/higgsfield-media/src/types.ts:2: typecheck TS2307: Cannot find module '@jini-ai/integrations/media-providers' or its corresponding type declarations.
+content/agent-plugins/higgsfield-media/src/types.ts:5: typecheck TS2339: Property 'ctx' does not exist on type 'unknown'.
+content/agent-plugins/higgsfield-media/tests/federation-integration.test.ts:4: typecheck TS2307: Cannot find module '@open-marketing/federation' or its corresponding type declarations.
+content/agent-plugins/higgsfield-media/tests/federation-integration.test.ts:5: typecheck TS2307: Cannot find module '@open-marketing/federation' or its corresponding type declarations.
+content/agent-plugins/higgsfield-media/tests/federation-integration.test.ts:24: typecheck TS2322: Type '{ generationSchemaFingerprint: unknown; pluginId: "higgsfield-media"; pluginDigest: string; configurationDigest: string; connectionId: string; accountId: string; scope: CallContext["scope"]; statusSchemaFingerprint: string; evidenceId: string; expiresAt: number; }' is not assignable to
+content/agent-plugins/higgsfield-media/tests/federation-integration.test.ts:24: typecheck TS2322: Type '{ generationSchemaFingerprint: unknown; evidenceId: string; source: string; observedAt: number; expiresAt: number; pluginDigest: string; configurationDigest: string; accountId: string; model: string; argumentsDigest: string; unitUpperBound: Money; creditRate: { readonly minorUnits: num
+content/agent-plugins/higgsfield-media/tests/federation-integration.test.ts:34: typecheck TS7006: Parameter 'input' implicitly has an 'any' type.
+content/agent-plugins/higgsfield-media/tests/federation-integration.test.ts:34: typecheck TS7006: Parameter 'options' implicitly has an 'any' type.
+content/agent-plugins/higgsfield-media/tests/federation-integration.test.ts:42: typecheck TS7006: Parameter 'input' implicitly has an 'any' type.
+content/agent-plugins/higgsfield-media/tests/federation-integration.test.ts:42: typecheck TS7006: Parameter 'options' implicitly has an 'any' type.
+content/agent-plugins/higgsfield-media/tests/federation-integration.test.ts:44: typecheck TS7006: Parameter 'input' implicitly has an 'any' type.
+content/agent-plugins/higgsfield-media/tests/federation-integration.test.ts:52: typecheck TS7006: Parameter 'input' implicitly has an 'any' type.
+content/agent-plugins/higgsfield-media/tests/federation-integration.test.ts:59: typecheck TS7006: Parameter 'input' implicitly has an 'any' type.
+content/agent-plugins/higgsfield-media/tests/federation-integration.test.ts:59: typecheck TS2322: Type '{ generationSchemaFingerprint: unknown; pluginId: "higgsfield-media"; pluginDigest: string; configurationDigest: string; connectionId: string; accountId: string; scope: CallContext["scope"]; statusSchemaFingerprint: string; evidenceId: string; expiresAt: number; }' is not assignable to
+content/agent-plugins/higgsfield-media/tests/federation-integration.test.ts:62: typecheck TS2322: Type '{ generationSchemaFingerprint: unknown; pluginId: "higgsfield-media"; pluginDigest: string; configurationDigest: string; connectionId: string; accountId: string; scope: CallContext["scope"]; statusSchemaFingerprint: string; evidenceId: string; expiresAt: number; }' is not assignable to
+content/agent-plugins/higgsfield-media/tests/federation-integration.test.ts:62: typecheck TS2322: Type '{ generationSchemaFingerprint: unknown; evidenceId: string; source: string; observedAt: number; expiresAt: number; pluginDigest: string; configurationDigest: string; accountId: string; model: string; argumentsDigest: string; unitUpperBound: Money; creditRate: { readonly minorUnits: num
+content/agent-plugins/higgsfield-media/tests/runtime.test.ts:2: typecheck TS2307: Cannot find module '@jini-ai/integrations/media-providers' or its corresponding type declarations.
+content/agent-plugins/higgsfield-media/tests/safety-integration.test.ts:3: typecheck TS2307: Cannot find module '@open-marketing/safety' or its corresponding type declarations.
+content/agent-plugins/higgsfield-media/tests/safety-integration.test.ts:4: typecheck TS2307: Cannot find module '@open-marketing/safety' or its corresponding type declarations.
+content/agent-plugins/higgsfield-media/tests/safety-integration.test.ts:37: typecheck TS18046: 'card' is of type 'unknown'.
+content/agent-plugins/higgsfield-media/tests/safety-integration.test.ts:37: typecheck TS18046: 'card' is of type 'unknown'.
+content/agent-plugins/higgsfield-media/tests/safety-integration.test.ts:37: typecheck TS18046: 'card' is of type 'unknown'.
+content/agent-plugins/higgsfield-media/tests/safety-integration.test.ts:41: typecheck TS18046: 'card' is of type 'unknown'.
+content/agent-plugins/higgsfield-media/tests/safety-integration.test.ts:45: typecheck TS2571: Object is of type 'unknown'.
+content/agent-plugins/higgsfield-media/tests/safety-integration.test.ts:46: typecheck TS18046: 'card' is of type 'unknown'.
+content/agent-plugins/higgsfield-media/tests/safety-integration.test.ts:54: typecheck TS18046: 'card' is of type 'unknown'.
+content/agent-plugins/higgsfield-media/tests/safety-integration.test.ts:64: typecheck TS18046: 'card' is of type 'unknown'.
+content/agent-plugins/higgsfield-media/tests/safety-integration.test.ts:64: typecheck TS18046: 'card' is of type 'unknown'.
+content/agent-plugins/higgsfield-media/tests/safety-integration.test.ts:64: typecheck TS18046: 'card' is of type 'unknown'.
+content/agent-plugins/higgsfield-media/tests/safety-integration.test.ts:65: typecheck TS18046: 'card' is of type 'unknown'.
+content/agent-plugins/higgsfield-media/tests/safety-integration.test.ts:72: typecheck TS18046: 'card' is of type 'unknown'.
+content/agent-plugins/higgsfield-media/tests/safety-integration.test.ts:72: typecheck TS18046: 'card' is of type 'unknown'.
+content/agent-plugins/higgsfield-media/tests/safety-integration.test.ts:72: typecheck TS18046: 'card' is of type 'unknown'.
+content/agent-plugins/higgsfield-media/tests/safety-integration.test.ts:74: typecheck TS18046: 'card' is of type 'unknown'.
+content/agent-plugins/higgsfield-media/tests/safety-integration.test.ts:75: typecheck TS7006: Parameter 'input' implicitly has an 'any' type.
+content/agent-plugins/vk-ads/io.github.ainsep.openmarketing/tests/dispatch.test.ts:11: typecheck TS2353: Object literal may only specify known properties, and 'admitted' does not exist in type 'VkDependencies'.
+
+# lint
+apps/server/tests/ingress-worker.test.ts:410: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+apps/server/tests/integration-oauth-vendors.test.ts:32: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+apps/server/tests/integrations.test.ts:454: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+apps/studio/tests/addons.test.ts:22: sonarjs/cognitive-complexity: Refactor this function to reduce its Cognitive Complexity from 11 to the 10 allowed.
+apps/studio/tests/leads.test.tsx:21: om/no-functions-in-component-body: No function definitions inside TSX component bodies; extract to hooks/rules.
+apps/studio/tests/leads.test.tsx:22: om/no-functions-in-component-body: No function definitions inside TSX component bodies; extract to hooks/rules.
+apps/studio/tests/leads.test.tsx:50: om/no-functions-in-component-body: No function definitions inside TSX component bodies; extract to hooks/rules.
+apps/studio/tests/leads.test.tsx:74: om/no-functions-in-component-body: No function definitions inside TSX component bodies; extract to hooks/rules.
+content/plugins/charts-chartjs/src/provider.ts:66: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+content/plugins/charts-chartjs/src/provider.ts:78: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+content/plugins/charts-chartjs/src/provider.ts:79: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+content/plugins/charts-chartjs/src/provider.ts:81: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+content/plugins/charts-chartjs/src/provider.ts:91: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+content/plugins/charts-chartjs/src/provider.ts:108: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+content/plugins/charts-chartjs/src/provider.ts:125: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+content/plugins/charts-chartjs/tests/provider.test.ts:13: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+content/plugins/charts-chartjs/tests/provider.test.ts:18: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+content/plugins/charts-echarts/src/provider.ts:75: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+content/plugins/charts-echarts/src/provider.ts:86: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+content/plugins/charts-echarts/src/provider.ts:87: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+content/plugins/charts-echarts/src/provider.ts:95: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+content/plugins/charts-echarts/src/provider.ts:106: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+content/plugins/charts-echarts/src/provider.ts:106: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+content/plugins/charts-echarts/src/provider.ts:112: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+content/plugins/charts-echarts/src/provider.ts:112: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+content/plugins/charts-echarts/src/provider.ts:113: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+content/plugins/charts-echarts/src/provider.ts:115: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+content/plugins/charts-echarts/src/provider.ts:128: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+content/plugins/charts-echarts/src/provider.ts:147: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+content/plugins/charts-echarts/tests/provider.test.ts:12: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+apps/studio/src/shared/api/http.ts:98: sonarjs/cognitive-complexity: Refactor this function to reduce its Cognitive Complexity from 11 to the 10 allowed.
+content/agent-plugins/google-ads/io.github.ainsep.openmarketing/tests/campaign-deployment.test.ts:452: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+content/agent-plugins/google-ads/io.github.ainsep.openmarketing/tests/read-capabilities.test.ts:341: sonarjs/cognitive-complexity: Refactor this function to reduce its Cognitive Complexity from 11 to the 10 allowed.
+content/agent-plugins/higgsfield-media/io.github.ainsep.openmarketing/src/adapter.ts:39: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+content/agent-plugins/higgsfield-media/io.github.ainsep.openmarketing/src/adapter.ts:43: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+content/agent-plugins/higgsfield-media/io.github.ainsep.openmarketing/src/adapter.ts:51: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+content/agent-plugins/higgsfield-media/io.github.ainsep.openmarketing/src/adapter.ts:56: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+content/agent-plugins/higgsfield-media/io.github.ainsep.openmarketing/src/bridge.ts:39: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+content/agent-plugins/higgsfield-media/io.github.ainsep.openmarketing/src/bridge.ts:52: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+content/agent-plugins/higgsfield-media/io.github.ainsep.openmarketing/tests/federation-integration.test.ts:34: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+content/agent-plugins/higgsfield-media/io.github.ainsep.openmarketing/tests/federation-integration.test.ts:42: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+content/agent-plugins/higgsfield-media/io.github.ainsep.openmarketing/tests/federation-integration.test.ts:44: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+content/agent-plugins/higgsfield-media/io.github.ainsep.openmarketing/tests/federation-integration.test.ts:52: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+content/agent-plugins/higgsfield-media/io.github.ainsep.openmarketing/tests/federation-integration.test.ts:59: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+content/agent-plugins/higgsfield-media/io.github.ainsep.openmarketing/tests/safety-integration.test.ts:75: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+content/agent-plugins/meta-ads/io.github.ainsep.openmarketing/src/instagram-fetch.ts:69: sonarjs/cognitive-complexity: Refactor this function to reduce its Cognitive Complexity from 11 to the 10 allowed.
+apps/studio/src/widgets/workspace-canvas/ui/AlertsFeed.tsx:45: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.

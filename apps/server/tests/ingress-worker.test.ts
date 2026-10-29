@@ -407,10 +407,9 @@ it('captures the user agent only on consented /c, rejects a browser-supplied one
         if (!accepted.ok) throw new Error('Acceptance failed');
         const service = { scope: f.context.scope, serviceId: 'measure-worker', correlationId: 'c', traceId: 't' };
         const found = { subjectId: accepted.value.subjectId, identifiers: { email: 'hashed-email' }, identifierDigests: { email: 'a'.repeat(64) } };
-        const sha = (value: string) => createHash('sha256').update(value).digest('hex');
         expect(await withWebsiteContext({ webEvents: binding.identity.webEvents, clock: f.clock, context: service, found })).toEqual({ subjectId: accepted.value.subjectId,
             identifiers: { email: 'hashed-email', client_user_agent: 'Fixture-Agent/1.0', event_source_url: 'https://sandbox.example.test/lead' },
-            identifierDigests: { email: 'a'.repeat(64), client_user_agent: sha('Fixture-Agent/1.0'), event_source_url: sha('https://sandbox.example.test/lead') } });
+            identifierDigests: { email: 'a'.repeat(64), client_user_agent: createHash('sha256').update('Fixture-Agent/1.0').digest('hex'), event_source_url: createHash('sha256').update('https://sandbox.example.test/lead').digest('hex') } });
         expect(await withWebsiteContext({ webEvents: binding.identity.webEvents, clock: f.clock, context: service, found: { ...found, subjectId: 'unbound-subject' } })).toEqual({ ...found, subjectId: 'unbound-subject' });
         const request = await binding.privacy.privacy.requestErasure({ context: f.context, subjectId: accepted.value.subjectId });
         if (!request.ok) throw new Error('Erasure failed');

@@ -1,0 +1,92 @@
+packages/contracts/tests/assistant.test.ts -> node:fs: impure-contracts
+apps/server/src/cli/http.ts -> @open-marketing/leads: cli-shortcut
+cycle: features/jobs/src/types.ts
+cycle: features/measure/src/types.ts
+cycle: features/measure/src/types.ts
+cycle: features/measure/src/types.ts
+cycle: apps/server/src/composition/agent-plugin-backends.ts
+cycle: apps/server/src/composition/agent-plugin-backends.ts
+cycle: apps/server/src/composition/agent-plugin-backends.ts
+cycle: apps/server/src/composition/agent-plugin-backends.ts
+cycle: apps/server/src/om-tools.ts
+cycle: apps/server/src/conversations.ts
+cycle: apps/server/src/composition/agent-plugin-backends.ts
+cycle: apps/server/src/composition/agent-plugin-backends.ts
+cycle: content/agent-plugins/meta-ads/io.github.ainsep.openmarketing/src/instagram.ts
+cycle: content/agent-plugins/meta-ads/io.github.ainsep.openmarketing/src/read-capabilities.ts
+cycle: content/agent-plugins/whatsapp-business/io.github.ainsep.openmarketing/src/transport.ts
+cycle: content/agent-plugins/twilio-sms/io.github.ainsep.openmarketing/src/commands.ts
+cycle: content/agent-plugins/twilio-sms/io.github.ainsep.openmarketing/src/transport.ts
+cycle: apps/studio/src/shared/api/types.ts
+cycle: content/agent-plugins/google-ads/io.github.ainsep.openmarketing/src/schemas.ts
+cycle: content/agent-plugins/google-ads/io.github.ainsep.openmarketing/src/read-capabilities.ts
+cycle: content/agent-plugins/amazon-ads/io.github.ainsep.openmarketing/src/commands.ts
+cycle: content/agent-plugins/line-ads/io.github.ainsep.openmarketing/src/commands.ts
+cycle: content/agent-plugins/microsoft-ads/io.github.ainsep.openmarketing/src/commands.ts
+cycle: content/agent-plugins/microsoft-ads/io.github.ainsep.openmarketing/src/commands.ts
+cycle: content/agent-plugins/pinterest-ads/io.github.ainsep.openmarketing/src/commands.ts
+cycle: content/agent-plugins/reddit-ads/io.github.ainsep.openmarketing/src/ports.ts
+cycle: content/agent-plugins/resend-email/io.github.ainsep.openmarketing/src/commands.ts
+cycle: content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/commands.ts
+cycle: content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/commands.ts
+cycle: content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/commands.ts
+cycle: content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/commands.ts
+cycle: content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/commands.ts
+cycle: content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/commands.ts
+cycle: content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/ports.ts
+cycle: content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/ports.ts
+cycle: content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/ports.ts
+cycle: content/agent-plugins/vk-ads/io.github.ainsep.openmarketing/src/ports.ts
+apps/server/src/alerts/email.ts: dependency-cruiser no-cycles
+apps/server/src/alerts/email.ts: dependency-cruiser no-cycles
+apps/server/src/alerts/index.ts: dependency-cruiser no-cycles
+apps/server/src/alerts/index.ts: dependency-cruiser no-cycles
+apps/server/src/alerts/index.ts: dependency-cruiser no-cycles
+apps/server/src/alerts/index.ts: dependency-cruiser no-cycles
+apps/server/src/alerts/jobs.ts: dependency-cruiser no-cycles
+apps/server/src/composition/agent-plugin-backends.ts: dependency-cruiser no-cycles
+apps/server/src/composition/agent-plugin-backends.ts: dependency-cruiser no-cycles
+apps/server/src/composition/alerts.ts: dependency-cruiser no-cycles
+apps/server/src/composition/alerts.ts: dependency-cruiser no-cycles
+apps/server/src/composition/alerts.ts: dependency-cruiser no-cycles
+apps/server/src/composition/reporting.ts: dependency-cruiser no-cycles
+apps/server/src/composition/reporting.ts: dependency-cruiser no-cycles
+apps/server/src/composition/reporting.ts: dependency-cruiser no-cycles
+apps/server/src/composition/tracking.ts: dependency-cruiser no-cycles
+apps/server/src/composition/tracking.ts: dependency-cruiser no-cycles
+apps/server/src/conversations.ts: dependency-cruiser no-cycles
+apps/server/src/inbound/integrations.ts: dependency-cruiser no-cycles
+apps/server/src/inbound/messaging-webhooks.ts: dependency-cruiser no-cycles
+apps/server/src/inbound/owner.ts: dependency-cruiser no-cycles
+apps/server/src/inbound/public.ts: dependency-cruiser no-cycles
+apps/server/src/inbound/public.ts: dependency-cruiser no-cycles
+apps/server/src/om-tools.ts: dependency-cruiser no-cycles
+apps/studio/src/shared/api/types.ts: dependency-cruiser no-cycles
+content/agent-plugins/amazon-ads/io.github.ainsep.openmarketing/src/commands.ts: dependency-cruiser no-cycles
+content/agent-plugins/google-ads/io.github.ainsep.openmarketing/src/hosted.ts: dependency-cruiser no-cycles
+content/agent-plugins/google-ads/io.github.ainsep.openmarketing/src/schemas.ts: dependency-cruiser no-cycles
+content/agent-plugins/line-ads/io.github.ainsep.openmarketing/src/commands.ts: dependency-cruiser no-cycles
+content/agent-plugins/meta-ads/io.github.ainsep.openmarketing/src/audiences.ts: dependency-cruiser no-cycles
+content/agent-plugins/meta-ads/io.github.ainsep.openmarketing/src/instagram-fetch.ts: dependency-cruiser no-cycles
+content/agent-plugins/microsoft-ads/io.github.ainsep.openmarketing/src/commands.ts: dependency-cruiser no-cycles
+content/agent-plugins/microsoft-ads/io.github.ainsep.openmarketing/src/commands.ts: dependency-cruiser no-cycles
+content/agent-plugins/microsoft-ads/io.github.ainsep.openmarketing/src/reporting.ts: dependency-cruiser no-cycles
+content/agent-plugins/pinterest-ads/io.github.ainsep.openmarketing/src/commands.ts: dependency-cruiser no-cycles
+content/agent-plugins/pinterest-ads/io.github.ainsep.openmarketing/src/commands.ts: dependency-cruiser no-cycles
+content/agent-plugins/reddit-ads/io.github.ainsep.openmarketing/src/commands.ts: dependency-cruiser no-cycles
+content/agent-plugins/resend-email/io.github.ainsep.openmarketing/src/commands.ts: dependency-cruiser no-cycles
+content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/capi.ts: dependency-cruiser no-cycles
+content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/capi.ts: dependency-cruiser no-cycles
+content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/capi.ts: dependency-cruiser no-cycles
+content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/commands.ts: dependency-cruiser no-cycles
+content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/metrics-status.ts: dependency-cruiser no-cycles
+content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/reporting.ts: dependency-cruiser no-cycles
+content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/reporting.ts: dependency-cruiser no-cycles
+content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/transport.ts: dependency-cruiser no-cycles
+content/agent-plugins/twilio-sms/io.github.ainsep.openmarketing/src/commands.ts: dependency-cruiser no-cycles
+content/agent-plugins/twilio-sms/io.github.ainsep.openmarketing/src/commands.ts: dependency-cruiser no-cycles
+content/agent-plugins/twilio-sms/io.github.ainsep.openmarketing/src/transport.ts: dependency-cruiser no-cycles
+content/agent-plugins/vk-ads/io.github.ainsep.openmarketing/src/commands.ts: dependency-cruiser no-cycles
+content/agent-plugins/whatsapp-business/io.github.ainsep.openmarketing/src/ports.ts: dependency-cruiser no-cycles
+features/jobs/src/schema.ts: dependency-cruiser no-cycles
+features/measure/src/rules.ts: dependency-cruiser no-cycles

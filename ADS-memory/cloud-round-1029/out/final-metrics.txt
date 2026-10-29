@@ -1,0 +1,1 @@
+OM metric integrity PASS: 1038 sources, 29187 functions; cyclomatic/NLOC report only (.tmp/om-metrics.json)

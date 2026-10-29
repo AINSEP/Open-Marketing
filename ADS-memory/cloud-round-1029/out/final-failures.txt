@@ -1,0 +1,191 @@
+apps/desktop | tests/om-server.test.ts | POSIX fixture supervision > terminates the owned group for descendant
+apps/server | src/platform/jini-compat/db/tests/migrations.test.ts | trusted migration scripts and catalogue > fixes all twenty-two identities and global versions, excluding historical spine
+apps/server | src/platform/jini-compat/db/tests/migrations.test.ts | trusted migration scripts and catalogue > loads and replays the actual feature catalogue on throwaway SQLite
+apps/server | tests/addons.test.ts | merges scoped conversion settings into live plugin metadata without disabling state on a corrupt override
+apps/server | tests/addons.test.ts | seeds enabled model-only data without capabilities.json and preserves admission false
+apps/server | tests/addons.test.ts | seeds enabled model-only data without capabilities.json and preserves admission true
+apps/server | tests/agent-plugin-backends.test.ts | deduplicates checkpoint aliases by vendor ID and ignores malformed later references during social recovery
+apps/server | tests/agent-plugin-backends.test.ts | does not turn legacy string declarations into executable capabilities
+apps/server | tests/agent-plugin-backends.test.ts | executes both social hierarchies under one card/job and reconciles through the read-only catalog
+apps/server | tests/agent-plugin-backends.test.ts | includes TikTok in the one grouped card/job and preserves partial outcomes (failure: false)
+apps/server | tests/agent-plugin-backends.test.ts | includes TikTok in the one grouped card/job and preserves partial outcomes (failure: true)
+apps/server | tests/agent-plugin-backends.test.ts | invokes the real 'twilio-sms' read factory through the guarded server catalog
+apps/server | tests/agent-plugin-backends.test.ts | invokes the real 'whatsapp-business' read factory through the guarded server catalog
+apps/server | tests/agent-plugin-backends.test.ts | keeps Meta success and LinkedIn partial references after failure/restart without replay or rollback
+apps/server | tests/agent-plugin-backends.test.ts | preserves the latest validated receipt across repeated failed reconciliation (malformed later receipt: false)
+apps/server | tests/agent-plugin-backends.test.ts | preserves the latest validated receipt across repeated failed reconciliation (malformed later receipt: true)
+apps/server | tests/agent-plugin-backends.test.ts | rechecks TikTok admission during credential lookup after the other vendors finish
+apps/server | tests/agent-plugin-backends.test.ts | recovers all receipt IDs after the creative acknowledgement checkpoint fails, without replay
+apps/server | tests/agent-plugin-backends.test.ts | sends nothing when the owning run is cancelled during the final awaited approval verification
+apps/server | tests/agent-plugin-backends.test.ts | skips enabled skill-only and unbuilt plugins before hashing or importing
+apps/server | tests/agent-plugin-jobs.test.ts | closes the admission-to-fetch gap while unrelated subjects can commit with SQLite closed
+apps/server | tests/agent-plugin-jobs.test.ts | commits halt before enqueue, obtains a fresh worker permit, and never replays an uncertain stop
+apps/server | tests/agent-plugin-jobs.test.ts | dispatches the canonical safety-issued permit through the LinkedIn halt capability
+apps/server | tests/agent-plugin-jobs.test.ts | rejects a stale halt epoch and unadmitted stop before token/network access
+apps/server | tests/agent-plugin-jobs.test.ts | retains the subject lane until the delivery ledger and outbox outcome are durable
+apps/server | tests/agent-process.test.ts | a killed real child interrupts active runs, never restarts, and stop reaps it
+apps/server | tests/agent-process.test.ts | a server callback outage is recovered as an error through real authenticated child polling
+apps/server | tests/agent-process.test.ts | boot wires a real child, HTTP owner routes and om ask prompt-file polling; JSON remains one receipt
+apps/server | tests/agent-process.test.ts | local agent supervisor / process > expires scoped authority while context is blocked and shows interruption instead of success
+apps/server | tests/agent-process.test.ts | local agent supervisor / process > scopes grants, rejects replays with changed payloads and revokes immediately on cancellation
+apps/server | tests/boot.test.ts | CLI refuses to send a state-root token to a remote origin and rejects non-private credentials
+apps/server | tests/boot.test.ts | authenticates before body reads, enforces Host/Origin and expiry, and leaves local effects unavailable
+apps/server | tests/boot.test.ts | authenticates google-ads management, approves start once and enforces admission on the exact browser GET
+apps/server | tests/boot.test.ts | authenticates meta-ads management, approves start once and enforces admission on the exact browser GET
+apps/server | tests/boot.test.ts | bind/readiness failures close SQLite and never publish another readiness line
+apps/server | tests/boot.test.ts | boots on SQLite, serves built studio, publishes desktop readiness and shares CLI discovery
+apps/server | tests/boot.test.ts | commits owner identity and audit together through boot HTTP, rejecting agent tokens and rolling back audit/update faults
+apps/server | tests/boot.test.ts | keeps provider settings unavailable without add-on effects
+apps/server | tests/boot.test.ts | registers owner mail settings behind bearer and cookie Origin authentication
+apps/server | tests/boot.test.ts | restarts without migration drift or owner/workspace changes; isolated roots reject each other
+apps/server | tests/brand-surfaces.test.ts | saves through dispatch and owner approval, exposing a draft while confirmed facts stay null
+apps/server | tests/catalog-composition.test.ts | real boot injects direct chart inventory into the catalog as providers enable and disable
+apps/server | tests/catalog-composition.test.ts | real feature catalog composition > closes the feature composition gaps, retaining only the separately optional add-on routes
+apps/server | tests/catalog-composition.test.ts | shared generation completion > reaches boot readiness after creative recovery outcome
+apps/server | tests/catalog-composition.test.ts | shared generation completion > reaches boot readiness after creative recovery throw
+apps/server | tests/chart-assets.test.ts | dispatches chart inventory/assets through real boot owner authentication and enable/disable
+apps/server | tests/conversations.test.ts | composes an agent Jini turn through the REAL server broker and a fixture upstream
+apps/server | tests/conversations.test.ts | keeps Sandbox usable with no addon dependency and leaves a saved model selection unavailable
+apps/server | tests/conversations.test.ts | refuses a disabled selected plugin before credential access without scanning the catalog
+apps/server | tests/conversations.test.ts | refuses a missing selected plugin before credential access without scanning the catalog
+apps/server | tests/ingress-worker.test.ts | attributes a bare OM campaign ID only after a scoped lookup and rejects unknown or foreign IDs
+apps/server | tests/ingress-worker.test.ts | holds form withdrawal outside SQLite until the active subject attempt finishes
+apps/server | tests/ingress-worker.test.ts | the actual boot root seeds the public form and starts/stops its acceptance worker without owner authentication
+apps/server | tests/integrations.test.ts | rejects credential-bearing card URLs using apiKey before status output and redacts diagnostics
+apps/server | tests/integrations.test.ts | rejects credential-bearing card URLs using key before status output and redacts diagnostics
+apps/server | tests/message-send.test.ts | makes read_only sending unavailable before creating any card
+apps/server | tests/message-send.test.ts | rechecks STOP suppression appended after the card and refuses without calling the plugin or reserving
+apps/server | tests/message-send.test.ts | records unknown as reconcile, retains its hold and blocks next-day one-cent exposure
+apps/server | tests/message-send.test.ts | refuses an exhausted paid-sending allowance without execute
+apps/server | tests/message-send.test.ts | refuses missing consent before plugin invocation
+apps/server | tests/message-send.test.ts | refuses quotes above the exact approved ceiling before reserving
+apps/server | tests/message-send.test.ts | refuses recipients outside OM contacts
+apps/server | tests/message-send.test.ts | settles a definitive refusal to zero and records failed without leaking provider errors
+apps/server | tests/message-send.test.ts | shows recipient, exact message and USD maximum on an owner-only Allow/Cancel card
+apps/server | tests/message-send.test.ts | succeeds once, settles at the quoted upper bound and conflicts on operation replay
+apps/server | tests/messaging-webhooks.test.ts | acknowledges unknown contacts, deliveries and phone-less preferences without evidence or contact creation
+apps/server | tests/messaging-webhooks.test.ts | turns a signed STOP into durable suppression in read_only mode and accepts exact/conflicting replays
+apps/server | tests/messaging-webhooks.test.ts | validates a complete stop batch before writes and retries real policy failures without exposing errors
+apps/server | tests/om-tools.test.ts | authenticates the real frontend stream and carries its binding through a sandbox run
+apps/server | tests/om-tools.test.ts | generic CLI calls both tracking tools through the existing HTTP dispatcher
+apps/server | tests/om-tools.test.ts | lists a seeded bundled agent-plugin source in the catalog after real boot restores its enabled state
+apps/server | tests/om-tools.test.ts | routes all ten AT1 capabilities through existing service results and one write card
+apps/server | tests/owner-api.test.ts | freezes canonical refs and resolves only the current run images; trashed assets fail opaque
+apps/server | tests/owner-api.test.ts | real boot serves studio HTTP configuration, keeps read-only allowance free of writes and persists halt across restart
+apps/server | tests/site-guide.test.ts | OM site guide > returns twelve concise topics without fact reads or approval cards
+apps/studio | tests/addons.test.ts | blocks another OAuth start while unknown, until reconciled as cancelled
+apps/studio | tests/addons.test.ts | blocks another OAuth start while unknown, until reconciled as completed
+apps/studio | tests/addons.test.ts | blocks another OAuth start while unknown, until reconciled as interrupted
+apps/studio | tests/addons.test.ts | clears the token before a failed response and redacts tainted errors from the form
+apps/studio | tests/addons.test.ts | recovers a failed OAuth approval read and rejects valid recovery evidence
+apps/studio | tests/addons.test.ts | recovers a failed OAuth approval read and rejects wrong-card recovery evidence
+apps/studio | tests/addons.test.ts | recovers a failed OAuth approval read and rejects wrong-operation recovery evidence
+apps/studio | tests/addons.test.ts | starts sign-in through one policy card and reads its operation before offering an expiring HTTPS link
+apps/studio | tests/browser-tools.test.ts | passes the current bind token and shows surface spend approvals in the existing inline card
+apps/studio | tests/chat-parity.test.ts | renders server usage through Jini for 'partial cancellation' without sample prices or false success
+apps/studio | tests/conversion-grants.test.ts | keeps grant pending through Allow acknowledgement and reloads only after completed operation lookup
+apps/studio | tests/jini-chat-transport.test.ts | rejects unsupported image input before starting a run
+apps/studio | tests/navigation.test.ts | captures initial and committed screen views, ignoring stale/duplicate acknowledgements and diagnostic failures
+apps/studio | tests/shell.test.ts | denies composed theme/accent page actions without a live run and preserves the previews
+apps/studio | tests/shell.test.ts | does not collapse while selecting sidebar text and tolerates absent host capabilities
+apps/studio | tests/shell.test.ts | executes every composed theme/accent page handle and renders its actual preview colours
+apps/studio | tests/shell.test.ts | offers one Settings picker with live theme previews and keyboard-operated accents
+apps/studio | tests/shell.test.ts | remembers the icon rail and retains assistant draft while navigating
+content/agent-plugins/amazon-ses | io.github.ainsep.openmarketing/tests/mail.test.ts | http synthetic policy wiring > wires readiness, synthetic authority denial and Jini suppression without egress
+content/agent-plugins/amazon-ses | io.github.ainsep.openmarketing/tests/mail.test.ts | memory synthetic policy wiring > wires readiness, synthetic authority denial and Jini suppression without egress
+content/agent-plugins/google-ads | io.github.ainsep.openmarketing/tests/read-capabilities.test.ts | canonical factory is inert and calls all three handlers through shared credentials/fetch
+content/agent-plugins/google-business-profile | io.github.ainsep.openmarketing/tests/boundaries.test.ts | (file-level failure; node:test, 1 of 38)
+content/agent-plugins/higgsfield-media | tests/bridge.test.ts | (suite failed to load/run)
+content/agent-plugins/higgsfield-media | tests/federation-integration.test.ts | (suite failed to load/run)
+content/agent-plugins/higgsfield-media | tests/pricing-effects.test.ts | (suite failed to load/run)
+content/agent-plugins/higgsfield-media | tests/provider-results.test.ts | (suite failed to load/run)
+content/agent-plugins/higgsfield-media | tests/runtime.test.ts | (suite failed to load/run)
+content/agent-plugins/higgsfield-media | tests/safety-integration.test.ts | (suite failed to load/run)
+content/agent-plugins/kakao-ads | io.github.ainsep.openmarketing/tests/transport.test.ts | Real plugin with synthetic broker Kakao read contract > requires scope and a bound account for campaigns
+content/agent-plugins/line-ads | io.github.ainsep.openmarketing/tests/campaign-deployment.test.ts | LINE documented fixture deployment (regional evidence replaced only in this file) > rechecks live authority after custody and retains the validated plan snapshot across awaits
+content/agent-plugins/line-ads | io.github.ainsep.openmarketing/tests/capabilities.test.ts | LINE canonical capabilities > reports two TW days through the real factory with BOM and a quoted comma
+content/agent-plugins/line-ads | io.github.ainsep.openmarketing/tests/transport.test.ts | LINE read boundaries > uses an injected 15-second deadline and maps its abort (caller signal: false)
+content/agent-plugins/line-ads | io.github.ainsep.openmarketing/tests/transport.test.ts | LINE read boundaries > uses an injected 15-second deadline and maps its abort (caller signal: true)
+content/agent-plugins/microsoft-ads | io.github.ainsep.openmarketing/tests/capabilities.test.ts | Microsoft frozen reporting capabilities > does not invent a zero row for a successful empty report
+content/agent-plugins/microsoft-ads | io.github.ainsep.openmarketing/tests/capabilities.test.ts | Microsoft frozen reporting capabilities > requests and decodes the account grain
+content/agent-plugins/microsoft-ads | io.github.ainsep.openmarketing/tests/capabilities.test.ts | Microsoft frozen reporting capabilities > requests and decodes the ad grain
+content/agent-plugins/microsoft-ads | io.github.ainsep.openmarketing/tests/capabilities.test.ts | Microsoft frozen reporting capabilities > requests and decodes the ad_group grain
+content/agent-plugins/microsoft-ads | io.github.ainsep.openmarketing/tests/capabilities.test.ts | Microsoft frozen reporting capabilities > requests and decodes the campaign grain
+content/agent-plugins/microsoft-ads | io.github.ainsep.openmarketing/tests/capabilities.test.ts | Microsoft frozen reporting capabilities > returns UTC buckets without requiring account-timezone metadata
+content/agent-plugins/microsoft-ads | io.github.ainsep.openmarketing/tests/capabilities.test.ts | Microsoft frozen reporting capabilities > whole JPY units are a million micros
+content/agent-plugins/microsoft-ads | io.github.ainsep.openmarketing/tests/capabilities.test.ts | Microsoft frozen reporting capabilities > whole KRW units are a million micros
+content/agent-plugins/microsoft-ads | io.github.ainsep.openmarketing/tests/reporting.test.ts | applies the total deadline during download at 59999 milliseconds
+content/agent-plugins/microsoft-ads | io.github.ainsep.openmarketing/tests/reporting.test.ts | distinguishes no-data and six exhausted polls without resubmission
+content/agent-plugins/reddit-ads | io.github.ainsep.openmarketing/tests/adapter.test.ts | Reddit bounds and evidence > rejects an entire mixed report page: {"account_id":"a2_fixture","currency":"USD","spend":123456789,"impressions":100,"clicks":"3"}
+content/agent-plugins/resend-email | io.github.ainsep.openmarketing/tests/mail.test.ts | http synthetic policy wiring > wires readiness, synthetic authority denial and Jini suppression without egress
+content/agent-plugins/resend-email | io.github.ainsep.openmarketing/tests/mail.test.ts | memory synthetic policy wiring > wires readiness, synthetic authority denial and Jini suppression without egress
+content/agent-plugins/vk-ads | io.github.ainsep.openmarketing/tests/campaign-deployment.test.ts | VK R2 evidence hold > denies missing admission before inspecting an unverified launch
+content/agent-plugins/x-ads | io.github.ainsep.openmarketing/tests/capabilities.test.ts | X frozen metrics > keeps whole JPY micros exactly as supplied by X
+content/agent-plugins/x-ads | io.github.ainsep.openmarketing/tests/capabilities.test.ts | X frozen metrics > samples currency once, then requests active IDs and their declared placements
+content/agent-plugins/x-ads | io.github.ainsep.openmarketing/tests/capabilities.test.ts | X frozen metrics > uses current whole-hour account offset without assuming two decimal currency units
+content/agent-plugins/x-ads | io.github.ainsep.openmarketing/tests/capi.test.ts | server-only X conversion delivery > rechecks grant/consent and admission after successful credential resolution
+content/agent-plugins/x-ads | io.github.ainsep.openmarketing/tests/codecs.test.ts | closed X commands and OAuth signing > signs filtered IDs and active-window ISO query values with an independent HMAC oracle
+content/agent-plugins/yandex-direct | io.github.ainsep.openmarketing/tests/read.test.ts | Yandex read boundaries > factory is inert; accountless connected/agency discovery uses credential Client-Login
+content/agent-plugins/yandex-direct | io.github.ainsep.openmarketing/tests/read.test.ts | Yandex read boundaries > maps fetch failures and cancellation to redacted outcomes; telemetry cannot change a read
+content/agent-plugins/yandex-direct | io.github.ainsep.openmarketing/tests/read.test.ts | Yandex read boundaries > normalizes filtered IDs and preserves bounded continuation without following provider links
+content/agent-plugins/yandex-direct | io.github.ainsep.openmarketing/tests/read.test.ts | Yandex read boundaries > preserves incompleteness at the offset cap and bounds a stream with misleading Content-Length
+content/agent-plugins/yandex-direct | io.github.ainsep.openmarketing/tests/read.test.ts | Yandex read boundaries > rejects an entire duplicate/foreign/malformed campaign page
+content/agent-plugins/yandex-direct | io.github.ainsep.openmarketing/tests/read.test.ts | Yandex read boundaries > rejects foreign connected identity, excessive rows and stale continuations atomically
+content/agent-plugins/yandex-direct | io.github.ainsep.openmarketing/tests/read.test.ts | Yandex read boundaries > uses the host fence and credential login rather than local admission or configured login
+content/agent-plugins/yandex-direct | io.github.ainsep.openmarketing/tests/read.test.ts | fixture Yandex dispatch > denies current authority and redacts token data from receipts and observations
+content/agent-plugins/yandex-direct | io.github.ainsep.openmarketing/tests/read.test.ts | fixture Yandex dispatch > uses one read-classified account-bound get with exact page bytes
+features/forms | tests/forms.test.ts | durable SQLite restart and admission > overlapping roots reject instead of joining another request's transaction
+features/jobs | tests/contract/sql.test.ts | SQLite durable outbox contract > bounds capacity and recovery/lease input before changing state
+features/jobs | tests/contract/sql.test.ts | SQLite durable outbox contract > rejects concurrent reuse of a live lease token without claiming another job
+features/jobs | tests/contract/sql.test.ts | SQLite durable outbox contract > rejects generated ID collisions without losing the first key
+features/safety | tests/contract/sql.test.ts | ConfirmationExchangePort B1 > snapshots identity and response before audit, with one winner across competing answers
+features/safety | tests/contract/sql.test.ts | preserves the wrapped SQLite error code and rolls back a failed card insert
+
+# per-package counts
+packages/om-clock: 8 passed (8)
+packages/contracts: 130 passed (130)
+apps/agent: 39 passed (39)
+features/federation: 151 passed (151)
+apps/desktop: 1 failed | 76 passed (77)
+features/plugins: 17 passed (17)
+packages/om-db: 32 passed (32)
+apps/studio: 18 failed | 307 passed (325)
+features/brand: 19 passed (19)
+features/contacts: 111 passed (111)
+features/audit: 96 passed (96)
+features/campaigns: 106 passed (106)
+features/creative: 81 passed (81)
+features/leads: 31 passed (31)
+features/credentials: 162 passed (162)
+features/jobs: 3 failed | 200 passed (203)
+features/forms: 1 failed | 96 passed (97)
+features/policy: 118 passed (118)
+features/media-library: 83 passed (83)
+features/privacy: 42 passed (42)
+features/web-events: 111 passed (111)
+features/workspaces: 50 passed (50)
+features/safety: 2 failed | 166 passed (168)
+features/measure: 419 passed (419)
+apps/server: 74 failed | 1089 passed (1163)
+content/agent-plugins/amazon-ads: 111 passed (111)
+content/agent-plugins/amazon-ses: 2 failed | 80 passed (82)
+content/agent-plugins/apple-search-ads: 58 passed (58)
+content/agent-plugins/higgsfield-media: 1 passed (1)
+content/agent-plugins/kakao-ads: 1 failed | 60 passed (61)
+content/agent-plugins/line-ads: 4 failed | 103 passed (107)
+content/agent-plugins/linkedin-ads: 304 passed (304)
+content/agent-plugins/meta-ads: 464 passed (464)
+content/agent-plugins/microsoft-ads: 10 failed | 161 passed (171)
+content/agent-plugins/naver-ads: 129 passed (129)
+content/agent-plugins/pinterest-ads: 174 passed (174)
+content/agent-plugins/reddit-ads: 1 failed | 112 passed (113)
+content/agent-plugins/resend-email: 2 failed | 69 passed (71)
+content/agent-plugins/snapchat-ads: 143 passed (143)
+content/agent-plugins/tiktok-ads: 320 passed (320)
+content/agent-plugins/twilio-sms: 71 passed (71)
+content/agent-plugins/vk-ads: 1 failed | 68 passed (69)
+content/agent-plugins/whatsapp-business: 116 passed (116)
+content/agent-plugins/x-ads: 5 failed | 142 passed (147)
+content/agent-plugins/yandex-direct: 12 failed | 131 passed (143)
+content/agent-plugins/google-ads: 1 failed | 219 passed (220)
+content/agent-plugins/google-business-profile: 1 failed | 37 passed (38)

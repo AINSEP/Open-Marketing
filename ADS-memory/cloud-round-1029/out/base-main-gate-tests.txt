@@ -1,0 +1,48 @@
+
+> open-marketing@0.0.0 om:gate-tests /tmp/claude-0/-home-user-Open-Marketing/f584d2bd-5ebe-527a-b6c5-a7ef8aab7c8e/scratchpad/base-main
+> vitest run development/tests
+
+
+ RUN  v3.2.4 /tmp/claude-0/-home-user-Open-Marketing/f584d2bd-5ebe-527a-b6c5-a7ef8aab7c8e/scratchpad/base-main
+
+ ✓ development/tests/boundaries.test.ts (25 tests) 2561ms
+   ✓ boundary conformance > relocation changes one glob and leaves consumer spelling/graph unchanged  2441ms
+ ✓ development/tests/package-desktop.test.mjs (3 tests) 26ms
+ ✓ development/tests/integrity.test.ts (3 tests) 7986ms
+   ✓ exempts only verified versioned plugin client bundles and still lints first-party source  7933ms
+stdout | development/tests/lint.test.ts > OM lint conformance > exhaustive 14-arm switch compiles and emits cyclomatic magnitude without gating it
+14-arm switch measured cyclomatic: [33m15[39m
+
+ ✓ development/tests/lint.test.ts (61 tests) 22991ms
+   ✓ OM lint conformance > signature-positive passes  6594ms
+   ✓ OM lint conformance > foreign-callback passes  630ms
+   ✓ OM lint conformance > signature-scalar fails  514ms
+   ✓ OM lint conformance > owned-callback fails  622ms
+   ✓ OM lint conformance > exhaustive 14-arm switch compiles and emits cyclomatic magnitude without gating it  722ms
+   ✓ contextual object methods pass and owned lookalike callbacks cannot borrow a foreign ABI  593ms
+   ✓ utility aliases, callable interfaces, unboxed destructuring and scalar function types fail  2180ms
+   ✓ imported scalar aliases fail while imported object contracts pass  586ms
+   ✓ the foreign exception only covers a callable argument and JSX cannot bypass component rules  444ms
+   ✓ chained foreign callbacks resolve the whole call span  683ms
+   ✓ recognizes a genuine upstream callback ABI: import { createServer } from "node:http"; createServer((request, response) => { response.end(); });  502ms
+   ✓ recognizes a genuine upstream callback ABI: import type { Session } from "electron"; function register(required: { session: Session }) { required.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false)); }  683ms
+   ✓ recognizes a genuine upstream callback ABI: import type { SqliteClient } from "@jini-ai/db/sqlite"; function adapter(required: { native: SqliteClient }): SqliteClient { return { ...required.native, prepare: source => required.native.prepare(source) }; }  596ms
+   ✓ recognizes a genuine upstream callback ABI: new Promise<void>((resolve, reject) => { resolve(); });  423ms
+   ✓ recognizes a genuine upstream callback ABI: import type { SqliteClient } from "@jini-ai/db/sqlite"; function adapter(required: { native: SqliteClient }): SqliteClient { return { ...required.native, exec(source) { required.native.exec(source); } }; }  589ms
+   ✓ recognizes a genuine upstream callback ABI: import { useState } from "react"; function state() { const [value, setValue] = useState(0); setValue(current => current + 1); }  540ms
+   ✓ recognizes a genuine upstream callback ABI: const transport: typeof fetch = async (input, init) => fetch(input, init);  682ms
+   ✓ recognizes a genuine upstream callback ABI: import { vi } from "vitest"; import type { Database } from "better-sqlite3"; function adapter(required: { database: Database }) { vi.spyOn(required.database, "exec").mockImplementation(source => required.database); }  784ms
+   ✓ rejects an owned lookalike of an upstream ABI: const owned = { createServer(callback: (request: string, response: string) => void) {} }; owned.createServer((request, response) => {});  628ms
+   ✓ rejects an owned lookalike of an upstream ABI: interface Session { setPermissionRequestHandler(callback: (contents: string, permission: string, callback: () => void) => void): void } function register(required: { session: Session }) { required.session.setPermissionRequestHandler((contents, permission, callback) => {}); }  495ms
+   ✓ rejects an owned lookalike of an upstream ABI: interface Client { prepare(source: string): void } function adapter(required: { native: Client }): Client { return { prepare: source => required.native.prepare(source) }; }  545ms
+   ✓ rejects an owned lookalike of an upstream ABI: class Deferred { constructor(callback: (resolve: () => void, reject: (reason: string) => void) => void) {} } new Deferred((resolve, reject) => resolve());  483ms
+   ✓ rejects an owned lookalike of an upstream ABI: interface Client { exec(source: string): void } function adapter(required: { native: Client }): Client { return { exec(source) { required.native.exec(source); } }; }  516ms
+   ✓ rejects an owned lookalike of an upstream ABI: function state() { const setValue = (callback: (current: number) => number) => callback(0); setValue(current => current + 1); }  708ms
+   ✓ rejects an owned lookalike of an upstream ABI: type Fetch = (input: string, init?: {}) => Promise<void>; const transport: Fetch = async (input, init) => {};  444ms
+   ✓ rejects an owned lookalike of an upstream ABI: import { vi } from "vitest"; function adapter(required: { owned: { exec(input: string): void } }) { vi.spyOn(required.owned, "exec").mockImplementation(input => {}); }  534ms
+
+ Test Files  4 passed (4)
+      Tests  92 passed (92)
+   Start at  18:49:41
+   Duration  25.00s (transform 354ms, setup 0ms, collect 3.56s, tests 33.57s, environment 1ms, prepare 361ms)
+

@@ -16,7 +16,8 @@ const launch: NeutralCampaignLaunch = {
 
 // Compile-time fixtures use the canonical type, so incompatible plugin input drift fails typecheck.
 const translationInput = { campaign: launch, target: launch.targets[0], resolved: null };
-const metaInput: MetaTranslationInput = translationInput;
+// Meta also resolves postal keys, so it additionally takes the call-scoped context and guarded dependencies.
+const metaInput: MetaTranslationInput = { ...translationInput, context: {} as MetaTranslationInput["context"], dependencies: {} as MetaTranslationInput["dependencies"] };
 const linkedinInput: LinkedInTranslationInput = translationInput;
 const tiktokInput: TikTokTranslationInput = translationInput;
 const googleInput: GoogleTranslationInput = translationInput;
