@@ -8,7 +8,7 @@ import { account, campaignPage, fixture, invocation, report, retrievedAt } from 
 describe("VK read dispatch boundary", () => {
   it("uses host effects for admission and still verifies the token account", async () => {
     const f = fixture();
-    expect(await createVkAdsAdapter({ ...f.dependencies, admitted: false }).invoke(invocation())).toMatchObject({ ok: true });
+    expect(await createVkAdsAdapter(f.dependencies).invoke(invocation())).toMatchObject({ ok: true });
     expect(f.fetch.mock.calls.map(call => new URL(String(call[0])).pathname)).toEqual(["/api/v3/user.json", "/api/v2/ad_plans.json"]);
   });
   it("keeps construction inert and honors host credential denial", async () => {

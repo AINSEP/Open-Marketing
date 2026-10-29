@@ -1,0 +1,10 @@
+
+ RUN  v3.2.4 /home/user/Open-Marketing/content/agent-plugins/vk-ads
+
+ ✓ io.github.ainsep.openmarketing/tests/dispatch.test.ts (48 tests) 86ms
+
+ Test Files  1 passed (1)
+      Tests  48 passed (48)
+   Start at  19:21:44
+   Duration  950ms (transform 281ms, setup 0ms, collect 463ms, tests 86ms, environment 0ms, prepare 99ms)
+
