@@ -4,9 +4,8 @@ VERDICT: APPROVED WITH CUTS
 The plan is sound and small. Its deferral of the chart plugins is justified, not an omission: `content/plugins/charts-echarts/package.json` and `charts-chartjs` declare `@jini-ai/ui`, `echarts` and `chart.js`, the plan could not resolve them, and `provider.ts` already uses object-shaped `mount`/`update` signatures. Most of the 19 findings are therefore resolution artefacts. Rewriting working callbacks to compensate would be risk for nothing. The 4 lint findings in `HEALTH.md` §6 for chart tests and the other deferred items stay on the Coordinator's NEEDS list.
 
 CUTS:
-1. Cut `apps/studio/tests/conversion-grants.test.ts` and `apps/studio/tests/shell.test.ts` as lint work only if they are already fixed: both are also edited by cloud round 1029f. `conversion-grants.test.ts:97` is a typecheck error (TS2531/TS2339), not a lint finding; `shell.test.ts:21` is the `CSS.escape` shim lint finding. Re-read both after 1029f merges and skip any finding that no longer reproduces; report it DISPUTED.
-2. Cut the "No chart source edits" assurance as a decision to revisit: keep it. No chart `src/` or test edits in this job, as planned.
-3. Cut the `tests/model-manifests.test.ts` new file if it can be avoided by inlining: no, keep it (see FIX 2). Nothing else is cut. The plan adds no ports, options or helpers beyond the single private `requestBody`.
+1. `shell.test.ts` (`CSS.escape` shim, lint :21) and `conversion-grants.test.ts` (typecheck error at :97, TS2531/TS2339) are both edited by cloud round 1029f. After it merges, re-read both and drop any finding that no longer reproduces; report it DISPUTED.
+2. No chart `src/` or test edits (plan's deferral stands). Nothing else is cut: the plan adds no ports, options or helpers beyond the single private `requestBody`.
 
 FIXES:
 1. `apps/studio/src/shared/api/http.ts:98` (complexity 11): the extraction is the right size. Keep the body-encoding branch inside the existing `try`, preserve raw-blob precedence, and keep the JSON serialization and absent-body behaviour byte-identical (`requestBody` signature as listed in the plan). Check the function drops to ≤10 and the helper is ≤10.
