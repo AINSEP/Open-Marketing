@@ -1,0 +1,5 @@
+# Reviewed false positives (2026-10-29): SES synthetic SNS test keypair (CN synthetic-sns-fixture), LinkedIn type names, TikTok public docs URL param.
+content/agent-plugins/amazon-ses/io.github.ainsep.openmarketing/tests/fixtures.ts:private-key:111
+content/agent-plugins/linkedin-ads/io.github.ainsep.openmarketing/src/index.ts:linkedin-client-id:7
+content/agent-plugins/linkedin-ads/io.github.ainsep.openmarketing/tests/fixtures.ts:linkedin-client-id:6
+content/agent-plugins/tiktok-ads/io.github.ainsep.openmarketing/evidence/primary-sources.json:generic-api-key:527

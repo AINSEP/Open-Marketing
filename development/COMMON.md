@@ -88,6 +88,22 @@ OM ENGINEERING CONTRACT
     B7: injected clock; no hidden time reads.
     B8: propagate run/correlation/trace IDs through logs, jobs and egress.
 
+13. Simplicity rules (owner-adopted 2026-10-28):
+    Every required factory dependency has a current read or effect;
+    remove unused requirements through the integrator.
+    Keep every required double and shared suite, but reuse structural
+    doubles; a typed fixture function may implement a function-shaped port.
+    A test adapter justifies a seam only when it enables a distinct
+    behavior or fault scenario.
+    Before accepting integration, identify the running implementation and
+    retire any superseded implementation of the same responsibility.
+    Business ports remain caller-owned; identical SQL/session/observer
+    protocols reuse canonical pure contracts.
+    Judge helpers by reduced caller knowledge and deleted branching;
+    moving branches between functions is not simplification.
+    Each shim names its replacement trigger; dependency upgrades
+    explicitly re-evaluate that trigger.
+
 DELIVERY
 - Use Codex gpt-6.1-sol, high reasoning.
 - Start from the preserve-only OM tree; no Open Design compatibility runtime.

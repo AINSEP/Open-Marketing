@@ -99,11 +99,13 @@ function runtimeInputs({ repoRoot }) {
  for (const plugin of plugins) {
   if (existsSync(join(repoRoot, plugin, 'package.json'))) required.push(`${plugin}/io.github.ainsep.openmarketing/dist/index.mjs`);
  }
- const chart = 'content/plugins/charts-recharts/0.1.0';
- const chartManifest = JSON.parse(readFileSync(join(repoRoot, chart, 'jini.plugin.json'), 'utf8'));
- required.push(...Object.keys(chartManifest.integrity).map(path => `${chart}/${path}`));
+ const charts = globSync('content/plugins/*/0.1.0/jini.plugin.json', { cwd: repoRoot }).map(path => dirname(path));
+ for (const chart of charts) {
+  const chartManifest = JSON.parse(readFileSync(join(repoRoot, chart, 'jini.plugin.json'), 'utf8'));
+  required.push(...Object.keys(chartManifest.integrity).map(path => `${chart}/${path}`));
+ }
  for (const path of required) requirePath({ path: join(repoRoot, path) });
- return { plugins, chart };
+ return { plugins, charts };
 }
 
 /** Write the isolated Electron shell so builder never traverses desktop's pnpm links. */
@@ -135,7 +137,7 @@ function stageRuntime({ repoRoot, staging, nodeDirectory, inputs }) {
   mkdirSync(dirname(join(om, path)), { recursive: true });
   cpSync(join(repoRoot, path), join(om, path));
  }
- for (const path of [...inputs.plugins, inputs.chart]) {
+ for (const path of [...inputs.plugins, ...inputs.charts]) {
   cpSync(join(repoRoot, path), join(om, path), { recursive: true, dereference: true, filter: source => !['src', 'tests', 'node_modules'].includes(basename(source)) });
  }
  mkdirSync(join(staging, 'node/bin'), { recursive: true });

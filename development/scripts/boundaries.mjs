@@ -93,6 +93,30 @@ export function graphCycles({ edges }) {
   for (const node of nodes.keys()) visit({ node });
   return failures;
 }
+/** Reporting cannot reach conversion delivery, identifier ingestion or policy,
+ * including through type imports and re-exports in the resolved graph.
+ * @complexity O(R * (V + E)) time/O(V + E) space for R reporting origins.
+ * @example reportingBoundaryViolations({ edges: [{ from, to }] }) */
+export function reportingBoundaryViolations({ edges }) {
+ const nodes = new Map();
+ for (const { from, to } of edges) {
+  if (!nodes.has(from)) nodes.set(from, []);
+  nodes.get(from).push(to);
+ }
+ return Array.from(nodes.keys()).filter(from => from.startsWith('features/measure/src/reporting/')).flatMap(from => reportingReachability({ from, nodes }));
+}
+/** Walk each origin independently; cycles cannot hide or repeat a forbidden target. */
+function reportingReachability({ from, nodes }) {
+ const pending = [...(nodes.get(from) ?? [])], seen = new Set(), failures = [];
+ while (pending.length) {
+  const to = pending.pop();
+  if (seen.has(to)) continue;
+  seen.add(to);
+  if (/^features\/measure\/src\/(delivery|ingestion)\/|^features\/policy\//.test(to)) failures.push(`${from} -> ${to}: measure-reporting-boundary`);
+  pending.push(...(nodes.get(to) ?? []));
+ }
+ return failures;
+}
 /** Validate dependency declarations and feature public entries from portable workspace metadata. */
 function manifestViolations({ packages, root }) {
   const failures = [];
@@ -148,6 +172,7 @@ export async function checkBoundaries({ root = process.cwd() } = {}) {
   const failures = manifestViolations({ packages, root }); const edges = [];
   for (const file of files) { const result = fileEdges({ file, root, packages }); failures.push(...result.failures); edges.push(...result.edges); }
   failures.push(...graphCycles({ edges }));
+  failures.push(...reportingBoundaryViolations({ edges }));
   const graph = await cruise(files.map(file => relative(process.cwd(), resolve(root, file))), { validate: true, tsPreCompilationDeps: true, doNotFollow: { path: 'node_modules|/dist/' }, ruleSet: { forbidden: [{ name: 'no-cycles', severity: 'error', from: {}, to: { circular: true } }] } });
   const output = typeof graph.output === 'string' ? JSON.parse(graph.output) : graph.output;
   failures.push(...Array.from(output.summary?.violations ?? []).map(violation => `${violation.from}: dependency-cruiser ${violation.rule.name}`));
