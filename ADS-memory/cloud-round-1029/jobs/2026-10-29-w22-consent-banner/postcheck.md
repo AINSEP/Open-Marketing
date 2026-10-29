@@ -129,3 +129,11 @@ FOLLOW-UP:
 - Bind a receipt rate limit (New #2).
 - Record subject-level withdrawal (New #5, OWNER DECISION 4).
 - JINI ASK: a memory-only reject mode, and `readConsent` exposing the receipt id.
+
+#### FIXES APPLIED (cloud round)
+Builder A, 2026-10-29: Small fixes 1–5 applied.
+- public.ts: `regionMode: 'opt-in'` in renderBanner, readConsent and handleReceipt; JSDoc says "Always opt-in: OM never relaxes on a region hint (consent-first)."; the receipt response adds `cache-control: no-store`.
+- ingress-worker.test.ts: new case "US region hint without a choice" (`jini_region=us` cookie only). It gives 403, no set-cookie and 0 rows, and it passes.
+- `pnpm --filter @open-marketing/server typecheck`: pass. `eslint apps/server/src/inbound/public.ts`: clean.
+- `vitest run tests/ingress-worker.test.ts tests/p1-tracking.test.ts`: 63/66. The 3 failures are the known baseline ones (bare campaign ID, sandbox-agent boot, holds form withdrawal).
+- Still open as FOLLOW-UP: receipt rate limit (New #2) and subject-level withdrawal (New #5).

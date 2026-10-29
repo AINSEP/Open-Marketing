@@ -322,13 +322,14 @@ it('leaves hosted GET untracked with the nonce\'d banner CSP and issues Secure v
 it.each([
     { name: 'no choice', choice: 'none', signal: {} },
     { name: 'pending grant', choice: 'pending', signal: {} },
+    { name: 'US region hint without a choice', choice: 'usHint', signal: {} },
     { name: 'reject', choice: 'reject', signal: {} },
     { name: 'GPC', choice: 'granted', signal: { 'sec-gpc': '1' } },
     { name: 'DNT', choice: 'granted', signal: { dnt: '1' } },
 ] as const)('writes no visit, cookie or touch without a stored marketing grant: $name', async ({ choice, signal }) => {
     const f = await fixture({});
     try {
-        const cookies = { none: '', pending: jiniChoice({ at: f.clock.now({}), stored: false }), reject: jiniChoice({ at: f.clock.now({}), marketing: false }), granted: f.granted() };
+        const cookies = { none: '', usHint: 'jini_region=us', pending: jiniChoice({ at: f.clock.now({}), stored: false }), reject: jiniChoice({ at: f.clock.now({}), marketing: false }), granted: f.granted() };
         const body = JSON.stringify({ consent: true, eventId: 'gated-landing', schema: 'om.web.landing', version: 1, source: 'first-party', name: 'landing', occurredAt: f.clock.now({}), properties: { gclid: 'click' } });
         const denied = await fetch(f.origin + '/c', { method: 'POST', headers: { 'content-type': 'application/json', ...(signal as Record<string, string>), cookie: cookies[choice] }, body });
         expect(denied.status).toBe(403);

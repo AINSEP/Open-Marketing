@@ -24,9 +24,10 @@ type PublicInput = { request: HttpRequest; context: CallContext; forms: ReturnTy
 export const OM_CONSENT_POLICY = '2026-10-29';
 /** Shared Jini banner render for hosted pages and owner-installed sites: 'jini' is the built-in banner,
  * 'headless' keeps the site's own CMP driving window.jiniConsent. Grants wait for a stored receipt.
+ * Always opt-in: OM never relaxes on a region hint (consent-first).
  * @example omConsentBanner({ mode: 'jini' }, { nonce }) */
 export function omConsentBanner(required: { mode: 'jini' | 'headless' }, optional?: { nonce?: string }): { head: string; body: string } {
-    const { head, body } = renderBanner({ mode: required.mode, client: { contract: 1, policy: OM_CONSENT_POLICY, regionMode: 'auto' }, copy: {} },
+    const { head, body } = renderBanner({ mode: required.mode, client: { contract: 1, policy: OM_CONSENT_POLICY, regionMode: 'opt-in' }, copy: {} },
         { clientSrc: '/consent/client.min.js', evidence: { mode: 'durable', endpoint: '/consent' }, ...(optional?.nonce ? { nonce: optional.nonce } : {}) });
     return { head, body };
 }
@@ -34,7 +35,7 @@ export function omConsentBanner(required: { mode: 'jini' | 'headless' }, optiona
  * browser payload never does. No receipt read per event (Jini readConsent design). @complexity O(cookie header). */
 function marketingAllowed(required: { request: HttpRequest; clock: ClockPort }): boolean {
     const headers = required.request.headers ?? {};
-    return readConsent({ cookieHeader: headers.cookie, policy: OM_CONSENT_POLICY, regionMode: 'auto' },
+    return readConsent({ cookieHeader: headers.cookie, policy: OM_CONSENT_POLICY, regionMode: 'opt-in' },
         { secGpc: headers['sec-gpc'], dnt: headers.dnt, nowMs: required.clock.now({}) }).allowed.marketing;
 }
 const clickIdentifier = z.string().min(1).max(2048).regex(/^[A-Za-z0-9._-]+$/);
@@ -88,8 +89,8 @@ async function consentReceipt(required: PublicInput): Promise<HttpResponse> {
     if (!raw.ok) return response({ result: raw });
     const forwarded = ['origin', 'content-type', 'cookie', 'sec-gpc', 'dnt'].flatMap(name => headers[name] === undefined ? [] : [[name, headers[name]] as [string, string]]);
     const request = new Request(new URL(required.request.path, base), { method: 'POST', headers: forwarded, body: new Uint8Array(raw.value) });
-    const result = await handleReceipt({ request, ports: { store: required.consent.store, policy: () => OM_CONSENT_POLICY, ids: required.consent.ids, now: () => required.clock.now({}) } }, { regionMode: 'auto' });
-    return { status: result.status, contentType: result.headers.get('content-type') ?? 'application/json', body: await result.text() };
+    const result = await handleReceipt({ request, ports: { store: required.consent.store, policy: () => OM_CONSENT_POLICY, ids: required.consent.ids, now: () => required.clock.now({}) } }, { regionMode: 'opt-in' });
+    return { status: result.status, contentType: result.headers.get('content-type') ?? 'application/json', body: await result.text(), headers: { 'cache-control': 'no-store' } };
 }
 let consentClient: Promise<string> | undefined;
 /** Serve the published Jini client as an inert asset, read once on first request. */
