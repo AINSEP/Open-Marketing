@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import { createSqlContactRepo } from '@open-marketing/contacts';
 import { createSqlJobRepo, jobTenant } from '@open-marketing/jobs';
 import { bindIdentity, createVisitTokens } from '../src/composition/identity.js';
@@ -88,7 +89,7 @@ function safety(required: { f: Awaited<ReturnType<typeof fixture>>; requests: Ha
     return createSafetyService({ repo: f.repo, accountLocks: f.locks, clock, ids: f.ids, audit: createMemorySafetyAudit({}),
         confirmations: createMemoryConfirmationExchange({ ...answerAudit(), clock, ids: f.ids }), policy: createMemorySpendPolicy({}), platformLimits: createMemoryPlatformLimitEvidence({}),
         effects: { ...createMemoryVerifiedEffectResolver({}), async verifyHaltStop({ request }) {
-            return required.requests.some(known => JSON.stringify(known) === JSON.stringify(request)) ? { ok: true, value: undefined }
+            return required.requests.some(known => isDeepStrictEqual(known, request)) ? { ok: true, value: undefined }
                 : { ok: false, error: { code: 'forbidden', message: 'Unverified fixture target', retryable: false } };
         } } }, { haltServiceId: serviceContext.serviceId });
 }

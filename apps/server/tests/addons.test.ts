@@ -257,7 +257,7 @@ async function writeBundledFixture(required: { root: string; files: Record<strin
 it.each([true, false])('seeds enabled model-only data without capabilities.json and preserves admission %s', async admitted => {
     const f = await fixture({});
     try {
-        const manifest = { name: 'fixture-agent', version: '1.0.0', description: 'Fixture models',
+        const manifest = { $schema: 'https://agent-plugins.org/schemas/1.0.0/plugin.schema.json',  name: 'fixture-agent', version: '1.0.0', description: 'Fixture models',
             extensions: { 'io.github.ainsep.openmarketing': { version: 1, provides: ['model'], enabled: true, admitted, capabilities: {},
                 modelProvider: { protocol: 'openai', endpoint: 'https://models.example.test', label: 'Fixture models',
                     models: [{ id: 'fixture-model', label: 'Fixture model', efforts: [] }] } } } };
@@ -654,7 +654,7 @@ it('merges scoped conversion settings into live plugin metadata without disablin
         conversionSettings: { fields: [{ name: 'target', label: 'Target', kind: 'string', format: 'decimal-id' }] },
         modelProvider: { protocol: 'openai', endpoint: 'https://models.example.test', label: 'Fixture', models: [{ id: 'fixture', label: 'Fixture', efforts: [] }] } };
     try {
-        await writeBundledFixture({ root: f.root, files: { 'plugin.json': JSON.stringify({ name: pluginId, version: '1.0.0', description: 'Fixture', extensions: { 'io.github.ainsep.openmarketing': metadata } }) } });
+        await writeBundledFixture({ root: f.root, files: { 'plugin.json': JSON.stringify({ $schema: 'https://agent-plugins.org/schemas/1.0.0/plugin.schema.json',  name: pluginId, version: '1.0.0', description: 'Fixture', extensions: { 'io.github.ainsep.openmarketing': metadata } }) } });
         value({ result: await f.binding.start() });
         const write = f.native.prepare('INSERT INTO om_owner_settings VALUES (?,?,?,?) ON CONFLICT(owner_id,workspace_id,key) DO UPDATE SET value_json=excluded.value_json');
         write.run(context.scope.ownerId, context.scope.workspaceId, 'conversion-settings.' + pluginId, JSON.stringify({ target: '123' }));

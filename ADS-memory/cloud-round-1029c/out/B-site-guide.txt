@@ -1,0 +1,10 @@
+
+ RUN  v3.2.4 /home/user/Open-Marketing/apps/server
+
+ ✓ tests/site-guide.test.ts (27 tests) 606ms
+
+ Test Files  1 passed (1)
+      Tests  27 passed (27)
+   Start at  19:58:49
+   Duration  3.28s (transform 1.12s, setup 0ms, collect 2.37s, tests 606ms, environment 0ms, prepare 65ms)
+

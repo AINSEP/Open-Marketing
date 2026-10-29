@@ -1,0 +1,182 @@
+
+ RUN  v3.2.4 /home/user/Open-Marketing/apps/server
+
+ ❯ tests/agent-plugin-jobs.test.ts (51 tests | 3 failed) 1282ms
+   × commits halt before enqueue, obtains a fresh worker permit, and never replays an uncertain stop 133ms
+     → expected { ok: true, value: { …(6) } } to match object { ok: false }
+(7 matching properties omitted from actual)
+   ✓ does not enqueue mixed-invalid halt targets and keeps local halt when remote work is unavailable 12ms
+   ✓ rejects a stale halt epoch and unadmitted stop before token/network access 46ms
+   ✓ records 'protocol_mismatch' when a plugin returns 'delivered' without native egress 36ms
+   ✓ records 'unavailable' when a plugin returns 'unknown' without native egress 20ms
+   ✓ records 'unavailable' when a plugin returns 'throw' without native egress 20ms
+   ✓ records 'unavailable' when a plugin returns 'malformed' without native egress 34ms
+   ✓ keeps a native-fetch exception uncertain and completes the outbox for reconciliation 38ms
+   ✓ claim-less readback enforces 'GET' (false Request) without outbox changes 36ms
+   ✓ claim-less readback enforces 'POST' (false Request) without outbox changes 24ms
+   ✓ claim-less readback enforces 'POST' (true Request) without outbox changes 25ms
+   ✓ hands the worker lease to A3 for exactly one dispatch-start and durable completion 28ms
+   ✓ rejects a worker lease replaced during conversion loading before credentials or egress 14ms
+   ✓ selects a replacement conversion destination and forwards its install settings through guarded dependencies 41ms
+   ✓ rechecks consent at dispatch and after token resolution, with zero egress after withdrawal 42ms
+   ✓ delivers contacts digests through the plugin once and never resends a delivered identity 30ms
+   ✓ refuses conversion egress when halt commits after an earlier unhalted snapshot 24ms
+   ✓ refuses conversion egress when the plugin is unadmitted during the final consent await 29ms
+   ✓ holds the shared halt barrier until an in-flight conversion fetch finishes 29ms
+   ✓ local mode and unadmitted conversion backends make zero credential/network calls 35ms
+   ✓ serializes an in-flight ordinary write with local halt and rejects later writes 95ms
+   ✓ dispatches the canonical safety-issued permit through the LinkedIn halt capability 30ms
+   ✓ rejects a lease that expires while final policy evidence is awaited, without starting fetch 20ms
+   ✓ serializes conversion dispatch against alias 'withdrawal' and blocks fresh work after withdrawal commits 39ms
+   ✓ serializes conversion dispatch against alias 'merge' and blocks fresh work after withdrawal commits 35ms
+   ✓ commits withdrawal first, durably denies the claim, and makes zero sends 14ms
+   ✓ commits erasure first and fences the existing leased conversion without sending 18ms
+   × closes the admission-to-fetch gap while unrelated subjects can commit with SQLite closed 32ms
+     → Contacts storage unavailable
+   ✓ fails closed on admission audit failure and cannot egress or nest a root transaction 19ms
+   ✓ evaluates current pending erasure inside admission and commits denial without starting dispatch 18ms
+   ✓ evaluates current erased erasure inside admission and commits denial without starting dispatch 18ms
+   ✓ rolls back admission on a current-evidence failure and records a definite refusal 17ms
+   ✓ rolls back failed admission evidence and separately completes the definite refusal 18ms
+   ✓ rejects a missing outbox claim before egress 10ms
+   ✓ rejects a token outbox claim before egress 10ms
+   ✓ rejects a expired outbox claim before egress 10ms
+   ✓ rejects a identity outbox claim before egress 10ms
+   ✓ rejects a dispatching outbox claim before egress 10ms
+   ✓ rejects a tenant outbox claim before egress 10ms
+   ✓ records exactly one dispatch transition and checks abortion immediately after final admission 20ms
+   ✓ honors withdrawal through an alias before canonical conversion dispatch 16ms
+   × retains the subject lane until the delivery ledger and outbox outcome are durable 20ms
+     → Outbox SQL transaction failed
+   ✓ activity follows direct plugin identities, scope, uncertain states and nested campaign constituents 16ms
+   ✓ unresolved creative.generate work denies cleanup rather than assuming zero activity 8ms
+   ✓ unresolved measure.conversion work denies cleanup rather than assuming zero activity 8ms
+   ✓ unresolved campaign.create work denies cleanup rather than assuming zero activity 8ms
+   ✓ invalid activity invalid-json fails closed 8ms
+   ✓ invalid activity oversized fails closed 8ms
+   ✓ invalid activity missing-constituents fails closed 8ms
+   ✓ invalid activity wrong-handler fails closed 8ms
+   ✓ invalid activity overflow fails closed 18ms
+ ❯ tests/ingress-worker.test.ts (43 tests | 1 failed) 9976ms
+   ✓ public lead acceptance is async, exact, linked to a landing, visible in studio and replay-safe after restart  331ms
+   ✓ binds heartbeat metadata to the validated transport origin: 'ready' / 'https://sandbox.example.test' 36ms
+   ✓ binds heartbeat metadata to the validated transport origin: 'missing' / undefined 37ms
+   ✓ binds heartbeat metadata to the validated transport origin: 'missing' / 'https://other.example.test' 40ms
+   ✓ rejects collection without literal consent before cookie or persistence: undefined 48ms
+   ✓ rejects collection without literal consent before cookie or persistence: false 52ms
+   ✓ rejects collection without literal consent before cookie or persistence: "true" 45ms
+   ✓ leaves hosted GET untracked with the nonce'd banner CSP and issues Secure visits after a stored grant 35ms
+   ✓ writes no visit, cookie or touch without a stored marketing grant: 'no choice' 44ms
+   ✓ writes no visit, cookie or touch without a stored marketing grant: 'pending grant' 47ms
+   ✓ writes no visit, cookie or touch without a stored marketing grant: 'US region hint without a choice' 45ms
+   ✓ writes no visit, cookie or touch without a stored marketing grant: 'reject' 47ms
+   ✓ writes no visit, cookie or touch without a stored marketing grant: 'GPC' 40ms
+   ✓ writes no visit, cookie or touch without a stored marketing grant: 'DNT' 41ms
+   ✓ stores a same-origin Jini receipt, serves the client and clears the visit cookie on DELETE /c 53ms
+   ✓ accepts a form POST without a grant unattributed even with a valid visit cookie 71ms
+   ✓ captures the user agent only on consented /c, rejects a browser-supplied one, enriches identifiers after binding and erases them 228ms
+   ✓ keeps a form lead unattributed with an unusable visit cookie: expired 68ms
+   ✓ keeps a form lead unattributed with an unusable visit cookie: duplicate 65ms
+   ✓ keeps a form lead unattributed with an unusable visit cookie: forged 59ms
+   ✓ attributes a bare OM campaign ID only after a scoped lookup and rejects unknown or foreign IDs 47ms
+   ✓ rejects a tracked-link campaign outside scope and a conflicting campaign claim before collection 45ms
+   ✓ retains the accepted lead receipt when conversion sharing is unchecked 75ms
+   ✓ retains the accepted lead receipt when conversion sharing is withdrawn 92ms
+   ✓ worker failure rolls back contact/evidence/visit; retry and lost acknowledgement do not duplicate acceptance 90ms
+   ✓ duplicate fields, wrong scope, forged/expired visits and address properties fail before ingress persistence 61ms
+   ✓ privacy blocks before phases, failed removal remains blocked, retry purges answers/identifiers/visits and prevents revival 204ms
+   ✓ the actual boot root seeds the public form and starts/stops its acceptance worker without owner authentication  6335ms
+   ✓ atomically suppresses a merged family, cancels queued work, fences attempts and preserves all states after restart 86ms
+   ✓ rolls back the whole erasure request on suppression, cancellation journal or request persistence failure 45ms
+   ✓ recovers a crash around dispatch-start after reopening SQLite without replaying either attempt 58ms
+   × holds form withdrawal outside SQLite until the active subject attempt finishes 63ms
+     → expected { ok: false, error: { …(3) } } to match object { ok: true, …(1) }
+(4 matching properties omitted from actual)
+   ✓ rolls back identity drift in acceptance and retries once under the newly resolved subject lane 60ms
+   ✓ captures one new form lead through worker retry, receipt replay and restart 87ms
+   ✓ a conflicting source rolls back acceptance without adding a lead or receipt 55ms
+   ✓ freezes scoped paid evidence, preserving the enquiry: 'observed' / age +0 77ms
+   ✓ freezes scoped paid evidence, preserving the enquiry: 'observed' / age 2592000000 62ms
+   ✓ freezes scoped paid evidence, preserving the enquiry: 'observed' / age 2592000001 66ms
+   ✓ freezes scoped paid evidence, preserving the enquiry: 'foreign' / age +0 73ms
+   ✓ freezes scoped paid evidence, preserving the enquiry: 'missing' / age +0 65ms
+   ✓ freezes scoped paid evidence, preserving the enquiry: 'failed' / age +0 60ms
+   ✓ freezes scoped paid evidence, preserving the enquiry: 'saturated' / age +0  357ms
+   ✓ freezes scoped paid evidence, preserving the enquiry: 'over-limit' / age +0  376ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/agent-plugin-jobs.test.ts > commits halt before enqueue, obtains a fresh worker permit, and never replays an uncertain stop
+AssertionError: expected { ok: true, value: { …(6) } } to match object { ok: false }
+(7 matching properties omitted from actual)
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "ok": false,[39m
+[31m+   "ok": true,[39m
+[2m  }[22m
+
+ ❯ tests/agent-plugin-jobs.test.ts:131:211
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  tests/agent-plugin-jobs.test.ts > closes the admission-to-fetch gap while unrelated subjects can commit with SQLite closed
+Error: Contacts storage unavailable
+ ❯ value tests/agent-plugin-jobs.test.ts:39:89
+     37| const clock = { now: () => 1000 };
+     38| const observer = { observe() {} };
+     39| function value<T>(required: { result: Outcome<T> }): T { if (!required…
+       |                                                                                         ^
+     40| 
+     41| async function fixture(required: { pluginId?: string; module?: object;…
+ ❯ tests/agent-plugin-jobs.test.ts:639:23
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  tests/agent-plugin-jobs.test.ts > retains the subject lane until the delivery ledger and outbox outcome are durable
+JobStoreError: Outbox SQL transaction failed
+ ❯ transact ../../features/jobs/src/sql.ts:102:19
+ ❯ tests/agent-plugin-jobs.test.ts:749:16
+    747|         withdrawing = withdrawConsent({ f });
+    748|         // This later transaction completes while the withdrawal waits…
+    749|         expect(await f.jobs.outbox.get({ tenantId: jobTenant({ context…
+       |                ^
+    750|         expect(f.native.prepare("SELECT kind FROM policy_evidence WHER…
+    751|         resume.resolve(); expect(await delivering).toEqual({ ok: true,…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  tests/ingress-worker.test.ts > holds form withdrawal outside SQLite until the active subject attempt finishes
+AssertionError: expected { ok: false, error: { …(3) } } to match object { ok: true, …(1) }
+(4 matching properties omitted from actual)
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "ok": true,[39m
+[32m-   "value": {[39m
+[32m-     "subjectId": "9ea5e6d0-0580-4b04-9807-a04ce8a11a80",[39m
+[32m-   },[39m
+[31m+   "ok": false,[39m
+[2m  }[22m
+
+ ❯ tests/ingress-worker.test.ts:733:34
+    731|         expect(f.native.prepare('SELECT COUNT(*) AS n FROM policy_evid…
+    732|         resume.resolve(); await attempt;
+    733|         expect(await acceptance).toMatchObject({ ok: true, value: { su…
+       |                                  ^
+    734|         expect(JSON.stringify(f.native.prepare('SELECT payload FROM po…
+    735|     } finally { resume.resolve(); await attempt; await acceptance; awa…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  4 failed | 90 passed (94)
+   Start at  19:59:30
+   Duration  13.69s (transform 2.37s, setup 0ms, collect 5.98s, tests 11.26s, environment 0ms, prepare 153ms)
+

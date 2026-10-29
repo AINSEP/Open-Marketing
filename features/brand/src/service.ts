@@ -54,7 +54,7 @@ export async function getConfirmedBrand(required: { context: CallContext; repo: 
 async function appendRevision(required: { context: CallContext; kit: BrandKit; expectedRevision: number; status: BrandRevision["status"]; repo: BrandRepoPort; clock: ClockPort }, optional?: CallOptions): Promise<Outcome<BrandRevision>> {
   try {
     const { context } = required;
-    const revision = brandRevisionSchema.safeParse({ scope: context.scope, revision: required.expectedRevision + 1, status: required.status, kit: required.kit, actor: context.principal, at: required.clock.now({}), correlationId: context.correlationId, traceId: context.traceId, runId: context.runId });
+    const revision = brandRevisionSchema.safeParse({ scope: context.scope, revision: required.expectedRevision + 1, status: required.status, kit: required.kit, actor: context.principal, at: required.clock.now({}), correlationId: context.correlationId, traceId: context.traceId, ...(context.runId === undefined ? {} : { runId: context.runId }) });
     if (!revision.success) return brandFailure({ code: "invalid_input", message: "Invalid brand revision or clock" });
     return await required.repo.append({ context, expectedRevision: required.expectedRevision, revision: revision.data }, optional);
   } catch { return brandFailure({ code: "unavailable", message: "Brand dependency unavailable" }); }

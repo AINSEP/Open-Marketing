@@ -1,0 +1,83 @@
+
+ RUN  v3.2.4 /home/user/Open-Marketing/apps/server
+
+ ❯ tests/agent-plugin-jobs.test.ts (51 tests | 1 failed) 1455ms
+   × commits halt before enqueue, obtains a fresh worker permit, and never replays an uncertain stop 116ms
+     → expected { ok: true, value: { …(6) } } to match object { ok: false }
+(7 matching properties omitted from actual)
+   ✓ does not enqueue mixed-invalid halt targets and keeps local halt when remote work is unavailable 10ms
+   ✓ rejects a stale halt epoch and unadmitted stop before token/network access 38ms
+   ✓ records 'protocol_mismatch' when a plugin returns 'delivered' without native egress 34ms
+   ✓ records 'unavailable' when a plugin returns 'unknown' without native egress 27ms
+   ✓ records 'unavailable' when a plugin returns 'throw' without native egress 18ms
+   ✓ records 'unavailable' when a plugin returns 'malformed' without native egress 23ms
+   ✓ keeps a native-fetch exception uncertain and completes the outbox for reconciliation 38ms
+   ✓ claim-less readback enforces 'GET' (false Request) without outbox changes 33ms
+   ✓ claim-less readback enforces 'POST' (false Request) without outbox changes 27ms
+   ✓ claim-less readback enforces 'POST' (true Request) without outbox changes 30ms
+   ✓ hands the worker lease to A3 for exactly one dispatch-start and durable completion 31ms
+   ✓ rejects a worker lease replaced during conversion loading before credentials or egress 13ms
+   ✓ selects a replacement conversion destination and forwards its install settings through guarded dependencies 21ms
+   ✓ rechecks consent at dispatch and after token resolution, with zero egress after withdrawal 36ms
+   ✓ delivers contacts digests through the plugin once and never resends a delivered identity 24ms
+   ✓ refuses conversion egress when halt commits after an earlier unhalted snapshot 20ms
+   ✓ refuses conversion egress when the plugin is unadmitted during the final consent await 22ms
+   ✓ holds the shared halt barrier until an in-flight conversion fetch finishes 34ms
+   ✓ local mode and unadmitted conversion backends make zero credential/network calls 44ms
+   ✓ serializes an in-flight ordinary write with local halt and rejects later writes 96ms
+   ✓ dispatches the canonical safety-issued permit through the LinkedIn halt capability 50ms
+   ✓ rejects a lease that expires while final policy evidence is awaited, without starting fetch 34ms
+   ✓ serializes conversion dispatch against alias 'withdrawal' and blocks fresh work after withdrawal commits 45ms
+   ✓ serializes conversion dispatch against alias 'merge' and blocks fresh work after withdrawal commits 32ms
+   ✓ commits withdrawal first, durably denies the claim, and makes zero sends 15ms
+   ✓ commits erasure first and fences the existing leased conversion without sending 24ms
+   ✓ closes the admission-to-fetch gap while unrelated subjects can commit with SQLite closed 78ms
+   ✓ fails closed on admission audit failure and cannot egress or nest a root transaction 29ms
+   ✓ evaluates current pending erasure inside admission and commits denial without starting dispatch 26ms
+   ✓ evaluates current erased erasure inside admission and commits denial without starting dispatch 25ms
+   ✓ rolls back admission on a current-evidence failure and records a definite refusal 25ms
+   ✓ rolls back failed admission evidence and separately completes the definite refusal 22ms
+   ✓ rejects a missing outbox claim before egress 11ms
+   ✓ rejects a token outbox claim before egress 10ms
+   ✓ rejects a expired outbox claim before egress 10ms
+   ✓ rejects a identity outbox claim before egress 13ms
+   ✓ rejects a dispatching outbox claim before egress 14ms
+   ✓ rejects a tenant outbox claim before egress 10ms
+   ✓ records exactly one dispatch transition and checks abortion immediately after final admission 21ms
+   ✓ honors withdrawal through an alias before canonical conversion dispatch 19ms
+   ✓ retains the subject lane until the delivery ledger and outbox outcome are durable 78ms
+   ✓ activity follows direct plugin identities, scope, uncertain states and nested campaign constituents 18ms
+   ✓ unresolved creative.generate work denies cleanup rather than assuming zero activity 12ms
+   ✓ unresolved measure.conversion work denies cleanup rather than assuming zero activity 8ms
+   ✓ unresolved campaign.create work denies cleanup rather than assuming zero activity 9ms
+   ✓ invalid activity invalid-json fails closed 9ms
+   ✓ invalid activity oversized fails closed 9ms
+   ✓ invalid activity missing-constituents fails closed 10ms
+   ✓ invalid activity wrong-handler fails closed 26ms
+   ✓ invalid activity overflow fails closed 26ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/agent-plugin-jobs.test.ts > commits halt before enqueue, obtains a fresh worker permit, and never replays an uncertain stop
+AssertionError: expected { ok: true, value: { …(6) } } to match object { ok: false }
+(7 matching properties omitted from actual)
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "ok": false,[39m
+[31m+   "ok": true,[39m
+[2m  }[22m
+
+ ❯ tests/agent-plugin-jobs.test.ts:131:211
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 50 passed (51)
+   Start at  19:58:03
+   Duration  4.35s (transform 1.36s, setup 0ms, collect 2.61s, tests 1.46s, environment 0ms, prepare 68ms)
+

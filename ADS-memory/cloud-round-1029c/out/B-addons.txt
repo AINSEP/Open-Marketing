@@ -1,0 +1,10 @@
+
+ RUN  v3.2.4 /home/user/Open-Marketing/apps/server
+
+ ✓ tests/addons.test.ts (49 tests) 2094ms
+
+ Test Files  1 passed (1)
+      Tests  49 passed (49)
+   Start at  19:58:22
+   Duration  6.05s (transform 1.71s, setup 0ms, collect 3.63s, tests 2.09s, environment 0ms, prepare 80ms)
+

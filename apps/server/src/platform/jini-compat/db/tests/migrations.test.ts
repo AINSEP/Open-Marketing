@@ -68,7 +68,7 @@ describe('trusted migration scripts and catalogue', () => {
             expect(database.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all()).toEqual([]);
         } finally { client.release({}); database.close(); }
     });
-    it('fixes all twenty-two identities and global versions, excluding historical spine', async () => {
+    it('fixes all twenty-eight identities and global versions, excluding historical spine', async () => {
         const paths: string[] = [];
         const migrations = await loadMigrations({ readSql: async ({ path }) => { paths.push(path); return '-- fixture\nSELECT 1;'; } });
         expect(migrations.map(item => [item.version, item.name])).toEqual([
@@ -77,6 +77,7 @@ describe('trusted migration scripts and catalogue', () => {
             [9, 'creative-1'], [10, 'campaigns-1'], [11, 'measure-1'], [12, 'measure-2'],
             [13, 'forms-1'], [14, 'contacts-1'], [15, 'web-events-1'], [16, 'privacy-1'], [17, 'server-1'], [18, 'server-2'],
             [19, 'safety-2'], [20, 'server-3'], [21, 'server-4'], [22, 'server-5'],
+            [23, 'leads-1'], [24, 'server-6'], [25, 'measure-3'], [26, 'brand-1'], [27, 'measure-4'], [28, 'measure-5'],
         ]);
         expect(paths).toEqual(migrationManifest.map(item => item.path));
         expect(paths.join(' ')).not.toContain('spine');
@@ -101,7 +102,7 @@ describe('trusted migration scripts and catalogue', () => {
             const migrations = await loadMigrations({ readSql: ({ path }) => readFile(new URL(path, root), 'utf8') });
             expect(await runMigrations({ pool, migrations })).toEqual({ appliedVersions: migrationManifest.map(item => item.version) });
             expect(await runMigrations({ pool, migrations })).toEqual({ appliedVersions: [] });
-            expect(database.prepare('SELECT COUNT(*) AS count FROM om_schema_migrations').get()).toEqual({ count: 22 });
+            expect(database.prepare('SELECT COUNT(*) AS count FROM om_schema_migrations').get()).toEqual({ count: 28 });
         } finally { database.close(); }
     });
 });

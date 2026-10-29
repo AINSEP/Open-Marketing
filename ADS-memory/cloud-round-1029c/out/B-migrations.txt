@@ -1,0 +1,10 @@
+
+ RUN  v3.2.4 /home/user/Open-Marketing/apps/server
+
+ ✓ src/platform/jini-compat/db/tests/migrations.test.ts (10 tests) 45ms
+
+ Test Files  1 passed (1)
+      Tests  10 passed (10)
+   Start at  19:58:53
+   Duration  731ms (transform 142ms, setup 0ms, collect 355ms, tests 45ms, environment 0ms, prepare 94ms)
+

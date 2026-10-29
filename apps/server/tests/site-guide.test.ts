@@ -113,7 +113,7 @@ describe('OM site guide', () => {
         const f = fixture();
         try {
             // Fixture definitions expose all twelve catalog topics, without executing these reads.
-            for (const name of ['om_media_list', 'om_measure_create_link', 'om_contacts_resolve', 'om_forms_publish', 'integrations_list', 'addons_install']) f.read({ name });
+            for (const name of ['om_media_list', 'om_measure_create_link', 'om_contacts_resolve', 'om_forms_publish', 'integrations_list', 'addons_install', 'om_campaign_save_local']) f.read({ name });
             const result = value({ outcome: await f.call({ operation: 'overview' }) });
             expect(result).toMatchObject({ status: 'completed', output: { version: '1.0.0', operation: 'overview' } });
             const text = JSON.stringify(result);

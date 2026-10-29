@@ -1,0 +1,13 @@
+
+ RUN  v3.2.4 /home/user/Open-Marketing/apps/server
+
+ ✓ tests/ingress-worker.test.ts (43 tests) 9183ms
+   ✓ the actual boot root seeds the public form and starts/stops its acceptance worker without owner authentication  5781ms
+   ✓ freezes scoped paid evidence, preserving the enquiry: 'saturated' / age +0  322ms
+   ✓ freezes scoped paid evidence, preserving the enquiry: 'over-limit' / age +0  322ms
+
+ Test Files  1 passed (1)
+      Tests  43 passed (43)
+   Start at  19:58:08
+   Duration  13.35s (transform 1.74s, setup 0ms, collect 3.75s, tests 9.18s, environment 0ms, prepare 74ms)
+

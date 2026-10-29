@@ -1,0 +1,59 @@
+
+ RUN  v3.2.4 /home/user/Open-Marketing/apps/server
+
+ ❯ tests/owner-api.test.ts (15 tests | 1 failed) 11162ms
+   ✓ lists persisted campaigns with scoped pagination, CLI parity and actual observed status 151ms
+   ✓ reads and answers existing exact cards over HTTP/CLI without enqueuing or reserving any effect 85ms
+   ✓ rejects forged and missing trusted approvers on catalog=false answer paths 13ms
+   ✓ rejects forged and missing trusted approvers on catalog=true answer paths 12ms
+   ✓ authenticates before reading bodies and records only a local halt while remote stop remains pending 32ms
+   ✓ real boot serves studio HTTP configuration, keeps read-only allowance free of writes and persists halt across restart  10694ms
+   ✓ authenticates event ingestion before body reads, enforces origin/bytes and rejects trace claims 43ms
+   ✓ answers once and rejects repeated answers on catalog=false paths 14ms
+   ✓ answers once and rejects repeated answers on catalog=true paths 11ms
+   ✓ authenticates image uploads before body reads and enforces the raw 1 MiB cap 33ms
+   ✓ returns the safe image upload refusal for 'invalid_input' 6ms
+   ✓ returns the safe image upload refusal for 'unavailable' 6ms
+   ✓ rejects missing/foreign attachments and partial-invalid batches before acceptance or launch 20ms
+   ✓ rejects Sandbox images explicitly without launching 6ms
+   × freezes canonical refs and resolves only the current run images; trashed assets fail opaque 33ms
+     → expected { …(5) } to match object { attachments: [ { …(3) } ], …(1) }
+(8 matching properties omitted from actual)
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/owner-api.test.ts > freezes canonical refs and resolves only the current run images; trashed assets fail opaque
+AssertionError: expected { …(5) } to match object { attachments: [ { …(3) } ], …(1) }
+(8 matching properties omitted from actual)
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -1,9 +1,9 @@[39m
+[2m  {[22m
+[2m    "attachments": [[22m
+[2m      {[22m
+[32m-       "name": "canonical.png",[39m
+[31m+       "name": "caller-name.png",[39m
+[2m        "path": "9aa5d2d3-1b6c-4781-8b43-a3131633aa79",[22m
+[2m        "size": 68,[22m
+[2m      },[22m
+[2m    ],[22m
+[2m    "images": [[22m
+
+ ❯ tests/owner-api.test.ts:341:26
+    339|             conversationId: receipt.conversationId!, runId: receipt.ru…
+    340|         const resolved = value({ result: await f.runs.context({ grant …
+    341|         expect(resolved).toMatchObject({ attachments: [{ path: f.asset…
+       |                          ^
+    342|             images: [{ mimeType: 'image/png', data: Buffer.from(attach…
+    343|         const row = f.native.prepare('SELECT settings_json FROM om_ass…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 14 passed (15)
+   Start at  19:58:29
+   Duration  15.25s (transform 1.74s, setup 0ms, collect 3.74s, tests 11.16s, environment 0ms, prepare 90ms)
+

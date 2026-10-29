@@ -453,7 +453,7 @@ it('attributes a bare OM campaign ID only after a scoped lookup and rejects unkn
         const draft = { operationId: 'direct-campaign', connectionId: 'sandbox', accountId: 'sandbox', name: 'Direct campaign', objective: 'leads' as const,
             creativeIds: ['fixture-creative'], creativeDigest: 'a'.repeat(64), placements: ['search'] };
         const own = await binding.campaigns.save({ context: f.context, draft });
-        const other = await binding.campaigns.save({ context: foreign, draft });
+        const other = await binding.campaigns.save({ context: foreign, draft: { ...draft, operationId: 'foreign-campaign' } });
         if (!own.ok || !other.ok) throw new Error('Missing fixture campaigns');
         const record = vi.spyOn(binding.identity.webEvents, 'recordTouch');
         const get = vi.spyOn(binding.campaigns, 'get');
@@ -631,12 +631,18 @@ it('the actual boot root seeds the public form and starts/stops its acceptance w
         const submitted = await fetch(origin + '/f/lead', { method: 'POST', body: new URLSearchParams({ ...fields, email: 'boot@example.test' }) });
         expect(submitted.status).toBe(202);
         expect(next).toBeTypeOf('function');
-        const complete = new Promise<void>(resolve => { settled = resolve; });
-        next!(); await complete;
         const credentials = await provisionLocalOwner({ fs, stateRoot: join(directory, 'state'), ids: { next: () => randomUUID() }, randomToken: io.randomToken });
         if (!credentials.ok) throw new Error('Credentials unavailable');
-        const observed = await fetch(origin + '/api/studio/snapshot', { headers: { authorization: 'Bearer ' + credentials.value.token } });
-        expect(await observed.json()).toMatchObject({ ok: true, value: { rows: { activity: [expect.objectContaining({ title: 'Sandbox lead accepted' })] } } });
+        // The worker runs one job per tick and boot also queues alert evaluation, so tick until the form job has completed.
+        let observed: Response | undefined; let body: unknown;
+        for (let tick = 0; tick < 6; tick++) {
+            const complete = new Promise<void>(resolve => { settled = resolve; });
+            next!(); await complete;
+            observed = await fetch(origin + '/api/studio/snapshot', { headers: { authorization: 'Bearer ' + credentials.value.token } });
+            body = await observed.json();
+            if ((body as { value?: { rows?: { activity?: unknown[] } } }).value?.rows?.activity?.length) break;
+        }
+        expect(body).toMatchObject({ ok: true, value: { rows: { activity: [expect.objectContaining({ title: 'Sandbox lead accepted' })] } } });
         expect(await server.stop({})).toEqual({ ok: true, value: undefined });
         expect(next).toBeUndefined();
     } finally { await server?.stop({}); await removeStateRoot({ path: directory }); }
