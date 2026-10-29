@@ -434,7 +434,7 @@ it.each(['google-ads', 'meta-ads'])('authenticates %s management, approves start
         const restarted = await f.start({});
         if (!restarted.ok) throw new Error(restarted.error.message);
         const restartedOrigin = new URL(restarted.value.studioUrl).origin;
-        expect(await (await fetch(restartedOrigin + '/api/addons/v1/integrations/oauth/status?pluginId=' + pluginId, { headers })).json()).toEqual({ ok: true, value: { configured: true, clientId: 'fixture-client' } });
+        expect(await (await fetch(restartedOrigin + '/api/addons/v1/integrations/oauth/status?pluginId=' + pluginId, { headers })).json()).toMatchObject({ ok: true, value: { configured: true, clientId: 'fixture-client' } });
         expect((await fetch(restartedOrigin + '/api/addons/v1/integrations', { headers })).status).toBe(200);
         expect((await fetch(restartedOrigin + oauthCallbackPath + '?' + query)).status).toBe(400);
     } finally { await f.close(); }

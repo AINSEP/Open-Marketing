@@ -1,0 +1,19 @@
+
+ RUN  v3.2.4 /home/user/Open-Marketing/apps/server
+
+ ✓ tests/boot.test.ts (15 tests) 75864ms
+   ✓ commits owner identity and audit together through boot HTTP, rejecting agent tokens and rolling back audit/update faults  10284ms
+   ✓ boots on SQLite, serves built studio, publishes desktop readiness and shares CLI discovery  5073ms
+   ✓ restarts without migration drift or owner/workspace changes; isolated roots reject each other  14612ms
+   ✓ authenticates before body reads, enforces Host/Origin and expiry, and leaves local effects unavailable  5584ms
+   ✓ CLI refuses to send a state-root token to a remote origin and rejects non-private credentials  5161ms
+   ✓ bind/readiness failures close SQLite and never publish another readiness line  9971ms
+   ✓ authenticates google-ads management, approves start once and enforces admission on the exact browser GET  9545ms
+   ✓ authenticates meta-ads management, approves start once and enforces admission on the exact browser GET  10087ms
+   ✓ registers owner mail settings behind bearer and cookie Origin authentication  5203ms
+
+ Test Files  1 passed (1)
+      Tests  15 passed (15)
+   Start at  19:23:19
+   Duration  80.00s (transform 1.83s, setup 0ms, collect 3.84s, tests 75.86s, environment 0ms, prepare 74ms)
+

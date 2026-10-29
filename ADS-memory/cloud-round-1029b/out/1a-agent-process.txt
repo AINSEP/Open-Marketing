@@ -1,0 +1,14 @@
+
+ RUN  v3.2.4 /home/user/Open-Marketing/apps/server
+
+ ✓ tests/agent-process.test.ts (8 tests) 12371ms
+   ✓ local agent supervisor / memory > scopes grants, rejects replays with changed payloads and revokes immediately on cancellation  4094ms
+   ✓ local agent supervisor / process > scopes grants, rejects replays with changed payloads and revokes immediately on cancellation  325ms
+   ✓ local agent supervisor / process > expires scoped authority while context is blocked and shows interruption instead of success  333ms
+   ✓ boot wires a real child, HTTP owner routes and om ask prompt-file polling; JSON remains one receipt  7081ms
+
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+   Start at  19:24:39
+   Duration  16.14s (transform 1.57s, setup 0ms, collect 3.47s, tests 12.37s, environment 0ms, prepare 72ms)
+

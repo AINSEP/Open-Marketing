@@ -1,0 +1,11 @@
+
+ RUN  v3.2.4 /home/user/Open-Marketing/apps/server
+
+ ✓ tests/conversations.test.ts (22 tests) 7206ms
+   ✓ composes an agent Jini turn through the REAL server broker and a fixture upstream  6913ms
+
+ Test Files  1 passed (1)
+      Tests  22 passed (22)
+   Start at  19:25:52
+   Duration  11.12s (transform 1.75s, setup 0ms, collect 3.60s, tests 7.21s, environment 0ms, prepare 70ms)
+

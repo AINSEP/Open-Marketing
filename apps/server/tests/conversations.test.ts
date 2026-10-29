@@ -334,7 +334,7 @@ it('caps durable request intents at 25 and leaves interrupted outcomes unavailab
 });
 
 it.each(['disabled', 'missing'] as const)('refuses a %s selected plugin before credential access without scanning the catalog', async state => {
- const f = await fixture({ adapter: 'memory', integrations: { async list() { return { ok: true, value: { items: [{ pluginId: 'openai', connectionId: 'key', status: 'saved' }], cursor: null } }; } } });
+ const f = await fixture({ integrations: { async list() { return { ok: true, value: { items: [{ pluginId: 'openai', connectionId: 'key', status: 'saved' }], cursor: null } }; } } });
  try {
   value({ result: await f.conversations.setSettings({ context, settings: { mode: 'model', provider: 'openai', model: 'gpt-5.2', connectionId: 'key' } }) });
   const receipt = await accepted({ f });
@@ -357,7 +357,7 @@ it.each([false, true])('projects declarations and resolves a legacy provider onl
   models: [{ id: 'custom-chat', label: 'Custom chat', efforts: [{ id: 'careful', label: 'Careful', request: { reasoning_effort: 'high' } }] }] });
  const providers: Record<string, ModelProvider> = ambiguous ? { 'acme-models': declaration, 'second-models': { ...declaration, label: 'Second models' } } : { 'acme-models': declaration };
  const addons = modelAddons({ providers });
- const f = await fixture({ adapter: 'memory', addons, integrations: { async list() { return { ok: true, value: { items: [{ pluginId: 'acme-models', connectionId: 'fixture-key', status: 'saved' }], cursor: null } }; } } });
+ const f = await fixture({ addons, integrations: { async list() { return { ok: true, value: { items: [{ pluginId: 'acme-models', connectionId: 'fixture-key', status: 'saved' }], cursor: null } }; } } });
  try {
   const settings = { mode: 'model' as const, model: 'custom-chat', effort: 'careful', connectionId: null };
   // A pre-existing row, not an owner write, exercises missing-provider readiness directly.
@@ -383,7 +383,7 @@ it.each([false, true])('projects declarations and resolves a legacy provider onl
 });
 
 it('keeps Sandbox usable with no addon dependency and leaves a saved model selection unavailable', async () => {
- const f = await fixture({ adapter: 'memory', addons: null });
+ const f = await fixture({ addons: null });
  try {
   expect(value({ result: await f.conversations.settings({ context }) })).toMatchObject({ settings: { mode: 'sandbox', model: 'sandbox' }, runtimes: [], models: [], ready: true });
   const receipt = await accepted({ f }); expect(receipt.mode).toBe('sandbox');
