@@ -140,6 +140,7 @@ Recon is done; further gap review remains HELD until the owner releases it. Lice
   - connection-to-launch readiness states.
 - [x] **Apple v1 migration BUILT and committed 2026-10-25** (reporting stays not_implemented until Apple's semantics are confirmed; plugin still disabled pending integration). Original item: **TIME-BOUND, CONFIRMED by Apple:** Campaign Management API v5 sunsets **2027-01-26** (Apple Ads Platform API Preview Release Notes p.4, https://ads.apple.com/adsdam/app-store/us/en_us/documents/api-preview-guide.pdf#page=4). Migrating needs endpoint shapes, `adAccountId` context and response envelopes (pp.6–7). Migrate or explicitly defer apple-search-ads. Migrate OM's apple-search-ads plugin to Ads Platform API v1 before then.
 - [ ] **DEFERRED by owner 2026-10-28:** trademark search for "Open Marketing" before a public launch (OOSA clash).
+- [ ] **Marketing video at ainsep.com/open-marketing** (owner 2026-10-29): a product marketing video for Open Marketing, hosted on the page ainsep.com/open-marketing.
 
 ## HIGH PRIORITY — swap OM infrastructure to Jini (owner, 2026-10-24: "it should use Jini's stuff")
 - [ ] **Staged Jini adoption — rc.2 installed; remaining swaps need semantic parity.** Audit: `codex-runs/2026-10-28-w6-audit-jini-local/report.md`; later decisions: `coordinator-notes-1028.md` (e1 adoption trims and latest 8b/tovu-45 update).

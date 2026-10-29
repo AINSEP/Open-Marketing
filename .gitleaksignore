@@ -3,3 +3,6 @@ content/agent-plugins/amazon-ses/io.github.ainsep.openmarketing/tests/fixtures.t
 content/agent-plugins/linkedin-ads/io.github.ainsep.openmarketing/src/index.ts:linkedin-client-id:7
 content/agent-plugins/linkedin-ads/io.github.ainsep.openmarketing/tests/fixtures.ts:linkedin-client-id:6
 content/agent-plugins/tiktok-ads/io.github.ainsep.openmarketing/evidence/primary-sources.json:generic-api-key:527
+# Reviewed false positives (2026-10-29): X-ads fixture OAuth HMAC signatures echoed in cloud-round test output.
+c9480be6604b5763371288eeeb177064a161ab57:ADS-memory/cloud-round-1029/out/final-tests-plugins.txt:generic-api-key:1805
+c9480be6604b5763371288eeeb177064a161ab57:ADS-memory/cloud-round-1029/out/base-main-tests-plugins.txt:generic-api-key:1874
