@@ -21,6 +21,8 @@ export interface HttpRequest {
  readonly body?: unknown;
  /** Aborted on client disconnect or listener shutdown. */
  readonly signal?: AbortSignal;
+ /** Socket peer address (no proxy header is trusted). */
+ readonly remoteAddress?: string;
  readonly readBody?: (required: Record<string, never>) => Promise<Outcome<unknown>>;
  /** Original bounded bytes, cached with readBody for signed public callbacks. */
  readonly readRawBody?: (required: Record<string, never>) => Promise<Outcome<Uint8Array>>;

@@ -36,7 +36,7 @@ function requestMetadata(required: { incoming: IncomingMessage; signal: AbortSig
         let bytes: Promise<Outcome<Uint8Array>> | undefined;
         const readBytes = () => bytes ??= readRawBody({ incoming, maxBytes: bodyLimit({ path: url.pathname }) });
         return { ok: true, value: { method: incoming.method as HttpRequest['method'], path: url.pathname, query, headers,
-            authorization: headers.authorization, signal: required.signal,
+            authorization: headers.authorization, signal: required.signal, remoteAddress: incoming.socket?.remoteAddress,
             readRawBody: readBytes,
             readBody: () => body ??= readJsonBody({ incoming, readBytes }) } };
     } catch { return localFailure({ code: 'invalid_input', message: 'Invalid request URL' }); }

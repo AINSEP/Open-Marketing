@@ -29,6 +29,7 @@ import { readModelProviders, selectedModel } from '../model-providers.js';
 import { handleModelRequest, type ModelCredentials, type ModelUpstream } from '../inbound/model.js';
 import { createSqlMeasureRepo, createSqlTrackedLink, type MeasureSqlDatabase } from '@open-marketing/measure';
 import { handlePublicRequest } from '../inbound/public.js';
+import { createConsentLimiter } from '../inbound/consent-limit.js';
 import { createAesGcmSecretSealer, createCredentialBroker, createCredentialKeyring, createCredentialService,
     createMemoryCredentialLock, createSqlCredentialAudit, createSqlCredentialRepo, createJiniOAuthClient, createJiniCredentialRefresh } from '@open-marketing/credentials';
 import type { KeyringConfiguration, OAuthClientPort, CredentialBrokerPort } from '@open-marketing/credentials';
@@ -336,7 +337,7 @@ export async function bootServer(required: {
         const measure = createSqlMeasureRepo({ database: measureDb, jobs: { async enqueue() { return localFailure({ code: 'forbidden', message: 'Conversions denied in local sandbox' }); } } }, { observer: required.observer });
         resources.privacy = bindPrivacy({ unit: database.unit, identity, subjects: forms.subjects, measure, clock: required.clock, ids: required.ids, observer: required.observer, subjectLane });
         const publicServices: BootRequestInput['publicServices'] = { forms, identity, visits, clock: required.clock, observer: required.observer, campaigns: services.campaigns, publicOrigin: config.value.publicOrigin,
-            consent: { store: consentReceiptStore({ stateRoot: config.value.stateRoot }), ids: () => required.ids.next({}) },
+            consent: { store: consentReceiptStore({ stateRoot: config.value.stateRoot }), ids: () => required.ids.next({}), limiter: createConsentLimiter({ clock: required.clock }) },
             links: createSqlTrackedLink({ database: measureDb, ids: required.ids, baseUrl: 'https://sandbox.example.test/l/', allowedOrigins: ['https://sandbox.example.test'] }, { observer: required.observer }) };
         services.formSubjects = forms.subjects;
         const audit = bindCatalogAudit({ unit: database.unit, clock: required.clock, ids: required.ids, observer: required.observer });

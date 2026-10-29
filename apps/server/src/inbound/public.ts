@@ -14,12 +14,13 @@ import type { HttpRequest, HttpResponse } from '../ports.js';
 import type { bindForms } from '../composition/forms.js';
 import type { bindIdentity, createVisitTokens } from '../composition/identity.js';
 import { localFailure } from '../composition/local-auth.js';
+import type { ConsentLimiter } from './consent-limit.js';
 import { handleMessagingWebhook } from './messaging-webhooks.js';
 
 type PublicInput = { request: HttpRequest; context: CallContext; forms: ReturnType<typeof bindForms>;
     identity: ReturnType<typeof bindIdentity>; visits: ReturnType<typeof createVisitTokens>; clock: ClockPort;
     campaigns: CampaignRepoPort; links: TrackedLinkPort; observer?: ObserverPort; publicOrigin?: string;
-    webhooks?: Parameters<typeof handleMessagingWebhook>[0]['webhooks']; consent: { store: ConsentRecordPort; ids: () => string } };
+    webhooks?: Parameters<typeof handleMessagingWebhook>[0]['webhooks']; consent: { store: ConsentRecordPort; ids: () => string; limiter?: ConsentLimiter } };
 /** One OM privacy-policy version for every visitor consent receipt (no per-workspace setting yet). */
 export const OM_CONSENT_POLICY = '2026-10-29';
 /** Shared Jini banner render for hosted pages and owner-installed sites: 'jini' is the built-in banner,
@@ -89,7 +90,7 @@ async function consentReceipt(required: PublicInput): Promise<HttpResponse> {
     if (!raw.ok) return response({ result: raw });
     const forwarded = ['origin', 'content-type', 'cookie', 'sec-gpc', 'dnt'].flatMap(name => headers[name] === undefined ? [] : [[name, headers[name]] as [string, string]]);
     const request = new Request(new URL(required.request.path, base), { method: 'POST', headers: forwarded, body: new Uint8Array(raw.value) });
-    const result = await handleReceipt({ request, ports: { store: required.consent.store, policy: () => OM_CONSENT_POLICY, ids: required.consent.ids, now: () => required.clock.now({}) } }, { regionMode: 'opt-in' });
+    const result = await handleReceipt({ request, ports: { store: required.consent.store, policy: () => OM_CONSENT_POLICY, ids: required.consent.ids, now: () => required.clock.now({}) } }, { regionMode: 'opt-in', ...(required.consent.limiter ? { allow: () => required.consent.limiter!.allow({ address: required.request.remoteAddress }) } : {}) });
     return { status: result.status, contentType: result.headers.get('content-type') ?? 'application/json', body: await result.text(), headers: { 'cache-control': 'no-store' } };
 }
 let consentClient: Promise<string> | undefined;

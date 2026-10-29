@@ -1,0 +1,10 @@
+
+ RUN  v3.2.4 /home/user/Open-Marketing/apps/server
+
+ ✓ tests/consent-limit.test.ts (2 tests) 12ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  19:17:34
+   Duration  343ms (transform 73ms, setup 0ms, collect 74ms, tests 12ms, environment 0ms, prepare 74ms)
+
