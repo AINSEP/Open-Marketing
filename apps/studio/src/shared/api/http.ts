@@ -91,6 +91,11 @@ function transportResult<T>(required: { result: Outcome<T>; method: 'GET' | 'POS
     return required.result;
 }
 
+/** Raw uploads take precedence; serialization errors stay inside the request's try/catch. */
+function requestBody(required: { body?: unknown; rawBody?: Blob }): string | Blob | undefined {
+    return required.rawBody ?? (required.body === undefined ? undefined : JSON.stringify(required.body));
+}
+
 /** One request with injected deadlines and tracing. Writes are never retried. Cookies are sent
  * only to the current browser origin; redirects cannot move authentication to another origin.
  * @complexity One HTTP call, O(b) bounded response; timeout 15s, no retained request state.
@@ -114,7 +119,7 @@ async function request<T>(required: {
             method: required.method, credentials: 'same-origin', redirect: 'manual', signal: controller.signal,
             headers: { accept: 'application/json', 'content-type': required.rawBody ? 'application/octet-stream' : 'application/json', 'x-correlation-id': correlationId,
                 'x-trace-id': traceId, 'idempotency-key': correlationId },
-            body: required.rawBody ?? (required.body === undefined ? undefined : JSON.stringify(required.body)),
+            body: requestBody(required),
         });
         const received = await receive({ response, parse: required.parse });
         const result = transportResult({ result: received, method: required.method, aborted: controller.signal.aborted, ownerAborted: required.signal?.aborted ?? false });

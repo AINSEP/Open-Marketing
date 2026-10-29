@@ -95,7 +95,7 @@ it('keeps grant pending through Allow acknowledgement and reloads only after com
   await screen.findByText('Conversion sharing granted.');
   expect(f.list).toHaveBeenCalledTimes(2);
   const written = f.lastWrite()?.input;
-  const grantId = measurementGrantSchema.shape.grantId.parse(typeof written === 'object' && written !== null && !Array.isArray(written) ? written.grantId : undefined);
+  const { grantId } = measurementGrantSchema.pick({ grantId: true }).strip().parse(written);
   expect(screen.getByText(grantId + ' · Active')).toBeTruthy();
   expect(f.tool.mock.calls.filter(([input]) => input.call.name === 'om_measure_grant')).toHaveLength(1);
 });

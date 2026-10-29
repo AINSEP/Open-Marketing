@@ -18,7 +18,7 @@ import { THEMES, ACCENTS } from "../src/themes/registry.js";
 
 // jsdom 27.2.0 has no CSS.escape; user-event radio arrow-key navigation needs it. Test-env shim only.
 if (!(window as unknown as { CSS?: { escape?: unknown } }).CSS?.escape) {
-  Object.defineProperty(window, "CSS", { configurable: true, value: { escape: (value: string) => value.replace(/[^a-zA-Z0-9_\u00A0-\uFFFF-]/g, character => "\\" + character) } });
+  Object.defineProperty(window, "CSS", { configurable: true, value: { escape: ((value: string) => value.replace(/[^a-zA-Z0-9_\u00A0-\uFFFF-]/g, character => "\\" + character)) satisfies typeof CSS.escape } });
 }
 
 beforeEach(() => {

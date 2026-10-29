@@ -42,7 +42,7 @@ function WeeklyReport(props: { report: NonNullable<AlertRowProps['weekly']> }): 
     <p>Unattributed enquiries (workspace-wide): {props.report.unattributed}</p>
   </div>;
 }
-function renderObservation(text: string): ReactElement { return <p key={text}>{text}</p>; }
+const renderObservation = ((text: string) => <p key={text}>{text}</p>) satisfies Parameters<string[]['map']>[0];
 function renderCampaign(row: NonNullable<AlertRowProps['weekly']>['campaigns'][number]): ReactElement {
   return <tr key={row.id}><th scope="row">{row.id}</th><td>{row.spend}</td><td>{row.clicks}</td><td>{row.impressions}</td>
     <td>{row.conversions}</td><td>{row.leads}</td></tr>;

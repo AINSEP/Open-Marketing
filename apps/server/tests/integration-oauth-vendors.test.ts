@@ -29,7 +29,7 @@ function value<T>(outcome: Outcome<T>): T { if (!outcome.ok) throw new Error(out
 
 /** Synthetic plugin deliberately supplies a POST/body: host must enforce the exchange's GET transport. */
 function createOAuthExchange(required: Pick<PluginCapabilityDependencies, 'fetch' | 'clock'>) {
-    return { async exchange(_input: unknown, optional?: CallOptions) {
+    return { async exchange(_input: Record<string, unknown>, optional?: CallOptions) {
         for (const path of ['first', 'second', 'third']) await required.fetch('https://fixture.example/' + path, { method: 'POST', body: 'discard', signal: optional?.signal });
         return { ok: true, value: tokens };
     } };

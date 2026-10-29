@@ -24,6 +24,7 @@ function transport(required: { api: NonNullable<StudioApiPort['addons']>; calls:
     required.calls.push({ path: url.pathname, init });
     const query = { limit: Number(url.searchParams.get('limit') ?? 25), cursor: url.searchParams.get('cursor') ?? undefined };
     const request = init?.body ? JSON.parse(String(init.body)) : undefined;
+    const oauthQuery = url.searchParams.has('pluginId') ? { pluginId: url.searchParams.get('pluginId')! } : { transactionId: url.searchParams.get('transactionId')! };
     let outcome;
     switch (url.pathname) {
       case '/api/addons/v1/provider-settings/mail': outcome = init?.method === 'POST' ? await required.api.setMailProviderSettings({ request }) : await required.api.mailProviderSettings({}); break;
@@ -32,7 +33,7 @@ function transport(required: { api: NonNullable<StudioApiPort['addons']>; calls:
       case '/api/addons/v1/set-enabled': outcome = await required.api.setEnabled({ request }); break;
       case '/api/addons/v1/uninstall': outcome = await required.api.uninstall({ request }); break;
       case '/api/addons/v1/integrations/oauth/client': outcome = await required.api.setOAuthClient({ request }); break;
-      case '/api/addons/v1/integrations/oauth/status': outcome = await required.api.oauthStatus({ query: url.searchParams.has('pluginId') ? { pluginId: url.searchParams.get('pluginId')! } : { transactionId: url.searchParams.get('transactionId')! } }); break;
+      case '/api/addons/v1/integrations/oauth/status': outcome = await required.api.oauthStatus({ query: oauthQuery }); break;
       case '/api/addons/v1/integrations/conversion-settings': outcome = init?.method === 'POST' ? await required.api.setConversionSettings({ request }) : await required.api.conversionSettings({ pluginId: url.searchParams.get('pluginId')! }); break;
       case '/api/addons/v1/integrations/plugin-secret': outcome = init?.method === 'POST' ? await required.api.setPluginSecret({ request }) : await required.api.pluginSecretStatus({ pluginId: url.searchParams.get('pluginId')! }); break;
       case '/api/addons/v1/integrations': outcome = await required.api.integrations({ query }); break;

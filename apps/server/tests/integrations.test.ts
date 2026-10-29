@@ -451,7 +451,7 @@ it.each([false, true])('completes Meta on O1, rejects replay and uses broker rec
             agentPluginState: async () => ({ enabled: true, bundled: false, admitted: true, revision: 'fixture', entryUrl: 'file:///fixture/oauth.mjs', metadata: {} }),
             observer: f.dependencies.observer, stateRoot: '/fixture', providers, readCredentialCards: readInstalledFixtureCards, redirectUri: () => 'http://127.0.0.1:43120' + oauthCallbackPath,
             io: { ...io, agentPlugins: { ...io.agentPlugins!, moduleDigest: async () => 'a'.repeat(64), loadModule: async () => ({
-                createOAuthExchange: (dependencies: Pick<PluginCapabilityDependencies, 'fetch' | 'clock'>) => ({ async exchange(_input: unknown, options?: CallOptions) {
+                createOAuthExchange: (dependencies: Pick<PluginCapabilityDependencies, 'fetch' | 'clock'>) => ({ async exchange(_input: Record<string, unknown>, options?: CallOptions) {
                     for (const path of ['first', 'second', 'third']) await dependencies.fetch('https://fixture.example/' + path, { signal: options?.signal });
                     return { ok: true, value: { accessToken: 'fixture-meta-long', refreshToken: null, tokenType: 'Bearer', scopes: [...scopes, 'email'],
                         expiresAt: nonExpiring ? null : new Date(3601000).toISOString() } };
