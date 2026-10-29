@@ -1,0 +1,367 @@
+=== BUILD packages/contracts
+
+> @open-marketing/contracts@0.0.0 build /home/user/Open-Marketing/packages/contracts
+> node ../../development/scripts/build.mjs
+
+@open-marketing/contracts: 18 freshly emitted executable/declaration outputs attested
+RESULT packages/contracts rc=0
+=== BUILD packages/om-clock
+
+> @open-marketing/om-clock@0.0.0 build /home/user/Open-Marketing/packages/om-clock
+> node ../../development/scripts/build.mjs
+
+@open-marketing/om-clock: 2 freshly emitted executable/declaration outputs attested
+RESULT packages/om-clock rc=0
+=== BUILD packages/om-db
+
+> @open-marketing/om-db@0.0.0 build /home/user/Open-Marketing/packages/om-db
+> node ../../development/scripts/build.mjs
+
+@open-marketing/om-db: 10 freshly emitted executable/declaration outputs attested
+RESULT packages/om-db rc=0
+=== BUILD features/audit
+
+> @open-marketing/audit@0.0.0 build /home/user/Open-Marketing/features/audit
+> node ../../development/scripts/build.mjs
+
+@open-marketing/audit: 20 freshly emitted executable/declaration outputs attested
+RESULT features/audit rc=0
+=== BUILD features/brand
+
+> @open-marketing/brand@0.0.0 build /home/user/Open-Marketing/features/brand
+> node ../../development/scripts/build.mjs
+
+@open-marketing/brand: 12 freshly emitted executable/declaration outputs attested
+RESULT features/brand rc=0
+=== BUILD features/campaigns
+
+> @open-marketing/campaigns@0.0.0 build /home/user/Open-Marketing/features/campaigns
+> node ../../development/scripts/build.mjs
+
+@open-marketing/campaigns: 50 freshly emitted executable/declaration outputs attested
+RESULT features/campaigns rc=0
+=== BUILD features/contacts
+
+> @open-marketing/contacts@0.0.0 build /home/user/Open-Marketing/features/contacts
+> node ../../development/scripts/build.mjs
+
+@open-marketing/contacts: 16 freshly emitted executable/declaration outputs attested
+RESULT features/contacts rc=0
+=== BUILD features/creative
+
+> @open-marketing/creative@0.0.0 build /home/user/Open-Marketing/features/creative
+> node ../../development/scripts/build.mjs
+
+@open-marketing/creative: 26 freshly emitted executable/declaration outputs attested
+RESULT features/creative rc=0
+=== BUILD features/credentials
+
+> @open-marketing/credentials@0.0.0 build /home/user/Open-Marketing/features/credentials
+> node ../../development/scripts/build.mjs
+
+@open-marketing/credentials: 36 freshly emitted executable/declaration outputs attested
+RESULT features/credentials rc=0
+=== BUILD features/federation
+
+> @open-marketing/federation@0.0.0 build /home/user/Open-Marketing/features/federation
+> node ../../development/scripts/build.mjs
+
+@open-marketing/federation: 26 freshly emitted executable/declaration outputs attested
+RESULT features/federation rc=0
+=== BUILD features/forms
+
+> @open-marketing/forms@0.0.0 build /home/user/Open-Marketing/features/forms
+> node ../../development/scripts/build.mjs
+
+@open-marketing/forms: 18 freshly emitted executable/declaration outputs attested
+RESULT features/forms rc=0
+=== BUILD features/jobs
+
+> @open-marketing/jobs@0.0.0 build /home/user/Open-Marketing/features/jobs
+> node ../../development/scripts/build.mjs
+
+@open-marketing/jobs: 42 freshly emitted executable/declaration outputs attested
+RESULT features/jobs rc=0
+=== BUILD features/leads
+
+> @open-marketing/leads@0.0.0 build /home/user/Open-Marketing/features/leads
+> node ../../development/scripts/build.mjs
+
+@open-marketing/leads: 12 freshly emitted executable/declaration outputs attested
+RESULT features/leads rc=0
+=== BUILD features/measure
+
+> @open-marketing/measure@0.0.0 build /home/user/Open-Marketing/features/measure
+> node ../../development/scripts/build.mjs
+
+@open-marketing/measure: 58 freshly emitted executable/declaration outputs attested
+RESULT features/measure rc=0
+=== BUILD features/media-library
+
+> @open-marketing/media-library@0.0.0 build /home/user/Open-Marketing/features/media-library
+> node ../../development/scripts/build.mjs
+
+@open-marketing/media-library: 34 freshly emitted executable/declaration outputs attested
+RESULT features/media-library rc=0
+=== BUILD features/plugins
+
+> @open-marketing/plugins@0.0.0 build /home/user/Open-Marketing/features/plugins
+> node ../../development/scripts/build.mjs
+
+@open-marketing/plugins: 12 freshly emitted executable/declaration outputs attested
+RESULT features/plugins rc=0
+=== BUILD features/policy
+
+> @open-marketing/policy@0.0.0 build /home/user/Open-Marketing/features/policy
+> node ../../development/scripts/build.mjs
+
+@open-marketing/policy: 20 freshly emitted executable/declaration outputs attested
+RESULT features/policy rc=0
+=== BUILD features/privacy
+
+> @open-marketing/privacy@0.0.0 build /home/user/Open-Marketing/features/privacy
+> node ../../development/scripts/build.mjs
+
+@open-marketing/privacy: 16 freshly emitted executable/declaration outputs attested
+RESULT features/privacy rc=0
+=== BUILD features/safety
+
+> @open-marketing/safety@0.0.0 build /home/user/Open-Marketing/features/safety
+> node ../../development/scripts/build.mjs
+
+@open-marketing/safety: 28 freshly emitted executable/declaration outputs attested
+RESULT features/safety rc=0
+=== BUILD features/web-events
+
+> @open-marketing/web-events@0.0.0 build /home/user/Open-Marketing/features/web-events
+> node ../../development/scripts/build.mjs
+
+@open-marketing/web-events: 16 freshly emitted executable/declaration outputs attested
+RESULT features/web-events rc=0
+=== BUILD features/workspaces
+
+> @open-marketing/workspaces@0.0.0 build /home/user/Open-Marketing/features/workspaces
+> node ../../development/scripts/build.mjs
+
+@open-marketing/workspaces: 28 freshly emitted executable/declaration outputs attested
+RESULT features/workspaces rc=0
+=== BUILD content/agent-plugins/amazon-ads
+
+> @open-marketing-plugin/amazon-ads@0.1.0 build /home/user/Open-Marketing/content/agent-plugins/amazon-ads
+> esbuild io.github.ainsep.openmarketing/src/index.ts --bundle --platform=node --format=esm --outfile=io.github.ainsep.openmarketing/dist/index.mjs
+
+
+  io.github.ainsep.openmarketing/dist/index.mjs  536.4kb
+
+⚡ Done in 30ms
+RESULT content/agent-plugins/amazon-ads rc=0
+=== BUILD content/agent-plugins/amazon-ses
+
+> @open-marketing-plugin/amazon-ses@0.1.0 build /home/user/Open-Marketing/content/agent-plugins/amazon-ses
+> esbuild io.github.ainsep.openmarketing/src/index.ts --bundle --platform=node --format=esm --outfile=io.github.ainsep.openmarketing/dist/index.mjs
+
+
+  io.github.ainsep.openmarketing/dist/index.mjs  536.1kb
+
+⚡ Done in 52ms
+RESULT content/agent-plugins/amazon-ses rc=0
+=== BUILD content/agent-plugins/apple-search-ads
+
+> @open-marketing-plugin/apple-search-ads@0.1.0 build /home/user/Open-Marketing/content/agent-plugins/apple-search-ads
+> esbuild io.github.ainsep.openmarketing/src/index.ts --bundle --platform=node --format=esm --outfile=io.github.ainsep.openmarketing/dist/index.mjs
+
+
+  io.github.ainsep.openmarketing/dist/index.mjs  533.8kb
+
+⚡ Done in 28ms
+RESULT content/agent-plugins/apple-search-ads rc=0
+=== BUILD content/agent-plugins/google-ads
+
+> @open-marketing/plugin-google-ads@0.1.0 build /home/user/Open-Marketing/content/agent-plugins/google-ads
+> esbuild io.github.ainsep.openmarketing/src/index.ts --bundle --platform=node --format=esm --outfile=io.github.ainsep.openmarketing/dist/index.mjs
+
+
+  io.github.ainsep.openmarketing/dist/index.mjs  639.0kb
+
+⚡ Done in 37ms
+RESULT content/agent-plugins/google-ads rc=0
+=== BUILD content/agent-plugins/google-business-profile
+
+> @open-marketing/plugin-google-business-profile@0.1.0 build /home/user/Open-Marketing/content/agent-plugins/google-business-profile
+> esbuild io.github.ainsep.openmarketing/src/index.ts --bundle --platform=node --format=esm --outfile=io.github.ainsep.openmarketing/dist/index.mjs
+
+
+  io.github.ainsep.openmarketing/dist/index.mjs  524.7kb
+
+⚡ Done in 38ms
+RESULT content/agent-plugins/google-business-profile rc=0
+=== BUILD content/agent-plugins/higgsfield-media
+
+> @open-marketing-plugin/higgsfield-media@0.1.0 build /home/user/Open-Marketing/content/agent-plugins/higgsfield-media
+> esbuild io.github.ainsep.openmarketing/src/index.ts --bundle --platform=node --format=esm --outfile=io.github.ainsep.openmarketing/dist/index.mjs
+
+
+  io.github.ainsep.openmarketing/dist/index.mjs  552.1kb
+
+⚡ Done in 56ms
+RESULT content/agent-plugins/higgsfield-media rc=0
+=== BUILD content/agent-plugins/kakao-ads
+
+> @open-marketing-plugin/kakao-ads@0.1.0 build /home/user/Open-Marketing/content/agent-plugins/kakao-ads
+> esbuild io.github.ainsep.openmarketing/src/index.ts --bundle --platform=node --format=esm --outfile=io.github.ainsep.openmarketing/dist/index.mjs
+
+
+  io.github.ainsep.openmarketing/dist/index.mjs  522.4kb
+
+⚡ Done in 34ms
+RESULT content/agent-plugins/kakao-ads rc=0
+=== BUILD content/agent-plugins/line-ads
+
+> @open-marketing-plugin/line-ads@0.1.0 build /home/user/Open-Marketing/content/agent-plugins/line-ads
+> esbuild io.github.ainsep.openmarketing/src/index.ts --bundle --platform=node --format=esm --outfile=io.github.ainsep.openmarketing/dist/index.mjs
+
+
+  io.github.ainsep.openmarketing/dist/index.mjs  608.7kb
+
+⚡ Done in 31ms
+RESULT content/agent-plugins/line-ads rc=0
+=== BUILD content/agent-plugins/linkedin-ads
+
+> @open-marketing-plugin/linkedin-ads@0.1.0 build /home/user/Open-Marketing/content/agent-plugins/linkedin-ads
+> esbuild io.github.ainsep.openmarketing/src/index.ts --bundle --platform=node --format=esm --outfile=io.github.ainsep.openmarketing/dist/index.mjs
+
+
+  io.github.ainsep.openmarketing/dist/index.mjs  583.4kb
+
+⚡ Done in 37ms
+RESULT content/agent-plugins/linkedin-ads rc=0
+=== BUILD content/agent-plugins/meta-ads
+
+> @open-marketing-plugin/meta-ads@0.1.0 build /home/user/Open-Marketing/content/agent-plugins/meta-ads
+> esbuild io.github.ainsep.openmarketing/src/index.ts --bundle --platform=node --format=esm --outfile=io.github.ainsep.openmarketing/dist/index.mjs
+
+
+  io.github.ainsep.openmarketing/dist/index.mjs  623.5kb
+
+⚡ Done in 42ms
+RESULT content/agent-plugins/meta-ads rc=0
+=== BUILD content/agent-plugins/microsoft-ads
+
+> @open-marketing-plugin/microsoft-ads@0.1.0 build /home/user/Open-Marketing/content/agent-plugins/microsoft-ads
+> esbuild io.github.ainsep.openmarketing/src/index.ts --bundle --platform=node --format=esm --outfile=io.github.ainsep.openmarketing/dist/index.mjs
+
+
+  io.github.ainsep.openmarketing/dist/index.mjs  589.3kb
+
+⚡ Done in 41ms
+RESULT content/agent-plugins/microsoft-ads rc=0
+=== BUILD content/agent-plugins/naver-ads
+
+> @open-marketing-plugin/naver-ads@0.1.0 build /home/user/Open-Marketing/content/agent-plugins/naver-ads
+> esbuild io.github.ainsep.openmarketing/src/index.ts --bundle --platform=node --format=esm --outfile=io.github.ainsep.openmarketing/dist/index.mjs
+
+
+  io.github.ainsep.openmarketing/dist/index.mjs  550.5kb
+
+⚡ Done in 33ms
+RESULT content/agent-plugins/naver-ads rc=0
+=== BUILD content/agent-plugins/pinterest-ads
+
+> @open-marketing-plugin/pinterest-ads@0.1.0 build /home/user/Open-Marketing/content/agent-plugins/pinterest-ads
+> esbuild io.github.ainsep.openmarketing/src/index.ts --bundle --platform=node --format=esm --outfile=io.github.ainsep.openmarketing/dist/index.mjs
+
+
+  io.github.ainsep.openmarketing/dist/index.mjs  552.3kb
+
+⚡ Done in 32ms
+RESULT content/agent-plugins/pinterest-ads rc=0
+=== BUILD content/agent-plugins/reddit-ads
+
+> @open-marketing-plugin/reddit-ads@0.1.0 build /home/user/Open-Marketing/content/agent-plugins/reddit-ads
+> esbuild io.github.ainsep.openmarketing/src/index.ts --bundle --platform=node --format=esm --outfile=io.github.ainsep.openmarketing/dist/index.mjs
+
+
+  io.github.ainsep.openmarketing/dist/index.mjs  533.4kb
+
+⚡ Done in 33ms
+RESULT content/agent-plugins/reddit-ads rc=0
+=== BUILD content/agent-plugins/resend-email
+
+> @open-marketing-plugin/resend-email@0.1.0 build /home/user/Open-Marketing/content/agent-plugins/resend-email
+> esbuild io.github.ainsep.openmarketing/src/index.ts --bundle --platform=node --format=esm --outfile=io.github.ainsep.openmarketing/dist/index.mjs
+
+
+  io.github.ainsep.openmarketing/dist/index.mjs  525.3kb
+
+⚡ Done in 29ms
+RESULT content/agent-plugins/resend-email rc=0
+=== BUILD content/agent-plugins/snapchat-ads
+
+> @open-marketing-plugin/snapchat-ads@0.1.0 build /home/user/Open-Marketing/content/agent-plugins/snapchat-ads
+> esbuild io.github.ainsep.openmarketing/src/index.ts --bundle --platform=node --format=esm --outfile=io.github.ainsep.openmarketing/dist/index.mjs
+
+
+  io.github.ainsep.openmarketing/dist/index.mjs  565.1kb
+
+⚡ Done in 42ms
+RESULT content/agent-plugins/snapchat-ads rc=0
+=== BUILD content/agent-plugins/tiktok-ads
+
+> @open-marketing-plugin/tiktok-ads@0.1.0 build /home/user/Open-Marketing/content/agent-plugins/tiktok-ads
+> esbuild io.github.ainsep.openmarketing/src/index.ts --bundle --platform=node --format=esm --outfile=io.github.ainsep.openmarketing/dist/index.mjs
+
+
+  io.github.ainsep.openmarketing/dist/index.mjs  590.2kb
+
+⚡ Done in 30ms
+RESULT content/agent-plugins/tiktok-ads rc=0
+=== BUILD content/agent-plugins/twilio-sms
+
+> @open-marketing-plugin/twilio-sms@0.1.0 build /home/user/Open-Marketing/content/agent-plugins/twilio-sms
+> esbuild io.github.ainsep.openmarketing/src/index.ts --bundle --platform=node --format=esm --outfile=io.github.ainsep.openmarketing/dist/index.mjs
+
+
+  io.github.ainsep.openmarketing/dist/index.mjs  533.9kb
+
+⚡ Done in 48ms
+RESULT content/agent-plugins/twilio-sms rc=0
+=== BUILD content/agent-plugins/vk-ads
+
+> @open-marketing-plugin/vk-ads@0.1.0 build /home/user/Open-Marketing/content/agent-plugins/vk-ads
+> esbuild io.github.ainsep.openmarketing/src/index.ts --bundle --platform=node --format=esm --outfile=io.github.ainsep.openmarketing/dist/index.mjs
+
+
+  io.github.ainsep.openmarketing/dist/index.mjs  516.3kb
+
+⚡ Done in 29ms
+RESULT content/agent-plugins/vk-ads rc=0
+=== BUILD content/agent-plugins/whatsapp-business
+
+> @open-marketing-plugin/whatsapp-business@0.1.0 build /home/user/Open-Marketing/content/agent-plugins/whatsapp-business
+> esbuild io.github.ainsep.openmarketing/src/index.ts --bundle --platform=node --format=esm --outfile=io.github.ainsep.openmarketing/dist/index.mjs
+
+
+  io.github.ainsep.openmarketing/dist/index.mjs  536.8kb
+
+⚡ Done in 31ms
+RESULT content/agent-plugins/whatsapp-business rc=0
+=== BUILD content/agent-plugins/x-ads
+
+> @open-marketing-plugin/x-ads@0.1.0 build /home/user/Open-Marketing/content/agent-plugins/x-ads
+> esbuild io.github.ainsep.openmarketing/src/index.ts --bundle --platform=node --format=esm --outfile=io.github.ainsep.openmarketing/dist/index.mjs
+
+
+  io.github.ainsep.openmarketing/dist/index.mjs  582.9kb
+
+⚡ Done in 31ms
+RESULT content/agent-plugins/x-ads rc=0
+=== BUILD content/agent-plugins/yandex-direct
+
+> @open-marketing-plugin/yandex-direct@0.1.0 build /home/user/Open-Marketing/content/agent-plugins/yandex-direct
+> esbuild io.github.ainsep.openmarketing/src/index.ts --bundle --platform=node --format=esm --outfile=io.github.ainsep.openmarketing/dist/index.mjs
+
+
+  io.github.ainsep.openmarketing/dist/index.mjs  554.9kb
+
+⚡ Done in 32ms
+RESULT content/agent-plugins/yandex-direct rc=0

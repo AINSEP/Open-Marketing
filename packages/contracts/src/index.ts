@@ -22,6 +22,8 @@ export { pluginToolSchema, definePluginTools } from "./addons/index.js";
 export type { PluginTool, PluginToolInvocation, PluginToolsFactory } from "./addons/index.js";
 export { mailAdapterDescriptorSchema, mailManifestExtensionSchema, mailProviderSelectionSchema, mailProviderSettingsSchema } from "./addons/index.js";
 export type { MailAdapterDescriptor, MailManifestExtension, MailProviderSelection, MailProviderSettings } from "./addons/index.js";
+export { conversionSettingsDeclarationSchema, conversionSettingsValuesSchema, setConversionSettingsSchema, conversionSettingsStatusSchema } from "./addons/index.js";
+export type { ConversionSettingsDeclaration, ConversionSettingsValues, SetConversionSettings, ConversionSettingsStatus } from "./addons/index.js";
 
 /** One explicit transaction owner. Root work rolls back on a throw or returned {ok:false}.
  * Pass its session to every participating repository; session transactions join the root.
