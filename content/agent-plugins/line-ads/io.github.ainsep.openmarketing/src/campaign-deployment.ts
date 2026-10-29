@@ -136,7 +136,10 @@ async function checkpoint(required: { input: Checked & Pick<Input, "checkpoint">
 }
 /** Shared transport performs fresh custody and live fences; observer receives correlation only. O(b). */
 async function send(required: { input: Checked; request: Parameters<typeof requestLineAds>[0]["request"] }, optional?: CallOptions): Promise<Outcome<unknown>> {
-  const result = await requestLineAds({ dependencies: required.input.dependencies, prepared: { configuration: required.input.configuration }, request: required.request }, optional);
+  const { dependencies: host } = required.input;
+  // Writes fail closed on live admission at the moment of egress, after custody; same effect as the host guarded fetch.
+  const guarded = { ...host, fetch: ((url, init) => host.admitted === true ? host.fetch(url, init) : Promise.reject(new Error("Admission withdrawn"))) as typeof host.fetch };
+  const result = await requestLineAds({ dependencies: guarded, prepared: { configuration: required.input.configuration }, request: required.request }, optional);
   const { context, dependencies } = required.input;
   try { dependencies.observer.observe({ operation: "line-ads.deployment", outcome: result.ok ? "received" : result.error.code, correlationId: context.correlationId, traceId: context.traceId, runId: context.runId }); }
   catch { /* Telemetry cannot erase an acknowledged create. */ }

@@ -17,8 +17,8 @@
       ],
     "version": 1, "enabled": false, "admitted": false,
     "capabilities": [
-      {"capabilityId": "campaign.read.v1", "version": 1, "pluginId": "yandex-direct", "schemaFingerprint": "491cddc5803b3a8301319e455816f891260281f32e36e9fed892e45e93f96f1c", "admitted": false, "effects": ["read"]},
-      {"capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "yandex-direct", "schemaFingerprint": "6234f8aadc215854600d38f136dfefdaa3d27c95174d687be5cec3a839dc811c", "admitted": false, "effects": ["read"]},
+      {"capabilityId": "campaign.read.v1", "version": 1, "pluginId": "yandex-direct", "schemaFingerprint": "6d2d4bdd6a7d748426741b316540d1fd3906a5fe31d5694a7f21f441d37734ed", "admitted": false, "effects": ["read"]},
+      {"capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "yandex-direct", "schemaFingerprint": "860ae1713eb64cae3b8d629f3365e7d26f9561c7df202aef3c35ea9bf9638bb6", "admitted": false, "effects": ["read"]},
       {"capabilityId": "campaign.create-draft.v1", "version": 1, "pluginId": "yandex-direct", "schemaFingerprint": "daaec52cbf434b63cdcb39ec4daa99a9cff958797a9a56d8a14f68cf7eba9b81", "admitted": false, "effects": ["write"]},
       {"capabilityId": "report.metrics.v1", "version": 1, "pluginId": "yandex-direct", "schemaFingerprint": "91cd1362093e7cfc0d8bd50bd793fbc791267849bd54d506cdde9e2f68426e9c", "admitted": false, "effects": ["read"]},
       {"capabilityId": "campaign.status.v1", "version": 1, "pluginId": "yandex-direct", "schemaFingerprint": "91cd1362093e7cfc0d8bd50bd793fbc791267849bd54d506cdde9e2f68426e9c", "admitted": false, "effects": ["read"]}

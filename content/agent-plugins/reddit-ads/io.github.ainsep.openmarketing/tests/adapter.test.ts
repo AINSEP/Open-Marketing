@@ -64,9 +64,14 @@ describe("Reddit bounds and evidence", () => {
     const f = fixture(); f.state.body = { ...businessPage, pagination: { next_url: next } };
     expect(await f.adapter.invoke(invocation())).toMatchObject({ ok: false, error: { code: "protocol_mismatch" } }); expect(f.calls).toHaveLength(1);
   });
-  it.each([{ ...metric, spend: Number.MAX_SAFE_INTEGER + 1 }, { ...metric, spend: -1 }, { ...metric, spend: 1.5 }, { ...metric, clicks: "3" }, { ...metric, account_id: "a2_foreign" }, { ...metric, currency: "EUR" }])("rejects an entire mixed report page: %j", async row => {
+  it.each([{ ...metric, spend: Number.MAX_SAFE_INTEGER + 1 }, { ...metric, spend: -1 }, { ...metric, spend: 1.5 }, { ...metric, account_id: "a2_foreign" }, { ...metric, currency: "EUR" }])("rejects an entire mixed report page: %j", async row => {
     const f = fixture(); f.state.body = reportPage({ metrics: [{ ...metric, campaign_id: "1" }, { ...row, campaign_id: "2" }] });
     expect(await f.adapter.invoke(invocation({ command: { ...reportCommand, pivot: "CAMPAIGN" } }))).toMatchObject({ ok: false, error: { code: "protocol_mismatch" } });
+  });
+  it("treats a quoted integer count as the exact lexeme the shared reader yields for a number", async () => {
+    // parseExactIntegerJson returns numeric metric tokens as text, so "3" and 3 are indistinguishable by design.
+    const f = fixture(); f.state.body = reportPage({ metrics: [{ ...metric, campaign_id: "1", clicks: "3" }] });
+    expect(await f.adapter.invoke(invocation({ command: { ...reportCommand, pivot: "CAMPAIGN" } }))).toMatchObject({ ok: true, value: { data: { rows: [{ entityId: "1", clicks: 3 }] } } });
   });
   it("rejects duplicate campaigns and preserves large IDs and exact safe microcurrency", async () => {
     const f = fixture(), row = { ...metric, campaign_id: "579922433862993631", spend: Number.MAX_SAFE_INTEGER };

@@ -135,7 +135,7 @@ describe("X frozen metrics", () => {
   it("samples currency once, then requests active IDs and their declared placements", async () => {
     const f = metricsFixture();
     f.state.active = { CAMPAIGN: [{ entity_id: "camp1", activity_start_time: "2026-10-20T00:00:00Z", activity_end_time: "2026-10-22T00:00:00Z", placements: ["ALL_ON_TWITTER"] }] };
-    expect(await metricsCall({ f })).toMatchObject({ ok: true, value: { complete: true, rows: [{ metrics: { spend: "9007199254740993" } }] } });
+    expect(await metricsCall({ f })).toMatchObject({ ok: true, value: { complete: true, rows: [{ day: "2026-10-20", metrics: { spend: "9007199254740993" } }, { day: "2026-10-21", metrics: { spend: "0" } }] } });
     const urls = f.calls.map(call => new URL(call.url));
     expect(urls.some(url => url.pathname.endsWith("/active_entities"))).toBe(true);
     expect(urls.filter(url => url.pathname.endsWith("/campaigns") && url.searchParams.has("campaign_ids")).map(url => url.searchParams.get("campaign_ids"))).toEqual(["camp1"]);
@@ -232,7 +232,7 @@ describe("X frozen metrics", () => {
     const f = metricsFixture();
     f.state.pages.account = { data: { id: "abc1", timezone: "Asia/Tokyo", timezone_switch_at: "2020-01-01T00:00:00Z" } };
     const result = await metricsCall({ f });
-    expect(result).toMatchObject({ ok: true, value: { timezone: "Asia/Tokyo", rows: [{ day: "2026-10-20" }] } });
+    expect(result).toMatchObject({ ok: true, value: { timezone: "Asia/Tokyo", rows: [{ day: "2026-10-20" }, { day: "2026-10-21" }] } });
     const call = f.calls.find(call => new URL(call.url).searchParams.has("granularity"))!;
     expect(new URL(call.url).searchParams.get("start_time")).toBe("2026-10-19T15:00:00.000Z");
   });
@@ -240,7 +240,7 @@ describe("X frozen metrics", () => {
     const f = metricsFixture(); f.state.pages.campaigns = statusPage({ rows: [{ id: "camp1", currency: "JPY", deleted: false, entity_status: "PAUSED" }] });
     f.state.pages.account = { data: { id: "abc1", timezone: "UTC", timezone_switch_at: "2020-01-01T00:00:00Z" } };
     const dependencies = f.dependencies;
-    expect(await reportMetrics({ dependencies, context, connection, input: { grain: "campaign", days } })).toMatchObject({ ok: true, value: { currency: "JPY", rows: [{ metrics: { spend: "27021597764222979" } }] } });
+    expect(await reportMetrics({ dependencies, context, connection, input: { grain: "campaign", days } })).toMatchObject({ ok: true, value: { currency: "JPY", rows: [{ metrics: { spend: "27021597764222979" } }, { metrics: { spend: "0" } }] } });
   });
   it("blocks large windows, foreign connections, duplicate inputs and cancellation before network", async () => {
     const f = metricsFixture();

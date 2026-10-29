@@ -39,7 +39,7 @@ type ReportInput = { dependencies: ReportDependencies; command: ReportCommand; r
  */
 export async function runReport(required: ReportInput, optional?: CallOptions): Promise<Outcome<MicrosoftAdsReport>> {
   const config = required.dependencies.configuration;
-  const file = await fetchReport({ ...required, reportRequest: {
+  const file = await fetchReport({ ...required, totalMilliseconds: 60000, reportRequest: {
     Type: "CampaignPerformanceReportRequest", Format: "Tsv", FormatVersion: "2.0", Aggregation: "Daily", Columns: columns,
     ExcludeReportHeader: true, ExcludeReportFooter: true, ExcludeColumnHeaders: false, ReturnOnlyCompleteData: true,
     Scope: { AccountIds: [Number(config.accountId)] }, Time: { CustomDateRangeStart: wireDate({ epoch: required.command.window.start }), CustomDateRangeEnd: wireDate({ epoch: required.command.window.end - dayMs }) },
@@ -49,8 +49,8 @@ export async function runReport(required: ReportInput, optional?: CallOptions): 
 }
 type Workflow = Omit<ReportInput, "command">;
 /** Shared submit/poll/download lifecycle; no credentials or effects bypass the supplied fence. */
-async function fetchReport(required: Workflow & { reportRequest: unknown }, optional?: CallOptions): Promise<Outcome<string | null>> {
-  const deadline = required.dependencies.clock.now({}) + 25000;
+async function fetchReport(required: Workflow & { reportRequest: unknown; totalMilliseconds: number }, optional?: CallOptions): Promise<Outcome<string | null>> {
+  const deadline = required.dependencies.clock.now({}) + required.totalMilliseconds;
   const submitted = await required.rpc({ request: request({ service: "Reporting", path: "GenerateReport/Submit", body: { ReportRequest: required.reportRequest } }) });
   if (!submitted.ok) return submitted;
   const parsed = z.object({ ReportRequestId: z.string().min(1).max(40) }).safeParse(submitted.value);
@@ -177,7 +177,7 @@ const reportTypes: Record<MetricGrain, string> = { account: "Account", campaign:
 export async function runMetricsReport(required: Workflow & { input: ReportMetricsInput }, optional?: CallOptions): Promise<Outcome<MetricBatch>> {
   const { configuration } = required.dependencies;
   const columns = [...identities[required.input.grain], "TimePeriod", "CurrencyCode", "Spend", "Impressions", "Clicks", "ConversionsQualified", "Revenue"];
-  const file = await fetchReport({ ...required, reportRequest: {
+  const file = await fetchReport({ ...required, totalMilliseconds: 25000, reportRequest: {
     Type: reportTypes[required.input.grain] + "PerformanceReportRequest", Format: "Tsv", FormatVersion: "2.0", Aggregation: "Daily", Columns: columns,
     ExcludeReportHeader: true, ExcludeReportFooter: true, ExcludeColumnHeaders: false, ReturnOnlyCompleteData: true,
     Scope: { AccountIds: [Number(configuration.accountId)] }, Time: { CustomDateRangeStart: wireDate({ epoch: Date.parse(required.input.days.start) }), CustomDateRangeEnd: wireDate({ epoch: Date.parse(required.input.days.end) - dayMs }) },

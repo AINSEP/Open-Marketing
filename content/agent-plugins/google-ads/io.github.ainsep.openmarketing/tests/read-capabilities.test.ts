@@ -243,7 +243,7 @@ test("canonical factory is inert and calls all three handlers through shared cre
   const reads = factory(dependencies);
   const hostedTools = createTools(dependencies);
   assert.equal(accesses, 0); assert.equal(fetches, 0);
-  assert.deepEqual(Object.keys(reads).sort(), ["campaign.halt-stop.v1", "campaign.status.v1", "report.metrics.v1", "tracking.tag.v1"]);
+  assert.deepEqual(Object.keys(reads).sort(), ["campaign.halt-stop.v1", "campaign.status.v1", "campaign.validate.v1", "report.metrics.v1", "tracking.tag.v1"]);
   const report = reads["report.metrics.v1"]!;
   const batch = value({ outcome: await report({ context, connection, input: { grain: "account", days } }, { signal: controller.signal }) });
   assert.equal(batch.rows[0].metrics.spend, "9007199254740993"); assert.equal(metricBatchSchema.safeParse(batch).success, true);

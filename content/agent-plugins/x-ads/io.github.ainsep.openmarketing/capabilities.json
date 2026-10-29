@@ -2,7 +2,7 @@
   "version": 1, "admitted": false,
   "capabilities": [
     { "capabilityId": "campaign.create-paused.v1", "version": 1, "pluginId": "x-ads", "schemaFingerprint": "791ad0638f6308cfa8e90f2e72cd79a27125a70a592805a3dc5dd44f90898e43", "admitted": false, "effects": ["write"] },
-    { "capabilityId": "conversion.deliver.v1", "version": 1, "pluginId": "x-ads", "schemaFingerprint": "d42b051aaa02d1f5b286831a87bc4bc0bbc343e6f2eccad2c011133672a8cfc1", "admitted": false, "effects": ["conversion"] },
+    { "capabilityId": "conversion.deliver.v1", "version": 1, "pluginId": "x-ads", "schemaFingerprint": "bda72232b20b678da2e71f647bb03149b558cf7feb46a1dbbd33cbab933d93b2", "admitted": false, "effects": ["conversion"] },
     { "capabilityId": "campaign.read.v1", "version": 1, "pluginId": "x-ads", "schemaFingerprint": "29aa91195c060b35a44bf169646cdef54bd8272aa1b0ff75f00d3c5efac62b0d", "admitted": false, "effects": ["read"] },
     { "capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "x-ads", "schemaFingerprint": "8d5aac045d2e0d57f0c6ee0c708d3fd111047504ef1403b68eae355f069f9800", "admitted": false, "effects": ["read"] },
     {"capabilityId": "report.metrics.v1", "version": 1, "pluginId": "x-ads", "schemaFingerprint": "8d5aac045d2e0d57f0c6ee0c708d3fd111047504ef1403b68eae355f069f9800", "admitted": false, "effects": ["read"]},

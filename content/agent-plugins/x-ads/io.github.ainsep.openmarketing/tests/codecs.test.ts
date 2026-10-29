@@ -23,7 +23,7 @@ describe("closed X commands and OAuth signing", () => {
     const activeNormalized = "end_time=2026-10-22T00%3A00%3A00.000Z&entity=CAMPAIGN&" + oauth + "&start_time=2026-10-20T00%3A00%3A00.000Z";
     const activeBase = "GET&https%3A%2F%2Fads-api.x.com%2F12%2Fstats%2Faccounts%2Fabc1%2Factive_entities&" + encodeURIComponent(activeNormalized);
     const activeSignature = createHmac("sha1", "consumer-secret&token-secret").update(activeBase).digest("base64");
-    expect(new Headers(active.calls[1].init.headers).get("Authorization")).toContain('oauth_signature="' + encodeURIComponent(activeSignature) + '"');
+    expect(new Headers(active.calls.find(call => new URL(call.url).pathname.endsWith("/active_entities"))!.init.headers).get("Authorization")).toContain('oauth_signature="' + encodeURIComponent(activeSignature) + '"');
   });
   it.each([{ kind: "activate" }, { kind: "list_accounts", count: 101 }, { kind: "list_accounts", url: "https://example.com" }, { ...report, entityIds: ["camp1", "camp1"] }, { ...report, entityIds: Array.from({ length: 21 }, (_, index) => "id" + index) }, { ...report, window: { start: now + 1, end: now + 3600000 } }, { ...report, window: { start: now, end: now + 604800001 } }])("rejects unsupported/oversized input before credentials", async command => {
     expect(commandSchema.safeParse(command).success).toBe(false);

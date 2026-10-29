@@ -3,9 +3,9 @@
   "capabilities": [
     {"capabilityId":"campaign.read.v1","version":1,"pluginId":"line-ads","schemaFingerprint":"78d71319e114851defdd113d59f92b476407011e3e1dc43da8c0f3b24ebdecfd","admitted":false,"effects":["read"]},
     {"capabilityId":"report.account-spend.v1","version":1,"pluginId":"line-ads","schemaFingerprint":"78d71319e114851defdd113d59f92b476407011e3e1dc43da8c0f3b24ebdecfd","admitted":false,"effects":["read"]},
-    {"capabilityId":"campaign.create-paused.v1","version":1,"pluginId":"line-ads","schemaFingerprint":"a7fb611a78e09b9a05ae97536ba11a10500268b890a56c548873dddf9e43dd5c","admitted":false,"effects":["write"]},
-    {"capabilityId":"campaign.status.v1","version":1,"pluginId":"line-ads","schemaFingerprint":"9a160eb55986cf4e3321e7d39e04673174e5b273292134a2aed7c51a9e63f8fc","admitted":false,"effects":["read"]},
-    {"capabilityId":"report.metrics.v1","version":1,"pluginId":"line-ads","schemaFingerprint":"9a160eb55986cf4e3321e7d39e04673174e5b273292134a2aed7c51a9e63f8fc","admitted":false,"effects":["read"]}
+    {"capabilityId":"campaign.create-paused.v1","version":1,"pluginId":"line-ads","schemaFingerprint":"1039ea531fb6417ce763e33a04d1e470fa36c8528e04256f913c89b87bb3cd28","admitted":false,"effects":["write"]},
+    {"capabilityId":"campaign.status.v1","version":1,"pluginId":"line-ads","schemaFingerprint":"c7a4b3919b4d166d3ec3ec69bac3eccd8469fe72115d5be2b158f738e9251bfe","admitted":false,"effects":["read"]},
+    {"capabilityId":"report.metrics.v1","version":1,"pluginId":"line-ads","schemaFingerprint":"c7a4b3919b4d166d3ec3ec69bac3eccd8469fe72115d5be2b158f738e9251bfe","admitted":false,"effects":["read"]}
   ],
   "tools": [
     {"name":"list_accounts","effects":["read"],"capabilityId":"campaign.read.v1"},

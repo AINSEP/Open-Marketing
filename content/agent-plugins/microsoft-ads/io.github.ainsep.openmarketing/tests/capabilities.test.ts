@@ -125,7 +125,7 @@ describe("Microsoft frozen reporting capabilities", () => {
     expect(f.calls).toHaveLength(2);
   });
   it("does not invent a zero row for a successful empty report", async () => {
-    const f = reportFixture(); f.state.responses[1] = { ReportRequestStatus: { Status: "Success", ReportDownloadUrl: null } };
+    const f = reportFixture(); f.state.time = Date.parse(days.end); f.state.responses[1] = { ReportRequestStatus: { Status: "Success", ReportDownloadUrl: null } };
     expect(await metricsCall({ f })).toMatchObject({ ok: true, value: { rows: [], complete: true, freshness: "stale" } });
     expect(f.downloads).toHaveLength(0);
   });
