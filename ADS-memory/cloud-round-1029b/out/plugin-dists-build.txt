@@ -1,0 +1,32 @@
+
+> @open-marketing/plugin-google-ads@0.1.0 build /home/user/Open-Marketing/content/agent-plugins/google-ads
+> esbuild io.github.ainsep.openmarketing/src/index.ts --bundle --platform=node --format=esm --outfile=io.github.ainsep.openmarketing/dist/index.mjs
+
+
+  io.github.ainsep.openmarketing/dist/index.mjs  639.0kb
+
+⚡ Done in 41ms
+
+> @open-marketing-plugin/linkedin-ads@0.1.0 build /home/user/Open-Marketing/content/agent-plugins/linkedin-ads
+> esbuild io.github.ainsep.openmarketing/src/index.ts --bundle --platform=node --format=esm --outfile=io.github.ainsep.openmarketing/dist/index.mjs
+
+
+  io.github.ainsep.openmarketing/dist/index.mjs  583.4kb
+
+⚡ Done in 38ms
+
+> @open-marketing-plugin/meta-ads@0.1.0 build /home/user/Open-Marketing/content/agent-plugins/meta-ads
+> esbuild io.github.ainsep.openmarketing/src/index.ts --bundle --platform=node --format=esm --outfile=io.github.ainsep.openmarketing/dist/index.mjs
+
+
+  io.github.ainsep.openmarketing/dist/index.mjs  623.5kb
+
+⚡ Done in 40ms
+
+> @open-marketing-plugin/tiktok-ads@0.1.0 build /home/user/Open-Marketing/content/agent-plugins/tiktok-ads
+> esbuild io.github.ainsep.openmarketing/src/index.ts --bundle --platform=node --format=esm --outfile=io.github.ainsep.openmarketing/dist/index.mjs
+
+
+  io.github.ainsep.openmarketing/dist/index.mjs  590.2kb
+
+⚡ Done in 47ms

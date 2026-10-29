@@ -1,0 +1,64 @@
+Scope: 21 of 26 workspace projects
+packages/contracts build$ node ../../development/scripts/build.mjs
+packages/om-clock build$ node ../../development/scripts/build.mjs
+packages/om-clock build: @open-marketing/om-clock: 2 freshly emitted executable/declaration outputs attested
+packages/om-clock build: Done
+packages/contracts build: @open-marketing/contracts: 18 freshly emitted executable/declaration outputs attested
+packages/contracts build: Done
+packages/om-db build$ node ../../development/scripts/build.mjs
+features/federation build$ node ../../development/scripts/build.mjs
+features/plugins build$ node ../../development/scripts/build.mjs
+features/plugins build: @open-marketing/plugins: 12 freshly emitted executable/declaration outputs attested
+features/plugins build: Done
+packages/om-db build: @open-marketing/om-db: 10 freshly emitted executable/declaration outputs attested
+features/federation build: @open-marketing/federation: 26 freshly emitted executable/declaration outputs attested
+packages/om-db build: Done
+features/federation build: Done
+features/audit build$ node ../../development/scripts/build.mjs
+features/brand build$ node ../../development/scripts/build.mjs
+features/campaigns build$ node ../../development/scripts/build.mjs
+features/contacts build$ node ../../development/scripts/build.mjs
+features/brand build: @open-marketing/brand: 12 freshly emitted executable/declaration outputs attested
+features/audit build: @open-marketing/audit: 20 freshly emitted executable/declaration outputs attested
+features/brand build: Done
+features/creative build$ node ../../development/scripts/build.mjs
+features/audit build: Done
+features/credentials build$ node ../../development/scripts/build.mjs
+features/campaigns build: @open-marketing/campaigns: 50 freshly emitted executable/declaration outputs attested
+features/campaigns build: Done
+features/forms build$ node ../../development/scripts/build.mjs
+features/contacts build: @open-marketing/contacts: 16 freshly emitted executable/declaration outputs attested
+features/contacts build: Done
+features/jobs build$ node ../../development/scripts/build.mjs
+features/creative build: @open-marketing/creative: 26 freshly emitted executable/declaration outputs attested
+features/creative build: Done
+features/leads build$ node ../../development/scripts/build.mjs
+features/credentials build: @open-marketing/credentials: 36 freshly emitted executable/declaration outputs attested
+features/credentials build: Done
+features/policy build$ node ../../development/scripts/build.mjs
+features/jobs build: @open-marketing/jobs: 42 freshly emitted executable/declaration outputs attested
+features/jobs build: Done
+features/media-library build$ node ../../development/scripts/build.mjs
+features/forms build: @open-marketing/forms: 18 freshly emitted executable/declaration outputs attested
+features/forms build: Done
+features/privacy build$ node ../../development/scripts/build.mjs
+features/leads build: @open-marketing/leads: 12 freshly emitted executable/declaration outputs attested
+features/leads build: Done
+features/safety build$ node ../../development/scripts/build.mjs
+features/policy build: @open-marketing/policy: 20 freshly emitted executable/declaration outputs attested
+features/policy build: Done
+features/web-events build$ node ../../development/scripts/build.mjs
+features/privacy build: @open-marketing/privacy: 16 freshly emitted executable/declaration outputs attested
+features/privacy build: Done
+features/workspaces build$ node ../../development/scripts/build.mjs
+features/media-library build: @open-marketing/media-library: 34 freshly emitted executable/declaration outputs attested
+features/media-library build: Done
+features/web-events build: @open-marketing/web-events: 16 freshly emitted executable/declaration outputs attested
+features/web-events build: Done
+features/workspaces build: @open-marketing/workspaces: 28 freshly emitted executable/declaration outputs attested
+features/workspaces build: Done
+features/safety build: @open-marketing/safety: 28 freshly emitted executable/declaration outputs attested
+features/safety build: Done
+features/measure build$ node ../../development/scripts/build.mjs
+features/measure build: @open-marketing/measure: 58 freshly emitted executable/declaration outputs attested
+features/measure build: Done

@@ -1,0 +1,3881 @@
+
+ RUN  v3.2.4 /home/user/Open-Marketing/apps/studio
+
+ ✓ tests/domain-pages.test.ts (28 tests) 3869ms
+   ✓ shows unavailable costs and preserves pending, failed and unknown generation evidence  475ms
+   ✓ shows the associated generation card choices without calculating allowance eligibility  311ms
+   ✓ delivers a live standalone launch card and retains its outcome after resolution  1206ms
+   ✓ delivers a live draft launch card and retains its outcome after resolution  457ms
+ ❯ tests/addons.test.ts (33 tests | 8 failed) 9424ms
+   ✓ sample add-ons API > sets and clears the From override, preserves omissions and refuses invalid input before requests 16ms
+   ✓ sample add-ons API > installs disabled, filters kind, toggles, and removes with stale actions rejected 6ms
+   ✓ sample add-ons API > sets, reads, replaces and clears sealed client/plugin-secret configuration without returning secrets 24ms
+   ✓ sample add-ons API > saves secret-free connections, rejects duplicate identity, paginates, disconnects 3ms
+   ✓ http add-ons API > sets and clears the From override, preserves omissions and refuses invalid input before requests 66ms
+   ✓ http add-ons API > installs disabled, filters kind, toggles, and removes with stale actions rejected 9ms
+   ✓ http add-ons API > sets, reads, replaces and clears sealed client/plugin-secret configuration without returning secrets 32ms
+   ✓ http add-ons API > saves secret-free connections, rejects duplicate identity, paginates, disconnects 6ms
+   ✓ saves/clears the From address and restores confirmed values when refused  936ms
+   ✓ saves/clears the From address and restores confirmed values when thrown  343ms
+   ✓ blocks every-field-blank optional credential forms and omits plugins with no cards  362ms
+   ✓ rejects malformed wire values and never retries a failed write 2ms
+   ✓ bounds aggregate file size before reading any file and preserves relative/binary bytes 1ms
+   ✓ package controls call the same install/enable/disable/uninstall API 147ms
+   × clears the token before a failed response and redacts tainted errors from the form 527ms
+     → Found multiple elements with the role "alert"
+
+Here are the matching elements:
+
+Ignored nodes: comments, script, style
+[36m<p[39m
+  [33mclass[39m=[32m"error-notice"[39m
+  [33mrole[39m=[32m"alert"[39m
+[36m>[39m
+  [0mConnection could not be saved. Refresh before another submission.[0m
+[36m</p>[39m
+
+Ignored nodes: comments, script, style
+[36m<p[39m
+  [33mclass[39m=[32m"error-notice"[39m
+  [33mrole[39m=[32m"alert"[39m
+[36m>[39m
+  [0mGrant response unavailable. Refresh before another submission.[0m
+[36m</p>[39m
+
+(If this is intentional, then use the `*AllBy*` variant of the query (like `queryAllByText`, `getAllByText`, or `findAllByText`)).
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<section[39m
+      [33maria-label[39m=[32m"Integrations"[39m
+      [33mdata-page[39m=[32m"addons-integrations"[39m
+    [36m>[39m
+      [36m<section[39m
+        [33maria-label[39m=[32m"Mail provider"[39m
+        [33mclass[39m=[32m"settings-card"[39m
+      [36m>[39m
+        [36m<h2>[39m
+          [0mMail provider[0m
+        [36m</h2>[39m
+        [36m<label>[39m
+          [0mMail provider[0m
+          [36m<select>[39m
+            [36m<option[39m
+              [33mvalue[39m=[32m""[39m
+            [36m>[39m
+              [0mNone[0m
+            [36m</option>[39m
+            [36m<option[39m
+              [33mvalue[39m=[32m"sample-mail-service"[39m
+            [36m>[39m
+              [0mSample mail service[0m
+              [0m ([0m
+              [0mConnected[0m
+              [0m)[0m
+            [36m</option>[39m
+            [36m<option[39m
+              [33mvalue[39m=[32m"sample-mail-relay"[39m
+            [36m>[39m
+              [0mSample mail relay[0m
+              [0m ([0m
+              [0mNot connected[0m
+              [0m)[0m
+            [36m</option>[39m
+          [36m</select>[39m
+        [36m</label>[39m
+        [36m<label>[39m
+          [0mFrom address[0m
+          [36m<input[39m
+            [33maria-describedby[39m=[32m"mail-from-hint"[39m
+            [33mmaxlength[39m=[32m"254"[39m
+            [33mplaceholder[39m=[32m"Default from plugin"[39m
+            [33mtype[39m=[32m"email"[39m
+            [33mvalue[39m=[32m""[39m
+          [36m/>[39m
+        [36m</label>[39m
+        [36m<p[39m
+          [33mclass[39m=[32m"muted"[39m
+          [33mid[39m=[32m"mail-from-hint"[39m
+        [36m>[39m
+          [0mDefault from plugin when empty.[0m
+        [36m</p>[39m
+        [36m<button[39m
+          [33mtype[39m=[32m"button"[39m
+        [36m>[39m
+          [0mUse plugin default[0m
+        [36m</button>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"integration-actions"[39m
+        [36m>[39m
+          [36m<button[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0mSave mail provider[0m
+          [36m</button>[39m
+          [36m<button[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0mRefresh mail providers[0m
+          [36m</button>[39m
+        [36m</div>[39m
+      [36m</section>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"integration-grid"[39m
+      [36m>[39m
+        [36m<section[39m
+          [33maria-label[39m=[32m"Sample OAuth service integration"[39m
+          [33mclass[39m=[32m"settings-card"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"integration-row"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"vendor-heading"[39m
+            [36m>[39m
+              [36m<h2>[39m
+                [0mSample OAuth service[0m
+              [36m</h2>[39m
+            [36m</div>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"integration-status"[39m
+            [36m>[39m
+              [0mNo connection saved[0m
+            [36m</span>[39m
+          [36m</div>[39m
+          [36m<article[39m
+            [33maria-label[39m=[32m"Sign in"[39m
+          [36m>[39m
+            [36m<h3>[39m
+              [0mAccount sign-in[0m
+            [36m</h3>[39m
+            [36m<p>[39m
+              [0mSign in[0m
+            [36m</p>[39m
+            [36m<p>[39m
+              [0mConnect an account through secure sign-in.[0m
+            [36m</p>[39m
+            [36m<a[39m
+              [33mhref[39m=[32m"https://example.test/help"[39m
+              [33mrel[39m=[32m"noopener noreferrer"[39m
+              [33mtarget[39m=[32m"_blank"[39m
+            [36m>[39m
+              [0mSign-in help[0m
+            [36m</a>[39m
+            [36m<div>[39m
+              [36m<p>[39m
+                [0mClient configuration required[0m
+              [36m</p>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"integration-actions"[39m
+              [36m>[39m
+                [36m<button[39m
+                  [33mclass[39m=[32m"primary-button"[39m
+                  [33mdisabled[39m=[32m""[39m
+                  [33mtype[39m=[32m"button"[39m
+                [36m>[39m
+                  [0mSign in with [0m
+                  [0mSample OAuth service[0m
+                [36m</button>[39m
+                [36m<button[39m
+                  [33mtype[39m=[32m"button"[39m
+                [36m>[39m
+                  [0mCheck [0m
+                  [0mSample OAuth service[0m
+                  [0m sign-in status[0m
+                [36m</button>[39m
+              [36m</div>[39m
+            [36m</div>[39m
+          [36m</article>[39m
+          [36m<article[39m
+            [33maria-label[39m=[32m"Client configuration"[39m
+          [36m>[39m
+            [36m<h3>[39m
+              [0mOAuth client configuration[0m
+            [36m</h3>[39m
+            [36m<p>[39m
+              [0mClient configuration[0m
+            [36m</p>[39m
+            [36m<p>[39m
+              [0mSave your application credentials on the server.[0m
+            [36m</p>[39m
+            [36m<a[39m
+              [33mhref[39m=[32m"https://example.test/help"[39m
+              [33mrel[39m=[32m"noopener noreferrer"[39m
+              [33mtarget[39m=[32m"_blank"[39m
+            [36m>[39m
+              [0mClient setup help[0m
+            [36m</a>[39m
+            [36m<form[39m
+              [33mdata-agent-private[39m=[32m"true"[39m
+              [33mdata-private[39m=[32m"true"[39m
+            [36m>[39m
+              [36m<label[39m
+                [33mfor[39m=[32m"sample-oauth-service-client-clientId"[39m
+              [36m>[39m
+                [0mClient ID[0m
+                [36m<input[39m
+                  [33mautocomplete[39m=[32m"off"[39m
+                  [33mdata-agent-private[39m=[32m"true"[39m
+                  [33mdata-private[39m=[32m"true"[39m
+                  [33mid[39m=[32m"sample-oauth-service-client-clientId"[39m
+                  [33mmaxlength[39m=[32m"2048"[39m
+                  [33mname[39m=[32m"clientId"[39m
+                  [33mrequired[39m=[32m""[39m
+                  [33mtype[39m=[32m"text"[39m
+                [36m/>[39m
+              [36m</label>[39m
+              [36m<label[39m
+                [33mfor[39m=[32m"sample-oauth-service-client-tenantId"[39m
+              [36m>[39m
+                [0mTenant ID[0m
+                [36m<input[39m
+                  [33mautocomplete[39m=[32m"off"[39m
+                  [33mdata-agent-private[39m=[32m"true"[39m
+                  [33mdata-private[39m=[32m"true"[39m
+                  [33mid[39m=[32m"sample-oauth-service-client-tenantId"[39m
+                  [33mmaxlength[39m=[32m"2048"[39m
+                  [33mname[39m=[32m"tenantId"[39m
+                  [33mtype[39m=[32m"text"[39m
+                [36m/>[39m
+              [36m</label>[39m
+              [36m<label[39m
+                [33mfor[39m=[32m"sample-oauth-service-client-clientSecret"[39m
+              [36m>[39m
+                [0mClient secret[0m
+                [36m<input[39m
+                  [33mautocomplete[39m=[32m"off"[39m
+                  [33mdata-agent-private[39m=[32m"true"[39m
+                  [33mdata-private[39m=[32m"true"[39m
+                  [33mid[39m=[32m"sample-oauth-service-client-clientSecret"[39m
+                  [33mmaxlength[39m=[32m"8192"[39m
+                  [33mname[39m=[32m"clientSecret"[39m
+                  [33mtype[39m=[32m"password"[39m
+                [36m/>[39m
+              [36m</label>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"integration-actions"[39m
+              [36m>[39m
+                [36m<button[39m
+                  [33mtype[39m=[32m"submit"[39m
+                [36m>[39m
+                  [0mSave client configuration[0m
+                [36m</button>[39m
+                [36m<button[39m
+                  [33mtype[39m=[32m"button"[39m
+                [36m>[39m
+                  [0mClear client configuration[0m
+                [36m</button>[39m
+              [36m</div>[39m
+            [36m</form>[39m
+          [36m</article>[39m
+        [36m</section>[39m
+        [36m<section[39m
+          [33maria-label[39m=[32m"Sample key service integration"[39m
+          [33mclass[39m=[32m"settings-card"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"integration-row"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"vendor-heading"[39m
+            [36m>[39m
+              [36m<h2>[39m
+                [0mSample key service[0m
+              [36m</h2>[39m
+            [36m</div>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"integration-status"[39m
+            [36m>[39m
+              [0mNo connection saved[0m
+            [36m</span>[39m
+          [36m</div>[39m
+          [36m<article[39m
+            [33maria-label[39m=[32m"Token connection"[39m
+          [36m>[39m
+            [36m<h3>[39m
+              [0mAccess token[0m
+            [36m</h3>[39m
+            [36m<p>[39m
+              [0mToken connection[0m
+            [36m</p>[39m
+            [36m<p>[39m
+              [0mSave an access token on the server.[0m
+            [36m</p>[39m
+            [36m<p[39m
+              [33mclass[39m=[32m"muted"[39m
+            [36m>[39m
+              [0mPaste the token from your service account.[0m
+            [36m</p>[39m
+            [36m<a[39m
+              [33mhref[39m=[32m"https://example.test/help"[39m
+              [33mrel[39m=[32m"noopener noreferrer"[39m
+              [33mtarget[39m=[32m"_blank"[39m
+            [36m>[39m
+              [0mToken help[0m
+            [36m</a>[39m
+            [36m<form[39m
+              [33mdata-action[39m=[32m"integrations_connect"[39m
+              [33mdata-agent-private[39m=[32m"true"[39m
+              [33mdata-private[39m=[32m"true"[39m
+            [36m>[39m
+              [36m<label>[39m
+                [0mConnection name (optional)[0m
+                [36m<input[39m
+                  [33mdata-agent-private[39m=[32m"true"[39m
+                  [33mdata-private[39m=[32m"true"[39m
+                  [33mmaxlength[39m=[32m"256"[39m
+                  [33mname[39m=[32m"connectionId"[39m
+                [36m/>[39m
+              [36m</label>[39m
+              [36m<label[39m
+                [33mfor[39m=[32m"sample-key-service-access-token"[39m
+              [36m>[39m
+                [0mAccess token[0m
+                [36m<input[39m
+                  [33mautocomplete[39m=[32m"off"[39m
+                  [33mdata-agent-private[39m=[32m"true"[39m
+                  [33mdata-private[39m=[32m"true"[39m
+                  [33mid[39m=[32m"sample-key-service-access-token"[39m
+                  [33mmaxlength[39m=[32m"65536"[39m
+                  [33mname[39m=[32m"token"[39m
+                  [33mrequired[39m=[32m""[39m
+                  [33mtype[39m=[32m"password"[39m
+                [36m/>[39m
+              [36m</label>[39m
+              [36m<button[39m
+                [33mclass[39m=[32m"primary-button"[39m
+                [33mdata-action[39m=[32m"integrations_connect"[39m
+                [33mtype[39m=[32m"submit"[39m
+              [36m>[39m
+                [0mSave token[0m
+              [36m</button>[39m
+            [36m</form>[39m
+          [36m</article>[39m
+          [36m<article[39m
+            [33maria-label[39m=[32m"Service secret"[39m
+          [36m>[39m
+            [36m<h3>[39m
+              [0mPlugin secret[0m
+            [36m</h3>[39m
+            [36m<p>[39m
+              [0mService secret[0m
+            [36m</p>[39m
+            [36m<p>[39m
+              [0mSave a private service key on the server.[0m
+            [36m</p>[39m
+            [36m<a[39m
+              [33mhref[39m=[32m"https://example.test/help"[39m
+              [33mrel[39m=[32m"noopener noreferrer"[39m
+              [33mtarget[39m=[32m"_blank"[39m
+            [36m>[39m
+              [0mSecret help[0m
+            [36m</a>[39m
+            [36m<div>[39m
+              [36m<p[39m
+                [33mrole[39m=[32m"status"[39m
+              [36m>[39m
+                [0mSecret not configured[0m
+              [36m</p>[39m
+              [36m<form[39m
+                [33mdata-agent-private[39m=[32m"true"[39m
+                [33mdata-private[39m=[32m"true"[39m
+              [36m>[39m
+                [36m<label[39m
+                  [33mfor[39m=[32m"sample-key-service-secret-serviceKey"[39m
+                [36m>[39m
+                  [0mService key[0m
+                  [36m<input[39m
+                    [33mautocomplete[39m=[32m"off"[39m
+                    [33mdata-agent-private[39m=[32m"true"[39m
+                    [33mdata-private[39m=[32m"true"[39m
+                    [33mid[39m=[32m"sample-key-service-secret-serviceKey"[39m
+                    [33mmaxlength[39m=[32m"8192"[39m
+                    [33mname[39m=[32m"serviceKey"[39m
+                    [33mrequired[39m=[32m""[39m
+                    [33mtype[39m=[32m"password"[39m
+                  [36m/>[39m
+                [36m</label>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"integration-actions"[39m
+                [36m>[39m
+                  [36m<button[39m
+                    [33mclass[39m=[32m"primary-button"[39m
+                    [33mtype[39m=[32m"submit"[39m
+                  [36m>[39m
+                    [0mSave secret[0m
+                  [36m</button>[39m
+                  [36m<button[39m
+                    [33mtype[39m=[32m"button"[39m
+                  [36m>[39m
+                    [0mClear secret[0m
+                  [36m</button>[39m
+                  [36m<button[39m
+                    [33mtype[39m=[32m"button"[39m
+                  [36m>[39m
+                    [0mRefresh secret status[0m
+                  [36m</button>[39m
+                [36m</div>[39m
+              [36m</form>[39m
+            [36m</div>[39m
+          [36m</article>[39m
+        [36m</section>[39m
+      [36m</div>[39m
+      [36m<section[39m
+        [33maria-label[39m=[32m"Connections"[39m
+        [33mclass[39m=[32m"settings-card"[39m
+      [36m>[39m
+        [36m<h2>[39m
+          [0mConnections[0m
+        [36m</h2>[39m
+        [36m<button[39m
+          [33mdata-action[39m=[32m"integrations_list"[39m
+          [33mtype[39m=[32m"button"[39m
+        [36m>[39m
+          [0mRefresh connections[0m
+        [36m</button>[39m
+        [36m<p[39m
+          [33mclass[39m=[32m"error-notice"[39m
+          [33mrole[39m=[32m"alert"[39m
+        [36m>[39m
+          [0mConnection could not be saved. Refresh before another submission.[0m
+        [36m</p>[39m
+        [36m<ul />[39m
+      [36m</section>[39m
+      [36m<section[39m
+        [33maria-label[39m=[32m"Send a message"[39m
+        [33mclass[39m=[32m"settings-card"[39m
+      [36m>[39m
+        [36m<h2>[39m
+          [0mSend a message[0m
+        [36m</h2>[39m
+        [36m<p[39m
+          [33mclass[39m=[32m"error-notice"[39m
+          [33mrole[39m=[32m"status"[39m
+        [36m>[39m
+          [0mMessaging connections could not be loaded: Messaging is unavailable on this server.[0m
+        [36m</p>[39m
+        [36m<form>[39m
+          [36m<fieldset>[39m
+            [36m<label>[39m
+              [0mContact phone[0m
+              [36m<input[39m
+                [33mmaxlength[39m=[32m"16"[39m
+                [33mplaceholder[39m=[32m"+15555550100"[39m
+                [33mtype[39m=[32m"tel"[39m
+                [33mvalue[39m=[32m""[39m
+              [36m/>[39m
+            [36m</label>[39m
+            [36m<button[39m
+              [33mdisabled[39m=[32m""[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [0mFind contact[0m
+            [36m</button>[39m
+            [36m<label>[39m
+              [0mConnection[0m
+              [36m<select />[39m
+            [36m</label>[39m
+            [36m<label>[39m
+              [0mMessage[0m
+              [36m<textarea[39m
+                [33mmaxlength[39m=[32m"1600"[39m
+                [33mrows[39m=[32m"4"[39m
+              [36m/>[39m
+            [36m</label>[39m
+            [36m<label>[39m
+              [0mConsent purpose[0m
+              [36m<input[39m
+                [33mmaxlength[39m=[32m"256"[39m
+                [33mvalue[39m=[32m""[39m
+              [36m/>[39m
+            [36m</label>[39m
+            [36m<label>[39m
+              [0mIntent[0m
+              [36m<select>[39m
+                [36m<option[39m
+                  [33mvalue[39m=[32m"marketing"[39m
+                [36m>[39m
+                  [0mMarketing[0m
+                [36m</option>[39m
+                [36m<option[39m
+                  [33mvalue[39m=[32m"transactional"[39m
+                [36m>[39m
+                  [0mTransactional[0m
+                [36m</option>[39m
+              [36m</select>[39m
+            [36m</label>[39m
+            [36m<label>[39m
+              [0mMaximum cost (USD cents)[0m
+              [36m<input[39m
+                [33mmin[39m=[32m"1"[39m
+                [33mstep[39m=[32m"1"[39m
+                [33mtype[39m=[32m"number"[39m
+                [33mvalue[39m=[32m""[39m
+              [36m/>[39m
+            [36m</label>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"primary-button"[39m
+              [33mtype[39m=[32m"submit"[39m
+            [36m>[39m
+              [0mReview and send[0m
+            [36m</button>[39m
+          [36m</fieldset>[39m
+        [36m</form>[39m
+      [36m</section>[39m
+      [36m<section[39m
+        [33maria-label[39m=[32m"Conversion sharing grants"[39m
+        [33mclass[39m=[32m"settings-card"[39m
+      [36m>[39m
+        [36m<h2>[39m
+          [0mConversion sharing[0m
+        [36m</h2>[39m
+        [36m<p>[39m
+          [0mAuthorize sharing conversion data for these definitions with the destination plugin. Visitor consent is also required for every dispatch.[0m
+        [36m</p>[39m
+        [36m<form[39m
+          [33maria-label[39m=[32m"Grant conversion sharing"[39m
+        [36m>[39m
+          [36m<fieldset[39m
+            [33mdisabled[39m=[32m""[39m
+          [36m>[39m
+            [36m<legend>[39m
+              [0mNew conversion-sharing grant[0m
+            [36m</legend>[39m
+            [36m<label>[39m
+              [0mConnection ID[0m
+              [36m<input[39m
+                [33mmaxlength[39m=[32m"256"[39m
+                [33mname[39m=[32m"connectionId"[39m
+                [33mrequired[39m=[32m""[39m
+              [36m/>[39m
+            [36m</label>[39m
+            [36m<label>[39m
+              [0mDestination plugin ID[0m
+              [36m<input[39m
+                [33mmaxlength[39m=[32m"256"[39m
+                [33mname[39m=[32m"destination"[39m
+                [33mrequired[39m=[32m""[39m
+              [36m/>[39m
+            [36m</label>[39m
+            [36m<label>[39m
+              [0mAccount ID[0m
+              [36m<input[39m
+                [33mmaxlength[39m=[32m"256"[39m
+                [33mname[39m=[32m"accountId"[39m
+                [33mrequired[39m=[32m""[39m
+              [36m/>[39m
+            [36m</label>[39m
+            [36m<label>[39m
+              [0mDefinition IDs (comma-separated)[0m
+              [36m<input[39m
+                [33mmaxlength[39m=[32m"4111"[39m
+                [33mname[39m=[32m"definitionIds"[39m
+                [33mrequired[39m=[32m""[39m
+              [36m/>[39m
+            [36m</label>[39m
+            [36m<label>[39m
+              [0mPurpose[0m
+              [36m<input[39m
+                [33mmaxlength[39m=[32m"256"[39m
+                [33mname[39m=[32m"purpose"[39m
+                [33mrequired[39m=[32m""[39m
+                [33mvalue[39m=[32m"measurement"[39m
+              [36m/>[39m
+            [36m</label>[39m
+            [36m<label>[39m
+              [0mValid for days[0m
+              [36m<input[39m
+                [33mmax[39m=[32m"365"[39m
+                [33mmin[39m=[32m"1"[39m
+                [33mname[39m=[32m"days"[39m
+                [33mrequired[39m=[32m""[39m
+                [33mtype[39m=[32m"number"[39m
+                [33mvalue[39m=[32m"30"[39m
+              [36m/>[39m
+            [36m</label>[39m
+            [36m<button[39m
+              [33mtype[39m=[32m"submit"[39m
+            [36m>[39m
+              [0mGrant conversion sharing[0m
+            [36m</button>[39m
+          [36m</fieldset>[39m
+        [36m</form>[39m
+        [36m<button[39m
+          [33mtype[39m=[32m"button"[39m
+        [36m>[39m
+          [0mRefresh grants[0m
+        [36m</button>[39m
+        [36m<p[39m
+          [33mclass[39m=[32m"error-notice"[39m
+          [33mrole[39m=[32m"alert"[39m
+        [36m>[39m
+          [0mGrant response unavailable. Refresh before another submission.[0m
+        [36m</p>[39m
+        [36m<ul[39m
+          [33maria-label[39m=[32m"Conversion grants"[39m
+        [36m/>[39m
+      [36m</section>[39m
+    [36m</section>[39m
+  [36m</div>[39m
+[36m</body>[39m
+   ✓ mounts 'Plugins' from an ADD-ONS link and restores the hash route  1385ms
+   ✓ mounts 'Agent Plugins' from an ADD-ONS link and restores the hash route  742ms
+   ✓ mounts 'Skills' from an ADD-ONS link and restores the hash route  757ms
+   ✓ mounts 'Integrations' from an ADD-ONS link and restores the hash route  1614ms
+   ✓ accepts optional add-on snapshot rows while rejecting missing legacy or unknown rows 8ms
+   ✓ renders declared OAuth extras and posts them while clearing private inputs before the response 155ms
+   × starts sign-in through one policy card and reads its operation before offering an expiring HTTPS link 239ms
+     → expected [ 'om_measure_grants_list', …(1) ] to deeply equal [ 'integrations_oauth_start' ]
+   × blocks another OAuth start while unknown, until reconciled as cancelled 180ms
+     → expected 2 to be 1 // Object.is equality
+   × blocks another OAuth start while unknown, until reconciled as interrupted 161ms
+     → expected 2 to be 1 // Object.is equality
+   × blocks another OAuth start while unknown, until reconciled as completed 175ms
+     → expected 2 to be 1 // Object.is equality
+   × recovers a failed OAuth approval read and rejects valid recovery evidence 215ms
+     → expected 2 to be 1 // Object.is equality
+   × recovers a failed OAuth approval read and rejects wrong-operation recovery evidence 268ms
+     → expected 2 to be 1 // Object.is equality
+   × recovers a failed OAuth approval read and rejects wrong-card recovery evidence 268ms
+     → expected 2 to be 1 // Object.is equality
+   ✓ shows boolean plugin-secret status and clears private inputs before the save resolves 226ms
+   ✓ rejects malformed owner configuration before HTTP and rejects tainted status replies 5ms
+   ✓ sample conversion settings read is empty in sample mode and writes are unavailable 1ms
+   ✓ http conversion settings read is empty in sample mode and writes are unavailable 10ms
+   ✓ loads non-secret declared conversion fields and parses textarea mappings as exact string values on save  532ms
+ ❯ tests/browser-tools.test.ts (16 tests | 1 failed) 1494ms
+   ✓ uses the published surface card and reports browser mount evidence 81ms
+   ✓ renders neutral charts as a table without a chart plugin  337ms
+   ✓ does not acknowledge renderer refusals as rendered 24ms
+   ✓ dispatches surface actions to catalog tools and rejects foreign surface/run identities 12ms
+   ✓ uses the Jini DOM driver for local controls and refuses business/approval/credential writes 43ms
+   ✓ binds Jini page-actions for highlight/scroll and cleans up on disposal 25ms
+   ✓ deduplicates invocations and refreshes frontend identity after reconnect 90ms
+   ✓ carries frontend session identity into run-start and rejects surfaces for another browser 13ms
+   ✓ posts browser acknowledgements through the bounded HTTP adapter 26ms
+   ✓ rejects foreign invocation frames before Jini can drive the page 11ms
+   × passes the current bind token and shows surface spend approvals in the existing inline card 427ms
+     → Found multiple elements with the text: Exact spend approval
+
+Here are the matching elements:
+
+Ignored nodes: comments, script, style
+[36m<strong>[39m
+  [0mExact spend approval[0m
+[36m</strong>[39m
+
+Ignored nodes: comments, script, style
+[36m<h3>[39m
+  [0mExact spend approval[0m
+[36m</h3>[39m
+
+(If this is intentional, then use the `*AllBy*` variant of the query (like `queryAllByText`, `getAllByText`, or `findAllByText`)).
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<button[39m
+      [33maria-controls[39m=[32m"om-chat"[39m
+      [33maria-expanded[39m=[32m"true"[39m
+      [33maria-label[39m=[32m"Assistant"[39m
+      [33mclass[39m=[32m"chat-fab"[39m
+      [33mhidden[39m=[32m""[39m
+      [33mtitle[39m=[32m"Open assistant"[39m
+      [33mtype[39m=[32m"button"[39m
+    [36m>[39m
+      [36m<svg[39m
+        [33maria-hidden[39m=[32m"true"[39m
+        [33mfill[39m=[32m"none"[39m
+        [33mfocusable[39m=[32m"false"[39m
+        [33mstroke[39m=[32m"currentColor"[39m
+        [33mstroke-linecap[39m=[32m"round"[39m
+        [33mstroke-linejoin[39m=[32m"round"[39m
+        [33mstroke-width[39m=[32m"1.6"[39m
+        [33mviewBox[39m=[32m"0 0 24 24"[39m
+      [36m>[39m
+        [36m<path[39m
+          [33md[39m=[32m"M12 8V4H8"[39m
+        [36m/>[39m
+        [0m
+  [0m
+        [36m<rect[39m
+          [33mheight[39m=[32m"12"[39m
+          [33mrx[39m=[32m"2"[39m
+          [33mwidth[39m=[32m"16"[39m
+          [33mx[39m=[32m"4"[39m
+          [33my[39m=[32m"8"[39m
+        [36m/>[39m
+        [0m
+  [0m
+        [36m<path[39m
+          [33md[39m=[32m"M2 14h2"[39m
+        [36m/>[39m
+        [0m
+  [0m
+        [36m<path[39m
+          [33md[39m=[32m"M20 14h2"[39m
+        [36m/>[39m
+        [0m
+  [0m
+        [36m<path[39m
+          [33md[39m=[32m"M15 13v2"[39m
+        [36m/>[39m
+        [0m
+  [0m
+        [36m<path[39m
+          [33md[39m=[32m"M9 13v2"[39m
+        [36m/>[39m
+      [36m</svg>[39m
+    [36m</button>[39m
+    [36m<aside[39m
+      [33maria-label[39m=[32m"Assistant"[39m
+      [33mclass[39m=[32m"chat-panel om-jini-chat"[39m
+      [33mid[39m=[32m"om-chat"[39m
+      [33mtabindex[39m=[32m"-1"[39m
+    [36m>[39m
+      [36m<section[39m
+        [33mclass[39m=[32m"jini-chat-pane jini-chat-pane--workspace"[39m
+        [33mdata-activity[39m=[32m"unavailable"[39m
+      [36m>[39m
+        [36m<header[39m
+          [33mclass[39m=[32m"jini-chat-pane__header om-chat-header"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"jini-chat-pane__heading"[39m
+          [36m>[39m
+            [36m<h2[39m
+              [33mclass[39m=[32m"jini-chat-pane__title"[39m
+              [33mtitle[39m=[32m"Fixture only"[39m
+            [36m>[39m
+              [0mFixture only[0m
+            [36m</h2>[39m
+          [36m</div>[39m
+          [36m<button[39m
+            [33maria-label[39m=[32m"Agents"[39m
+            [33mclass[39m=[32m"om-chat-icon"[39m
+            [33mdisabled[39m=[32m""[39m
+            [33mtitle[39m=[32m"Agents and vendors"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [36m<i[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"ri-group-line"[39m
+              [33mstyle[39m=[32m"font-size: 18px; line-height: 1; width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center;"[39m
+            [36m/>[39m
+          [36m</button>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"om-chat-history"[39m
+          [36m>[39m
+            [36m<button[39m
+              [33maria-expanded[39m=[32m"false"[39m
+              [33maria-haspopup[39m=[32m"dialog"[39m
+              [33maria-label[39m=[32m"Chat history"[39m
+              [33mclass[39m=[32m"om-chat-icon"[39m
+              [33mdisabled[39m=[32m""[39m
+              [33mtitle[39m=[32m"Chat history"[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [36m<i[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"ri-chat-3-line"[39m
+                [33mstyle[39m=[32m"font-size: 18px; line-height: 1; width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center;"[39m
+              [36m/>[39m
+            [36m</button>[39m
+          [36m</div>[39m
+          [36m<button[39m
+            [33maria-label[39m=[32m"Chat settings"[39m
+            [33mclass[39m=[32m"om-chat-icon"[39m
+            [33mtitle[39m=[32m"Chat settings"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [36m<i[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"ri-settings-3-line"[39m
+              [33mstyle[39m=[32m"font-size: 18px; line-height: 1; width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center;"[39m
+            [36m/>[39m
+          [36m</button>[39m
+          [36m<button[39m
+            [33maria-label[39m=[32m"Close assistant"[39m
+            [33mclass[39m=[32m"om-chat-icon"[39m
+            [33mtitle[39m=[32m"Close assistant"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [36m<i[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"ri-close-line"[39m
+              [33mstyle[39m=[32m"font-size: 18px; line-height: 1; width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center;"[39m
+            [36m/>[39m
+          [36m</button>[39m
+        [36m</header>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"jini-chat-pane__body"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"jini-message-list"[39m
+            [33mdata-agent-element[39m=[32m"chat-transcript"[39m
+            [33mdata-agent-label[39m=[32m"The conversation transcript, oldest message first"[39m
+            [33mdata-agent-role[39m=[32m"list"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"jini-message jini-message-user"[39m
+              [33mdata-agent-element[39m=[32m"chat-message-test-1"[39m
+              [33mdata-agent-label[39m=[32m"A message from the user"[39m
+              [33mdata-agent-role[39m=[32m"region"[39m
+              [33mdata-message-id[39m=[32m"test-1"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"jini-message-content"[39m
+              [36m>[39m
+                [0mFixture only[0m
+              [36m</div>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"jini-message-actions jini-message-actions--user"[39m
+              [36m>[39m
+                [36m<button[39m
+                  [33maria-label[39m=[32m"Copy message"[39m
+                  [33mclass[39m=[32m"jini-message-action-btn"[39m
+                  [33mtype[39m=[32m"button"[39m
+                [36m>[39m
+                  [36m<svg[39m
+                    [33maria-hidden[39m=[32m"true"[39m
+                    [33mfill[39m=[32m"none"[39m
+                    [33mfocusable[39m=[32m"false...
+   ✓ does not insert a different card or dispatch actions from a cancelled surface 2ms
+   ✓ shares one plugin inventory across chart surfaces and refreshes it on revision change  319ms
+   ✓ accepts the server binding before the start receipt and cancels its early surface card 2ms
+   ✓ applies server cancellation frames immediately without another approval request 62ms
+   ✓ excludes private OAuth configuration from page discovery and refuses describing or filling it 19ms
+ ✓ tests/chart-providers.test.ts (19 tests) 577ms
+ ✓ tests/appearance.test.ts (22 tests) 81ms
+ ❯ tests/shell.test.ts (24 tests | 5 failed) 14937ms
+   ✓ left navigation changes the center canvas and labels every route as sample data  1975ms
+   ✓ reads subscription-time changes, keeps a stable subscription and releases replaced stores 29ms
+   ✓ presents connected consistently in both connection labels  347ms
+   ✓ presents sample consistently in both connection labels 288ms
+   ✓ presents unavailable consistently in both connection labels 275ms
+   ✓ uses a friendly workspace label for  251ms
+   ✓ uses a friendly workspace label for    222ms
+   ✓ uses a friendly workspace label for 07e8e42e-b8bb-4b0d-b01c-2733683e8258 177ms
+   ✓ uses a friendly workspace label for Ritual Studio 172ms
+   ✓ shows Connecting only while loading and Unavailable on timeout 121ms
+   ✓ shows Unavailable when a snapshot fails 117ms
+   ✓ rejects malformed snapshot data instead of claiming a connection 121ms
+   ✓ keeps appearance Settings usable before workspace data arrives  1126ms
+   × offers one Settings picker with live theme previews and keyboard-operated accents 1194ms
+     → expected undefined to be 'modernist' // Object.is equality
+   × executes every composed theme/accent page handle and renders its actual preview colours 240ms
+     → Cannot read properties of undefined (reading 'send')
+   × denies composed theme/accent page actions without a live run and preserves the previews 159ms
+     → expected "spy" to not be called at all, but actually been called 1 times[90m
+
+Received: 
+
+[1m  1st spy call:
+
+[22m    Array [
+      "om.sidebar-rail.v1",
+      "false",
+    ]
+[39m[90m
+
+Number of calls: [1m1[22m
+[39m
+   ✓ shows the FAB only while the assistant is closed and returns focus on Escape  1064ms
+   ✓ applies sidebar, dock and FAB placement rules to the rendered shell  1500ms
+   ✓ collapses each group with the keyboard and keeps SOON previews navigable  1565ms
+   × remembers the icon rail and retains assistant draft while navigating 3247ms
+     → Unable to find an accessible element with the role "textbox" and name "Message"
+
+Here are the accessible roles:
+
+  link:
+
+  Name "Skip to workspace canvas":
+  [36m<a[39m
+    [33mclass[39m=[32m"skip-link"[39m
+    [33mhref[39m=[32m"#workspace-canvas"[39m
+  [36m/>[39m
+
+  Name "Open Marketing overview":
+  [36m<a[39m
+    [33maria-label[39m=[32m"Open Marketing overview"[39m
+    [33mclass[39m=[32m"brand"[39m
+    [33mhref[39m=[32m"#workspaces"[39m
+  [36m/>[39m
+
+  Name "Overview":
+  [36m<a[39m
+    [33maria-current[39m=[32m"page"[39m
+    [33maria-label[39m=[32m"Overview"[39m
+    [33mclass[39m=[32m"nav-link"[39m
+    [33mdata-action[39m=[32m"navigate"[39m
+    [33mdata-target[39m=[32m"workspaces"[39m
+    [33mhref[39m=[32m"#workspaces"[39m
+    [33mtitle[39m=[32m"Overview"[39m
+  [36m/>[39m
+
+  Name "Creative":
+  [36m<a[39m
+    [33maria-label[39m=[32m"Creative"[39m
+    [33mclass[39m=[32m"nav-link"[39m
+    [33mdata-action[39m=[32m"navigate"[39m
+    [33mdata-target[39m=[32m"creative"[39m
+    [33mhref[39m=[32m"#creative"[39m
+    [33mtitle[39m=[32m"Creative · Preview; more coming soon"[39m
+  [36m/>[39m
+
+  Name "Media":
+  [36m<a[39m
+    [33maria-label[39m=[32m"Media"[39m
+    [33mclass[39m=[32m"nav-link"[39m
+    [33mdata-action[39m=[32m"navigate"[39m
+    [33mdata-target[39m=[32m"media-library"[39m
+    [33mhref[39m=[32m"#media-library"[39m
+    [33mtitle[39m=[32m"Media"[39m
+  [36m/>[39m
+
+  Name "Campaigns":
+  [36m<a[39m
+    [33maria-label[39m=[32m"Campaigns"[39m
+    [33mclass[39m=[32m"nav-link"[39m
+    [33mdata-action[39m=[32m"navigate"[39m
+    [33mdata-target[39m=[32m"campaigns"[39m
+    [33mhref[39m=[32m"#campaigns"[39m
+    [33mtitle[39m=[32m"Campaigns"[39m
+  [36m/>[39m
+
+  Name "Measure":
+  [36m<a[39m
+    [33maria-label[39m=[32m"Measure"[39m
+    [33mclass[39m=[32m"nav-link"[39m
+    [33mdata-action[39m=[32m"navigate"[39m
+    [33mdata-target[39m=[32m"measure"[39m
+    [33mhref[39m=[32m"#measure"[39m
+    [33mtitle[39m=[32m"Measure · Preview; more coming soon"[39m
+  [36m/>[39m
+
+  Name "Activity":
+  [36m<a[39m
+    [33maria-label[39m=[32m"Activity"[39m
+    [33mclass[39m=[32m"nav-link"[39m
+    [33mdata-action[39m=[32m"navigate"[39m
+    [33mdata-target[39m=[32m"activity"[39m
+    [33mhref[39m=[32m"#activity"[39m
+    [33mtitle[39m=[32m"Activity"[39m
+  [36m/>[39m
+
+  Name "Plugins":
+  [36m<a[39m
+    [33maria-label[39m=[32m"Plugins"[39m
+    [33mclass[39m=[32m"nav-link"[39m
+    [33mdata-action[39m=[32m"navigate"[39m
+    [33mdata-target[39m=[32m"/addons/plugins"[39m
+    [33mhref[39m=[32m"#/addons/plugins"[39m
+    [33mtitle[39m=[32m"Plugins"[39m
+  [36m/>[39m
+
+  Name "Agent Plugins":
+  [36m<a[39m
+    [33maria-label[39m=[32m"Agent Plugins"[39m
+    [33mclass[39m=[32m"nav-link"[39m
+    [33mdata-action[39m=[32m"navigate"[39m
+    [33mdata-target[39m=[32m"/addons/agent-plugins"[39m
+    [33mhref[39m=[32m"#/addons/agent-plugins"[39m
+    [33mtitle[39m=[32m"Agent Plugins"[39m
+  [36m/>[39m
+
+  Name "Skills":
+  [36m<a[39m
+    [33maria-label[39m=[32m"Skills"[39m
+    [33mclass[39m=[32m"nav-link"[39m
+    [33mdata-action[39m=[32m"navigate"[39m
+    [33mdata-target[39m=[32m"/addons/skills"[39m
+    [33mhref[39m=[32m"#/addons/skills"[39m
+    [33mtitle[39m=[32m"Skills"[39m
+  [36m/>[39m
+
+  Name "Integrations":
+  [36m<a[39m
+    [33maria-label[39m=[32m"Integrations"[39m
+    [33mclass[39m=[32m"nav-link"[39m
+    [33mdata-action[39m=[32m"navigate"[39m
+    [33mdata-target[39m=[32m"/addons/integrations"[39m
+    [33mhref[39m=[32m"#/addons/integrations"[39m
+    [33mtitle[39m=[32m"Integrations"[39m
+  [36m/>[39m
+
+  Name "Connections":
+  [36m<a[39m
+    [33maria-label[39m=[32m"Connections"[39m
+    [33mclass[39m=[32m"nav-link"[39m
+    [33mdata-action[39m=[32m"navigate"[39m
+    [33mdata-target[39m=[32m"connections"[39m
+    [33mhref[39m=[32m"#connections"[39m
+    [33mtitle[39m=[32m"Connections"[39m
+  [36m/>[39m
+
+  Name "Settings":
+  [36m<a[39m
+    [33maria-label[39m=[32m"Settings"[39m
+    [33mclass[39m=[32m"nav-link"[39m
+    [33mdata-action[39m=[32m"navigate"[39m
+    [33mdata-target[39m=[32m"settings"[39m
+    [33mhref[39m=[32m"#settings"[39m
+    [33mtitle[39m=[32m"Settings"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  navigation:
+
+  Name "Features":
+  [36m<nav[39m
+    [33maria-label[39m=[32m"Features"[39m
+    [33mclass[39m=[32m"sidebar"[39m
+    [33mid[39m=[32m"studio-sidebar"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  strong:
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  --------------------------------------------------
+  region:
+
+  Name "WORKSPACE":
+  [36m<section[39m
+    [33maria-label[39m=[32m"WORKSPACE"[39m
+    [33mclass[39m=[32m"nav-group"[39m
+  [36m/>[39m
+
+  Name "ADD-ONS":
+  [36m<section[39m
+    [33maria-label[39m=[32m"ADD-ONS"[39m
+    [33mclass[39m=[32m"nav-group"[39m
+  [36m/>[39m
+
+  Name "SYSTEM":
+  [36m<section[39m
+    [33maria-label[39m=[32m"SYSTEM"[39m
+    [33mclass[39m=[32m"nav-group"[39m
+  [36m/>[39m
+
+  Name "Review generation":
+  [36m<section[39m
+    [33maria-label[39m=[32m"Review generation"[39m
+    [33mclass[39m=[32m"om-chat-approval"[39m
+  [36m/>[39m
+
+  Name "Exact spend approval":
+  [36m<section[39m
+    [33maria-label[39m=[32m"Exact spend approval"[39m
+    [33mclass[39m=[32m"om-chat-approval"[39m
+  [36m/>[39m
+
+  Name "Review generation":
+  [36m<section[39m
+    [33maria-label[39m=[32m"Review generation"[39m
+    [33mclass[39m=[32m"om-chat-approval"[39m
+  [36m/>[39m
+
+  Name "Exact spend approval":
+  [36m<section[39m
+    [33maria-label[39m=[32m"Exact spend approval"[39m
+    [33mclass[39m=[32m"om-chat-approval"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  button:
+
+  Name "WORKSPACE":
+  [36m<button[39m
+    [33maria-controls[39m=[32m"nav-workspace"[39m
+    [33maria-expanded[39m=[32m"true"[39m
+    [33mclass[39m=[32m"group-toggle"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "ADD-ONS":
+  [36m<button[39m
+    [33maria-controls[39m=[32m"nav-add-ons"[39m
+    [33maria-expanded[39m=[32m"true"[39m
+    [33mclass[39m=[32m"group-toggle"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "SYSTEM":
+  [36m<button[39m
+    [33maria-controls[39m=[32m"nav-system"[39m
+    [33maria-expanded[39m=[32m"true"[39m
+    [33mclass[39m=[32m"group-toggle"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Collapse sidebar":
+  [36m<button[39m
+    [33maria-controls[39m=[32m"studio-sidebar"[39m
+    [33maria-expanded[39m=[32m"true"[39m
+    [33maria-label[39m=[32m"Collapse sidebar"[39m
+    [33mclass[39m=[32m"rail-toggle"[39m
+    [33mtitle[39m=[32m"Collapse sidebar"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Agents":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Agents"[39m
+    [33mclass[39m=[32m"om-chat-icon"[39m
+    [33mtitle[39m=[32m"Agents and vendors"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Chat history":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"dialog"[39m
+    [33maria-label[39m=[32m"Chat history"[39m
+    [33mclass[39m=[32m"om-chat-icon"[39m
+    [33mtitle[39m=[32m"Chat history"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Chat settings":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Chat settings"[39m
+    [33mclass[39m=[32m"om-chat-icon"[39m
+    [33mtitle[39m=[32m"Chat settings"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Close assistant":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Close assistant"[39m
+    [33mclass[39m=[32m"om-chat-icon"[39m
+    [33mtitle[39m=[32m"Close assistant"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Allow":
+  [36m<button[39m
+    [33mclass[39m=[32m"approval-choice"[39m
+    [33mdata-choice[39m=[32m"allow"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Allow for this chat":
+  [36m<button[39m
+    [33mclass[39m=[32m"approval-choice"[39m
+    [33mdata-choice[39m=[32m"allow_chat"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Always allow":
+  [36m<button[39m
+    [33mclass[39m=[32m"approval-choice"[39m
+    [33mdata-choice[39m=[32m"always_allow"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Cancel":
+  [36m<button[39m
+    [33mclass[39m=[32m"approval-choice"[39m
+    [33mdata-choice[39m=[32m"cancel"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Allow":
+  [36m<button[39m
+    [33mclass[39m=[32m"approval-choice"[39m
+    [33mdata-choice[39m=[32m"allow"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Cancel":
+  [36m<button[39m
+    [33mclass[39m=[32m"approval-choice"[39m
+    [33mdata-choice[39m=[32m"cancel"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Allow":
+  [36m<button[39m
+    [33mclass[39m=[32m"approval-choice"[39m
+    [33mdata-choice[39m=[32m"allow"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Cancel":
+  [36m<button[39m
+    [33mclass[39m=[32m"approval-choice"[39m
+    [33mdata-choice[39m=[32m"cancel"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Allow":
+  [36m<button[39m
+    [33mclass[39m=[32m"approval-choice"[39m
+    [33mdata-choice[39m=[32m"allow"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Cancel":
+  [36m<button[39m
+    [33mclass[39m=[32m"approval-choice"[39m
+    [33mdata-choice[39m=[32m"cancel"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy message":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy message"[39m
+    [33mclass[39m=[32m"jini-message-action-btn"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Choose vendor":
+  [36m<button[39m
+    [33maria-controls[39m=[32m"_r_49_"[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"dialog"[39m
+    [33maria-label[39m=[32m"Choose vendor"[39m
+    [33mclass[39m=[32m"jini-runtime-trigger jini-runtime-trigger--icon-only"[39m
+    [33mtitle[39m=[32m"Sample provider A · Sample Large"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Model: Sample Large":
+  [36m<button[39m
+    [33maria-controls[39m=[32m"_r_4a_"[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Model: Sample Large"[39m
+    [33mclass[39m=[32m"jini-runtime-dropup-trigger"[39m
+    [33mtitle[39m=[32m"Sample Large"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Reasoning: Default":
+  [36m<button[39m
+    [33maria-controls[39m=[32m"_r_4b_"[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Reasoning: Default"[39m
+    [33mclass[39m=[32m"jini-runtime-dropup-trigger jini-runtime-dropup-trigger--effort"[39m
+    [33mtitle[39m=[32m"Default"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Send":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Send"[39m
+    [33mclass[39m=[32m"jini-composer-send"[39m
+    [33mdisabled[39m=[32m""[39m
+    [33mtitle[39m=[32m"Send"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  main:
+
+  Name "Workspace canvas":
+  [36m<main[39m
+    [33maria-label[39m=[32m"Workspace canvas"[39m
+    [33mclass[39m=[32m"workspace-main"[39m
+    [33mdata-agent-page[39m=[32m"workspaces"[39m
+    [33mid[39m=[32m"workspace-canvas"[39m
+    [33mtabindex[39m=[32m"-1"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  banner:
+
+  Name "":
+  [36m<header[39m
+    [33mclass[39m=[32m"page-heading"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<header[39m
+    [33mclass[39m=[32m"jini-chat-pane__header om-chat-header"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<header />[39m
+
+  Name "":
+  [36m<header />[39m
+
+  Name "":
+  [36m<header />[39m
+
+  Name "":
+  [36m<header />[39m
+
+  Name "":
+  [36m<header />[39m
+
+  Name "":
+  [36m<header />[39m
+
+  Name "":
+  [36m<header />[39m
+
+  Name "":
+  [36m<header />[39m
+
+  --------------------------------------------------
+  heading:
+
+  Name "Overview":
+  [36m<h1[39m
+    [33mtabindex[39m=[32m"-1"[39m
+  [36m/>[39m
+
+  Name "Workspace overview":
+  [36m<h2 />[39m
+
+  Name "Make room for a better morning":
+  [36m<h3 />[39m
+
+  Name "New chat":
+  [36m<h2[39m
+    [33mclass[39m=[32m"jini-chat-pane__title"[39m
+    [33mtitle[39m=[32m"New chat"[39m
+  [36m/>[39m
+
+  Name "Review generation":
+  [36m<h3 />[39m
+
+  Name "Exact spend approval":
+  [36m<h3 />[39m
+
+  Name "Review generation":
+  [36m<h3 />[39m
+
+  Name "Exact spend approval":
+  [36m<h3 />[39m
+
+  --------------------------------------------------
+  paragraph:
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"muted"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"muted"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"muted"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"muted"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  status:
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"mode-badge"[39m
+    [33mdata-state[39m=[32m"sample"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"card-status"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"card-status"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"card-status"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"card-status"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<div[39m
+    [33mclass[39m=[32m"om-chat-status"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  article:
+
+  Name "":
+  [36m<article[39m
+    [33mclass[39m=[32m"metric-card"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<article[39m
+    [33mclass[39m=[32m"metric-card"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<article[39m
+    [33mclass[39m=[32m"metric-card"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<article[39m
+    [33mclass[39m=[32m"canvas-card"[39m
+  [36m/>[39m
+
+  Name "Review generation":
+  [36m<article[39m
+    [33maria-label[39m=[32m"Review generation"[39m
+    [33mclass[39m=[32m"approval-card"[39m
+  [36m/>[39m
+
+  Name "Exact spend approval":
+  [36m<article[39m
+    [33maria-label[39m=[32m"Exact spend approval"[39m
+    [33mclass[39m=[32m"approval-card"[39m
+  [36m/>[39m
+
+  Name "Review generation":
+  [36m<article[39m
+    [33maria-label[39m=[32m"Review generation"[39m
+    [33mclass[39m=[32m"approval-card"[39m
+  [36m/>[39m
+
+  Name "Exact spend approval":
+  [36m<article[39m
+    [33maria-label[39m=[32m"Exact spend approval"[39m
+    [33mclass[39m=[32m"approval-card"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  complementary:
+
+  Name "Assistant":
+  [36m<aside[39m
+    [33maria-label[39m=[32m"Assistant"[39m
+    [33mclass[39m=[32m"chat-panel om-jini-chat"[39m
+    [33mid[39m=[32m"om-chat"[39m
+    [33mtabindex[39m=[32m"-1"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  group:
+
+  Name "":
+  [36m<details />[39m
+
+  Name "":
+  [36m<details />[39m
+
+  Name "Approval choices":
+  [36m<fieldset />[39m
+
+  Name "":
+  [36m<details />[39m
+
+  Name "":
+  [36m<details />[39m
+
+  Name "Approval choices":
+  [36m<fieldset />[39m
+
+  Name "":
+  [36m<details />[39m
+
+  Name "":
+  [36m<details />[39m
+
+  Name "Approval choices":
+  [36m<fieldset />[39m
+
+  Name "":
+  [36m<details />[39m
+
+  Name "":
+  [36m<details />[39m
+
+  Name "Approval choices":
+  [36m<fieldset />[39m
+
+  --------------------------------------------------
+  code:
+
+  Name "":
+  [36m<code />[39m
+
+  Name "":
+  [36m<code />[39m
+
+  Name "":
+  [36m<code />[39m
+
+  Name "":
+  [36m<code />[39m
+
+  Name "":
+  [36m<code />[39m
+
+  Name "":
+  [36m<code />[39m
+
+  Name "":
+  [36m<code />[39m
+
+  Name "":
+  [36m<code />[39m
+
+  --------------------------------------------------
+  note:
+
+  Name "":
+  [36m<div[39m
+    [33mclass[39m=[32m"jini-message-usage"[39m
+    [33mrole[39m=[32m"note"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  textbox:
+
+  Name "":
+  [36m<textarea[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33mclass[39m=[32m"jini-composer-input"[39m
+    [33mplaceholder[39m=[32m"Ask the assistant to do something…"[39m
+    [33mrows[39m=[32m"3"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"shell"[39m
+      [33mdata-chat-open[39m=[32m"true"[39m
+      [33mdata-rail[39m=[32m"false"[39m
+    [36m>[39m
+      [36m<a[39m
+        [33mclass[39m=[32m"skip-link"[39m
+        [33mhref[39m=[32m"#workspace-canvas"[39m
+      [36m>[39m
+        [0mSkip to workspace canvas[0m
+      [36m</a>[39m
+      [36m<nav[39m
+        [33maria-label[39m=[32m"Features"[39m
+        [33mclass[39m=[32m"sidebar"[39m
+        [33mid[39m=[32m"studio-sidebar"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"sidebar-inner"[39m
+        [36m>[39m
+          [36m<a[39m
+            [33maria-label[39m=[32m"Open Marketing overview"[39m
+            [33mclass[39m=[32m"brand"[39m
+            [33mhref[39m=[32m"#workspaces"[39m
+          [36m>[39m
+            [36m<span[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"brand-mark"[39m
+            [36m>[39m
+              [0mom[0m
+            [36m</span>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"brand-label"[39m
+            [36m>[39m
+              [0mOpen Marketing[0m
+            [36m</span>[39m
+          [36m</a>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"workspace-label"[39m
+          [36m>[39m
+            [36m<strong>[39m
+              [0mRitual Studio[0m
+            [36m</strong>[39m
+            [36m<span>[39m
+              [0mMarketing workspace[0m
+            [36m</span>[39m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"nav-groups"[39m
+          [36m>[39m
+            [36m<section[39m
+              [33maria-label[39m=[32m"WORKSPACE"[39m
+              [33mclass[39m=[32m"nav-group"[39m
+            [36m>[39m
+              [36m<button[39m
+                [33maria-controls[39m=[32m"nav-workspace"[39m
+                [33maria-expanded[39m=[32m"true"[39m
+                [33mclass[39m=[32m"group-toggle"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [36m<span>[39m
+                  [0mWORKSPACE[0m
+                [36m</span>[39m
+                [36m<svg[39m
+                  [33maria-hidden[39m=[32m"true"[39m
+                  [33mclass[39m=[32m"nav-icon"[39m
+                  [33mfill[39m=[32m"none"[39m
+                  [33mfocusable[39m=[32m"false"[39m
+                  [33mheight[39m=[32m"16"[39m
+                  [33mstroke[39m=[32m"currentColor"[39m
+                  [33mstroke-linecap[39m=[32m"round"[39m
+                  [33mstroke-linejoin[39m=[32m"round"[39m
+                  [33mstroke-width[39m=[32m"1.75"[39m
+                  [33mviewBox[39m=[32m"0 0 24 24"[39m
+                  [33mwidth[39m=[32m"16"[39m
+                [36m>[39m
+                  [36m<path[39m
+                    [33md[39m=[32m"m6 9 6 6 6-6"[39m
+                  [36m/>[39m
+                [36m</svg>[39m
+              [36m</button>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"nav-links"[39m
+                [33mid[39m=[32m"nav-workspace"[39m
+              [36m>[39m
+                [36m<a[39m
+                  [33maria-current[39m=[32m"page"[39m
+                  [33maria-label[39m=[32m"Overview"[39m
+                  [33mclass[39m=[32m"nav-link"[39m
+                  [33mdata-action[39m=[32m"navigate"[39m
+                  [33mdata-target[39m=[32m"workspaces"[39m
+                  [33mhref[39m=[32m"#workspaces"[39m
+                  [33mtitle[39m=[32m"Overview"[39m
+                [36m>[39m
+                  [36m<svg[39m
+                    [33maria-hidden[39m=[32m"true"[39m
+                    [33mclass[39m=[32m"nav-icon"[39m
+                    [33mfill[39m=[32m"none"[39m
+                    [33mfocusable[39m=[32m"false"[39m
+                    [33mheight[39m=[32m"16"[39m
+                    [33mstroke[39m=[32m"currentColor"[39m
+                    [33mstroke-linecap[39m=[32m"round"[39m
+                    [33mstroke-linejoin[39m=[32m"round"[39m
+                    [33mstroke-width[39m=[32m"1.75"[39m
+                    [33mviewBox[39m=[32m"0 0 24 24"[39m
+                    [33mwidth[39m=[32m"16"[39m
+                  [36m>[39m
+                    [36m<rect[39m
+                      [33mheight[39m=[32m"9"[39m
+                      [33mrx[39m=[32m"1"[39m
+                      [33mwidth[39m=[32m"7"[39m
+                      [33mx[39m=[32m"3"[39m
+                      [33my[39m=[32m"3"[39m
+                    [36m/>[39m
+                    [0m
+  [0m
+                    [36m<rect[39m
+                      [33mheight[39m=[32m"5"[39m
+                      [33mrx[39m=[32m"1"[39m
+                      [33mwidth[39m=[32m"7"[39m
+                      [33mx[39m=[32m"14"[39m
+                      [33my[39m=[32m"3"[39m
+                    [36m/>[39m
+                    [0m
+  [0m
+                    [36m<rect[39m
+                      [33mheight[39m=[32m"9"[39m
+                      [33mrx[39m=[32m"1"[39m
+                      [33mwidth[39m=[32m"7"[39m
+                      [33mx[39m=[32m"14"[39m
+                      [33my[39m=[32m"12"[39m
+                    [36m/>[39m
+                    [0m
+  [0m
+                    [36m<rect[39m
+                      [33mheight[39m=[32m"5"[39m
+                      [33mrx[39m=[32m"1"[39m
+                      [33mwidth[39m=[32m"7"[39m
+                      [33mx[39m=[32m"3"[39m
+                      [33my[39m=[32m"16"[39m
+                    [36m/>[39m
+                  [36m</svg>[39m
+                  [36m<span[39m
+                    [33mclass[39m=[32m"nav-label"[39m
+                  [36m>[39m
+                    [0mOverview[0m
+                  [36m</span>[39m
+                [36m</a>[39m
+                [36m<a[39m
+                  [33maria-label[39m=[32m"Creative"[39m
+                  [33mclass[39m=[32m"nav-link"[39m
+                  [33mdata-action[39m=[32m"navigate"[39m
+                  [33mdata-target[39m=[32m"creative"[39m
+                  [33mhref[39m=[32m"#creative"[39m
+                  [33mtitle[39m=[32m"Creative · Preview; more coming soon"[39m
+                [36m>[39m
+                  [36m<svg[39m
+                    [33maria-hidden[39m=[32m"true"[39m
+                    [33mclass[39m=[32m"nav-icon"[39m
+                    [33mfill[39m=[32m"none"[39m
+                    [33mfocusable[39m=[32m"false"[39m
+                    [33mheight[39m=[32m"16"[39m
+                    [33mstroke[39m=[32m"currentColor"[39m
+                    [33mstroke-linecap[39m=[32m"round"[39m...
+   ✓ keeps the rail usable when storage reads and writes fail  679ms
+   ✓ blank-space decisions exclude controls, drags, selections and non-primary clicks 29ms
+   ✓ binds guarded desktop blank clicks and removes both listeners on disposal 20ms
+   × does not collapse while selecting sidebar text and tolerates absent host capabilities 17ms
+     → expected "spy" to not be called at all, but actually been called 1 times[90m
+
+Received: 
+
+[1m  1st spy call:
+
+[22m    Array []
+[39m[90m
+
+Number of calls: [1m1[22m
+[39m
+ ❯ tests/chat-parity.test.ts (21 tests | 1 failed) 3943ms
+   ✓ uses only server choices when connected and only the explicit fixture catalogue in sample mode 8ms
+   ✓ lists an uploaded provider and saves its exact server ID through the session 17ms
+   ✓ prefixes a provider ID reserved by Jini and maps the selection back to the server ID 0ms
+   ✓ normalizes per-model effort without granting an unadvertised model or vendor 0ms
+   ✓ does not treat an unsaved fallback or server preview mode as a ready vendor route 0ms
+   ✓ renders real model and effort drop-ups in sample mode and never writes preview selections  1362ms
+   ✓ Escape dismisses the active Jini effort menu before closing the dock  304ms
+   ✓ persists vendor/model/effort through the existing server write and clears a different vendor key ID 4ms
+   ✓ blocks overlapping selection writes and run acceptance until the selected runtime is saved 1ms
+   ✓ keeps unconnected vendors browsable with a connection explanation while sending remains disabled 3ms
+   ✓ deduplicates enabled plugin context and removes it without granting any tool authority 4ms
+   ✓ shows a readable approval before collapsed exact JSON and echoes the original spend identifiers 75ms
+   ✓ uses Jini prefix totals without inventing zero-cost unknown replies and preserves estimate provenance 3ms
+   ✓ confines fabricated timing and prices to sample transcript presentation 0ms
+   ✓ renders server usage through Jini for 'estimated completion' without sample prices or false success  607ms
+   ✓ renders server usage through Jini for 'unavailable cost' without sample prices or false success  510ms
+   × renders server usage through Jini for 'partial cancellation' without sample prices or false success 510ms
+     → expected 'Stopped · 23s · $0.11 · total $0.11' to be 'Canceled · 23s · $0.11 · total $0.11' // Object.is equality
+   ✓ a server run keeps streaming while the dock is closed and reopened  518ms
+   ✓ restores pending cards and surfaces with empty history without mutating session state 6ms
+   ✓ restores pending cards and surfaces with user history without mutating session state 2ms
+   ✓ restores pending cards and surfaces with assistant history without mutating session state 6ms
+ ✓ tests/message-composer.test.ts (7 tests) 997ms
+   ✓ shows no contact for an unknown phone and never creates one  410ms
+ ✓ tests/approval-ui.test.ts (10 tests) 1036ms
+   ✓ the card shows exact JSON and only server-offered policy buttons  575ms
+ ❯ tests/conversion-grants.test.ts (4 tests | 1 failed) 1215ms
+   ✓ lists active, revoked and expired conversion-sharing grants beside bounded inputs  496ms
+   × keeps grant pending through Allow acknowledgement and reloads only after completed operation lookup 357ms
+     → [
+  {
+    "code": "unrecognized_keys",
+    "keys": [
+      "connectionId",
+      "accountId",
+      "definitionIds",
+      "destination",
+      "purpose",
+      "expiresAt"
+    ],
+    "path": [],
+    "message": "Unrecognized keys: \"connectionId\", \"accountId\", \"definitionIds\", \"destination\", \"purpose\", \"expiresAt\""
+  }
+]
+   ✓ revokes through the same exact card and shows Revoked only after completion and list reload 225ms
+   ✓ retains an unresolved operation and blocks a second grant or revoke 134ms
+ ✓ tests/observability.test.ts (9 tests) 1910ms
+   ✓ Events displays capture on manual Refresh and reports absent capability  375ms
+   ✓ production composition injects navigation capture into the sample Settings demo  1420ms
+ ✓ tests/alerts.test.ts (5 tests) 890ms
+   ✓ renders and loads more in Activity even when the legacy activity snapshot is empty  474ms
+ ✓ tests/measure.test.ts (5 tests) 856ms
+   ✓ separates platform conversions and OM leads, preserving zero/unavailable and attribution evidence  596ms
+ ✓ tests/brand-profile.test.ts (3 tests) 1652ms
+   ✓ saves the loaded expectedRevision and preserves colours, fonts and asset references  763ms
+   ✓ keeps typed text on conflict and requires an explicit refresh before another write  432ms
+   ✓ shows Confirmed only after a completed operation and both reloads, never on card acknowledgement  455ms
+ ✓ tests/tracking.test.ts (2 tests) 875ms
+   ✓ generates inert setup, selects source for native copy, checks missing/stale/ready and chooses the published fallback  793ms
+ ✓ tests/chat.test.ts (5 tests) 6244ms
+   ✓ keyboard opens the global panel, Escape closes it, and focus returns to the FAB  1759ms
+   ✓ a sample chat requests native navigation and acknowledges only the rendered canvas  1290ms
+   ✓ closing the dock preserves the Jini draft; New chat resets it  2136ms
+   ✓ loads the chosen server conversation into Jini and uses server model choices with the existing settings write  1050ms
+ ✓ tests/leads.test.tsx (4 tests) 434ms
+   ✓ renders scoped source references, attribution and all five stages  322ms
+ ✓ tests/http-api.test.ts (9 tests) 137ms
+ ✓ tests/session.test.ts (12 tests) 94ms
+ ❯ tests/jini-chat-transport.test.ts (16 tests | 1 failed) 297ms
+   ✓ memory session-backed Jini transport > returns acceptance before completion and retains reported usage with explicit estimate provenance 39ms
+   ✓ memory session-backed Jini transport > detaches without cancelling, then reattaches from the cursor without another start 9ms
+   ✓ memory session-backed Jini transport > reattaches an existing server run without ever calling start 4ms
+   ✓ memory session-backed Jini transport > Stop requests cancellation and emits one canceled terminal callback 10ms
+   ✓ memory session-backed Jini transport > maps cancelled without claiming success 4ms
+   ✓ memory session-backed Jini transport > maps error without claiming success 4ms
+   ✓ http session-backed Jini transport > returns acceptance before completion and retains reported usage with explicit estimate provenance 99ms
+   ✓ http session-backed Jini transport > detaches without cancelling, then reattaches from the cursor without another start 70ms
+   ✓ http session-backed Jini transport > reattaches an existing server run without ever calling start 20ms
+   ✓ http session-backed Jini transport > Stop requests cancellation and emits one canceled terminal callback 3ms
+   ✓ http session-backed Jini transport > maps cancelled without claiming success 4ms
+   ✓ http session-backed Jini transport > maps error without claiming success 16ms
+   ✓ status drains even a short byte-limited intermediate page of a completed run 2ms
+   ✓ status rejects foreign run identities rather than exposing another run 1ms
+   ✓ selected add-ons add instructions; removing them removes the instruction and grants no authority 2ms
+   × rejects unsupported image input before starting a run 7ms
+     → expected [Function] to throw error including 'This server does not accept image att…' but got 'Invalid attachment.'
+ ✓ tests/theme-pack.test.ts (26 tests) 122ms
+ ✓ tests/theme.test.ts (22 tests) 39ms
+ ❯ tests/navigation.test.ts (6 tests | 1 failed) 52ms
+   ✓ structured navigation completes after render and replay does not write twice 13ms
+   ✓ no browser, unsupported route, timeout, and detach never claim completion 2ms
+   ✓ a changed target with the same action ID is rejected and a superseded action fails honestly 0ms
+   ✓ keeps literal grouped destinations, distinct icons, and SOON preview targets 4ms
+   ✓ renders the pinned Lucide robot in the assistant FAB 10ms
+   × captures initial and committed screen views, ignoring stale/duplicate acknowledgements and diagnostic failures 22ms
+     → expected [ [ { name: 'screen.viewed' }, …(1) ] ] to deeply equal [ [ { name: 'screen.viewed', …(1) } ] ]
+ ✓ tests/api-port.test.ts (3 tests) 50ms
+ ✓ tests/chat-assistant.test.ts (13 tests) 3363ms
+   ✓ streams beyond 1,000 events, deduplicates repeated deltas and accumulates one assistant message  556ms
+   ✓ accepts 8,192 unique events including the terminal slot and rejects event 8,193  2708ms
+ ✓ tests/approval.test.ts (3 tests) 22ms
+ ✓ tests/react-rule.test.ts (1 test) 306ms
+   ✓ the TSX rule catches JSX arrows and nested effect callbacks while accepting extracted handlers  304ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 18 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/addons.test.ts > clears the token before a failed response and redacts tainted errors from the form
+TestingLibraryElementError: Found multiple elements with the role "alert"
+
+Here are the matching elements:
+
+Ignored nodes: comments, script, style
+[36m<p[39m
+  [33mclass[39m=[32m"error-notice"[39m
+  [33mrole[39m=[32m"alert"[39m
+[36m>[39m
+  [0mConnection could not be saved. Refresh before another submission.[0m
+[36m</p>[39m
+
+Ignored nodes: comments, script, style
+[36m<p[39m
+  [33mclass[39m=[32m"error-notice"[39m
+  [33mrole[39m=[32m"alert"[39m
+[36m>[39m
+  [0mGrant response unavailable. Refresh before another submission.[0m
+[36m</p>[39m
+
+(If this is intentional, then use the `*AllBy*` variant of the query (like `queryAllByText`, `getAllByText`, or `findAllByText`)).
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<section[39m
+      [33maria-label[39m=[32m"Integrations"[39m
+      [33mdata-page[39m=[32m"addons-integrations"[39m
+    [36m>[39m
+      [36m<section[39m
+        [33maria-label[39m=[32m"Mail provider"[39m
+        [33mclass[39m=[32m"settings-card"[39m
+      [36m>[39m
+        [36m<h2>[39m
+          [0mMail provider[0m
+        [36m</h2>[39m
+        [36m<label>[39m
+          [0mMail provider[0m
+          [36m<select>[39m
+            [36m<option[39m
+              [33mvalue[39m=[32m""[39m
+            [36m>[39m
+              [0mNone[0m
+            [36m</option>[39m
+            [36m<option[39m
+              [33mvalue[39m=[32m"sample-mail-service"[39m
+            [36m>[39m
+              [0mSample mail service[0m
+              [0m ([0m
+              [0mConnected[0m
+              [0m)[0m
+            [36m</option>[39m
+            [36m<option[39m
+              [33mvalue[39m=[32m"sample-mail-relay"[39m
+            [36m>[39m
+              [0mSample mail relay[0m
+              [0m ([0m
+              [0mNot connected[0m
+              [0m)[0m
+            [36m</option>[39m
+          [36m</select>[39m
+        [36m</label>[39m
+        [36m<label>[39m
+          [0mFrom address[0m
+          [36m<input[39m
+            [33maria-describedby[39m=[32m"mail-from-hint"[39m
+            [33mmaxlength[39m=[32m"254"[39m
+            [33mplaceholder[39m=[32m"Default from plugin"[39m
+            [33mtype[39m=[32m"email"[39m
+            [33mvalue[39m=[32m""[39m
+          [36m/>[39m
+        [36m</label>[39m
+        [36m<p[39m
+          [33mclass[39m=[32m"muted"[39m
+          [33mid[39m=[32m"mail-from-hint"[39m
+        [36m>[39m
+          [0mDefault from plugin when empty.[0m
+        [36m</p>[39m
+        [36m<button[39m
+          [33mtype[39m=[32m"button"[39m
+        [36m>[39m
+          [0mUse plugin default[0m
+        [36m</button>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"integration-actions"[39m
+        [36m>[39m
+          [36m<button[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0mSave mail provider[0m
+          [36m</button>[39m
+          [36m<button[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0mRefresh mail providers[0m
+          [36m</button>[39m
+        [36m</div>[39m
+      [36m</section>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"integration-grid"[39m
+      [36m>[39m
+        [36m<section[39m
+          [33maria-label[39m=[32m"Sample OAuth service integration"[39m
+          [33mclass[39m=[32m"settings-card"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"integration-row"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"vendor-heading"[39m
+            [36m>[39m
+              [36m<h2>[39m
+                [0mSample OAuth service[0m
+              [36m</h2>[39m
+            [36m</div>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"integration-status"[39m
+            [36m>[39m
+              [0mNo connection saved[0m
+            [36m</span>[39m
+          [36m</div>[39m
+          [36m<article[39m
+            [33maria-label[39m=[32m"Sign in"[39m
+          [36m>[39m
+            [36m<h3>[39m
+              [0mAccount sign-in[0m
+            [36m</h3>[39m
+            [36m<p>[39m
+              [0mSign in[0m
+            [36m</p>[39m
+            [36m<p>[39m
+              [0mConnect an account through secure sign-in.[0m
+            [36m</p>[39m
+            [36m<a[39m
+              [33mhref[39m=[32m"https://example.test/help"[39m
+              [33mrel[39m=[32m"noopener noreferrer"[39m
+              [33mtarget[39m=[32m"_blank"[39m
+            [36m>[39m
+              [0mSign-in help[0m
+            [36m</a>[39m
+            [36m<div>[39m
+              [36m<p>[39m
+                [0mClient configuration required[0m
+              [36m</p>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"integration-actions"[39m
+              [36m>[39m
+                [36m<button[39m
+                  [33mclass[39m=[32m"primary-button"[39m
+                  [33mdisabled[39m=[32m""[39m
+                  [33mtype[39m=[32m"button"[39m
+                [36m>[39m
+                  [0mSign in with [0m
+                  [0mSample OAuth service[0m
+                [36m</button>[39m
+                [36m<button[39m
+                  [33mtype[39m=[32m"button"[39m
+                [36m>[39m
+                  [0mCheck [0m
+                  [0mSample OAuth service[0m
+                  [0m sign-in status[0m
+                [36m</button>[39m
+              [36m</div>[39m
+            [36m</div>[39m
+          [36m</article>[39m
+          [36m<article[39m
+            [33maria-label[39m=[32m"Client configuration"[39m
+          [36m>[39m
+            [36m<h3>[39m
+              [0mOAuth client configuration[0m
+            [36m</h3>[39m
+            [36m<p>[39m
+              [0mClient configuration[0m
+            [36m</p>[39m
+            [36m<p>[39m
+              [0mSave your application credentials on the server.[0m
+            [36m</p>[39m
+            [36m<a[39m
+              [33mhref[39m=[32m"https://example.test/help"[39m
+              [33mrel[39m=[32m"noopener noreferrer"[39m
+              [33mtarget[39m=[32m"_blank"[39m
+            [36m>[39m
+              [0mClient setup help[0m
+            [36m</a>[39m
+            [36m<form[39m
+              [33mdata-agent-private[39m=[32m"true"[39m
+              [33mdata-private[39m=[32m"true"[39m
+            [36m>[39m
+              [36m<label[39m
+                [33mfor[39m=[32m"sample-oauth-service-client-clientId"[39m
+              [36m>[39m
+                [0mClient ID[0m
+                [36m<input[39m
+                  [33mautocomplete[39m=[32m"off"[39m
+                  [33mdata-agent-private[39m=[32m"true"[39m
+                  [33mdata-private[39m=[32m"true"[39m
+                  [33mid[39m=[32m"sample-oauth-service-client-clientId"[39m
+                  [33mmaxlength[39m=[32m"2048"[39m
+                  [33mname[39m=[32m"clientId"[39m
+                  [33mrequired[39m=[32m""[39m
+                  [33mtype[39m=[32m"text"[39m
+                [36m/>[39m
+              [36m</label>[39m
+              [36m<label[39m
+                [33mfor[39m=[32m"sample-oauth-service-client-tenantId"[39m
+              [36m>[39m
+                [0mTenant ID[0m
+                [36m<input[39m
+                  [33mautocomplete[39m=[32m"off"[39m
+                  [33mdata-agent-private[39m=[32m"true"[39m
+                  [33mdata-private[39m=[32m"true"[39m
+                  [33mid[39m=[32m"sample-oauth-service-client-tenantId"[39m
+                  [33mmaxlength[39m=[32m"2048"[39m
+                  [33mname[39m=[32m"tenantId"[39m
+                  [33mtype[39m=[32m"text"[39m
+                [36m/>[39m
+              [36m</label>[39m
+              [36m<label[39m
+                [33mfor[39m=[32m"sample-oauth-service-client-clientSecret"[39m
+              [36m>[39m
+                [0mClient secret[0m
+                [36m<input[39m
+                  [33mautocomplete[39m=[32m"off"[39m
+                  [33mdata-agent-private[39m=[32m"true"[39m
+                  [33mdata-private[39m=[32m"true"[39m
+                  [33mid[39m=[32m"sample-oauth-service-client-clientSecret"[39m
+                  [33mmaxlength[39m=[32m"8192"[39m
+                  [33mname[39m=[32m"clientSecret"[39m
+                  [33mtype[39m=[32m"password"[39m
+                [36m/>[39m
+              [36m</label>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"integration-actions"[39m
+              [36m>[39m
+                [36m<button[39m
+                  [33mtype[39m=[32m"submit"[39m
+                [36m>[39m
+                  [0mSave client configuration[0m
+                [36m</button>[39m
+                [36m<button[39m
+                  [33mtype[39m=[32m"button"[39m
+                [36m>[39m
+                  [0mClear client configuration[0m
+                [36m</button>[39m
+              [36m</div>[39m
+            [36m</form>[39m
+          [36m</article>[39m
+        [36m</section>[39m
+        [36m<section[39m
+          [33maria-label[39m=[32m"Sample key service integration"[39m
+          [33mclass[39m=[32m"settings-card"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"integration-row"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"vendor-heading"[39m
+            [36m>[39m
+              [36m<h2>[39m
+                [0mSample key service[0m
+              [36m</h2>[39m
+            [36m</div>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"integration-status"[39m
+            [36m>[39m
+              [0mNo connection saved[0m
+            [36m</span>[39m
+          [36m</div>[39m
+          [36m<article[39m
+            [33maria-label[39m=[32m"Token connection"[39m
+          [36m>[39m
+            [36m<h3>[39m
+              [0mAccess token[0m
+            [36m</h3>[39m
+            [36m<p>[39m
+              [0mToken connection[0m
+            [36m</p>[39m
+            [36m<p>[39m
+              [0mSave an access token on the server.[0m
+            [36m</p>[39m
+            [36m<p[39m
+              [33mclass[39m=[32m"muted"[39m
+            [36m>[39m
+              [0mPaste the token from your service account.[0m
+            [36m</p>[39m
+            [36m<a[39m
+              [33mhref[39m=[32m"https://example.test/help"[39m
+              [33mrel[39m=[32m"noopener noreferrer"[39m
+              [33mtarget[39m=[32m"_blank"[39m
+            [36m>[39m
+              [0mToken help[0m
+            [36m</a>[39m
+            [36m<form[39m
+              [33mdata-action[39m=[32m"integrations_connect"[39m
+              [33mdata-agent-private[39m=[32m"true"[39m
+              [33mdata-private[39m=[32m"true"[39m
+            [36m>[39m
+              [36m<label>[39m
+                [0mConnection name (optional)[0m
+                [36m<input[39m
+                  [33mdata-agent-private[39m=[32m"true"[39m
+                  [33mdata-private[39m=[32m"true"[39m
+                  [33mmaxlength[39m=[32m"256"[39m
+                  [33mname[39m=[32m"connectionId"[39m
+                [36m/>[39m
+              [36m</label>[39m
+              [36m<label[39m
+                [33mfor[39m=[32m"sample-key-service-access-token"[39m
+              [36m>[39m
+                [0mAccess token[0m
+                [36m<input[39m
+                  [33mautocomplete[39m=[32m"off"[39m
+                  [33mdata-agent-private[39m=[32m"true"[39m
+                  [33mdata-private[39m=[32m"true"[39m
+                  [33mid[39m=[32m"sample-key-service-access-token"[39m
+                  [33mmaxlength[39m=[32m"65536"[39m
+                  [33mname[39m=[32m"token"[39m
+                  [33mrequired[39m=[32m""[39m
+                  [33mtype[39m=[32m"password"[39m
+                [36m/>[39m
+              [36m</label>[39m
+              [36m<button[39m
+                [33mclass[39m=[32m"primary-button"[39m
+                [33mdata-action[39m=[32m"integrations_connect"[39m
+                [33mtype[39m=[32m"submit"[39m
+              [36m>[39m
+                [0mSave token[0m
+              [36m</button>[39m
+            [36m</form>[39m
+          [36m</article>[39m
+          [36m<article[39m
+            [33maria-label[39m=[32m"Service secret"[39m
+          [36m>[39m
+            [36m<h3>[39m
+              [0mPlugin secret[0m
+            [36m</h3>[39m
+            [36m<p>[39m
+              [0mService secret[0m
+            [36m</p>[39m
+            [36m<p>[39m
+              [0mSave a private service key on the server.[0m
+            [36m</p>[39m
+            [36m<a[39m
+              [33mhref[39m=[32m"https://example.test/help"[39m
+              [33mrel[39m=[32m"noopener noreferrer"[39m
+              [33mtarget[39m=[32m"_blank"[39m
+            [36m>[39m
+              [0mSecret help[0m
+            [36m</a>[39m
+            [36m<div>[39m
+              [36m<p[39m
+                [33mrole[39m=[32m"status"[39m
+              [36m>[39m
+                [0mSecret not configured[0m
+              [36m</p>[39m
+              [36m<form[39m
+                [33mdata-agent-private[39m=[32m"true"[39m
+                [33mdata-private[39m=[32m"true"[39m
+              [36m>[39m
+                [36m<label[39m
+                  [33mfor[39m=[32m"sample-key-service-secret-serviceKey"[39m
+                [36m>[39m
+                  [0mService key[0m
+                  [36m<input[39m
+                    [33mautocomplete[39m=[32m"off"[39m
+                    [33mdata-agent-private[39m=[32m"true"[39m
+                    [33mdata-private[39m=[32m"true"[39m
+                    [33mid[39m=[32m"sample-key-service-secret-serviceKey"[39m
+                    [33mmaxlength[39m=[32m"8192"[39m
+                    [33mname[39m=[32m"serviceKey"[39m
+                    [33mrequired[39m=[32m""[39m
+                    [33mtype[39m=[32m"password"[39m
+                  [36m/>[39m
+                [36m</label>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"integration-actions"[39m
+                [36m>[39m
+                  [36m<button[39m
+                    [33mclass[39m=[32m"primary-button"[39m
+                    [33mtype[39m=[32m"submit"[39m
+                  [36m>[39m
+                    [0mSave secret[0m
+                  [36m</button>[39m
+                  [36m<button[39m
+                    [33mtype[39m=[32m"button"[39m
+                  [36m>[39m
+                    [0mClear secret[0m
+                  [36m</button>[39m
+                  [36m<button[39m
+                    [33mtype[39m=[32m"button"[39m
+                  [36m>[39m
+                    [0mRefresh secret status[0m
+                  [36m</button>[39m
+                [36m</div>[39m
+              [36m</form>[39m
+            [36m</div>[39m
+          [36m</article>[39m
+        [36m</section>[39m
+      [36m</div>[39m
+      [36m<section[39m
+        [33maria-label[39m=[32m"Connections"[39m
+        [33mclass[39m=[32m"settings-card"[39m
+      [36m>[39m
+        [36m<h2>[39m
+          [0mConnections[0m
+        [36m</h2>[39m
+        [36m<button[39m
+          [33mdata-action[39m=[32m"integrations_list"[39m
+          [33mtype[39m=[32m"button"[39m
+        [36m>[39m
+          [0mRefresh connections[0m
+        [36m</button>[39m
+        [36m<p[39m
+          [33mclass[39m=[32m"error-notice"[39m
+          [33mrole[39m=[32m"alert"[39m
+        [36m>[39m
+          [0mConnection could not be saved. Refresh before another submission.[0m
+        [36m</p>[39m
+        [36m<ul />[39m
+      [36m</section>[39m
+      [36m<section[39m
+        [33maria-label[39m=[32m"Send a message"[39m
+        [33mclass[39m=[32m"settings-card"[39m
+      [36m>[39m
+        [36m<h2>[39m
+          [0mSend a message[0m
+        [36m</h2>[39m
+        [36m<p[39m
+          [33mclass[39m=[32m"error-notice"[39m
+          [33mrole[39m=[32m"status"[39m
+        [36m>[39m
+          [0mMessaging connections could not be loaded: Messaging is unavailable on this server.[0m
+        [36m</p>[39m
+        [36m<form>[39m
+          [36m<fieldset>[39m
+            [36m<label>[39m
+              [0mContact phone[0m
+              [36m<input[39m
+                [33mmaxlength[39m=[32m"16"[39m
+                [33mplaceholder[39m=[32m"+15555550100"[39m
+                [33mtype[39m=[32m"tel"[39m
+                [33mvalue[39m=[32m""[39m
+              [36m/>[39m
+            [36m</label>[39m
+            [36m<button[39m
+              [33mdisabled[39m=[32m""[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [0mFind contact[0m
+            [36m</button>[39m
+            [36m<label>[39m
+              [0mConnection[0m
+              [36m<select />[39m
+            [36m</label>[39m
+            [36m<label>[39m
+              [0mMessage[0m
+              [36m<textarea[39m
+                [33mmaxlength[39m=[32m"1600"[39m
+                [33mrows[39m=[32m"4"[39m
+              [36m/>[39m
+            [36m</label>[39m
+            [36m<label>[39m
+              [0mConsent purpose[0m
+              [36m<input[39m
+                [33mmaxlength[39m=[32m"256"[39m
+                [33mvalue[39m=[32m""[39m
+              [36m/>[39m
+            [36m</label>[39m
+            [36m<label>[39m
+              [0mIntent[0m
+              [36m<select>[39m
+                [36m<option[39m
+                  [33mvalue[39m=[32m"marketing"[39m
+                [36m>[39m
+                  [0mMarketing[0m
+                [36m</option>[39m
+                [36m<option[39m
+                  [33mvalue[39m=[32m"transactional"[39m
+                [36m>[39m
+                  [0mTransactional[0m
+                [36m</option>[39m
+              [36m</select>[39m
+            [36m</label>[39m
+            [36m<label>[39m
+              [0mMaximum cost (USD cents)[0m
+              [36m<input[39m
+                [33mmin[39m=[32m"1"[39m
+                [33mstep[39m=[32m"1"[39m
+                [33mtype[39m=[32m"number"[39m
+                [33mvalue[39m=[32m""[39m
+              [36m/>[39m
+            [36m</label>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"primary-button"[39m
+              [33mtype[39m=[32m"submit"[39m
+            [36m>[39m
+              [0mReview and send[0m
+            [36m</button>[39m
+          [36m</fieldset>[39m
+        [36m</form>[39m
+      [36m</section>[39m
+      [36m<section[39m
+        [33maria-label[39m=[32m"Conversion sharing grants"[39m
+        [33mclass[39m=[32m"settings-card"[39m
+      [36m>[39m
+        [36m<h2>[39m
+          [0mConversion sharing[0m
+        [36m</h2>[39m
+        [36m<p>[39m
+          [0mAuthorize sharing conversion data for these definitions with the destination plugin. Visitor consent is also required for every dispatch.[0m
+        [36m</p>[39m
+        [36m<form[39m
+          [33maria-label[39m=[32m"Grant conversion sharing"[39m
+        [36m>[39m
+          [36m<fieldset[39m
+            [33mdisabled[39m=[32m""[39m
+          [36m>[39m
+            [36m<legend>[39m
+              [0mNew conversion-sharing grant[0m
+            [36m</legend>[39m
+            [36m<label>[39m
+              [0mConnection ID[0m
+              [36m<input[39m
+                [33mmaxlength[39m=[32m"256"[39m
+                [33mname[39m=[32m"connectionId"[39m
+                [33mrequired[39m=[32m""[39m
+              [36m/>[39m
+            [36m</label>[39m
+            [36m<label>[39m
+              [0mDestination plugin ID[0m
+              [36m<input[39m
+                [33mmaxlength[39m=[32m"256"[39m
+                [33mname[39m=[32m"destination"[39m
+                [33mrequired[39m=[32m""[39m
+              [36m/>[39m
+            [36m</label>[39m
+            [36m<label>[39m
+              [0mAccount ID[0m
+              [36m<input[39m
+                [33mmaxlength[39m=[32m"256"[39m
+                [33mname[39m=[32m"accountId"[39m
+                [33mrequired[39m=[32m""[39m
+              [36m/>[39m
+            [36m</label>[39m
+            [36m<label>[39m
+              [0mDefinition IDs (comma-separated)[0m
+              [36m<input[39m
+                [33mmaxlength[39m=[32m"4111"[39m
+                [33mname[39m=[32m"definitionIds"[39m
+                [33mrequired[39m=[32m""[39m
+              [36m/>[39m
+            [36m</label>[39m
+            [36m<label>[39m
+              [0mPurpose[0m
+              [36m<input[39m
+                [33mmaxlength[39m=[32m"256"[39m
+                [33mname[39m=[32m"purpose"[39m
+                [33mrequired[39m=[32m""[39m
+                [33mvalue[39m=[32m"measurement"[39m
+              [36m/>[39m
+            [36m</label>[39m
+            [36m<label>[39m
+              [0mValid for days[0m
+              [36m<input[39m
+                [33mmax[39m=[32m"365"[39m
+                [33mmin[39m=[32m"1"[39m
+                [33mname[39m=[32m"days"[39m
+                [33mrequired[39m=[32m""[39m
+                [33mtype[39m=[32m"number"[39m
+                [33mvalue[39m=[32m"30"[39m
+              [36m/>[39m
+            [36m</label>[39m
+            [36m<button[39m
+              [33mtype[39m=[32m"submit"[39m
+            [36m>[39m
+              [0mGrant conversion sharing[0m
+            [36m</button>[39m
+          [36m</fieldset>[39m
+        [36m</form>[39m
+        [36m<button[39m
+          [33mtype[39m=[32m"button"[39m
+        [36m>[39m
+          [0mRefresh grants[0m
+        [36m</button>[39m
+        [36m<p[39m
+          [33mclass[39m=[32m"error-notice"[39m
+          [33mrole[39m=[32m"alert"[39m
+        [36m>[39m
+          [0mGrant response unavailable. Refresh before another submission.[0m
+        [36m</p>[39m
+        [36m<ul[39m
+          [33maria-label[39m=[32m"Conversion grants"[39m
+        [36m/>[39m
+      [36m</section>[39m
+    [36m</section>[39m
+  [36m</div>[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../../node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getElementError ../../node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/query-helpers.js:20:35
+ ❯ getMultipleElementsFoundError ../../node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/query-helpers.js:23:10
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/query-helpers.js:55:13
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ tests/addons.test.ts:232:17
+    230|   expect(requests).toHaveLength(1);
+    231|   await act(async () => { pending.resolve({ ok: false, error: { code: …
+    232|   expect(screen.getByRole('alert').textContent).not.toContain('fixture…
+       |                 ^
+    233| });
+    234| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/18]⎯
+
+ FAIL  tests/addons.test.ts > starts sign-in through one policy card and reads its operation before offering an expiring HTTPS link
+AssertionError: expected [ 'om_measure_grants_list', …(1) ] to deeply equal [ 'integrations_oauth_start' ]
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[31m+   "om_measure_grants_list",[39m
+[2m    "integrations_oauth_start",[22m
+[2m  ][22m
+
+ ❯ tests/addons.test.ts:320:17
+    318|   fireEvent.click(service.getByRole('button', { name: 'Check Sample OA…
+    319|   await waitFor(() => expect(service.getByRole('link', { name: 'Contin…
+    320|   expect(names).toEqual(['integrations_oauth_start']);
+       |                 ^
+    321|   await act(async () => host.advance({ ms: 60000 }));
+    322|   expect(service.queryByRole('link', { name: 'Continue to Sample OAuth…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/18]⎯
+
+ FAIL  tests/addons.test.ts > blocks another OAuth start while unknown, until reconciled as cancelled
+ FAIL  tests/addons.test.ts > blocks another OAuth start while unknown, until reconciled as interrupted
+ FAIL  tests/addons.test.ts > blocks another OAuth start while unknown, until reconciled as completed
+AssertionError: expected 2 to be 1 // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 1[39m
+[31m+ 2[39m
+
+ ❯ tests/addons.test.ts:352:79
+    350|   expect(service.queryByRole('article', { name: 'Review tool call' }))…
+    351|   await act(async () => host.advance({ ms: 300001 }));
+    352|   expect(signIn.disabled).toBe(true); fireEvent.click(signIn); expect(…
+       |                                                                               ^
+    353|   fireEvent.click(service.getByRole('button', { name: 'Check Sample OA…
+    354|   await waitFor(() => expect(reads).toHaveLength(2));
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/18]⎯
+
+ FAIL  tests/addons.test.ts > recovers a failed OAuth approval read and rejects valid recovery evidence
+ FAIL  tests/addons.test.ts > recovers a failed OAuth approval read and rejects wrong-operation recovery evidence
+ FAIL  tests/addons.test.ts > recovers a failed OAuth approval read and rejects wrong-card recovery evidence
+AssertionError: expected 2 to be 1 // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 1[39m
+[31m+ 2[39m
+
+ ❯ tests/addons.test.ts:399:18
+    397|   }
+    398|   await waitFor(() => expect(service.getByRole('button', { name: /^All…
+    399|   expect(starts).toBe(1); expect(cards).toEqual(Array(evidence === 'va…
+       |                  ^
+    400|   expect(operations).toEqual(Array(evidence === 'valid' ? 1 : 2).fill(…
+    401|   view.unmount(); expect(host.pending()).toBe(0);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/18]⎯
+
+ FAIL  tests/browser-tools.test.ts > passes the current bind token and shows surface spend approvals in the existing inline card
+TestingLibraryElementError: Found multiple elements with the text: Exact spend approval
+
+Here are the matching elements:
+
+Ignored nodes: comments, script, style
+[36m<strong>[39m
+  [0mExact spend approval[0m
+[36m</strong>[39m
+
+Ignored nodes: comments, script, style
+[36m<h3>[39m
+  [0mExact spend approval[0m
+[36m</h3>[39m
+
+(If this is intentional, then use the `*AllBy*` variant of the query (like `queryAllByText`, `getAllByText`, or `findAllByText`)).
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<button[39m
+      [33maria-controls[39m=[32m"om-chat"[39m
+      [33maria-expanded[39m=[32m"true"[39m
+      [33maria-label[39m=[32m"Assistant"[39m
+      [33mclass[39m=[32m"chat-fab"[39m
+      [33mhidden[39m=[32m""[39m
+      [33mtitle[39m=[32m"Open assistant"[39m
+      [33mtype[39m=[32m"button"[39m
+    [36m>[39m
+      [36m<svg[39m
+        [33maria-hidden[39m=[32m"true"[39m
+        [33mfill[39m=[32m"none"[39m
+        [33mfocusable[39m=[32m"false"[39m
+        [33mstroke[39m=[32m"currentColor"[39m
+        [33mstroke-linecap[39m=[32m"round"[39m
+        [33mstroke-linejoin[39m=[32m"round"[39m
+        [33mstroke-width[39m=[32m"1.6"[39m
+        [33mviewBox[39m=[32m"0 0 24 24"[39m
+      [36m>[39m
+        [36m<path[39m
+          [33md[39m=[32m"M12 8V4H8"[39m
+        [36m/>[39m
+        [0m
+  [0m
+        [36m<rect[39m
+          [33mheight[39m=[32m"12"[39m
+          [33mrx[39m=[32m"2"[39m
+          [33mwidth[39m=[32m"16"[39m
+          [33mx[39m=[32m"4"[39m
+          [33my[39m=[32m"8"[39m
+        [36m/>[39m
+        [0m
+  [0m
+        [36m<path[39m
+          [33md[39m=[32m"M2 14h2"[39m
+        [36m/>[39m
+        [0m
+  [0m
+        [36m<path[39m
+          [33md[39m=[32m"M20 14h2"[39m
+        [36m/>[39m
+        [0m
+  [0m
+        [36m<path[39m
+          [33md[39m=[32m"M15 13v2"[39m
+        [36m/>[39m
+        [0m
+  [0m
+        [36m<path[39m
+          [33md[39m=[32m"M9 13v2"[39m
+        [36m/>[39m
+      [36m</svg>[39m
+    [36m</button>[39m
+    [36m<aside[39m
+      [33maria-label[39m=[32m"Assistant"[39m
+      [33mclass[39m=[32m"chat-panel om-jini-chat"[39m
+      [33mid[39m=[32m"om-chat"[39m
+      [33mtabindex[39m=[32m"-1"[39m
+    [36m>[39m
+      [36m<section[39m
+        [33mclass[39m=[32m"jini-chat-pane jini-chat-pane--workspace"[39m
+        [33mdata-activity[39m=[32m"unavailable"[39m
+      [36m>[39m
+        [36m<header[39m
+          [33mclass[39m=[32m"jini-chat-pane__header om-chat-header"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"jini-chat-pane__heading"[39m
+          [36m>[39m
+            [36m<h2[39m
+              [33mclass[39m=[32m"jini-chat-pane__title"[39m
+              [33mtitle[39m=[32m"Fixture only"[39m
+            [36m>[39m
+              [0mFixture only[0m
+            [36m</h2>[39m
+          [36m</div>[39m
+          [36m<button[39m
+            [33maria-label[39m=[32m"Agents"[39m
+            [33mclass[39m=[32m"om-chat-icon"[39m
+            [33mdisabled[39m=[32m""[39m
+            [33mtitle[39m=[32m"Agents and vendors"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [36m<i[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"ri-group-line"[39m
+              [33mstyle[39m=[32m"font-size: 18px; line-height: 1; width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center;"[39m
+            [36m/>[39m
+          [36m</button>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"om-chat-history"[39m
+          [36m>[39m
+            [36m<button[39m
+              [33maria-expanded[39m=[32m"false"[39m
+              [33maria-haspopup[39m=[32m"dialog"[39m
+              [33maria-label[39m=[32m"Chat history"[39m
+              [33mclass[39m=[32m"om-chat-icon"[39m
+              [33mdisabled[39m=[32m""[39m
+              [33mtitle[39m=[32m"Chat history"[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [36m<i[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"ri-chat-3-line"[39m
+                [33mstyle[39m=[32m"font-size: 18px; line-height: 1; width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center;"[39m
+              [36m/>[39m
+            [36m</button>[39m
+          [36m</div>[39m
+          [36m<button[39m
+            [33maria-label[39m=[32m"Chat settings"[39m
+            [33mclass[39m=[32m"om-chat-icon"[39m
+            [33mtitle[39m=[32m"Chat settings"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [36m<i[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"ri-settings-3-line"[39m
+              [33mstyle[39m=[32m"font-size: 18px; line-height: 1; width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center;"[39m
+            [36m/>[39m
+          [36m</button>[39m
+          [36m<button[39m
+            [33maria-label[39m=[32m"Close assistant"[39m
+            [33mclass[39m=[32m"om-chat-icon"[39m
+            [33mtitle[39m=[32m"Close assistant"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [36m<i[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"ri-close-line"[39m
+              [33mstyle[39m=[32m"font-size: 18px; line-height: 1; width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center;"[39m
+            [36m/>[39m
+          [36m</button>[39m
+        [36m</header>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"jini-chat-pane__body"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"jini-message-list"[39m
+            [33mdata-agent-element[39m=[32m"chat-transcript"[39m
+            [33mdata-agent-label[39m=[32m"The conversation transcript, oldest message first"[39m
+            [33mdata-agent-role[39m=[32m"list"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"jini-message jini-message-user"[39m
+              [33mdata-agent-element[39m=[32m"chat-message-test-1"[39m
+              [33mdata-agent-label[39m=[32m"A message from the user"[39m
+              [33mdata-agent-role[39m=[32m"region"[39m
+              [33mdata-message-id[39m=[32m"test-1"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"jini-message-content"[39m
+              [36m>[39m
+                [0mFixture only[0m
+              [36m</div>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"jini-message-actions jini-message-actions--user"[39m
+              [36m>[39m
+                [36m<button[39m
+                  [33maria-label[39m=[32m"Copy message"[39m
+                  [33mclass[39m=[32m"jini-message-action-btn"[39m
+                  [33mtype[39m=[32m"button"[39m
+                [36m>[39m
+                  [36m<svg[39m
+                    [33maria-hidden[39m=[32m"true"[39m
+                    [33mfill[39m=[32m"none"[39m
+                    [33mfocusable[39m=[32m"false...
+ ❯ Object.getElementError ../../node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getElementError ../../node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/query-helpers.js:20:35
+ ❯ getMultipleElementsFoundError ../../node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/query-helpers.js:23:10
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/query-helpers.js:55:13
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ tests/browser-tools.test.ts:183:74
+    181|     const view = render(createElement(OMChatPane, { session: f.session…
+    182|     expect(f.starts).toEqual([expect.objectContaining({ frontendSessio…
+    183|     expect(f.session.getSnapshot().cards).toHaveLength(1); expect(scre…
+       |                                                                          ^
+    184|     expect(screen.queryByText('Always allow')).toBeNull(); expect(scre…
+    185|     await act(async () => { await f.stop(); }); expect(f.session.getSn…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/18]⎯
+
+ FAIL  tests/chat-parity.test.ts > renders server usage through Jini for 'partial cancellation' without sample prices or false success
+AssertionError: expected 'Stopped · 23s · $0.11 · total $0.11' to be 'Canceled · 23s · $0.11 · total $0.11' // Object.is equality
+
+Expected: [32m"[7mCancel[27med · 23s · $0.11 · total $0.11"[39m
+Received: [31m"[7mStopp[27med · 23s · $0.11 · total $0.11"[39m
+
+ ❯ tests/chat-parity.test.ts:255:55
+    253|     const line = await screen.findByRole('note');
+    254|     const finishedReply = line.closest<HTMLElement>('.jini-message-ass…
+    255|     expect(line.textContent?.replace('●', '').trim()).toBe(scenario.li…
+       |                                                       ^
+    256|     expect(within(finishedReply).getByRole('button', { name: 'Copy mes…
+    257|     expect(within(finishedReply).getByText('Estimated cost / incomplet…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/18]⎯
+
+ FAIL  tests/conversion-grants.test.ts > keeps grant pending through Allow acknowledgement and reloads only after completed operation lookup
+ZodError: [
+  {
+    "code": "unrecognized_keys",
+    "keys": [
+      "connectionId",
+      "accountId",
+      "definitionIds",
+      "destination",
+      "purpose",
+      "expiresAt"
+    ],
+    "path": [],
+    "message": "Unrecognized keys: \"connectionId\", \"accountId\", \"definitionIds\", \"destination\", \"purpose\", \"expiresAt\""
+  }
+]
+ ❯ tests/conversion-grants.test.ts:97:70
+     95|   await screen.findByText('Conversion sharing granted.');
+     96|   expect(f.list).toHaveBeenCalledTimes(2);
+     97|   const { grantId } = measurementGrantSchema.pick({ grantId: true }).p…
+       |                                                                      ^
+     98|   expect(screen.getByText(grantId + ' · Active')).toBeTruthy();
+     99|   expect(f.tool.mock.calls.filter(([input]) => input.call.name === 'om…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/18]⎯
+
+ FAIL  tests/jini-chat-transport.test.ts > rejects unsupported image input before starting a run
+AssertionError: expected [Function] to throw error including 'This server does not accept image att…' but got 'Invalid attachment.'
+
+Expected: [32m"[7mThis server does not accept image attachments. Your message was not s[27ment."[39m
+Received: [31m"[7mInvalid attachm[27ment."[39m
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/18]⎯
+
+ FAIL  tests/navigation.test.ts > captures initial and committed screen views, ignoring stale/duplicate acknowledgements and diagnostic failures
+AssertionError: expected [ [ { name: 'screen.viewed' }, …(1) ] ] to deeply equal [ [ { name: 'screen.viewed', …(1) } ] ]
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[2m    [[22m
+[2m      {[22m
+[32m-       "fields": {[39m
+[31m+       "name": "screen.viewed",[39m
+[31m+     },[39m
+[31m+     {[39m
+[31m+       "properties": {[39m
+[2m          "screen": "workspaces",[22m
+[2m        },[22m
+[32m-       "name": "screen.viewed",[39m
+[2m      },[22m
+[2m    ],[22m
+[2m  ][22m
+
+ ❯ tests/navigation.test.ts:76:70
+     74|   const route = createNavigationController({ browser: null, timers: ru…
+     75|   route.rendered({ target: 'workspaces' }); route.rendered({ target: '…
+     76|   route.rendered({ target: 'workspaces' }); expect(track.mock.calls).t…
+       |                                                                      ^
+     77|   route.rendered({ target: 'campaigns' }); route.rendered({ target: 'c…
+     78|   expect(track.mock.calls).toEqual([[{ name: 'screen.viewed', fields: …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/18]⎯
+
+ FAIL  tests/shell.test.ts > offers one Settings picker with live theme previews and keyboard-operated accents
+AssertionError: expected undefined to be 'modernist' // Object.is equality
+
+[32m- Expected:[39m 
+"modernist"
+
+[31m+ Received:[39m 
+undefined
+
+ ❯ tests/shell.test.ts:163:103
+    161|     for (const [label, id] of [["Modern", "modernist"], ["Glass", "gla…
+    162|       await user.click(screen.getByRole("radio", { name: label }));
+    163|       expect(root.getAttribute("data-admin-theme")).toBe(id); expect(v…
+       |                                                                                                       ^
+    164|       expect(screen.getByRole("radio", { name: label }).getAttribute("…
+    165|     }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/18]⎯
+
+ FAIL  tests/shell.test.ts > executes every composed theme/accent page handle and renders its actual preview colours
+TypeError: Cannot read properties of undefined (reading 'send')
+ ❯ tests/shell.test.ts:206:66
+    204|   await act(async () => { app.start(); frame({ input: { type: "attache…
+    205|   return { container, root: appearanceRoot, values, storage, now, resp…
+    206|     async startRun() { await act(async () => { sending = session.send(…
+       |                                                                  ^
+    207|     async invoke(required: { handle: string; option?: string }) {
+    208|       const invocationId = "appearance-" + ++invocation;
+ ❯ ../../node_modules/.pnpm/@testing-library+react@16.3.0_@testing-library+dom@10.4.2_@types+react-dom@19.2.3_@type_2d6fc43d18e799558c417e34a459fbc4/node_modules/@testing-library/react/dist/act-compat.js:48:24
+ ❯ process.env.NODE_ENV.exports.act ../../node_modules/.pnpm/react@19.2.0/node_modules/react/cjs/react.development.js:814:22
+ ❯ ../../node_modules/.pnpm/@testing-library+react@16.3.0_@testing-library+dom@10.4.2_@types+react-dom@19.2.3_@type_2d6fc43d18e799558c417e34a459fbc4/node_modules/@testing-library/react/dist/act-compat.js:47:25
+ ❯ Object.startRun tests/shell.test.ts:206:30
+ ❯ tests/shell.test.ts:238:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/18]⎯
+
+ FAIL  tests/shell.test.ts > denies composed theme/accent page actions without a live run and preserves the previews
+AssertionError: expected "spy" to not be called at all, but actually been called 1 times[90m
+
+Received: 
+
+[1m  1st spy call:
+
+[22m    Array [
+      "om.sidebar-rail.v1",
+      "false",
+    ]
+[39m[90m
+
+Number of calls: [1m1[22m
+[39m
+ ❯ tests/shell.test.ts:274:68
+    272|   try {
+    273|     await f.invoke({ handle: "appearance-theme-glass" }); await f.invo…
+    274|     expect(f.responses).toEqual([]); expect(f.storage.setItem).not.toH…
+       |                                                                    ^
+    275|     expect(f.root.getAttribute("data-admin-theme")).toBe("modernist");…
+    276|     for (const theme of THEMES) expectThemePreview({ container: f.cont…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/18]⎯
+
+ FAIL  tests/shell.test.ts > remembers the icon rail and retains assistant draft while navigating
+TestingLibraryElementError: Unable to find an accessible element with the role "textbox" and name "Message"
+
+Here are the accessible roles:
+
+  link:
+
+  Name "Skip to workspace canvas":
+  [36m<a[39m
+    [33mclass[39m=[32m"skip-link"[39m
+    [33mhref[39m=[32m"#workspace-canvas"[39m
+  [36m/>[39m
+
+  Name "Open Marketing overview":
+  [36m<a[39m
+    [33maria-label[39m=[32m"Open Marketing overview"[39m
+    [33mclass[39m=[32m"brand"[39m
+    [33mhref[39m=[32m"#workspaces"[39m
+  [36m/>[39m
+
+  Name "Overview":
+  [36m<a[39m
+    [33maria-current[39m=[32m"page"[39m
+    [33maria-label[39m=[32m"Overview"[39m
+    [33mclass[39m=[32m"nav-link"[39m
+    [33mdata-action[39m=[32m"navigate"[39m
+    [33mdata-target[39m=[32m"workspaces"[39m
+    [33mhref[39m=[32m"#workspaces"[39m
+    [33mtitle[39m=[32m"Overview"[39m
+  [36m/>[39m
+
+  Name "Creative":
+  [36m<a[39m
+    [33maria-label[39m=[32m"Creative"[39m
+    [33mclass[39m=[32m"nav-link"[39m
+    [33mdata-action[39m=[32m"navigate"[39m
+    [33mdata-target[39m=[32m"creative"[39m
+    [33mhref[39m=[32m"#creative"[39m
+    [33mtitle[39m=[32m"Creative · Preview; more coming soon"[39m
+  [36m/>[39m
+
+  Name "Media":
+  [36m<a[39m
+    [33maria-label[39m=[32m"Media"[39m
+    [33mclass[39m=[32m"nav-link"[39m
+    [33mdata-action[39m=[32m"navigate"[39m
+    [33mdata-target[39m=[32m"media-library"[39m
+    [33mhref[39m=[32m"#media-library"[39m
+    [33mtitle[39m=[32m"Media"[39m
+  [36m/>[39m
+
+  Name "Campaigns":
+  [36m<a[39m
+    [33maria-label[39m=[32m"Campaigns"[39m
+    [33mclass[39m=[32m"nav-link"[39m
+    [33mdata-action[39m=[32m"navigate"[39m
+    [33mdata-target[39m=[32m"campaigns"[39m
+    [33mhref[39m=[32m"#campaigns"[39m
+    [33mtitle[39m=[32m"Campaigns"[39m
+  [36m/>[39m
+
+  Name "Measure":
+  [36m<a[39m
+    [33maria-label[39m=[32m"Measure"[39m
+    [33mclass[39m=[32m"nav-link"[39m
+    [33mdata-action[39m=[32m"navigate"[39m
+    [33mdata-target[39m=[32m"measure"[39m
+    [33mhref[39m=[32m"#measure"[39m
+    [33mtitle[39m=[32m"Measure · Preview; more coming soon"[39m
+  [36m/>[39m
+
+  Name "Activity":
+  [36m<a[39m
+    [33maria-label[39m=[32m"Activity"[39m
+    [33mclass[39m=[32m"nav-link"[39m
+    [33mdata-action[39m=[32m"navigate"[39m
+    [33mdata-target[39m=[32m"activity"[39m
+    [33mhref[39m=[32m"#activity"[39m
+    [33mtitle[39m=[32m"Activity"[39m
+  [36m/>[39m
+
+  Name "Plugins":
+  [36m<a[39m
+    [33maria-label[39m=[32m"Plugins"[39m
+    [33mclass[39m=[32m"nav-link"[39m
+    [33mdata-action[39m=[32m"navigate"[39m
+    [33mdata-target[39m=[32m"/addons/plugins"[39m
+    [33mhref[39m=[32m"#/addons/plugins"[39m
+    [33mtitle[39m=[32m"Plugins"[39m
+  [36m/>[39m
+
+  Name "Agent Plugins":
+  [36m<a[39m
+    [33maria-label[39m=[32m"Agent Plugins"[39m
+    [33mclass[39m=[32m"nav-link"[39m
+    [33mdata-action[39m=[32m"navigate"[39m
+    [33mdata-target[39m=[32m"/addons/agent-plugins"[39m
+    [33mhref[39m=[32m"#/addons/agent-plugins"[39m
+    [33mtitle[39m=[32m"Agent Plugins"[39m
+  [36m/>[39m
+
+  Name "Skills":
+  [36m<a[39m
+    [33maria-label[39m=[32m"Skills"[39m
+    [33mclass[39m=[32m"nav-link"[39m
+    [33mdata-action[39m=[32m"navigate"[39m
+    [33mdata-target[39m=[32m"/addons/skills"[39m
+    [33mhref[39m=[32m"#/addons/skills"[39m
+    [33mtitle[39m=[32m"Skills"[39m
+  [36m/>[39m
+
+  Name "Integrations":
+  [36m<a[39m
+    [33maria-label[39m=[32m"Integrations"[39m
+    [33mclass[39m=[32m"nav-link"[39m
+    [33mdata-action[39m=[32m"navigate"[39m
+    [33mdata-target[39m=[32m"/addons/integrations"[39m
+    [33mhref[39m=[32m"#/addons/integrations"[39m
+    [33mtitle[39m=[32m"Integrations"[39m
+  [36m/>[39m
+
+  Name "Connections":
+  [36m<a[39m
+    [33maria-label[39m=[32m"Connections"[39m
+    [33mclass[39m=[32m"nav-link"[39m
+    [33mdata-action[39m=[32m"navigate"[39m
+    [33mdata-target[39m=[32m"connections"[39m
+    [33mhref[39m=[32m"#connections"[39m
+    [33mtitle[39m=[32m"Connections"[39m
+  [36m/>[39m
+
+  Name "Settings":
+  [36m<a[39m
+    [33maria-label[39m=[32m"Settings"[39m
+    [33mclass[39m=[32m"nav-link"[39m
+    [33mdata-action[39m=[32m"navigate"[39m
+    [33mdata-target[39m=[32m"settings"[39m
+    [33mhref[39m=[32m"#settings"[39m
+    [33mtitle[39m=[32m"Settings"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  navigation:
+
+  Name "Features":
+  [36m<nav[39m
+    [33maria-label[39m=[32m"Features"[39m
+    [33mclass[39m=[32m"sidebar"[39m
+    [33mid[39m=[32m"studio-sidebar"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  strong:
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  --------------------------------------------------
+  region:
+
+  Name "WORKSPACE":
+  [36m<section[39m
+    [33maria-label[39m=[32m"WORKSPACE"[39m
+    [33mclass[39m=[32m"nav-group"[39m
+  [36m/>[39m
+
+  Name "ADD-ONS":
+  [36m<section[39m
+    [33maria-label[39m=[32m"ADD-ONS"[39m
+    [33mclass[39m=[32m"nav-group"[39m
+  [36m/>[39m
+
+  Name "SYSTEM":
+  [36m<section[39m
+    [33maria-label[39m=[32m"SYSTEM"[39m
+    [33mclass[39m=[32m"nav-group"[39m
+  [36m/>[39m
+
+  Name "Review generation":
+  [36m<section[39m
+    [33maria-label[39m=[32m"Review generation"[39m
+    [33mclass[39m=[32m"om-chat-approval"[39m
+  [36m/>[39m
+
+  Name "Exact spend approval":
+  [36m<section[39m
+    [33maria-label[39m=[32m"Exact spend approval"[39m
+    [33mclass[39m=[32m"om-chat-approval"[39m
+  [36m/>[39m
+
+  Name "Review generation":
+  [36m<section[39m
+    [33maria-label[39m=[32m"Review generation"[39m
+    [33mclass[39m=[32m"om-chat-approval"[39m
+  [36m/>[39m
+
+  Name "Exact spend approval":
+  [36m<section[39m
+    [33maria-label[39m=[32m"Exact spend approval"[39m
+    [33mclass[39m=[32m"om-chat-approval"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  button:
+
+  Name "WORKSPACE":
+  [36m<button[39m
+    [33maria-controls[39m=[32m"nav-workspace"[39m
+    [33maria-expanded[39m=[32m"true"[39m
+    [33mclass[39m=[32m"group-toggle"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "ADD-ONS":
+  [36m<button[39m
+    [33maria-controls[39m=[32m"nav-add-ons"[39m
+    [33maria-expanded[39m=[32m"true"[39m
+    [33mclass[39m=[32m"group-toggle"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "SYSTEM":
+  [36m<button[39m
+    [33maria-controls[39m=[32m"nav-system"[39m
+    [33maria-expanded[39m=[32m"true"[39m
+    [33mclass[39m=[32m"group-toggle"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Collapse sidebar":
+  [36m<button[39m
+    [33maria-controls[39m=[32m"studio-sidebar"[39m
+    [33maria-expanded[39m=[32m"true"[39m
+    [33maria-label[39m=[32m"Collapse sidebar"[39m
+    [33mclass[39m=[32m"rail-toggle"[39m
+    [33mtitle[39m=[32m"Collapse sidebar"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Agents":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Agents"[39m
+    [33mclass[39m=[32m"om-chat-icon"[39m
+    [33mtitle[39m=[32m"Agents and vendors"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Chat history":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"dialog"[39m
+    [33maria-label[39m=[32m"Chat history"[39m
+    [33mclass[39m=[32m"om-chat-icon"[39m
+    [33mtitle[39m=[32m"Chat history"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Chat settings":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Chat settings"[39m
+    [33mclass[39m=[32m"om-chat-icon"[39m
+    [33mtitle[39m=[32m"Chat settings"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Close assistant":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Close assistant"[39m
+    [33mclass[39m=[32m"om-chat-icon"[39m
+    [33mtitle[39m=[32m"Close assistant"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Allow":
+  [36m<button[39m
+    [33mclass[39m=[32m"approval-choice"[39m
+    [33mdata-choice[39m=[32m"allow"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Allow for this chat":
+  [36m<button[39m
+    [33mclass[39m=[32m"approval-choice"[39m
+    [33mdata-choice[39m=[32m"allow_chat"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Always allow":
+  [36m<button[39m
+    [33mclass[39m=[32m"approval-choice"[39m
+    [33mdata-choice[39m=[32m"always_allow"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Cancel":
+  [36m<button[39m
+    [33mclass[39m=[32m"approval-choice"[39m
+    [33mdata-choice[39m=[32m"cancel"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Allow":
+  [36m<button[39m
+    [33mclass[39m=[32m"approval-choice"[39m
+    [33mdata-choice[39m=[32m"allow"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Cancel":
+  [36m<button[39m
+    [33mclass[39m=[32m"approval-choice"[39m
+    [33mdata-choice[39m=[32m"cancel"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Allow":
+  [36m<button[39m
+    [33mclass[39m=[32m"approval-choice"[39m
+    [33mdata-choice[39m=[32m"allow"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Cancel":
+  [36m<button[39m
+    [33mclass[39m=[32m"approval-choice"[39m
+    [33mdata-choice[39m=[32m"cancel"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Allow":
+  [36m<button[39m
+    [33mclass[39m=[32m"approval-choice"[39m
+    [33mdata-choice[39m=[32m"allow"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Cancel":
+  [36m<button[39m
+    [33mclass[39m=[32m"approval-choice"[39m
+    [33mdata-choice[39m=[32m"cancel"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy message":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy message"[39m
+    [33mclass[39m=[32m"jini-message-action-btn"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Choose vendor":
+  [36m<button[39m
+    [33maria-controls[39m=[32m"_r_49_"[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"dialog"[39m
+    [33maria-label[39m=[32m"Choose vendor"[39m
+    [33mclass[39m=[32m"jini-runtime-trigger jini-runtime-trigger--icon-only"[39m
+    [33mtitle[39m=[32m"Sample provider A · Sample Large"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Model: Sample Large":
+  [36m<button[39m
+    [33maria-controls[39m=[32m"_r_4a_"[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Model: Sample Large"[39m
+    [33mclass[39m=[32m"jini-runtime-dropup-trigger"[39m
+    [33mtitle[39m=[32m"Sample Large"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Reasoning: Default":
+  [36m<button[39m
+    [33maria-controls[39m=[32m"_r_4b_"[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Reasoning: Default"[39m
+    [33mclass[39m=[32m"jini-runtime-dropup-trigger jini-runtime-dropup-trigger--effort"[39m
+    [33mtitle[39m=[32m"Default"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Send":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Send"[39m
+    [33mclass[39m=[32m"jini-composer-send"[39m
+    [33mdisabled[39m=[32m""[39m
+    [33mtitle[39m=[32m"Send"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  main:
+
+  Name "Workspace canvas":
+  [36m<main[39m
+    [33maria-label[39m=[32m"Workspace canvas"[39m
+    [33mclass[39m=[32m"workspace-main"[39m
+    [33mdata-agent-page[39m=[32m"workspaces"[39m
+    [33mid[39m=[32m"workspace-canvas"[39m
+    [33mtabindex[39m=[32m"-1"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  banner:
+
+  Name "":
+  [36m<header[39m
+    [33mclass[39m=[32m"page-heading"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<header[39m
+    [33mclass[39m=[32m"jini-chat-pane__header om-chat-header"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<header />[39m
+
+  Name "":
+  [36m<header />[39m
+
+  Name "":
+  [36m<header />[39m
+
+  Name "":
+  [36m<header />[39m
+
+  Name "":
+  [36m<header />[39m
+
+  Name "":
+  [36m<header />[39m
+
+  Name "":
+  [36m<header />[39m
+
+  Name "":
+  [36m<header />[39m
+
+  --------------------------------------------------
+  heading:
+
+  Name "Overview":
+  [36m<h1[39m
+    [33mtabindex[39m=[32m"-1"[39m
+  [36m/>[39m
+
+  Name "Workspace overview":
+  [36m<h2 />[39m
+
+  Name "Make room for a better morning":
+  [36m<h3 />[39m
+
+  Name "New chat":
+  [36m<h2[39m
+    [33mclass[39m=[32m"jini-chat-pane__title"[39m
+    [33mtitle[39m=[32m"New chat"[39m
+  [36m/>[39m
+
+  Name "Review generation":
+  [36m<h3 />[39m
+
+  Name "Exact spend approval":
+  [36m<h3 />[39m
+
+  Name "Review generation":
+  [36m<h3 />[39m
+
+  Name "Exact spend approval":
+  [36m<h3 />[39m
+
+  --------------------------------------------------
+  paragraph:
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"muted"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"muted"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"muted"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"muted"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  status:
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"mode-badge"[39m
+    [33mdata-state[39m=[32m"sample"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"card-status"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"card-status"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"card-status"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"card-status"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<div[39m
+    [33mclass[39m=[32m"om-chat-status"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  article:
+
+  Name "":
+  [36m<article[39m
+    [33mclass[39m=[32m"metric-card"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<article[39m
+    [33mclass[39m=[32m"metric-card"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<article[39m
+    [33mclass[39m=[32m"metric-card"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<article[39m
+    [33mclass[39m=[32m"canvas-card"[39m
+  [36m/>[39m
+
+  Name "Review generation":
+  [36m<article[39m
+    [33maria-label[39m=[32m"Review generation"[39m
+    [33mclass[39m=[32m"approval-card"[39m
+  [36m/>[39m
+
+  Name "Exact spend approval":
+  [36m<article[39m
+    [33maria-label[39m=[32m"Exact spend approval"[39m
+    [33mclass[39m=[32m"approval-card"[39m
+  [36m/>[39m
+
+  Name "Review generation":
+  [36m<article[39m
+    [33maria-label[39m=[32m"Review generation"[39m
+    [33mclass[39m=[32m"approval-card"[39m
+  [36m/>[39m
+
+  Name "Exact spend approval":
+  [36m<article[39m
+    [33maria-label[39m=[32m"Exact spend approval"[39m
+    [33mclass[39m=[32m"approval-card"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  complementary:
+
+  Name "Assistant":
+  [36m<aside[39m
+    [33maria-label[39m=[32m"Assistant"[39m
+    [33mclass[39m=[32m"chat-panel om-jini-chat"[39m
+    [33mid[39m=[32m"om-chat"[39m
+    [33mtabindex[39m=[32m"-1"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  group:
+
+  Name "":
+  [36m<details />[39m
+
+  Name "":
+  [36m<details />[39m
+
+  Name "Approval choices":
+  [36m<fieldset />[39m
+
+  Name "":
+  [36m<details />[39m
+
+  Name "":
+  [36m<details />[39m
+
+  Name "Approval choices":
+  [36m<fieldset />[39m
+
+  Name "":
+  [36m<details />[39m
+
+  Name "":
+  [36m<details />[39m
+
+  Name "Approval choices":
+  [36m<fieldset />[39m
+
+  Name "":
+  [36m<details />[39m
+
+  Name "":
+  [36m<details />[39m
+
+  Name "Approval choices":
+  [36m<fieldset />[39m
+
+  --------------------------------------------------
+  code:
+
+  Name "":
+  [36m<code />[39m
+
+  Name "":
+  [36m<code />[39m
+
+  Name "":
+  [36m<code />[39m
+
+  Name "":
+  [36m<code />[39m
+
+  Name "":
+  [36m<code />[39m
+
+  Name "":
+  [36m<code />[39m
+
+  Name "":
+  [36m<code />[39m
+
+  Name "":
+  [36m<code />[39m
+
+  --------------------------------------------------
+  note:
+
+  Name "":
+  [36m<div[39m
+    [33mclass[39m=[32m"jini-message-usage"[39m
+    [33mrole[39m=[32m"note"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  textbox:
+
+  Name "":
+  [36m<textarea[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33mclass[39m=[32m"jini-composer-input"[39m
+    [33mplaceholder[39m=[32m"Ask the assistant to do something…"[39m
+    [33mrows[39m=[32m"3"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"shell"[39m
+      [33mdata-chat-open[39m=[32m"true"[39m
+      [33mdata-rail[39m=[32m"false"[39m
+    [36m>[39m
+      [36m<a[39m
+        [33mclass[39m=[32m"skip-link"[39m
+        [33mhref[39m=[32m"#workspace-canvas"[39m
+      [36m>[39m
+        [0mSkip to workspace canvas[0m
+      [36m</a>[39m
+      [36m<nav[39m
+        [33maria-label[39m=[32m"Features"[39m
+        [33mclass[39m=[32m"sidebar"[39m
+        [33mid[39m=[32m"studio-sidebar"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"sidebar-inner"[39m
+        [36m>[39m
+          [36m<a[39m
+            [33maria-label[39m=[32m"Open Marketing overview"[39m
+            [33mclass[39m=[32m"brand"[39m
+            [33mhref[39m=[32m"#workspaces"[39m
+          [36m>[39m
+            [36m<span[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"brand-mark"[39m
+            [36m>[39m
+              [0mom[0m
+            [36m</span>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"brand-label"[39m
+            [36m>[39m
+              [0mOpen Marketing[0m
+            [36m</span>[39m
+          [36m</a>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"workspace-label"[39m
+          [36m>[39m
+            [36m<strong>[39m
+              [0mRitual Studio[0m
+            [36m</strong>[39m
+            [36m<span>[39m
+              [0mMarketing workspace[0m
+            [36m</span>[39m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"nav-groups"[39m
+          [36m>[39m
+            [36m<section[39m
+              [33maria-label[39m=[32m"WORKSPACE"[39m
+              [33mclass[39m=[32m"nav-group"[39m
+            [36m>[39m
+              [36m<button[39m
+                [33maria-controls[39m=[32m"nav-workspace"[39m
+                [33maria-expanded[39m=[32m"true"[39m
+                [33mclass[39m=[32m"group-toggle"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [36m<span>[39m
+                  [0mWORKSPACE[0m
+                [36m</span>[39m
+                [36m<svg[39m
+                  [33maria-hidden[39m=[32m"true"[39m
+                  [33mclass[39m=[32m"nav-icon"[39m
+                  [33mfill[39m=[32m"none"[39m
+                  [33mfocusable[39m=[32m"false"[39m
+                  [33mheight[39m=[32m"16"[39m
+                  [33mstroke[39m=[32m"currentColor"[39m
+                  [33mstroke-linecap[39m=[32m"round"[39m
+                  [33mstroke-linejoin[39m=[32m"round"[39m
+                  [33mstroke-width[39m=[32m"1.75"[39m
+                  [33mviewBox[39m=[32m"0 0 24 24"[39m
+                  [33mwidth[39m=[32m"16"[39m
+                [36m>[39m
+                  [36m<path[39m
+                    [33md[39m=[32m"m6 9 6 6 6-6"[39m
+                  [36m/>[39m
+                [36m</svg>[39m
+              [36m</button>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"nav-links"[39m
+                [33mid[39m=[32m"nav-workspace"[39m
+              [36m>[39m
+                [36m<a[39m
+                  [33maria-current[39m=[32m"page"[39m
+                  [33maria-label[39m=[32m"Overview"[39m
+                  [33mclass[39m=[32m"nav-link"[39m
+                  [33mdata-action[39m=[32m"navigate"[39m
+                  [33mdata-target[39m=[32m"workspaces"[39m
+                  [33mhref[39m=[32m"#workspaces"[39m
+                  [33mtitle[39m=[32m"Overview"[39m
+                [36m>[39m
+                  [36m<svg[39m
+                    [33maria-hidden[39m=[32m"true"[39m
+                    [33mclass[39m=[32m"nav-icon"[39m
+                    [33mfill[39m=[32m"none"[39m
+                    [33mfocusable[39m=[32m"false"[39m
+                    [33mheight[39m=[32m"16"[39m
+                    [33mstroke[39m=[32m"currentColor"[39m
+                    [33mstroke-linecap[39m=[32m"round"[39m
+                    [33mstroke-linejoin[39m=[32m"round"[39m
+                    [33mstroke-width[39m=[32m"1.75"[39m
+                    [33mviewBox[39m=[32m"0 0 24 24"[39m
+                    [33mwidth[39m=[32m"16"[39m
+                  [36m>[39m
+                    [36m<rect[39m
+                      [33mheight[39m=[32m"9"[39m
+                      [33mrx[39m=[32m"1"[39m
+                      [33mwidth[39m=[32m"7"[39m
+                      [33mx[39m=[32m"3"[39m
+                      [33my[39m=[32m"3"[39m
+                    [36m/>[39m
+                    [0m
+  [0m
+                    [36m<rect[39m
+                      [33mheight[39m=[32m"5"[39m
+                      [33mrx[39m=[32m"1"[39m
+                      [33mwidth[39m=[32m"7"[39m
+                      [33mx[39m=[32m"14"[39m
+                      [33my[39m=[32m"3"[39m
+                    [36m/>[39m
+                    [0m
+  [0m
+                    [36m<rect[39m
+                      [33mheight[39m=[32m"9"[39m
+                      [33mrx[39m=[32m"1"[39m
+                      [33mwidth[39m=[32m"7"[39m
+                      [33mx[39m=[32m"14"[39m
+                      [33my[39m=[32m"12"[39m
+                    [36m/>[39m
+                    [0m
+  [0m
+                    [36m<rect[39m
+                      [33mheight[39m=[32m"5"[39m
+                      [33mrx[39m=[32m"1"[39m
+                      [33mwidth[39m=[32m"7"[39m
+                      [33mx[39m=[32m"3"[39m
+                      [33my[39m=[32m"16"[39m
+                    [36m/>[39m
+                  [36m</svg>[39m
+                  [36m<span[39m
+                    [33mclass[39m=[32m"nav-label"[39m
+                  [36m>[39m
+                    [0mOverview[0m
+                  [36m</span>[39m
+                [36m</a>[39m
+                [36m<a[39m
+                  [33maria-label[39m=[32m"Creative"[39m
+                  [33mclass[39m=[32m"nav-link"[39m
+                  [33mdata-action[39m=[32m"navigate"[39m
+                  [33mdata-target[39m=[32m"creative"[39m
+                  [33mhref[39m=[32m"#creative"[39m
+                  [33mtitle[39m=[32m"Creative · Preview; more coming soon"[39m
+                [36m>[39m
+                  [36m<svg[39m
+                    [33maria-hidden[39m=[32m"true"[39m
+                    [33mclass[39m=[32m"nav-icon"[39m
+                    [33mfill[39m=[32m"none"[39m
+                    [33mfocusable[39m=[32m"false"[39m
+                    [33mheight[39m=[32m"16"[39m
+                    [33mstroke[39m=[32m"currentColor"[39m
+                    [33mstroke-linecap[39m=[32m"round"[39m...
+ ❯ Object.getElementError ../../node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ tests/shell.test.ts:375:28
+    373|     const fab = screen.getByRole("button", { name: "Assistant" });
+    374|     await user.click(fab);
+    375|     await user.type(screen.getByRole("textbox", { name: "Message" }), …
+       |                            ^
+    376|     await user.click(screen.getByRole("link", { name: "Activity" }));
+    377|     expect((screen.getByRole("textbox", { name: "Message" }) as HTMLTe…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/18]⎯
+
+ FAIL  tests/shell.test.ts > does not collapse while selecting sidebar text and tolerates absent host capabilities
+AssertionError: expected "spy" to not be called at all, but actually been called 1 times[90m
+
+Received: 
+
+[1m  1st spy call:
+
+[22m    Array []
+[39m[90m
+
+Number of calls: [1m1[22m
+[39m
+ ❯ tests/shell.test.ts:438:28
+    436|     nav.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true })…
+    437|     nav.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    438|     expect(toggleRail).not.toHaveBeenCalled();
+       |                            ^
+    439|     bindSidebarEmptyClickToggle({ navId: nav.id, toggleRail })();
+    440|     bindSidebarEmptyClickToggle({ doc: document, navId: "missing", mat…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/18]⎯
+
+
+ Test Files  7 failed | 20 passed (27)
+      Tests  18 failed | 310 passed (328)
+   Start at  19:26:38
+   Duration  36.74s (transform 2.69s, setup 0ms, collect 29.40s, tests 54.92s, environment 13.45s, prepare 3.31s)
+

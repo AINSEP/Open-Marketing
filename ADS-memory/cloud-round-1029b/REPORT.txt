@@ -1,0 +1,38 @@
+OM CLOUD ROUND 1029b — COORDINATOR REPORT
+Branch: cloud/om-round-1029b (from main cd84ef8). Never pushed to main. Lockfile/package.json untouched. No live vendor calls.
+Time used: start 19:14 UTC, report 19:33 UTC (~20 of 60 min). 3 Sonnet subagents; no Opus escalation needed.
+Raw output: ADS-memory/cloud-round-1029b/out/ (gitignored dir; files force-added).
+
+ITEMS
+1a DONE (dbf0c6a) — "Sandbox agent did not become ready". Layered causes:
+   - env: apps/agent/dist missing → server could not spawn apps/agent/dist/composition/serve.js (composition/agent.ts:40). Built @open-marketing/agent (gitignored).
+   - PRODUCT: content/agent-plugins/yandex-direct/mcp.json lacked "$schema"; Jini parseAgentPluginMcpConfig rejected it, so bundled-plugin seeding failed at boot ("Add-on operation unavailable or denied"). Added $schema (x-ads shape).
+   - test timeout: boot seeds ~28 bundled plugins (5–15 s here) > vitest 5 s default. New apps/server/vitest.config.ts testTimeout/hookTimeout 60000. FOLLOW-UP: boot seeding time not profiled.
+   - stale: apps/server/tests/boot.test.ts:437 toEqual→toMatchObject (OAuth status now also returns connections/credentialCards).
+   - stale: apps/server/tests/conversations.test.ts:337,360,386 used memory chat-store with durable run store ("Run metadata acceptance failed"); switched to default sqlite adapter.
+   Result: boot 15/15, agent-process 8/8, conversations 22/22 (out/1a-*.txt).
+1b DONE (4d9aba8) — stale fixtures. +15555550100 (555-01xx) is invalid per libphonenumber; features/contacts normalizePhoneE164 correctly rejects it. Fixture phones → valid +1213373425x in apps/server/tests/message-send.test.ts:20,126 and messaging-webhooks.test.ts:27,75 (+regexes). message-send 10/10 (was 0/10), messaging-webhooks 11/11 (was 8/11) (out/1b-after.txt).
+1c DONE (caa5fd3) — stale test. integrationBoundary (apps/server/src/integrations.ts:~390-405) deliberately sanitizes foreign errors to "Integration operation unavailable or denied". integrations.test.ts:~47 assertions updated. 50/50 (out/1c-after.txt).
+2  DONE (1041f10) — apps/server/src/om-tool-types.ts prepareEffect gains optional CallOptions; om-tools.ts ~330/337/340/427 thread signal and call prepareEffect(..., { signal }). server tsc clean (out/item2-tsc.txt).
+3a DONE, NEEDS REVIEW (e8d3500) — DEVIATION from brief: no existing OM server rate limiter exists (only a stub in features/forms/src/jini.ts saying "ingress owns rate limits"). Subagent used the existing Jini handleReceipt `allow` hook + consentRateLimitKey but added a small fixed-window limiter: new apps/server/src/inbound/consent-limit.ts (20 receipts/60 s per address, IPv6 /64, bounded key table) + tests/consent-limit.test.ts (2 pass). Also: ports.ts HttpRequest.remoteAddress; inbound/http.ts sets it from socket peer (proxy headers not trusted); inbound/public.ts passes allow; composition/index.ts builds the limiter once. Owner decision: accept, or replace with an ingress-owned limiter.
+3b DONE (8b65889) — features/web-events/src/snippet.ts webEventInstallSource: omGrantConsent before window.jiniConsent exists queues one grant and replays set({action:"accept"}) on `jini:consent-ready`. snippet.test.ts 36 pass, package tsc clean (out/item3b-test.txt). Assumes Jini dispatches `jini:consent-ready` — verify locally.
+4  DONE (1efc94b) — apps/studio/src/pages/addons/model/message-composer.hooks.ts: select by connectionKey (pluginId/connectionId/accountId), pinned on load; readMessageConnections returns Outcome; failed read shows error (integrations.hooks.ts messagingError/messagingView; IntegrationsPage.tsx, MessageComposer.tsx role="status"); lookup failure "Contact lookup failed. Try again." vs "No OM contact for this phone number." (no-contact detected via server text "Subject not found" — fragile). message-composer.test.ts 7/7 (3 new); studio tsc + eslint on touched dirs clean (out/item4-*.txt).
+5  DONE (a9b1cbd) — vk-ads tests/dispatch.test.ts:11 drops `admitted`; 48/48, TS2353 gone (out/item5-test.txt).
+
+FINAL PACKAGE TESTS
+- apps/studio: 18 failed / 328 (out/final-studio-tests.txt). Same 18 as round 1029 (name-diffed); no regressions. addons 8, shell 5, browser-tools, chat-parity, conversion-grants, jini-chat-transport, navigation 1 each.
+- apps/server first run: 65 failed / 1165 (out/final-server-tests.txt) — invalid environment: no plugin dists in this container (meta-ads dist ENOENT etc.).
+- Built only the plugin dists the server tests import: google-ads, linkedin-ads, meta-ads, tiktok-ads (out/plugin-dists-build.txt). Rerun:
+  apps/server: 35 failed / 1165 (out/final-server-tests-with-plugin-dists.txt), down from 74 last round.
+  Name-diff vs round 1029 final-failures: only one name not on that list, and it is environmental — agent-plugin-backends "recognizes Higgsfield as an agent plugin..." (:557) needs the higgsfield-media dist, which cannot build here (plugin has no node_modules; known install gap).
+
+REMAINING ERRORS (all pre-existing, apps/server)
+- agent-plugin-backends.test.ts 15 (LinkedIn adAccounts fixture, om_message_* in catalog lists, twilio/whatsapp read factories unavailable, campaign deployment unavailable; +1 Higgsfield dist above)
+- agent-plugin-jobs.test.ts 5 (halt/SQLite, "Outbox SQL transaction failed")
+- om-tools.test.ts 3, ingress-worker.test.ts 3, addons.test.ts 3
+- migrations.test.ts 2, catalog-composition 1, owner-api 1, brand-surfaces 1, site-guide 1
+- apps/studio 18 as above.
+
+NOTES FOR LOCAL COORDINATOR
+- Rebuild after fast-forward: agent, plus server/studio deps; plugin dists as needed.
+- Not run (per caps): full workspace/plugin suites, om:check, lint/boundaries.
