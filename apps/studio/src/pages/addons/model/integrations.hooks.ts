@@ -5,7 +5,7 @@ import { setConversionSettingsSchema, connectIntegrationTokenSchema, pluginSecre
 import type { z } from 'zod';
 import { oauthClientSetSchema, oauthChallengeSchema } from '../../../shared/api/index.js';
 import type { OAuthStatus } from '../../../shared/api/index.js';
-import type { ConversionSettingsDeclaration, ConversionSettingsStatus, ConversionSettingsValues, AddonSummary, CredentialCard, ConfirmationCard, IntegrationSummary, MailProviderSettings, ToolOperation, ToolResult } from '@open-marketing/contracts';
+import type { ConversionSettingsDeclaration, ConversionSettingsStatus, ConversionSettingsValues, AddonSummary, CredentialCard, ConfirmationCard, IntegrationSummary, MailProviderSettings, Outcome, ToolOperation, ToolResult } from '@open-marketing/contracts';
 import type { StudioApiPort, StudioRuntime } from '../../../shared/api/index.js';
 import { copyToClipboard } from '@jini-ai/ui';
 import { readMessageConnections } from './message-composer.hooks.js';
@@ -65,6 +65,11 @@ export function useMailProvider(required: IntegrationsPageProps) {
   return { settings, selected, alertFrom, status, busy, change, changeFrom, resetFrom, save, refresh,
     stale: settings?.selected && !settings.candidates.some(row => row.pluginId === settings.selected) };
 }
+/** A failed connections read keeps an explicit error beside the empty list. */
+function messagingView(required: { outcome: Outcome<MessageConnection[]> }): { items: MessageConnection[]; error: string } {
+  const { outcome } = required;
+  return outcome.ok ? { items: outcome.value, error: '' } : { items: [], error: 'Messaging connections could not be loaded: ' + outcome.error.message };
+}
 export interface ConnectionRowProps { connection: IntegrationSummary; label: string; busy: boolean; webhooks: readonly MessageConnection[]; disconnect(required: { connectionId: string }): Promise<void> }
 /** Private forms and connection management. Read one installed-plugin page (<=100), including disabled rows.
  * Each plugin reads its own cards; HTTP deadlines bound this accepted N+1 discovery. @example useIntegrations({ api, runtime }); */
@@ -73,6 +78,7 @@ export function useIntegrations(required: IntegrationsPageProps) {
   const [cursor, setCursor] = useState<string | null>(null);
   const [plugins, setPlugins] = useState<Pick<AddonSummary, 'id' | 'name'>[]>([]);
   const [messaging, setMessaging] = useState<MessageConnection[]>([]);
+  const [messagingError, setMessagingError] = useState('');
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -91,7 +97,8 @@ export function useIntegrations(required: IntegrationsPageProps) {
         readMessageConnections({ api: required.api, runtime: required.runtime, signal: input.signal }),
       ]);
       if (!mounted.current || input.signal?.aborted || epoch !== readEpoch.current) return;
-      setMessaging(messageConnections);
+      const view = messagingView({ outcome: messageConnections });
+      setMessaging(view.items); setMessagingError(view.error);
       if (!installed.ok) { setPlugins([]); setError('Integrations could not be loaded.'); return; }
       setPlugins(installed.value.items.map(row => ({ id: row.id, name: row.name })));
       if (!result.ok) { setError('Connections could not be loaded.'); return; }
@@ -135,7 +142,7 @@ export function useIntegrations(required: IntegrationsPageProps) {
   };
   const refresh = (): void => { setError(''); void load(); };
   const next = (): void => { if (cursor) void load({ cursor }); };
-  return { pluginRows: plugins.map(plugin => ({ ...required, pluginId: plugin.id, label: plugin.name, connections: items, submitFor, busy: busy || loading })), items, busy: busy || loading, error, notice, refresh, next, cursor, messaging,
+  return { pluginRows: plugins.map(plugin => ({ ...required, pluginId: plugin.id, label: plugin.name, connections: items, submitFor, busy: busy || loading })), items, busy: busy || loading, error, notice, refresh, next, cursor, messaging, messagingError,
     rows: items.map(connection => ({ connection, label: plugins.find(plugin => plugin.id === connection.pluginId)?.name ?? connection.pluginId, busy: busy || loading, disconnect,
       webhooks: messaging.filter(row => row.connectionId === connection.connectionId) })) };
 }

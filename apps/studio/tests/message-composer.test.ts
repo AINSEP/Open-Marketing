@@ -101,3 +101,47 @@ it('shows each messaging connection callback URL and copies it', async () => {
   await waitFor(() => expect(writeText).toHaveBeenCalledWith(connection.inboundWebhookUrl));
   await screen.findByText('Webhook URL copied.');
 });
+
+const second = { ...connection, connectionId: 'second', accountId: 'account-2' };
+async function sendWith(required: { rows: readonly (typeof connection)[]; choose: string }) {
+  const host = testRuntime();
+  const tool = vi.fn<ToolFn>(async input => input.call.name === 'om_message_send'
+    ? { ok: false as const, error: { code: 'not_implemented' as const, message: 'stop', retryable: false } }
+    : completed({ output: input.call.name === 'om_contacts_resolve' ? { subjectId: 'subject-1' } : { segments: null } }));
+  const api = { ...createSampleStudioApi({ runtime: host.runtime }), tool };
+  const view = render(createElement(MessageComposer, { api, runtime: host.runtime, connections: required.rows }));
+  fireEvent.change(screen.getByLabelText('Contact phone'), { target: { value: '+15555550100' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Find contact' }));
+  await screen.findByText('OM contact subject-1');
+  fireEvent.change(screen.getByLabelText('Connection'), { target: { value: required.choose } });
+  fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Hello' } });
+  fireEvent.change(screen.getByLabelText('Consent purpose'), { target: { value: 'notice' } });
+  fireEvent.change(screen.getByLabelText('Maximum cost (USD cents)'), { target: { value: '5' } });
+  return { tool, view, host, api };
+}
+
+it('selects the connection by id: a reordered list keeps the chosen target', async () => {
+  const { tool, view, host, api } = await sendWith({ rows: [connection, second], choose: 'fixture-messaging/second/account-2' });
+  view.rerender(createElement(MessageComposer, { api, runtime: host.runtime, connections: [second, connection] }));
+  fireEvent.click(screen.getByRole('button', { name: 'Review and send' }));
+  await screen.findByText('stop');
+  const send = tool.mock.calls.find(([input]) => input.call.name === 'om_message_send')![0].call.input as Record<string, unknown>;
+  expect(send).toMatchObject({ connectionId: 'second', accountId: 'account-2' });
+});
+
+it('shows a connections read failure as an error, not an empty-list notice', () => {
+  const host = testRuntime();
+  render(createElement(MessageComposer, { api: createSampleStudioApi({ runtime: host.runtime }), runtime: host.runtime, connections: [], connectionsError: 'Messaging connections could not be loaded: boom' }));
+  expect(screen.getByText(/could not be loaded: boom/)).toBeTruthy();
+  expect(screen.queryByText(/No messaging connection is available/)).toBeNull();
+});
+
+it('reports a lookup failure differently from no OM contact', async () => {
+  const host = testRuntime();
+  const tool = vi.fn<ToolFn>(async () => ({ ok: false as const, error: { code: 'unavailable' as const, message: 'database down', retryable: true } }));
+  render(createElement(MessageComposer, { api: { ...createSampleStudioApi({ runtime: host.runtime }), tool }, runtime: host.runtime, connections: [connection] }));
+  fireEvent.change(screen.getByLabelText('Contact phone'), { target: { value: '+15555550199' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Find contact' }));
+  await screen.findByText('Contact lookup failed. Try again.');
+  expect(screen.queryByText('No OM contact for this phone number.')).toBeNull();
+});

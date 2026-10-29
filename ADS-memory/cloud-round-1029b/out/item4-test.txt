@@ -1,0 +1,10 @@
+
+ RUN  v3.2.4 /home/user/Open-Marketing/apps/studio
+
+ ✓ tests/message-composer.test.ts (7 tests) 591ms
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  19:21:31
+   Duration  2.46s (transform 387ms, setup 0ms, collect 1.09s, tests 591ms, environment 424ms, prepare 89ms)
+

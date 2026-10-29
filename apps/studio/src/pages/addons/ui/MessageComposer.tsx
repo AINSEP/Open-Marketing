@@ -6,7 +6,8 @@ import { ApprovalCard } from '../../../features/approve/index.js';
 export function MessageComposer(props: MessageComposerProps) {
   const composer = useMessageComposer(props);
   return <section className="settings-card" aria-label="Send a message"><h2>Send a message</h2>
-    {!props.connections.length && <p className="muted">No messaging connection is available. Save credentials and bind the account first.</p>}
+    {props.connectionsError && <p role="status" className="error-notice">{props.connectionsError}</p>}
+    {!props.connections.length && !props.connectionsError && <p className="muted">No messaging connection is available. Save credentials and bind the account first.</p>}
     <form onSubmit={composer.submit}><fieldset disabled={composer.locked}>
       <label>Contact phone<input type="tel" value={composer.phone} onChange={composer.changePhone} maxLength={16} placeholder="+15555550100" /></label>
       <button type="button" onClick={composer.lookup} disabled={!composer.phone}>Find contact</button>
@@ -29,6 +30,6 @@ export function MessageComposer(props: MessageComposerProps) {
   </section>;
 }
 /** Native option list-render ABI; labels are prepared by the hook. */
-function renderOption(option: { index: number; label: string }) {
-  return <option key={option.index} value={option.index}>{option.label}</option>;
+function renderOption(option: { key: string; label: string }) {
+  return <option key={option.key} value={option.key}>{option.label}</option>;
 }

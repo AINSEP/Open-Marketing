@@ -13,7 +13,7 @@ const contactSchema = z.looseObject({ subjectId: idSchema });
 const previewSchema = z.strictObject({ segments: z.number().int().positive().nullable() });
 const centsSchema = z.coerce.number().int().positive().max(100000000);
 export type MessageConnection = z.infer<typeof connectionSchema>;
-export type MessageComposerProps = { api: StudioApiPort; runtime: StudioRuntime; connections: readonly MessageConnection[] };
+export type MessageComposerProps = { api: StudioApiPort; runtime: StudioRuntime; connections: readonly MessageConnection[]; connectionsError?: string };
 type ToolProps = { api: StudioApiPort; runtime: StudioRuntime };
 
 function unavailable(required: { message: string }): Outcome<never> {
@@ -34,14 +34,22 @@ async function readTool(required: ToolProps & { name: string; input: ToolCall['i
   finally { required.runtime.timers.cancel({ handle }); required.signal?.removeEventListener('abort', forward); }
 }
 
-/** Messaging connections with server-computed callback URLs; failure is an empty list.
- * @example await readMessageConnections({ api, runtime, signal });
+/** Messaging connections with server-computed callback URLs; a failed or malformed read is a typed failure, never an empty list.
+ * @example const read = await readMessageConnections({ api, runtime, signal });
  */
-export async function readMessageConnections(required: ToolProps & { signal?: AbortSignal }): Promise<MessageConnection[]> {
+export async function readMessageConnections(required: ToolProps & { signal?: AbortSignal }): Promise<Outcome<MessageConnection[]>> {
   const result = await readTool({ ...required, name: 'om_message_connections', input: {} });
-  const parsed = connectionsSchema.safeParse(result.ok ? result.value : null);
-  return parsed.success ? parsed.data.items : [];
+  if (!result.ok) return result;
+  const parsed = connectionsSchema.safeParse(result.value);
+  return parsed.success ? { ok: true, value: parsed.data.items } : unavailable({ message: 'Messaging connections response invalid.' });
 }
+/** Stable identity of a connection; list position is never used. */
+export function connectionKey(required: { connection: Pick<MessageConnection, 'pluginId' | 'connectionId' | 'accountId'> }): string {
+  const { pluginId, connectionId, accountId } = required.connection;
+  return pluginId + '/' + connectionId + '/' + accountId;
+}
+/** The server's fixed not-found wording for contacts resolve; anything else is a lookup failure. */
+const NO_CONTACT = 'Subject not found';
 
 /** Composer form state. Sends exactly once per operation ID; unknown outcomes stay locked for reconciliation.
  * @example useMessageComposer({ api, runtime, connections });
@@ -50,7 +58,7 @@ export async function readMessageConnections(required: ToolProps & { signal?: Ab
 export function useMessageComposer(required: MessageComposerProps) {
   const [phone, setPhone] = useState('');
   const [contact, setContact] = useState<{ subjectId: string; phone: string } | null>(null);
-  const [connection, setConnection] = useState(0);
+  const [connection, setConnection] = useState('');
   const [content, setContent] = useState('');
   const [segments, setSegments] = useState<number | null>(null);
   const [purpose, setPurpose] = useState('');
@@ -63,7 +71,9 @@ export function useMessageComposer(required: MessageComposerProps) {
   const controller = useRef<AbortController | null>(null);
   const lock = useRef(false);
   useEffect(() => { const active = required.runtime.abort(); controller.current = active; lock.current = false; return () => active.abort(); }, [required.api, required.runtime]);
-  const selected = required.connections[connection] ?? null;
+  /** Pin the first connection by id once the list arrives, so a reordered refresh cannot change the target. */
+  useEffect(() => { if (!connection && required.connections[0]) setConnection(connectionKey({ connection: required.connections[0] })); }, [required.connections, connection]);
+  const selected = required.connections.find(row => connectionKey({ connection: row }) === connection) ?? null;
   /** Serialize every action behind one busy flag; teardown suppresses late updates. */
   const perform = async (input: { work(required: { signal?: AbortSignal }): Promise<void> }): Promise<void> => {
     if (lock.current) return;
@@ -78,7 +88,8 @@ export function useMessageComposer(required: MessageComposerProps) {
     const result = await readTool({ ...required, signal, name: 'om_contacts_resolve', input: { identifier: { kind: 'phone', raw: phone.trim() } } });
     const parsed = contactSchema.safeParse(result.ok ? result.value : null);
     if (signal?.aborted) return;
-    if (!parsed.success) { setStatus('No OM contact for this phone number.'); return; }
+    if (!result.ok && result.error.message === NO_CONTACT) { setStatus('No OM contact for this phone number.'); return; }
+    if (!parsed.success) { setStatus('Contact lookup failed. Try again.'); return; }
     setContact({ subjectId: parsed.data.subjectId, phone: phone.trim() });
   } }); };
   const readPreview = async ({ signal }: { signal?: AbortSignal }): Promise<void> => {
@@ -124,9 +135,9 @@ export function useMessageComposer(required: MessageComposerProps) {
   } }); };
   const changeText = (event: ChangeEvent<HTMLTextAreaElement>): void => { setContent(event.currentTarget.value); setSegments(null); };
   return { phone, contact, connection, content, segments, purpose, intent, maxCost, busy, status, card, operationId,
-    locked: busy || operationId !== null, options: required.connections.map((row, index) => ({ index, label: row.channel + ' · ' + row.pluginId + ' · ' + row.connectionId })),
+    locked: busy || operationId !== null, options: required.connections.map(row => ({ key: connectionKey({ connection: row }), label: row.channel + ' · ' + row.pluginId + ' · ' + row.connectionId })),
     changePhone: (event: ChangeEvent<HTMLInputElement>): void => { setPhone(event.currentTarget.value); setContact(null); },
-    changeConnection: (event: ChangeEvent<HTMLSelectElement>): void => { setConnection(Number(event.currentTarget.value)); setSegments(null); },
+    changeConnection: (event: ChangeEvent<HTMLSelectElement>): void => { setConnection(event.currentTarget.value); setSegments(null); },
     changeText, changePurpose: (event: ChangeEvent<HTMLInputElement>): void => { setPurpose(event.currentTarget.value); },
     changeIntent: (event: ChangeEvent<HTMLSelectElement>): void => { setIntent(event.currentTarget.value === 'transactional' ? 'transactional' : 'marketing'); },
     changeMaxCost: (event: ChangeEvent<HTMLInputElement>): void => { setMaxCost(event.currentTarget.value); },

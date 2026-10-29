@@ -19,7 +19,7 @@ export function IntegrationsPage(props: IntegrationsPageProps) {
       <ul>{page.rows.map(renderConnection)}</ul>
       {page.cursor && <button type="button" onClick={page.next} disabled={page.busy} data-action="integrations_list">Next page</button>}
     </section>
-    <MessageComposer {...props} connections={page.messaging} />
+    <MessageComposer {...props} connections={page.messaging} connectionsError={page.messagingError} />
     <ConversionGrants {...props} />
   </section>;
 }
