@@ -308,3 +308,18 @@ it("accepts 1,000-row report pages while entity-list commands remain capped at 1
   expect(encodeTikTokCommand({ input: { ...reportQuery, pageSize: 1000 }, accountId: "123" })).toMatchObject({ ok: true, value: { parameters: { page_size: "1000" } } });
   expectError({ result: encodeTikTokCommand({ input: { kind: "get-campaigns", pageSize: 1000 }, accountId: "123" }), code: "invalid_input" });
 });
+
+describe("write fetch refusal", () => {
+  const command = { kind: "pause-entity", entityType: "campaign", entityId: "456" } as const;
+  async function send(required: { error: Error }): Promise<Outcome<unknown>> {
+    const egress = createTikTokFetchEgress({ fetch: (async () => { throw required.error; }) as typeof fetch, observer: { observe() {} },
+      credentials: { async access() { return { ok: true, value: { accessToken: "fixture-token" } }; } } });
+    return egress.send({ context, connectionId: "connection", accountId: "123", operationId: "operation", request: command, isCurrent: () => true });
+  }
+  it("reports a host guard refusal as a definite not-sent forbidden failure", async () => {
+    expectError({ result: await send({ error: Object.assign(new Error("Account halted"), { refusedBeforeEgress: true }) }), code: "forbidden" });
+  });
+  it("keeps an unmarked fetch failure uncertain because bytes may have left", async () => {
+    expectError({ result: await send({ error: new Error("socket reset") }), code: "unavailable" });
+  });
+});

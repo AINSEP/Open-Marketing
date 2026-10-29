@@ -169,6 +169,14 @@ async function acceptAttachments(required: { deps: Dependencies; context: CallCo
  }
  return { ok: true, value: refs };
 }
+const imageExtensions = { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp' } as const;
+/** Canonical name comes from the stored media record, never the caller's ref: the immutable upload name when
+ * the media service keeps one, else the stored title plus the extension of the sniffed format. O(1). */
+function canonicalImageName(required: { record: { originalFilename?: string | null; title: string }; mimeType: keyof typeof imageExtensions }): string {
+ if (required.record.originalFilename) return required.record.originalFilename;
+ const extension = imageExtensions[required.mimeType];
+ return /\.(png|jpe?g|webp)$/i.test(required.record.title) ? required.record.title : required.record.title + extension;
+}
 /** Shared acceptance/context read: the media adapter enforces owner/workspace scope and active state.
  * Format comes from stored bytes, never a header or extension. @complexity O(bytes), <=1 MiB returned.
  */
@@ -176,10 +184,10 @@ async function readRunImage(required: { deps: Dependencies; context: CallContext
  const read = await required.deps.media.readImage({ context: required.context, assetId: required.ref.path, maxBytes: 1048576 });
  if (!read.ok) return read;
  const { asset, bytes } = read.value;
- const ref = chatAttachmentSchema.safeParse({ path: asset.record.id, name: asset.record.originalFilename ?? required.ref.name, kind: 'image', size: bytes.length });
- if (!ref.success || asset.record.id !== required.ref.path || asset.record.workspaceId !== required.context.scope.workspaceId) return localFailure({ code: 'invalid_input', message: 'Invalid attachment.' });
  const mimeType = sniffContentType({ bytes });
  if (mimeType !== 'image/png' && mimeType !== 'image/jpeg' && mimeType !== 'image/webp') return localFailure({ code: 'invalid_input', message: 'Invalid attachment.' });
+ const ref = chatAttachmentSchema.safeParse({ path: asset.record.id, name: canonicalImageName({ record: asset.record, mimeType }), kind: 'image', size: bytes.length });
+ if (!ref.success || asset.record.id !== required.ref.path || asset.record.workspaceId !== required.context.scope.workspaceId) return localFailure({ code: 'invalid_input', message: 'Invalid attachment.' });
  return { ok: true, value: { ref: ref.data, image: { mimeType, data: Buffer.from(bytes).toString('base64') } } };
 }
 /** Resolve only references frozen into this run; history images are deliberately deferred.
