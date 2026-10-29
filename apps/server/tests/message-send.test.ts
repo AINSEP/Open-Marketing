@@ -17,7 +17,7 @@ const context: CallContext = { scope: { ownerId: 'owner', workspaceId: 'aaaaaaaa
     principal: { kind: 'owner', ownerId: 'owner' }, correlationId: 'correlation', traceId: 'trace', runId: 'send-run' };
 const agent: CallContext = { ...context, principal: { kind: 'agent', runId: 'send-run', agentInstanceId: 'fixture-agent' } };
 const approver = { kind: 'local_token' as const, ownerId: 'owner', deviceId: 'fixture-device', tokenId: 'fixture-token-reference' };
-const recipient = '+15555550100';
+const recipient = '+12133734250';
 const request = { operationId: 'send-one', pluginId: 'fixture-messaging', connectionId: 'connection', accountId: 'account',
     recipient, purpose: 'notice', intent: 'marketing' as const, message: { content: 'Fixture message. Reply STOP.' }, maxCost: { currency: 'USD', minorUnits: 500 } };
 type AuthorityInput = Pick<Parameters<PaidSendingAllowances['reserve']>[0], 'quote' | 'argumentsDigest'> & { execute(): Promise<Outcome<unknown>> };
@@ -123,7 +123,7 @@ it('refuses missing consent before plugin invocation', async () => {
 it('refuses recipients outside OM contacts', async () => {
     const f = await fixture();
     try {
-        expect(await f.invoke({ ...request, recipient: '+15555550199' })).toMatchObject({ value: { status: 'failed', reason: 'unknown_recipient' } });
+        expect(await f.invoke({ ...request, recipient: '+12133734259' })).toMatchObject({ value: { status: 'failed', reason: 'unknown_recipient' } });
         expect(f.job()).toMatchObject({ state: 'failed' });
         expect(f.sendMessage).not.toHaveBeenCalled(); expect(f.reserve).not.toHaveBeenCalled();
     } finally { await f.close(); }

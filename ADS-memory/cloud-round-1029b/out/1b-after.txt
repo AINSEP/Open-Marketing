@@ -1,0 +1,11 @@
+
+ RUN  v3.2.4 /home/user/Open-Marketing/apps/server
+
+ ✓ tests/messaging-webhooks.test.ts (11 tests) 324ms
+ ✓ tests/message-send.test.ts (10 tests) 428ms
+
+ Test Files  2 passed (2)
+      Tests  21 passed (21)
+   Start at  19:16:34
+   Duration  3.42s (transform 1.52s, setup 0ms, collect 5.21s, tests 751ms, environment 0ms, prepare 243ms)
+

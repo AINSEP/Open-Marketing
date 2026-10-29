@@ -24,7 +24,7 @@ const pluginId = 'fixture-messaging', connectionId = 'connection', accountId = '
 const path = '/hooks/agent-plugins/' + pluginId + '/' + connectionId + '/' + accountId;
 const webhookUrl = 'https://example.test' + path;
 const card = { accountSid: accountId, apiKeySid: 'SK' + 'b'.repeat(32), apiKeySecret: 'fixture-key-secret', authToken: 'fixture-auth-token', webhookUrl };
-const phone = '+15555550100';
+const phone = '+12133734250';
 
 /** Setup failures throw so assertions can never silently skip a broken fixture. */
 function value<T>(required: { result: Outcome<T> }): T {
@@ -72,7 +72,7 @@ async function fixture(_required: Record<string, never>) {
 
 /** Signed form independently constructed from the configured external URL and every field. */
 function request(required: { fields?: Record<string, string> } = {}): HttpRequest {
-    const fields = { AccountSid: accountId, MessageSid: 'SM' + 'c'.repeat(32), To: '+15555550200', From: phone, Body: 'STOP', MessageStatus: 'received', ...required.fields };
+    const fields = { AccountSid: accountId, MessageSid: 'SM' + 'c'.repeat(32), To: '+12133734252', From: phone, Body: 'STOP', MessageStatus: 'received', ...required.fields };
     const canonical = webhookUrl + Object.keys(fields).sort().map(key => key + fields[key as keyof typeof fields]).join('');
     return { method: 'POST', path, headers: { 'x-twilio-signature': createHmac('sha1', card.authToken).update(canonical).digest('base64') },
         readRawBody: async () => ({ ok: true, value: Buffer.from(new URLSearchParams(fields).toString()) }) };
@@ -95,7 +95,7 @@ it('turns a signed STOP into durable suppression in read_only mode and accepts e
         const rows = f.native.prepare('SELECT * FROM policy_evidence').all();
         expect(rows).toHaveLength(1);
         expect(rows[0]).toMatchObject({ id: evidenceId({ eventId: 'SM' + 'c'.repeat(32) + ':stop' }), source_id: pluginId });
-        expect(JSON.stringify(rows)).not.toMatch(/15555550100|fixture-auth-token|fixture-key-secret|STOP/);
+        expect(JSON.stringify(rows)).not.toMatch(/12133734250|fixture-auth-token|fixture-key-secret|STOP/);
         expect(f.ports.fetch).not.toHaveBeenCalled();
     } finally { f.close(); }
 });
@@ -103,13 +103,13 @@ it('acknowledges unknown contacts, deliveries and phone-less preferences without
     const f = await fixture({});
     try {
         expect(await f.handle(request())).toMatchObject({ status: 204 });
-        expect(await f.handle(request({ fields: { MessageStatus: 'delivered', From: '+15555550200', To: phone, Body: '' } }))).toMatchObject({ status: 204 });
+        expect(await f.handle(request({ fields: { MessageStatus: 'delivered', From: '+12133734252', To: phone, Body: '' } }))).toMatchObject({ status: 204 });
         f.loadModule.mockResolvedValue({ ingestWebhook: async () => ({ ok: true, value: { events: [{ kind: 'stop', eventId: 'preference', channel: 'fixture-channel', userId: 'opaque-user' }] } }) });
         expect(await f.handle(request())).toMatchObject({ status: 204 });
         expect(f.native.prepare('SELECT * FROM policy_evidence').all()).toEqual([]);
         expect(await f.identity.contacts.resolve({ context, identifier: { kind: 'phone', raw: phone } })).toMatchObject({ ok: false });
         expect(f.events).toContainEqual({ operation: 'server.messaging.webhook.unmapped_count', outcome: '1', correlationId: context.correlationId, traceId: context.traceId, runId: context.runId });
-        expect(JSON.stringify(f.events)).not.toMatch(/15555550100|opaque-user|fixture-auth-token/);
+        expect(JSON.stringify(f.events)).not.toMatch(/12133734250|opaque-user|fixture-auth-token/);
     } finally { f.close(); }
 });
 it.each(['unknown', 'disabled', 'unadmitted', 'mismatch', 'credential', 'exportless'])('returns the same 404 for %s plugins with pre-load lifecycle/binding/credential gates', async mode => {
@@ -133,7 +133,7 @@ it('refuses forged signatures and oversize bodies with no phone or credential in
         const forged = await f.handle({ ...request(), headers: { 'x-twilio-signature': 'A'.repeat(27) + '=' } });
         expect(forged.status).toBe(401);
         expect(await f.handle({ ...request(), readRawBody: async () => ({ ok: true, value: Buffer.alloc(131073) }) })).toMatchObject({ status: 413 });
-        expect(JSON.stringify(forged)).not.toMatch(/15555550100|fixture-auth-token|fixture-key-secret/);
+        expect(JSON.stringify(forged)).not.toMatch(/12133734250|fixture-auth-token|fixture-key-secret/);
         expect(f.native.prepare('SELECT * FROM policy_evidence').all()).toEqual([]);
     } finally { f.close(); }
 });
@@ -151,7 +151,7 @@ it('validates a complete stop batch before writes and retries real policy failur
         const append = vi.spyOn(f.identity.policy, 'appendEvidence').mockResolvedValueOnce({ ok: false, error: { code: 'unavailable', retryable: true, message: 'fixture-key-secret ' + phone } });
         const failed = await f.handle(request());
         expect(failed.status).toBe(503);
-        expect(JSON.stringify(failed)).not.toMatch(/fixture-key-secret|15555550100/);
+        expect(JSON.stringify(failed)).not.toMatch(/fixture-key-secret|12133734250/);
         expect(await f.handle(request())).toMatchObject({ status: 204 });
         expect(append).toHaveBeenCalledTimes(2);
         expect(value({ result: await f.identity.policy.snapshot({ context, subjectId: subject.subjectId }) }).suppressions).toHaveLength(1);
