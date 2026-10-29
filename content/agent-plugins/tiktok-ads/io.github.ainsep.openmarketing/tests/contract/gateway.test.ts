@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { createTikTokAdsAdapter, encodeTikTokCommand } from "../../src/index.js";
 import type { TikTokInvocation } from "../../src/index.js";
-import { ad, adgroup, adgroupResponse, binding, campaign, campaignResponse, clock, context, gatewayFixture, haltPermit, invocation, limit, exposure, now, pageInfo, vendorResponse } from "../fixtures.js";
+import { ad, adgroup, adgroupResponse, binding, campaign, campaignResponse, clock, context, gatewayFixture, invocation, limit, exposure, now, pageInfo, vendorResponse } from "../fixtures.js";
 import type { GatewayFixture } from "../fixtures.js";
 
 /** Portable contract for the host gateway. Coordinator must supply the real server fixture
@@ -128,24 +128,11 @@ export function tiktokGatewaySuite(required: { createFixture: () => GatewayFixtu
       f.state.throwGateway = true;
       expect(await f.adapter.invoke(invocation({ command: { kind: "get-advertiser" } }))).toMatchObject({ ok: false, error: { code: "unavailable" } });
     });
-    it("dispatches campaign halt only with the typed permit and no money authority", async () => {
-      const f = required.createFixture(); const permit = haltPermit();
-      expect(await f.adapter.stop({ context, permit })).toMatchObject({ ok: true, value: { observedState: "disabled", entityIds: ["456"] } });
-      expect(f.calls[0]).toMatchObject({ call: { request: { kind: "halt-stop", campaignIds: ["456"] }, haltStopPermit: permit }, effect: { effects: ["halt_stop"], moneyExposure: null, requiredLimit: null } });
-      expect(f.calls[1].call.haltStopPermit).toBeUndefined();
-      expect(await f.adapter.stop({ context, permit })).toMatchObject({ ok: false, error: { code: "conflict" } });
-      expect(f.egress.sent).toHaveLength(2);
-    });
-    it("checks current halt authority on the host after local permit validation", async () => {
-      const f = required.createFixture(); f.state.haltCurrent = false;
-      expect(await f.adapter.stop({ context, permit: haltPermit() })).toMatchObject({ ok: false, error: { code: "forbidden" } });
-      expect(f.egress.sent).toHaveLength(0);
-    });
   });
 }
 for (const kind of ["memory", "fetch"] as const) describe(kind, () => tiktokGatewaySuite({ createFixture: () => gatewayFixture({ kind }) }));
 
-describe("closed invocation and halt boundaries", () => {
+describe("closed invocation boundaries", () => {
   it.each([
     { ...invocation(), context: { ...context, scope: { ...context.scope, workspaceId: "foreign" } } },
     { ...invocation(), command: { ...campaign, operation_status: "ENABLE" } },
@@ -165,16 +152,5 @@ describe("closed invocation and halt boundaries", () => {
     const invalid = { ...binding, [field]: field === "scope" ? { ownerId: "foreign", workspaceId: "workspace" } : "invalid" };
     const adapter = createTikTokAdsAdapter({ binding: invalid, gateway: { invoke: async input => { f.calls.push(input); throw new Error("must not dispatch"); } }, clock, observer: { observe: () => undefined } });
     expect((await adapter.invoke(invocation())).ok).toBe(false); expect(f.calls).toHaveLength(0);
-  });
-  it.each(["account", "scope", "plugin", "binding", "digest", "expiry", "duplicate", "inflation"])("rejects mutated %s halt permit before dispatch", async field => {
-    const f = gatewayFixture({ kind: "fetch" }); const permit = haltPermit();
-    const mutations: Record<string, unknown> = {
-      account: { ...permit, request: { ...permit.request, adAccountId: "999" } }, scope: { ...permit, request: { ...permit.request, scope: { ownerId: "foreign", workspaceId: "workspace" } } },
-      plugin: { ...permit, request: { ...permit.request, pluginDigest: "c".repeat(64) } }, binding: { ...permit, request: { ...permit.request, bindingId: "foreign" } },
-      digest: { ...permit, request: { ...permit.request, entityIds: ["999"] } }, expiry: { ...permit, expiresAt: now },
-      duplicate: haltPermit({ entityIds: ["456", "456"] }), inflation: { ...permit, request: { ...permit.request, budget: 20 } },
-    };
-    expect((await f.adapter.stop({ context, permit: mutations[field] as ReturnType<typeof haltPermit> })).ok).toBe(false);
-    expect(f.calls).toHaveLength(0); expect(f.egress.sent).toHaveLength(0);
   });
 });

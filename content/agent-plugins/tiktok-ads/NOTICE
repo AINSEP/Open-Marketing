@@ -1,3 +1,4 @@
 Open Marketing TikTok Ads plugin, AINSEP. Apache-2.0. Agent Plugins format 1.1.0.
 No vendor source code copied. TikTok-owned SDK documentation and source informed API field names; primary-source URLs, API version and limitations are recorded in the namespace evidence directory.
 TikTok is a trademark of its respective owner. No affiliation or account eligibility is asserted.
+Includes MIT-licensed material adapted from AgriciDaniel/claude-ads; see skills/tiktok-ads/PROVENANCE.md.

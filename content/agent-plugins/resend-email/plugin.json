@@ -1,15 +1,26 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "resend-email", "version": "0.1.0", "license": "Apache-2.0",
-  "description": "Resend domain reads and host-brokered authentication; disabled pending OM integration.",
+  "description": "Resend domain reads and a Jini mail provider; disabled pending server delivery integration.",
   "extensions": {
     "io.github.ainsep.openmarketing": {
+      "credentialAssets": {"io.github.ainsep.openmarketing/assets/icon.svg": "f33c321e26ba3eb779e6f2bf5abfbbf77fcaed8383967a97568d1280daf9f53a"},
       "version": 1, "enabled": false, "admitted": false,
+      "mailAdapters": [{"id": "resend_email", "label": "Resend", "module": "io.github.ainsep.openmarketing/dist/index.mjs", "credentialKeys": ["token"], "feedback": true}],
       "capabilities": [
         {"capabilityId": "email.domains-read.v1", "version": 1, "pluginId": "resend-email", "schemaFingerprint": "63e56640617d60828a05a320b8655479472c85d47a7b76e67b9dea952af27710", "admitted": false, "effects": ["read"]}
       ],
       "credentialCards": [
-        {"target": "resend-email", "title": "Connect Resend", "label": "Resend email", "authMode": "paste-token", "permission": "full_access", "usedFor": ["Read sending-domain status"], "keyHint": "Create a Full access API key in Resend. Paste only into the secure credential form.", "helpUrl": "https://resend.com/api-keys", "baseUrl": "https://api.resend.com", "probeUrl": "https://api.resend.com/domains?limit=1"}
+        {
+          "target": "resend-email", "title": "Resend", "label": "Save API key", "category": "Email",
+          "intro": "Enter a Full access API key for domain checks and email delivery. Add your webhook signing secret to verify bounce and complaint updates. Saving does not enable sending.",
+          "usedFor": ["Read sending-domain status"],
+          "helpUrl": "https://resend.com/docs/api-reference/api-keys/create-api-key", "helpLabel": "Authentication and setup",
+          "baseUrl": "https://api.resend.com", "probeUrl": "https://api.resend.com/domains?limit=1",
+          "saveKind": "app-credentials", "saveTarget": "resend-email", "icon": "io.github.ainsep.openmarketing/assets/icon.svg",
+          "secretFields": [{"name": "token", "label": "Full access API key", "required": true}, {"name": "webhookSecret", "label": "Webhook signing secret", "required": false}],
+          "permissions": ["Full access (domain reads and sending)"]
+        }
       ]
     }
   }

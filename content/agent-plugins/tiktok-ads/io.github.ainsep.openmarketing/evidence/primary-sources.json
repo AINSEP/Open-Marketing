@@ -370,14 +370,17 @@
         "data[].user.email",
         "data[].user.phone",
         "data[].user.external_id",
-        "data[].page.url"
+        "data[].page.url",
+        "data[].properties.value",
+        "data[].properties.currency"
       ],
       "confirmedFromOfficialSearch": [
         "POST v1.3/event/track; Access-Token and JSON body. Web source uses the Pixel code; page is required.",
         "event_time is Unix seconds, UTC+0. Plugin explicitly floors OM epoch milliseconds divided by 1000.",
         "event_source_id + event_id + event identify vendor channel deduplication. OM event ID is preserved.",
         "HTTP 200 plus code:0,data:{} represents request acceptance, not attributed conversion proof.",
-        "CompleteRegistration describes signup and StartTrial describes a trial in the official standard-event table."
+        "CompleteRegistration describes signup and StartTrial describes a trial in the official standard-event table.",
+        "Phone is SHA-256 of plus-form E.164: use contacts phone, not phone_digits. Value is a decimal number converted from Money minor units; currency is ISO 4217."
       ],
       "omRestrictions": [
         "Exactly one event per POST (vendor allows up to 1000). Seven-day maximum age is an OM cap.",
@@ -425,7 +428,7 @@
   "handoff": [
     "Addons/Coordinator loads the namespace entry, binds the ONE gateway, call-time credential broker and conversion authority to jobs/audit/safety/measure.",
     "Host must check admission/account/mode/current authority, exact-card approval for every activation, current halt epoch, payload digests and single durable claims, retaining the fence through credential resolution.",
-    "Assistant consumes ten tiktokTools through ONE catalog and its HTTP/studio/CLI/OM MCP parity mechanism. stop/deliver/reconcile remain typed backend operations.",
+    "Assistant reaches the plugin tools (commands.ts tools via createTools) through ONE catalog and its HTTP/studio/CLI/OM MCP parity mechanism. Halt is the canonical campaign.halt-stop.v1 capability; deliver/reconcile remain typed backend operations.",
     "Run the written suites against real server host adapters, package build and om:check after integration. This lane ran no tests/builds/installs."
   ],
   "writePolicy": {
@@ -469,5 +472,73 @@
       "v2.0 equivalence for each creation/GET endpoint; retain v1.3 without inferring unsupported endpoints from incremental-documentation omissions.",
       "Live acceptance, account eligibility and effective hierarchy serving; admission remains false."
     ]
+  },
+  "canonicalReadReview": {
+    "checkedAt": "2026-10-26",
+    "liveVendorCalls": false,
+    "verified": [
+      {
+        "url": "https://github.com/tiktok/tiktok-business-api-sdk/blob/main/python_sdk/docs/ReportingApi.md",
+        "fact": "Official SDK exposes GET /open_api/v1.3/report/integrated/get/ with advertiser, report type, data level, dimensions, metrics, dates and pagination parameters."
+      },
+      {
+        "url": "https://github.com/tiktok/tiktok-business-api-sdk/blob/main/python_sdk/docs/CampaignCreationApi.md",
+        "fact": "Official SDK exposes campaign_get with advertiser and filter/pagination parameters. Existing encoder/decoder reused."
+      }
+    ],
+    "implemented": [
+      "report.metrics.v1: account/campaign/ad_group/ad grains with one ID dimension plus stat_time_day, parent campaign_id/adgroup_id attributes for child grains and unique entity/day keys; spend scales exact decimal major units to integer micros using contracts, independent of currency exponent.",
+      "Absent conversion metrics are unsupported; missing/null supported values are null; observed zero is preserved. Missing dates are not synthesized.",
+      "30-day inclusive vendor ranges, at most 16 sequential GETs, 100 rows/page, 5,000 retained rows, 1 MiB/response, caller deadline, zero retries.",
+      "complete means all chunks/pages drained (including empty responses); dataThrough is last drained chunk end at account-local midnight, capped at retrieval time, or 0 if none drained. Finality remains provisional.",
+      "campaign.status.v1 requests <=100 named IDs including deleted campaigns. The configured ENABLE plus secondary CAMPAIGN_STATUS_ENABLE maps active; DELETE maps ended, advertiser audit denial maps disapproved, advertiser audit maps pending and budget exceeded/disabled maps paused. ENABLE alone, unfamiliar codes and contradictory active evidence remain unknown. No invented rejection descriptions."
+    ],
+    "unverified": [
+      "Official dimensions page confirms one ID plus stat_time_day at advertiser/campaign/adgroup/ad levels. Attribute metric combinations and comprehensive secondary enums could not be fully read from the portal; fixture behavior still needs read-only vendor acceptance. Authenticated advertiser info supplies currency/timezone; install settings cannot override them.",
+      "Only YYYY-MM-DD or YYYY-MM-DD 00:00:00 daily dimensions and exact nonnegative metric strings are accepted. Unconfirmed sentinels are rejected rather than guessed.",
+      "Comprehensive secondary status semantics and campaign disapproval roll-up remain deferred; admission remains false.",
+      "Current account-local day coverage stays stale even if drained. Historical fresh coverage does not certify vendor finality."
+    ],
+    "attemptedSources": [
+      "https://business-api.tiktok.com/portal/docs/run-a-synchronous-report/v1.3",
+      "https://business-api.tiktok.com/portal/docs/supported-metrics-for-a-dimension-in-basic-reports/v1.3",
+      "https://business-api.tiktok.com/portal/docs/get-campaigns/v1.3",
+      "https://business-api.tiktok.com/gateway/docs/index?doc_id=1751443956638721"
+    ],
+    "bounds": {
+      "requestedDays": 366,
+      "rows": 5000,
+      "responseBytes": 1048576,
+      "vendorReads": 16,
+      "retries": 0,
+      "pageRows": 100,
+      "inclusiveChunkDays": 30,
+      "deadline": "caller CallOptions.signal; 15s per HTTP read"
+    },
+    "abi": "createCapabilities(PluginCapabilityDependencies) returns handlers keyed by callable catalog ID; host guarded fetch alone enforces current admission/authority. CallOptions supplies the invocation deadline."
+  }
+,
+  "round2B1": {
+    "checkedAt": "2026-10-26",
+    "liveVendorCalls": false,
+    "configuration": "pluginConfigurationSchema: exactly scope, connectionId, accountId, pluginDigest, settings. Account facts are not install options; credentials own connection identity. Server owns admission.",
+    "verification": "Regression tests written, not run; package typechecks reported in the handoff.",
+    "sources": [
+      "https://business-api.tiktok.com/gateway/docs/index?doc_id=1751443956638721&identify_key=c0138ffadd90a955c1f0670a56fe348d1d40680b3c89461e09f78ed26785164b",
+      "https://business-api.tiktok.com/portal/docs?id=1739318962329602",
+      "https://business-api.tiktok.com/portal/docs/supported-secondary-statuses-for-a-primary-status/v1.3",
+      "https://business-api.tiktok.com/portal/docs/supported-metrics-for-a-dimension-in-basic-reports/v1.3"
+    ],
+    "bounds": "16 total GETs including advertiser metadata, 30 days/chunk, 100 rows/page, 5,000 retained rows; caller signal, no ambient read timer.",
+    "remaining": "Primary enum and attribute tables returned empty rendered content. Known review-specified codes are explicit; all other secondary statuses stay unknown. Comprehensive enum confirmation remains NEEDS, not a claim of full vendor coverage."
+  },
+  "round3B1": {
+    "checkedAt": "2026-10-27",
+    "liveVendorCalls": false,
+    "pageSizeSource": "https://raw.githubusercontent.com/tiktok/tiktok-business-api-sdk/main/java_sdk/docs/ReportingApi.md#reportIntegratedGet",
+    "fact": "Official generated reporting SDK lists pageSize values 1 and 1000 for reportIntegratedGet. Canonical daily reports request 1000; public report default remains 100 and entity lists remain capped at 100.",
+    "bounds": "16 total GETs, 1000 rows per daily page, 5000 retained rows, 1 MiB per response; caller signal.",
+    "liveAcceptance": "campaign_status STATUS_ALL at AUCTION_ADVERTISER remains unverified. The SDK exposes filtering without a level-specific table and the official portal returned no readable content; existing filter retained.",
+    "attemptedSource": "https://business-api.tiktok.com/portal/docs?id=1751443956638721"
   }
 }

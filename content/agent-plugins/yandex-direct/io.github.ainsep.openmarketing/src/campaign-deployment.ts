@@ -1,9 +1,10 @@
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
-import { callContextSchema, epochSchema, idSchema, digestSchema, scopeSchema } from "@open-marketing/contracts";
+import { callContextSchema, idSchema, digestSchema, scopeSchema } from "@open-marketing/contracts";
 import type { CallContext, CallOptions, Outcome } from "@open-marketing/contracts";
 import { failure, loginSchema, providerId, vendorId } from "./commands.js";
 import { campaignDeploymentPlanSchema } from "./campaign-translation.js";
+import { checkCredential, readBody } from "./transport.js";
 import type { YandexDirectDependencies } from "./transport.js";
 
 const steps = ["campaign", "group", "ad"] as const;
@@ -21,10 +22,9 @@ export interface YandexDeploymentInput {
 }
 /** Recovery accepts only saved IDs, never names or a continuation cursor. */
 export type YandexDeploymentReadInput = Omit<YandexDeploymentInput, "checkpoint"> & { references: unknown };
-const configurationSchema = z.strictObject({ scope: scopeSchema, connectionId: idSchema, accountId: vendorId, clientLogin: loginSchema, currency: z.string().regex(/^[A-Z]{3}$/), apiVersion: z.literal("v501"), pluginDigest: digestSchema, bindingId: idSchema });
+const configurationSchema = z.strictObject({ scope: scopeSchema, connectionId: idSchema, accountId: vendorId, currency: z.string().regex(/^[A-Z]{3}$/), apiVersion: z.literal("v501"), pluginDigest: digestSchema, bindingId: idSchema });
 const inputSchema = z.strictObject({ context: callContextSchema, operationId: idSchema, plan: campaignDeploymentPlanSchema, configuration: configurationSchema });
 type Checked = z.infer<typeof inputSchema> & Pick<YandexDeploymentInput, "dependencies">;
-const credentialSchema = z.strictObject({ accessToken: z.string().min(1).max(4096).regex(/^[\x21-\x7e]+$/), expiresAt: epochSchema.optional() });
 const services = { campaign: "campaigns", group: "adgroups", ad: "ads" };
 const collections = { campaign: "Campaigns", group: "AdGroups", ad: "Ads" };
 const strategy = campaignDeploymentPlanSchema.shape.campaign.shape.UnifiedCampaign.shape.BiddingStrategy;
@@ -46,7 +46,9 @@ export async function deployCampaignPaused(required: YandexDeploymentInput, opti
   if (!checked.ok) return checked;
   const input = checked.value;
   const references: References = {};
-  if (!await verifyAccount({ input }, optional)) return receipt({ references });
+  const account = await verifyAccount({ input }, optional);
+  if (!account.ok) return account;
+  if (!account.value) return receipt({ references });
   for (const step of steps) {
     const complete = await createStep({ input, step, references, checkpoint: required.checkpoint }, optional);
     if (!complete) return receipt({ references });
@@ -62,7 +64,9 @@ export async function readCampaignDeployment(required: YandexDeploymentReadInput
   if (!checked.ok) return checked;
   const refs = referencesSchema.safeParse(required.references);
   if (!refs.success) return failure({ code: "invalid_input" });
-  if (!await verifyAccount({ input: checked.value }, optional)) return receipt({ references: refs.data });
+  const account = await verifyAccount({ input: checked.value }, optional);
+  if (!account.ok) return account;
+  if (!account.value) return receipt({ references: refs.data });
   return reconcile({ input: checked.value, references: refs.data }, optional);
 }
 /** Bounded snapshot before async work; admission faults return unavailable before secrets. O(b<=64KiB). */
@@ -78,7 +82,7 @@ function checkInput(required: { input: Omit<YandexDeploymentInput, "checkpoint">
     if (!parsed.success) return failure({ code: "invalid_input" });
     const { configuration, plan, context } = parsed.data;
     if (!isDeepStrictEqual(context.scope, configuration.scope)) return failure({ code: "forbidden" });
-    if (plan.accountId !== configuration.accountId || plan.clientLogin !== configuration.clientLogin || plan.currency !== configuration.currency) return failure({ code: "conflict" });
+    if (plan.accountId !== configuration.accountId || plan.currency !== configuration.currency) return failure({ code: "conflict" });
     return { ok: true, value: { ...parsed.data, dependencies: input.dependencies } };
   } catch { return failure({ code: "invalid_input" }); }
 }
@@ -140,13 +144,13 @@ async function readStep(required: { input: Checked; step: Step; references: Refe
   return { ok: true, value: { ...row.data, accountId: required.input.configuration.accountId } };
 }
 /** Validate the currently bound representative with Client-Login; campaign rows have no account ID. */
-async function verifyAccount(required: { input: Checked }, optional?: CallOptions): Promise<boolean> {
+async function verifyAccount(required: { input: Checked }, optional?: CallOptions): Promise<Outcome<boolean>> {
   const result = await send({ input: required.input, service: "clients", method: "get", params: { FieldNames: ["ClientId", "Login", "Currency"] } }, optional);
-  if (!result.ok) return false;
+  if (!result.ok) return result.error.code === "unauthenticated" || result.error.code === "forbidden" ? result : { ok: true, value: false };
   const row = z.object({ Clients: z.tuple([z.object({ ClientId: providerId, Login: loginSchema, Currency: z.string() })]) }).safeParse(result.value);
-  if (!row.success) return false;
-  const { configuration } = required.input;
-  return isDeepStrictEqual(row.data.Clients[0], { ClientId: configuration.accountId, Login: configuration.clientLogin, Currency: configuration.currency });
+  if (!row.success) return { ok: true, value: false };
+  const { configuration, plan } = required.input;
+  return { ok: true, value: isDeepStrictEqual(row.data.Clients[0], { ClientId: configuration.accountId, Login: plan.clientLogin, Currency: configuration.currency }) };
 }
 /** Fresh credentials then final admission and host guarded fetch. No retry or token retention.
  * O(b) time/space, one request <=15s, body <=1MiB; caller cancellation covers all reads. */
@@ -159,41 +163,24 @@ async function send(required: { input: Checked; service: string; method: "add" |
     if (!resolved.ok) return failure({ code: resolved.error.code });
     if (!dependencies.admitted()) return failure({ code: "forbidden" });
     if (optional?.signal?.aborted) return failure({ code: "cancelled" });
-    const credential = checkCredential({ value: resolved.value, now: dependencies.clock.now({}) });
+    const credential = checkCredential({ input: resolved.value, now: dependencies.clock.now({}) });
     if (!credential.ok) return credential;
+    if (credential.value.clientLogin !== required.input.plan.clientLogin) return failure({ code: "forbidden" });
     const deadline = dependencies.createDeadline({ milliseconds: 15000 });
-    const signal = optional?.signal ? AbortSignal.any([deadline, optional.signal]) : deadline;
+    const signal = AbortSignal.any([deadline, optional?.signal ?? deadline]);
     const response = await dependencies.fetch("https://api.direct.yandex.com/json/v501/" + required.service, { method: "POST", redirect: "error", signal,
-      headers: { "Content-Type": "application/json; charset=utf-8", "Accept-Language": "en", "Client-Login": configuration.clientLogin, Authorization: "Bearer " + credential.value.accessToken }, body: JSON.stringify({ method: required.method, params: required.params }) });
+      headers: { "Content-Type": "application/json; charset=utf-8", "Accept-Language": "en", "Client-Login": credential.value.clientLogin, Authorization: "Bearer " + credential.value.accessToken }, body: JSON.stringify({ method: required.method, params: required.params }) });
     return await decodeResponse({ response });
   } catch { return failure({ code: optional?.signal?.aborted ? "cancelled" : "unavailable" }); }
   finally { observe({ input: required.input, operation: required.method + "." + required.service }); }
-}
-/** Tainted broker output and injected clock must validate before egress; no secret in failures. O(1). */
-function checkCredential(required: { value: unknown; now: number }): Outcome<z.infer<typeof credentialSchema>> {
-  const parsed = credentialSchema.safeParse(required.value);
-  if (!parsed.success) return failure({ code: "unauthenticated" });
-  if (!epochSchema.safeParse(required.now).success) return failure({ code: "invalid_input" });
-  if (parsed.data.expiresAt !== undefined && required.now >= parsed.data.expiresAt) return failure({ code: "expired" });
-  return { ok: true, value: parsed.data };
 }
 /** Bound streamed JSON before trusting the vendor result; HTTP-200 errors remain failures. O(b). */
 async function decodeResponse(required: { response: Response }): Promise<Outcome<unknown>> {
   const { response } = required;
   if (response.status !== 200 || !response.body) { await response.body?.cancel(); return failure({ code: "unavailable" }); }
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let bytes = 0;
-  try {
-    while (true) {
-      const chunk = await reader.read();
-      if (chunk.done) break;
-      bytes += chunk.value.byteLength;
-      if (bytes > 1048576) { await reader.cancel(); return failure({ code: "limit_exceeded" }); }
-      chunks.push(chunk.value);
-    }
-  } finally { reader.releaseLock(); }
-  const body: unknown = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks)));
+  const text = await readBody({ response });
+  if (!text.ok) return text;
+  const body: unknown = JSON.parse(text.value);
   const envelope = z.object({ result: z.unknown(), error: z.never().optional() }).safeParse(body);
   return envelope.success && envelope.data.result !== undefined ? { ok: true, value: envelope.data.result } : failure({ code: "protocol_mismatch" });
 }

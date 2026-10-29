@@ -1,9 +1,9 @@
 import { z } from "zod";
-import { callContextSchema, idSchema, parseBoundary } from "@open-marketing/contracts";
-import type { CallOptions, ObserverPort, Outcome } from "@open-marketing/contracts";
+import { callContextSchema, idSchema, parseBoundary, parseExactIntegerJson, serviceContextSchema } from "@open-marketing/contracts";
+import type { CallOptions, ObserverPort, Outcome, PluginCapabilityDependencies } from "@open-marketing/contracts";
 import { decodeTikTokAcknowledgement, decodeTikTokRead, encodeTikTokCommand, failure, tiktokCommandSchema, tiktokHaltCommandSchema, tiktokStatus, vendorIdSchema } from "./commands.js";
 import type { TikTokEncoded, TikTokReadCommand } from "./commands.js";
-import { tiktokEventsPayloadSchema, tiktokServiceContextSchema } from "./events.js";
+import { tiktokEventsPayloadSchema } from "./events-payload.js";
 import type { TikTokCredentialPort, TikTokEgressPort, TikTokEgressRequest } from "./ports.js";
 
 // Access-Token confirmed by TikTok-owned SDK source; admission:false covers the
@@ -12,9 +12,20 @@ const vendor = { baseUrl: "https://business-api.tiktok.com/open_api/v1.3/", toke
 const timeoutMs = 15000;
 const maxBytes = 1048576;
 const egressCommandSchema = z.union([tiktokCommandSchema, tiktokHaltCommandSchema, z.strictObject({ kind: z.literal("track-event"), payload: tiktokEventsPayloadSchema })]);
-const inputSchema = z.strictObject({ context: z.union([callContextSchema, tiktokServiceContextSchema]), connectionId: idSchema, accountId: vendorIdSchema, operationId: idSchema, request: egressCommandSchema, isCurrent: z.custom<() => boolean>(value => typeof value === "function") });
+const inputSchema = z.strictObject({ context: z.union([callContextSchema, serviceContextSchema]), connectionId: idSchema, accountId: vendorIdSchema, operationId: idSchema, request: egressCommandSchema, isCurrent: z.custom<() => boolean>(value => typeof value === "function") });
 const credentialSchema = z.strictObject({ accessToken: z.string().min(1).max(4096).regex(/^[\x21-\x7E]+$/) });
 type Dependencies = { fetch: typeof fetch; credentials: TikTokCredentialPort; observer: ObserverPort };
+
+/** Project canonical call-scoped credentials onto the strict transport credential shape.
+ * Context belongs to the host; expiry/secrets never enter vendor codecs. O(1), no cache.
+ * @example createTikTokCredentials({ credentials: dependencies.credentials })
+ */
+export function createTikTokCredentials(required: Pick<PluginCapabilityDependencies, "credentials">): TikTokCredentialPort {
+  return { async access(input, options) {
+    const access = await required.credentials.access({ connectionId: input.connectionId, accountId: input.accountId }, options);
+    return access.ok ? { ok: true, value: { accessToken: access.value.accessToken } } : access;
+  } };
+}
 
 /** Server supplies fetch/credentials/observer; import and construction perform no I/O.
  * One GET/POST, no redirects or retries, 15s deadline and 1 MiB response ceiling.
@@ -52,31 +63,31 @@ async function send(required: { dependencies: Dependencies; input: TikTokEgressR
   if (!credential.ok) return credential;
   const current = checkFence({ input, signal });
   if (!current.ok) return current;
+  if (encoded.value.method === "GET") {
+    const body = await requestTikTokRead({ fetch: dependencies.fetch, wire: encoded.value, token: credential.value.accessToken }, { signal });
+    return body.ok ? decodeTikTokRead({ input: body.value, command: input.request as TikTokReadCommand, accountId: input.accountId }) : body;
+  }
   const response = await fetchOnce({ dependencies, wire: encoded.value, token: credential.value.accessToken, signal });
-  return receive({ response, input, method: encoded.value.method });
+  return receiveWrite({ response });
 }
 
 /** Narrow wrapper around fetch's foreign ABI; fixed URL and token header, never redirects. O(b). */
-async function fetchOnce(required: { dependencies: Dependencies; wire: TikTokEncoded | { method: "POST"; path: "event/track/"; body: Record<string, unknown> }; token: string; signal: AbortSignal }): Promise<Response> {
+async function fetchOnce(required: { dependencies: Pick<Dependencies, "fetch">; wire: TikTokEncoded | { method: "POST"; path: "event/track/"; body: Record<string, unknown> }; token: string; signal?: AbortSignal }): Promise<Response> {
   const { wire, token, signal, dependencies } = required;
   const url = vendor.baseUrl + wire.path + (wire.method === "GET" ? "?" + new URLSearchParams(wire.parameters).toString() : "");
   return dependencies.fetch(url, { method: wire.method, headers: { [vendor.tokenHeader]: token, Accept: "application/json", ...(wire.method === "POST" ? { "Content-Type": "application/json" } : {}) }, ...(wire.method === "POST" ? { body: JSON.stringify(wire.body) } : {}), redirect: "error", signal });
 }
 
-/** POST errors after handoff become uncertainty; reads preserve boundary errors. O(b), <=1MiB. */
-async function receive(required: { response: Response; input: TikTokEgressRequest; method: "GET" | "POST" }): Promise<Outcome<unknown>> {
-  const { response, input, method } = required;
-  if (!response.ok) {
-    await response.body?.cancel();
+/** POST receipts use the original acknowledgement decoder; malformed receipts stay uncertain. */
+async function receiveWrite(required: { response: Response }): Promise<Outcome<unknown>> {
+  if (!required.response.ok) {
+    await required.response.body?.cancel();
     return failure({ code: "unavailable", message: "TikTok HTTP request rejected" });
   }
-  const body = await readBody({ response });
-  if (!body.ok) return method === "POST" ? failure({ code: "unavailable", message: "TikTok write receipt unknown" }) : body;
-  if (method === "POST") {
-    const acknowledgement = decodeTikTokAcknowledgement({ input: body.value });
-    return acknowledgement.ok ? acknowledgement : failure({ code: "unavailable", message: "TikTok write receipt unknown" });
-  }
-  return decodeTikTokRead({ input: body.value, command: input.request as TikTokReadCommand, accountId: input.accountId });
+  const body = await readBody(required);
+  if (!body.ok) return failure({ code: "unavailable", message: "TikTok write receipt unknown" });
+  const acknowledgement = decodeTikTokAcknowledgement({ input: body.value });
+  return acknowledgement.ok ? acknowledgement : failure({ code: "unavailable", message: "TikTok write receipt unknown" });
 }
 
 /** Closed backend routes reuse the same credentialed transport; no arbitrary URL/body.
@@ -117,7 +128,22 @@ async function readBody(required: { response: Response }): Promise<Outcome<unkno
       }
       chunks.push(chunk.value);
     }
-    return { ok: true, value: JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks))) as unknown };
+    const parsed = parseExactIntegerJson({ text: new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks)) });
+    return parsed.ok ? parsed : failure({ code: "invalid_input", message: "TikTok response is incomplete or invalid JSON" });
   } catch { return failure({ code: "invalid_input", message: "TikTok response is incomplete or invalid JSON" }); }
   finally { reader.releaseLock(); }
+}
+
+/** Shared GET edge for existing reads and canonical handlers. Caller owns the invocation deadline.
+ * One fixed-origin GET, no redirects/retries, <=1 MiB body; explicit cancelled/unavailable errors.
+ * @example requestTikTokRead({ fetch: guardedFetch, wire, token }, { signal })
+ */
+export async function requestTikTokRead(required: { fetch: typeof fetch; wire: Extract<TikTokEncoded, { method: "GET" }>; token: string }, optional?: CallOptions): Promise<Outcome<unknown>> {
+  if (optional?.signal?.aborted) return failure({ code: "cancelled", message: "TikTok read cancelled" });
+  const signal = optional?.signal;
+  try {
+    const response = await fetchOnce({ dependencies: { fetch: required.fetch }, wire: required.wire, token: required.token, signal });
+    if (!response.ok) { await response.body?.cancel(); return failure({ code: "unavailable", message: "TikTok HTTP read rejected" }); }
+    return await readBody({ response });
+  } catch { return failure({ code: signal?.aborted ? "cancelled" : "unavailable", message: "TikTok read failed" }); }
 }

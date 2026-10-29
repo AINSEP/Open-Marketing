@@ -6,7 +6,7 @@
       "capabilityId": "campaign.create-paused.v1",
       "version": 1,
       "pluginId": "meta-ads",
-      "schemaFingerprint": "f7c4017f5d6cf475f26938bf7a5bbac49c2f1b92d0c0440f05fff89873ef2bca",
+      "schemaFingerprint": "3454b61b1c9c9294e3e7b7c135d86947a71806cfffbfe2ca21a18c8e90b27893",
       "admitted": false,
       "effects": [
         "write"
@@ -46,7 +46,7 @@
       "capabilityId": "conversion.signup-trial.v1",
       "version": 1,
       "pluginId": "meta-ads",
-      "schemaFingerprint": "44288ead6cd72a7e0a42df68ead675e32ec402981a4d885438c976e7dce777b1",
+      "schemaFingerprint": "701b41444c81cefa2fe56155344c1fc71ff0446360d99b6067ce071b3a0f9471",
       "admitted": false,
       "effects": [
         "conversion"
@@ -66,7 +66,7 @@
       "capabilityId": "instagram.accounts.v1",
       "version": 1,
       "pluginId": "meta-ads",
-      "schemaFingerprint": "1c1f813e65db6730068c7776fce05320c2013a22baf7b2470cc8e5db01fd3486",
+      "schemaFingerprint": "a2cd6285622ae7049ccc50bbdfa55ff52fe007e12e1edc6e99ba3db0e471599d",
       "admitted": false,
       "effects": [
         "read"
@@ -76,7 +76,7 @@
       "capabilityId": "instagram.publish-post.v1",
       "version": 1,
       "pluginId": "meta-ads",
-      "schemaFingerprint": "1c1f813e65db6730068c7776fce05320c2013a22baf7b2470cc8e5db01fd3486",
+      "schemaFingerprint": "a2cd6285622ae7049ccc50bbdfa55ff52fe007e12e1edc6e99ba3db0e471599d",
       "admitted": false,
       "effects": [
         "write"
@@ -86,7 +86,7 @@
       "capabilityId": "instagram.post-status.v1",
       "version": 1,
       "pluginId": "meta-ads",
-      "schemaFingerprint": "1c1f813e65db6730068c7776fce05320c2013a22baf7b2470cc8e5db01fd3486",
+      "schemaFingerprint": "a2cd6285622ae7049ccc50bbdfa55ff52fe007e12e1edc6e99ba3db0e471599d",
       "admitted": false,
       "effects": [
         "read"
@@ -96,10 +96,50 @@
       "capabilityId": "instagram.media-insights.v1",
       "version": 1,
       "pluginId": "meta-ads",
-      "schemaFingerprint": "1c1f813e65db6730068c7776fce05320c2013a22baf7b2470cc8e5db01fd3486",
+      "schemaFingerprint": "a2cd6285622ae7049ccc50bbdfa55ff52fe007e12e1edc6e99ba3db0e471599d",
       "admitted": false,
       "effects": [
         "read"
+      ]
+    },
+    {
+      "capabilityId": "report.metrics.v1",
+      "version": 1,
+      "pluginId": "meta-ads",
+      "schemaFingerprint": "e651d134ce3a63038bc63b6ec474f353f7420295e195f102e185a742b6530875",
+      "admitted": false,
+      "effects": [
+        "read"
+      ]
+    },
+    {
+      "capabilityId": "campaign.status.v1",
+      "version": 1,
+      "pluginId": "meta-ads",
+      "schemaFingerprint": "e651d134ce3a63038bc63b6ec474f353f7420295e195f102e185a742b6530875",
+      "admitted": false,
+      "effects": [
+        "read"
+      ]
+    },
+    {
+      "capabilityId": "tracking.tag.v1",
+      "version": 1,
+      "pluginId": "meta-ads",
+      "schemaFingerprint": "e651d134ce3a63038bc63b6ec474f353f7420295e195f102e185a742b6530875",
+      "admitted": false,
+      "effects": [
+        "read"
+      ]
+    },
+    {
+      "capabilityId": "audience.member.add.v1",
+      "version": 1,
+      "pluginId": "meta-ads",
+      "schemaFingerprint": "be75ae8d59e73bb29707efef4632e99d3df4e1be7a15fa1a37962edd1382ccf4",
+      "admitted": false,
+      "effects": [
+        "write"
       ]
     }
   ],

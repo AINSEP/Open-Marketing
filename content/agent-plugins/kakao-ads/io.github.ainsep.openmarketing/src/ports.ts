@@ -3,7 +3,7 @@ import type { KakaoCommand } from "./commands.js";
 import type { KakaoReport } from "./reporting.js";
 
 /** Server binding, never tool arguments. Only list_accounts permits an unbound account. */
-export interface KakaoConfiguration { readonly scope: Scope; readonly connectionId: string; readonly accountId: string | null; readonly admitted: boolean }
+export interface KakaoConfiguration { readonly scope: Scope; readonly connectionId: string; readonly accountId: string | null }
 /** Server integrations.access wrapper owns scope/plugin/connection checks and token custody.
  * No refresh rules are inferred for Business tokens. Example: access({ connectionId, accountId }). */
 export interface KakaoCredentialPort {

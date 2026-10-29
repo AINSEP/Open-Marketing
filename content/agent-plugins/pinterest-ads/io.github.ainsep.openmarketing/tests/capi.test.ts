@@ -15,12 +15,7 @@ it("sends unchanged event ID/hash, exact seconds and explicit signup/source mapp
   expect(JSON.stringify({ dispatches: f.dispatches, observations: f.observations })).not.toContain("synthetic-secret");
   expect(f.observations[0]).toMatchObject({ operation: "pinterest-ads.http", correlationId: "correlation", traceId: "trace" });
 });
-it("admitted false prevents credential, authority and network I/O for deliver/reconcile", async () => {
-  const f = capiFixture({ admitted: false });
-  expect(await f.backend.deliver(conversionRequest)).toMatchObject({ ok: false, error: { code: "forbidden" } });
-  expect(await f.backend.reconcile(conversionRequest)).toMatchObject({ ok: false, error: { code: "forbidden" } });
-  expect(f.calls).toHaveLength(0); expect(f.dispatches).toHaveLength(0); expect(f.state.credentials).toBe(0);
-});
+
 it.each([
   { connectionId: "foreign" }, { accountId: "999" }, { destination: "foreign" }, { purpose: "foreign" }, { payloadSchema: "foreign" },
   { payloadVersion: 2 }, { definitionIds: ["foreign"] }, { revoked: true }, { expiresAt: now }, { scope: { ownerId: "foreign", workspaceId: "workspace" } },

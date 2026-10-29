@@ -18,7 +18,8 @@ describe("X portable package", () => {
     expect(xAdsTools.map(tool => tool.name)).toEqual(["list_accounts", "list_campaigns", "report"]);
     for (const cap of declaration.capabilities) {
       expect(cap).toMatchObject({ pluginId: "x-ads", admitted: false });
-      const file = ({ "report.account-spend.v1": "reporting.ts", "campaign.read.v1": "commands.ts", "campaign.create-paused.v1": "campaign-deployment.ts", "conversion.deliver.v1": "capi.ts" } as Record<string, string>)[cap.capabilityId];
+      const file = ({ "report.account-spend.v1": "reporting.ts", "campaign.read.v1": "commands.ts", "campaign.create-paused.v1": "campaign-deployment.ts", "conversion.deliver.v1": "capi.ts", "report.metrics.v1": "reporting.ts", "campaign.status.v1": "reporting.ts" } as Record<string, string>)[cap.capabilityId];
+      if (!file) throw new Error("Unmapped capability: " + cap.capabilityId);
       expect(cap.schemaFingerprint).toBe(createHash("sha256").update(readFileSync(new URL("io.github.ainsep.openmarketing/src/" + file, root))).digest("hex"));
     }
   });

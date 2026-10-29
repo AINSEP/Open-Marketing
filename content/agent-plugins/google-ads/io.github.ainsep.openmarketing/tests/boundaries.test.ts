@@ -1,42 +1,46 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { PassThrough } from "node:stream";
 import { createGooglePlugin } from "../src/plugin.ts";
 import { createFixtureDependencies, fixtureBinding, fixtureContext } from "../src/fixture.ts";
-import { createMcpSession, createLocalMcpAdapter, serveStdio, tools } from "../src/mcp.ts";
+import { tools } from "../src/index.ts";
 import { createHttpAdapter, createGoogleRestTransport } from "../src/transport.ts";
 import { success } from "../src/schema.ts";
 import { createMemoryJournal } from "../src/memory.ts";
 import { plan, value } from "./helpers.ts";
 import type { OperationRecord, Receipt } from "../src/types.ts";
+import { capabilityEnvelopeSchema } from "@open-marketing/contracts";
 
-test("portable mcp entries contain transport fields only; namespace holds host metadata", async () => {
-  const mcp = JSON.parse(await readFile(new URL("../../mcp.json", import.meta.url), "utf8"));
+test("host manifest retains disabled admission and valid capability envelopes", async () => {
   const manifest = JSON.parse(await readFile(new URL("../../plugin.json", import.meta.url), "utf8"));
-  assert.deepEqual(Object.keys(mcp.mcpServers["google-ads"]).sort(), ["args", "command", "cwd", "type"]);
-  assert.equal(mcp.mcpServers["google-ads"].command, "node");
-  assert.equal((mcp.mcpServers["google-ads"].args as string[]).some(arg => arg.includes("npx")), false);
   const extension = manifest.extensions["io.github.ainsep.openmarketing"];
   assert.equal(extension.enabled, false);
   assert.equal(extension.admitted, false);
   assert.equal(extension.servers["google-ads"].authMode, "host");
-  for (const entry of Object.values(extension.capabilities) as { binding: string }[]) {
-    const envelope = JSON.parse(await readFile(new URL("../../" + entry.binding, import.meta.url), "utf8"));
+  assert.ok(Array.isArray(extension.capabilities));
+  for (const envelope of extension.capabilities) {
+    assert.equal(capabilityEnvelopeSchema.safeParse({ ...envelope, pluginDigest: "a".repeat(64) }).success, true);
     assert.equal(envelope.pluginId, "google-ads");
     assert.equal(envelope.admitted, false);
   }
 });
 test("tool catalogue excludes conversions, arbitrary HTTP/mutate, shell and backend halt permits", () => {
-  const names = (tools({}) as { name: string }[]).map(tool => tool.name);
+  const names = tools.map(tool => tool.name);
   for (const name of ["upload_conversions", "http", "mutate", "shell", "halt_stop"]) assert.equal(names.includes(name), false);
-  assert.equal(names.length, 9);
-});
-test("negative portable fixture places forbidden metadata in a closed stdio entry", async () => {
-  const fixture = JSON.parse(await readFile(new URL("../fixtures/invalid-mcp-extra-field.json", import.meta.url), "utf8"));
-  const allowed = new Set(["type", "command", "args", "env", "cwd"]);
-  const unknown = Object.keys(fixture.mcpServers["google-ads"]).filter(key => !allowed.has(key));
-  assert.deepEqual(unknown, ["authMode"]);
+  assert.equal(names.length, 11);
+  const expectedEffects = {
+    list_accounts: ["read"], read_campaign: ["read"], read_budget: ["read"], report: ["read"],
+    create_paused: ["write"], activate: ["write", "ad_spend"], set_budget: ["write", "ad_spend"],
+    pause: ["write"], reconcile: ["read"],
+    search_terms_report: ["read"], add_negative_keyword: ["write", "destructive"],
+  };
+  assert.deepEqual(tools.map(tool => tool.name).sort(), Object.keys(expectedEffects).sort());
+  const unavailable = ["create_paused", "activate", "set_budget", "pause", "reconcile"];
+  for (const tool of tools) {
+    assert.deepEqual(tool.effects, expectedEffects[tool.name as keyof typeof expectedEffects]);
+    assert.equal(tool.unavailableReason, unavailable.includes(tool.name) ? "NEEDS: Google durable controlled-plan journal and verified billing evidence" : undefined);
+    assert.equal(Object.hasOwn(tool.inputSchema.properties as Record<string, unknown>, "operationId"), false);
+  }
 });
 test("real REST authentication is server-contained and omits developer-token", async () => {
   let captured: { url: string; headers: Record<string, string>; body: string } | undefined;
@@ -92,29 +96,6 @@ test("HTTP rejects obsolete Ads versions and wrong methods before network access
   assert.equal((await http.get!({ ...input, url: "https://googleads.googleapis.com/v26/customers/1234567890/googleAds:search" })).ok, false);
   assert.equal(calls, 0);
 });
-test("stdio initialization, malformed JSON and frame bounds are explicit", async () => {
-  const session = createMcpSession({ plugin: createGooglePlugin(createFixtureDependencies({})), context: fixtureContext });
-  const beforeInit = await session.handle({ input: { jsonrpc: "2.0", id: 1, method: "tools/list" } });
-  assert.ok(beforeInit?.error);
-  const stdin = new PassThrough();
-  const stdout = new PassThrough();
-  const chunks: Buffer[] = [];
-  stdout.on("data", chunk => chunks.push(chunk));
-  stdin.end("malformed-json\n");
-  const result = await serveStdio({ stdin, stdout, session });
-  assert.ok(result.ok);
-  assert.equal(JSON.parse(Buffer.concat(chunks).toString()).error.code, -32700);
-  const excessive = new PassThrough();
-  excessive.end("x".repeat(262145));
-  assert.equal((await serveStdio({ stdin: excessive, stdout: new PassThrough(), session })).ok, false);
-});
-test("MCP client rejects malformed successful provider projections", async () => {
-  const adapter = createLocalMcpAdapter({ context: fixtureContext, client: { async call() {
-    return success({ value: { content: [{ type: "text", text: JSON.stringify({ ok: true, value: { active: true, credential: "secret" } }) }] } });
-  } } });
-  const result = await adapter.invoke({ context: fixtureContext, name: "read_campaign", arguments: { operationId: "taint-1", campaignId: "201" } });
-  assert.equal(result.ok, false);
-});
 test("journal evidence appends, isolates same customer across scopes, and disposes", async () => {
   const journal = createMemoryJournal({ maxRecords: 10 });
   const dependencies = createFixtureDependencies({});
@@ -142,4 +123,20 @@ test("optional developer token is call-time Google Ads configuration and never r
   assert.ok((await transport.request({ ...request, method: "ingest", cloudProjectId: "fixture-project" })).ok);
   assert.equal(headers[0]["developer-token"], "abcdefghijklmnopqrstuv"); assert.equal(headers[0]["login-customer-id"], "1111111111");
   assert.equal(headers[1]["developer-token"], undefined); assert.equal(headers[1]["login-customer-id"], undefined);
+});
+
+test("REST transport needs only scope, connection and selected customer identity", async () => {
+  const binding = { scope: fixtureBinding.scope, connectionId: fixtureBinding.connectionId, customerId: fixtureBinding.customerId };
+  let accesses = 0;
+  const transport = createGoogleRestTransport({ binding, credentials: { async access(input) { accesses++; assert.deepEqual(input.binding, binding); return success({ value: { accessToken: "fixture" } }); } },
+    http: { async post(input) { assert.match(input.url, /\/v26\/customers\/1234567890\/googleAds:search$/); return success({ value: { status: 200, body: {} } }); } },
+  });
+  assert.ok((await transport.request({ context: fixtureContext, operationId: "narrow-read", method: "search", body: { query: "SELECT customer.id FROM customer" } })).ok);
+  assert.equal(accesses, 1);
+});
+test("inline canonical declarations have no orphaned binding files; tracked backend bindings remain", async () => {
+  for (const name of ["report.metrics.v1", "campaign.status.v1", "tracking.tag.v1"]) {
+    await assert.rejects(readFile(new URL(`../bindings/${name}.json`, import.meta.url)), { code: "ENOENT" });
+  }
+  for (const name of ["search.v1", "reporting.v1", "stop.v1", "conversions.v1"]) await readFile(new URL(`../bindings/${name}.json`, import.meta.url));
 });

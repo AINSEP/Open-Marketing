@@ -1,37 +1,31 @@
-# WhatsApp Business (R1: reads/auth)
+# WhatsApp Business — approved-template sends
 
-Inert, server-loaded Agent Plugins 1.0.0 package. `get_account_status`,
-`list_senders`, and `list_templates` expose verification, review, name approval,
-quality and messaging tier observations. Missing values remain unknown.
+Send one approved template via the existing owner-only `om_message_send` path (HTTP, assistant/om-tool and `om tools call om_message_send --input-file message.json`). The card shows the exact recipient, template + variables and approved USD `maxCost`, with Allow/Cancel. The fresh plugin quote must fit that ceiling at dispatch. Production remains `read_only`; no production numeric rates were verified, so sending currently refuses `not_implemented` before reservation. No dedicated Studio composer is added.
 
-Import only `@open-marketing-plugin/whatsapp-business`. Construct
-`createWhatsAppBusinessAdapter({ configuration, credentials, gateway, fetch,
-clock, observer, createDeadline })`; invoke with `{ context, operationId,
-command: { kind: "get_account_status" } }`. Results use canonical `Outcome`.
-Lists accept `limit` (1–100, default 100) and opaque `after`; return `{ items,
-cursor }`. Each call fetches one page; provider next URLs are discarded.
+The public plugin entry retains reads/webhooks and exports `messageChannel = "whatsapp"`, `sendMessage`, `whatsappMessageSchema`, `whatsappDeliveryReceiptSchema` and inferred types. The old broadcast export is removed. Host tool input uses:
 
-The host injects `createDeadline({ timeoutMs })`, returning a fresh abort signal
-for each GET (15,000ms). It covers fetch and streamed body reading. Caller aborts
-return `cancelled`; deadline failures return `unavailable`; neither retries.
-Requests are capped at 64KiB and streamed responses at 1MiB; redirects are blocked.
+```json
+{"message":{"template":{"name":"approved_template","language":"en_US","bodyParameters":["Alice"]}}}
+```
 
-Both manifest and capability admission start false. Admit only after verifying
-Graph v26.0 field compatibility, permissions and asset binding; these remain
-unverified. The gateway rechecks authority BEFORE broker access/refresh/fetch;
-the broker verifies scope, connection, WABA/phone ownership, token expiry and
-`whatsapp_business_management`. Host audit is authoritative; observer events
-carry run/correlation/trace IDs without bodies or secrets.
+The host supplies context, stable deliveryId and E.164 recipient. Configuration is exactly the server envelope; WABA/phone IDs come from one call-local credential access. Before authority, two bounded Graph reads require USD WABA currency and exactly one exact name/language template with `APPROVED` status and a known category. Incomplete/ambiguous pages refuse. Free-form sends are refused because OM cannot prove an open 24-hour service window; media/header/button/named parameters, template creation and broadcasts are deferred.
 
-`credentialCards` uses the host schema: Meta connection reuse (OAuth action
-unavailable until integrated), or sealed system-user token with WABA/phone IDs.
-No second OAuth route or token storage is implemented. NEEDS: server composition,
-broker/gateway adapters, compatibility verification, real-host shared-suite run,
-HTTP/OM MCP/CLI parity, packaging and DS2 presentation. No shared contracts or
-migrations changed. Sends, pricing, consent and delivery/webhook integration
-remain deferred; their safety rules are in [SKILL.md](skills/whatsapp-business/SKILL.md).
+Quote = [Meta list-rate](https://developers.facebook.com/documentation/business-messaging/whatsapp/pricing) upper bound by recipient prefix and observed category, converted by contracts to integer micros then rounded upward to USD cents. Authentication uses the larger domestic/international rate; no volume-tier or service-window discounts are assumed. Production rate rows are empty pending the official USD CSV (requested effective date 2026-10-01). The current prefix map contains only examples verified in the binding review: complete all remaining market/NANP exceptions before adding production rates. Unmatched prefixes use the highest listed category rate; missing/invalid rates refuse. Synthetic rates exist only in tests. Meta revises rates quarterly; there is no automatic expiry/update, and the edition date is included in pricing evidence. See `io.github.ainsep.openmarketing/evidence/primary-sources.json` for verification limits.
 
-`mcpServers` is empty: Meta MCP remains unverified; Twilio account/documentation
-servers do not supply direct Meta reads. See [primary-sources.json](io.github.ainsep.openmarketing/evidence/primary-sources.json)
-for research and limits. Fixture tests are written, not run; one lane typecheck
-is permitted. No builds, installs, live vendor calls or migrations.
+The host owns WhatsApp consent/STOP suppression, subject serialization, durable dedup/outbox, exact approval and reserve/settle accounting. The plugin authority ABI is only `{ quote, argumentsDigest, execute }`; the digest binds the frozen POST. Credential/quote expiry and cancellation are checked again before one POST. Request <=64KiB, streamed response <=1MiB, injected 10s deadline per request, redirects refused, no retries. A matching `contacts.input` plus message ID means `accepted`, not handset delivery. Ambiguous submission stays `unknown` and requires reconciliation. HTTP 429 and validated Meta throughput codes 130429/131056 return retryable `limit_exceeded`; the host records a definitive refusal with zero settlement.
+
+Sending needs `whatsapp_business_messaging` in addition to management reads and verified WABA/phone ownership. Credentials never belong in tool input. `appSecret` is separate from the access token and challenge verify token; it authenticates webhook bytes.
+
+The generic `ingestWebhook` parses the exact server configuration envelope and accesses the credential afresh per call. WABA ID, phone ID and app secret come from that credential, never install settings; WABA must match the bound account. POST raw bytes authenticate with HMAC-SHA256 `x-hub-signature-256` before JSON parsing. Every WABA and known messages/user_preferences phone asset must match. Aggregate >100 messages/statuses/preferences rejects the whole batch. Future fields/statuses are skipped; raw plugin cap remains 256KiB, host cap 128KiB. Returned `{ events }` declares channel `whatsapp`; there is no apply callback or durable plugin inbox.
+
+The host path is `POST /hooks/agent-plugins/:pluginId/:connectionId/:accountId`. Known phone-bearing STOPs append durable suppression; replays acknowledge without additional evidence. Delivery events are acknowledged and discarded. Unknown contacts acknowledge without persistence. Text/button STOP matching retains the bounded existing vocabulary, including Stop promotions and Detener promociones; START/HELP/resume never restore consent.
+
+Signed preferences preserve raw `waId` OR `userId` (BSUID), vendor time and scoped replay ID, without inventing a recipient or provider message ID. Phone-less preferences acknowledge without persistence and emit a PII-free observer count. Verified vendor-scoped alias capture/resolution is NEEDS. Mixed phone-bearing STOPs still persist.
+
+**POST only: GET `hub.challenge` verification and subscription setup are deferred.** They require a separate `verifyToken` credential-card field. Until that closure lands, this ingress cannot be subscribed through WhatsApp setup. The app secret is neither the access token nor that verification token. Deployment must preserve bytes and rewrite Host for the loopback listener without relaxing Origin checks.
+
+Verification limit: both [Meta's preference reference](https://developers.facebook.com/docs/whatsapp/cloud-api/webhooks/user_preferences) and its [current reference](https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/reference/user_preferences) were attempted in B1; the first was inaccessible and the second returned 429. Preference shape follows the binding re-review. Complete localized-button coverage and exact current identity/timestamp variants remain unverified. The Spanish case above comes from the binding review; other labels/payloads are deferred until primary documentation is accessible.
+
+NEEDS: owner-provided primary USD CSV and full prefix mapping; Coordinator rebuilds plugin dist/digest after review; owner production enablement and real-account compatibility checks. DESIGN NOTE: host must pass `intent` to sendMessage so a MARKETING template under transactional intent is refused (general host/Twilio coordination deferred). Billed-price reconciliation, broadcasts, GET challenge/subscription and verified alias capture remain deferred. The read-only host mode is unchanged. [WhatsApp policy](https://whatsappbusiness.com/policy/) requires permission to contact recipients.
+
+No live account, consent, pricing, version compatibility or production concurrency is proven. Tests are synthetic and written, not run; no tests/builds/installs/migrations/live spend here.

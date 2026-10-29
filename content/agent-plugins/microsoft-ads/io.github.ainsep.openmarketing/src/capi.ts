@@ -1,13 +1,12 @@
 /** Narrow, server-only enhanced offline conversions; upload acceptance never implies attribution. */
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
-import { epochSchema, idSchema, scopeSchema } from "@open-marketing/contracts";
-import type { CallOptions, Outcome, ServiceContext } from "@open-marketing/contracts";
-import { request } from "./commands.js";
+import { epochSchema, idSchema, pluginConfigurationSchema, scopeSchema } from "@open-marketing/contracts";
+import type { CallOptions, Outcome, PluginCapabilityDependencies, ServiceContext } from "@open-marketing/contracts";
+import { request, vendorIdSchema } from "./commands.js";
 import { boundInput } from "./campaign-translation.js";
-import { configurationSchema, requestMicrosoftAds } from "./transport.js";
+import { canonicalRpc } from "./capabilities.js";
 import { failure } from "./ports.js";
-import type { MicrosoftAdsIoDependencies } from "./ports.js";
 
 const hash = z.string().regex(/^[a-f0-9]{64}$/);
 const eventSchema = z.strictObject({ eventId: idSchema, definitionId: idSchema, subjectId: idSchema, occurredAt: epochSchema, destination: idSchema, purpose: idSchema,
@@ -16,8 +15,11 @@ const grantSchema = z.strictObject({ kind: z.literal("measurement"), grantId: id
   destination: idSchema, purpose: idSchema, payloadSchema: idSchema, payloadVersion: z.literal(1), expiresAt: epochSchema, revoked: z.boolean() });
 const requestSchema = z.strictObject({ context: z.strictObject({ scope: scopeSchema, serviceId: idSchema, correlationId: idSchema, traceId: idSchema }), event: eventSchema, grant: grantSchema, deliveryId: idSchema });
 const goalSchema = z.strictObject({ name: z.string().trim().min(1).max(100), createdAt: epochSchema, enhancedConversionsEnabled: z.literal(true) });
-const capiConfigurationSchema = configurationSchema.extend({ mode: z.enum(["production-server", "local-sandbox", "read-only"]), destination: idSchema, purpose: idSchema, payloadSchema: idSchema,
+const configurationSchema = pluginConfigurationSchema.extend({ accountId: vendorIdSchema });
+const conversionMappingSchema = z.strictObject({ accountId: vendorIdSchema, customerId: vendorIdSchema, purpose: idSchema, payloadSchema: idSchema,
   conversionGoals: z.record(idSchema, goalSchema).refine(value => Object.keys(value).length > 0 && Object.keys(value).length <= 100) });
+const conversionSettingsSchema = z.object({ conversionConfiguration: conversionMappingSchema });
+const capiConfigurationSchema = configurationSchema.extend({ ...conversionMappingSchema.shape, destination: z.literal("microsoft-ads") });
 export type MicrosoftAdsConversionConfiguration = z.infer<typeof capiConfigurationSchema>;
 export type MicrosoftAdsConversionRequest = z.infer<typeof requestSchema>;
 export interface MicrosoftAdsConversionOutcome { status: "delivered" | "unknown" }
@@ -30,7 +32,8 @@ export interface MicrosoftAdsConversionAuthority {
   dispatch(required: { context: ServiceContext; event: MicrosoftAdsConversionRequest["event"]; grant: MicrosoftAdsConversionRequest["grant"]; deliveryId: string; configuration: MicrosoftAdsConversionConfiguration; payload: MicrosoftAdsConversionPayload;
     execute: (required: { isCurrent: () => boolean }) => Promise<Outcome<MicrosoftAdsConversionOutcome>> }, optional?: CallOptions): Promise<Outcome<MicrosoftAdsConversionOutcome>>;
 }
-export type MicrosoftAdsConversionDependencies = Omit<MicrosoftAdsIoDependencies, "configuration"> & { configuration: MicrosoftAdsConversionConfiguration; authority: MicrosoftAdsConversionAuthority };
+export type MicrosoftAdsConversionDependencies = PluginCapabilityDependencies & { authority: MicrosoftAdsConversionAuthority };
+type Dependencies = Omit<MicrosoftAdsConversionDependencies, "configuration"> & { configuration: MicrosoftAdsConversionConfiguration };
 export interface MicrosoftAdsConversionBackend {
   deliver(required: MicrosoftAdsConversionRequest, optional?: CallOptions): Promise<Outcome<MicrosoftAdsConversionOutcome>>;
   reconcile(required: MicrosoftAdsConversionRequest, optional?: CallOptions): Promise<Outcome<MicrosoftAdsConversionOutcome>>;
@@ -40,13 +43,15 @@ type Prepared = { input: MicrosoftAdsConversionRequest; configuration: Microsoft
 /** Deliver one authorized email digest to an existing goal; never resubmit an uncertain delivery.
  * @param required - Injected host effects, account-owned goal evidence and current measure authority.
  * @returns Inert backend with explicit preflight failures and accepted/unknown receipts.
- * @example createMicrosoftAdsConversionBackend({ configuration, authority, credentials, fetch, clock, timeoutSignal, observer })
+ * @example createConversionDelivery({ configuration, authority, credentials, fetch, clock, wait, observer })
  * @complexity O(b<=64KiB), <=100 mappings; one <=15s/1MiB RPC and zero retries.
  */
-export function createMicrosoftAdsConversionBackend(required: MicrosoftAdsConversionDependencies): MicrosoftAdsConversionBackend {
-  const dependencies = { ...required, configuration: structuredClone(required.configuration) };
+export function createConversionDelivery(required: MicrosoftAdsConversionDependencies): MicrosoftAdsConversionBackend {
+  const configuration = parseConversionConfiguration(required.configuration);
   return {
     async deliver(input, options) {
+      if (!configuration.ok) return configuration;
+      const dependencies = { ...required, configuration: configuration.value };
       const prepared = prepare({ dependencies, input }, options);
       if (!prepared.ok) return prepared;
       const result = await dispatch({ dependencies, prepared: prepared.value }, options);
@@ -54,15 +59,29 @@ export function createMicrosoftAdsConversionBackend(required: MicrosoftAdsConver
       return result;
     },
     async reconcile(input, options) {
-      const prepared = prepare({ dependencies, input }, options);
+      if (!configuration.ok) return configuration;
+      const prepared = prepare({ dependencies: { ...required, configuration: configuration.value }, input }, options);
       return prepared.ok ? unknown() : prepared;
     },
   };
 }
 
+/** Parse install mappings once and bind their account before any host effects.
+ * @returns Static invalid_input/forbidden failures or the plugin-owned destination/configuration.
+ * @complexity O(k) time/space, k<=100 goal mappings; no I/O.
+ */
+function parseConversionConfiguration(required: PluginCapabilityDependencies["configuration"]): Outcome<MicrosoftAdsConversionConfiguration> {
+  const configuration = configurationSchema.safeParse(required);
+  if (!configuration.success) return failure({ code: "invalid_input" });
+  const settings = conversionSettingsSchema.safeParse(configuration.data.settings);
+  if (!settings.success) return failure({ code: "invalid_input" });
+  const mapping = settings.data.conversionConfiguration;
+  if (mapping.accountId !== configuration.data.accountId) return failure({ code: "forbidden" });
+  return { ok: true, value: { ...configuration.data, ...mapping, destination: "microsoft-ads" } };
+}
+
 /** Strict event keys reject raw PII/click IDs; snapshot exact payload before any host await. */
-function prepare(required: { dependencies: MicrosoftAdsConversionDependencies; input: MicrosoftAdsConversionRequest }, optional?: CallOptions): Outcome<Prepared> {
-  if (!required.dependencies.configuration.admitted) return failure({ code: "forbidden" });
+function prepare(required: { dependencies: Dependencies; input: MicrosoftAdsConversionRequest }, optional?: CallOptions): Outcome<Prepared> {
   if (optional?.signal?.aborted) return failure({ code: "cancelled" });
   const bounded = boundInput({ input: { input: required.input, configuration: required.dependencies.configuration } });
   if (!bounded.ok) return bounded;
@@ -77,7 +96,6 @@ function prepare(required: { dependencies: MicrosoftAdsConversionDependencies; i
 /** Local checks narrow input; only the host can establish live consent, halt and goal ownership. */
 function checkAuthority(required: { input: MicrosoftAdsConversionRequest; configuration: MicrosoftAdsConversionConfiguration; now: number }): Outcome<void> {
   const { input, configuration, now } = required;
-  if (!configuration.admitted || configuration.mode !== "production-server" || !configuration.accountId || !configuration.customerId) return failure({ code: "forbidden" });
   if (!grantMatches({ input, configuration }) || input.grant.revoked || now >= input.grant.expiresAt) return failure({ code: "forbidden" });
   if (!Number.isSafeInteger(now) || now < input.event.occurredAt || now - input.event.occurredAt > 90 * 86400000 || now > 8640000000000000) return failure({ code: "expired" });
   const goal = Object.hasOwn(configuration.conversionGoals, input.event.definitionId) ? configuration.conversionGoals[input.event.definitionId] : undefined;
@@ -94,10 +112,10 @@ function grantMatches(required: { input: MicrosoftAdsConversionRequest; configur
     && grant.payloadSchema === configuration.payloadSchema && grant.definitionIds.includes(event.definitionId);
 }
 
-/** One durable host claim. The final fetch wrapper rechecks authority after both secret reads.
+/** One durable host claim. The final fetch wrapper rechecks authority after the bound credential lookup.
  * Unknown egress or lost host receipt stays unknown, never retryable. @complexity One fixed RPC.
  */
-async function dispatch(required: { dependencies: MicrosoftAdsConversionDependencies; prepared: Prepared }, optional?: CallOptions): Promise<Outcome<MicrosoftAdsConversionOutcome>> {
+async function dispatch(required: { dependencies: Dependencies; prepared: Prepared }, optional?: CallOptions): Promise<Outcome<MicrosoftAdsConversionOutcome>> {
   const { dependencies, prepared } = required;
   let executed = false;
   let sent = false;
@@ -111,7 +129,9 @@ async function dispatch(required: { dependencies: MicrosoftAdsConversionDependen
         sent = true;
         return dependencies.fetch(url, init);
       };
-      const response = await requestMicrosoftAds({ dependencies: { ...dependencies, configuration: prepared.configuration, fetch }, request: request({ service: "CampaignManagement", path: "OfflineConversions/Apply", body: prepared.payload }) }, optional);
+      const signal = AbortSignal.any([AbortSignal.timeout(15000), ...(optional?.signal ? [optional.signal] : [])]);
+      const response = await canonicalRpc({ dependencies: { ...dependencies, fetch }, configuration: prepared.configuration, customerId: prepared.configuration.customerId, signal,
+        request: request({ service: "CampaignManagement", path: "OfflineConversions/Apply", body: prepared.payload }) });
       if (!response.ok) return sent ? unknown() : response;
       const parsed = z.object({ PartialErrors: z.array(z.unknown()).max(1000).nullable() }).safeParse(response.value);
       if (!parsed.success || (parsed.data.PartialErrors?.length ?? 0) > 0) return unknown();

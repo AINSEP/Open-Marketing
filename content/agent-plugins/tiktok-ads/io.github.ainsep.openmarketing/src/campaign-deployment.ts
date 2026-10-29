@@ -1,11 +1,12 @@
 import { z } from "zod";
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
-import { callContextSchema, idSchema, parseBoundary } from "@open-marketing/contracts";
-import type { CallContext, CallOptions, Outcome } from "@open-marketing/contracts";
+import { callContextSchema, pluginConfigurationSchema, idSchema, parseBoundary } from "@open-marketing/contracts";
+import type { CampaignDeploymentRequired, CampaignDeploymentReceipt, CallOptions, Outcome } from "@open-marketing/contracts";
 import { boundTikTokJson, decodeTikTokAcknowledgement, decodeTikTokRead, digestTikTokArguments, encodeTikTokCommand, failure, tiktokCommandSchema, vendorIdSchema } from "./commands.js";
 import type { TikTokCommand, TikTokReadCommand } from "./commands.js";
 import type { TikTokEgressPort } from "./ports.js";
+import { createTikTokCredentials, createTikTokFetchEgress } from "./transport.js";
 
 /** Fixed parent slots; finite daily website traffic, one existing image/video plus cover. */
 export const campaignDeploymentPlanSchema = z.strictObject({
@@ -20,11 +21,9 @@ const steps = ["campaign", "adgroup", "ad"] as const;
 type Step = typeof steps[number];
 const referencesSchema = z.strictObject({ campaign: vendorIdSchema.optional(), adgroup: vendorIdSchema.optional(), ad: vendorIdSchema.optional() });
 type References = z.infer<typeof referencesSchema>;
-export interface TikTokDeploymentResult { status: "acknowledged" | "unknown"; entityIds: string[]; references: References; hierarchy: unknown[] }
-type Checkpoint = (input: { step: string; phase: "dispatch" | "acknowledged"; references: References }) => Promise<Outcome<void>>;
-interface Input { context: CallContext; operationId: string; connectionId: string; accountId: string; plan: unknown; dependencies: { admitted: boolean; egress: TikTokEgressPort }; checkpoint: Checkpoint }
+export type TikTokDeploymentResult = CampaignDeploymentReceipt & { references: References; hierarchy: unknown[] };
 const inputSchema = z.strictObject({ context: callContextSchema, operationId: idSchema, connectionId: idSchema, accountId: vendorIdSchema, plan: z.unknown() });
-type Checked = z.infer<typeof inputSchema> & { plan: TikTokPausedPlan } & Pick<Input, "dependencies">;
+type Checked = z.infer<typeof inputSchema> & { plan: TikTokPausedPlan } & { dependencies: { egress: TikTokEgressPort } };
 
 /** Pure finite schedule and exact daily amount checks. Invalid calendar strings fail closed. O(1). */
 function validPlan(required: { campaign: { budget: number }; adgroup: { budget: number; scheduleStart: string; scheduleEnd: string }; ad: { adFormat: string; videoId?: string } }): boolean {
@@ -37,12 +36,16 @@ function validPlan(required: { campaign: { budget: number }; adgroup: { budget: 
 /** Three writes inside the owning job; verify each disabled parent before its child.
  * @param required - Complete fixed plan, host-fenced egress and durable checkpoints.
  * @returns A receipt retaining every candidate ID on uncertainty, or not_implemented for an unsupported plan; never retries or activates.
- * @example deployCampaignPaused({ context, operationId, connectionId, accountId, plan, dependencies, checkpoint })
+ * @example deployCampaignPaused({ context, operationId, connectionId, accountId, plan, dependencies, checkpoint, saved })
  * @complexity Three creates + three filtered GETs; each transport <=15s/1MiB, O(b) decoding.
  */
-export async function deployCampaignPaused(required: Input, optional?: CallOptions): Promise<Outcome<TikTokDeploymentResult>> {
+export async function deployCampaignPaused(required: CampaignDeploymentRequired, optional?: CallOptions): Promise<Outcome<TikTokDeploymentResult>> {
   const checked = checkInput({ input: required });
   if (!checked.ok) return checked;
+  const saved = required.saved;
+  const refs = parseBoundary({ schema: referencesSchema, input: saved.references });
+  if (!refs.ok) return refs;
+  if (Object.keys(refs.value).length > 0 || saved.record !== null) return readCampaignDeployment(required, optional);
   const input = { ...checked.value, checkpoint: required.checkpoint };
   const references: References = {};
   const hierarchy: unknown[] = [];
@@ -56,7 +59,7 @@ export async function deployCampaignPaused(required: Input, optional?: CallOptio
 }
 
 /** Intent precedes dispatch; candidate ID precedes readback. Checkpoint faults stop. O(1) I/O. */
-async function createStep(required: { input: Checked & Pick<Input, "checkpoint">; step: Step; references: References }, optional?: CallOptions): Promise<boolean> {
+async function createStep(required: { input: Checked & Pick<CampaignDeploymentRequired, "checkpoint">; step: Step; references: References }, optional?: CallOptions): Promise<boolean> {
   const { input, step, references } = required;
   if (optional?.signal?.aborted || !await checkpoint({ input, step, phase: "dispatch", references })) return false;
   const command = creationCommand(required);
@@ -74,13 +77,13 @@ async function createStep(required: { input: Checked & Pick<Input, "checkpoint">
 /** Saved-ID GETs only; missing parents/IDs never cause discovery or resubmission.
  * @param required - Original plan and saved references under current host authority.
  * @returns Acknowledged only when all three scoped configurations remain disabled, or not_implemented for an unsupported plan.
- * @example readCampaignDeployment({ context, operationId, connectionId, accountId, plan, dependencies, references })
+ * @example readCampaignDeployment({ context, operationId, connectionId, accountId, plan, dependencies, checkpoint, saved })
  * @complexity At most three filtered GETs, O(b) bounded response validation, no writes.
  */
-export async function readCampaignDeployment(required: Omit<Input, "checkpoint"> & { references: unknown }, optional?: CallOptions): Promise<Outcome<TikTokDeploymentResult>> {
+export async function readCampaignDeployment(required: CampaignDeploymentRequired, optional?: CallOptions): Promise<Outcome<TikTokDeploymentResult>> {
   const checked = checkInput({ input: required });
   if (!checked.ok) return checked;
-  const refs = parseBoundary({ schema: referencesSchema, input: required.references });
+  const refs = parseBoundary({ schema: referencesSchema, input: required.saved.references });
   if (!refs.ok) return refs;
   const hierarchy: unknown[] = [];
   for (const step of steps) {
@@ -114,19 +117,23 @@ async function readStep(required: { input: Checked; step: Step; references: Refe
 }
 
 /** Validate the bounded envelope, then report unsupported plans before any effects.
- * @returns Typed admission/validation failure, not_implemented for plans outside the finite daily subset, or checked input.
+ * @returns Typed binding/validation failure, not_implemented for plans outside the finite daily subset, or checked input.
  * @complexity O(b) time/space, b <= 1 MiB; no checkpoints, credentials or network.
  */
-function checkInput(required: { input: Omit<Input, "checkpoint"> }): Outcome<Checked> {
+function checkInput(required: { input: CampaignDeploymentRequired }): Outcome<Checked> {
   const input = required.input;
-  if (input.dependencies.admitted !== true) return failure({ code: "forbidden", message: "TikTok deployment unadmitted" });
   const bounded = boundTikTokJson({ input: { context: input.context, operationId: input.operationId, connectionId: input.connectionId, accountId: input.accountId, plan: input.plan } });
   if (!bounded.ok) return bounded;
   const parsed = parseBoundary({ schema: inputSchema, input: bounded.value });
   if (!parsed.ok) return parsed;
+  const configuration = pluginConfigurationSchema.safeParse(input.dependencies.configuration);
+  if (!configuration.success) return failure({ code: "invalid_input", message: "Invalid deployment configuration" });
+  const binding = configuration.data;
+  if (!isDeepStrictEqual({ connectionId: binding.connectionId, accountId: binding.accountId, scope: binding.scope }, { connectionId: input.connectionId, accountId: input.accountId, scope: parsed.value.context.scope })) return failure({ code: "forbidden", message: "Deployment binding mismatch" });
+  const dependencies = { egress: createTikTokFetchEgress({ fetch: input.dependencies.fetch, credentials: createTikTokCredentials(input.dependencies), observer: input.dependencies.observer }) };
   const plan = parseBoundary({ schema: campaignDeploymentPlanSchema, input: parsed.value.plan });
   if (!plan.ok) return failure({ code: "not_implemented", message: "TikTok supports only finite daily website traffic with one existing image/video, cover and landing URL" });
-  return { ok: true, value: { ...parsed.value, plan: plan.value, dependencies: input.dependencies } };
+  return { ok: true, value: { ...parsed.value, plan: plan.value, dependencies } };
 }
 /** Only two parent substitutions; deterministic names bind the owning operation. O(1), pure. */
 function creationCommand(required: { input: Checked; step: Step; references: References }): Outcome<TikTokCommand> {
@@ -136,7 +143,7 @@ function creationCommand(required: { input: Checked; step: Step; references: Ref
   return parseBoundary({ schema: tiktokCommandSchema, input: commands[required.step] });
 }
 /** Host journals immutable snapshots; opaque callback errors become a stopped sequence. O(1) I/O. */
-async function checkpoint(required: { input: Checked & Pick<Input, "checkpoint">; step: Step; phase: "dispatch" | "acknowledged"; references: References }): Promise<boolean> {
+async function checkpoint(required: { input: Checked & Pick<CampaignDeploymentRequired, "checkpoint">; step: Step; phase: "dispatch" | "acknowledged"; references: References }): Promise<boolean> {
   try { return (await required.input.checkpoint({ step: required.step, phase: required.phase, references: { ...required.references } })).ok; }
   catch { return false; }
 }
@@ -144,7 +151,8 @@ async function checkpoint(required: { input: Checked & Pick<Input, "checkpoint">
 async function send(required: { input: Checked; request: TikTokCommand }, optional?: CallOptions): Promise<Outcome<unknown>> {
   const { input } = required;
   if (optional?.signal?.aborted) return failure({ code: "cancelled", message: "TikTok deployment cancelled" });
-  try { return await input.dependencies.egress.send({ context: input.context, operationId: input.operationId, connectionId: input.connectionId, accountId: input.accountId, request: required.request, isCurrent: () => input.dependencies.admitted === true && !optional?.signal?.aborted }, optional); }
+  try { return await input.dependencies.egress.send({ context: input.context, operationId: input.operationId, connectionId: input.connectionId, accountId: input.accountId, request: required.request, isCurrent: () => !optional?.signal?.aborted }, optional); }
   catch { return failure({ code: "unavailable", message: "TikTok deployment receipt unknown" }); }
 }
-function receipt(required: { references: References; hierarchy: unknown[]; status?: TikTokDeploymentResult["status"] }): Outcome<TikTokDeploymentResult> { return { ok: true, value: { ...required, status: required.status ?? "unknown", references: { ...required.references }, entityIds: Object.values(required.references) } }; }
+/** Build paused-state evidence while retaining all known IDs on uncertainty. O(1), three IDs maximum. */
+function receipt(required: { references: References; hierarchy: unknown[]; status?: TikTokDeploymentResult["status"] }): Outcome<TikTokDeploymentResult> { return { ok: true, value: { ...required, state: "paused", status: required.status ?? "unknown", references: { ...required.references }, entityIds: Object.values(required.references) } }; }

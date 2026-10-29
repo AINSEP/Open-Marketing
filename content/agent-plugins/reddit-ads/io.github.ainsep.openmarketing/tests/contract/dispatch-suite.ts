@@ -5,15 +5,7 @@ import type { Fixture } from "../fixtures.js";
 /** Integrator must run this same public-behavior suite against the real server binding. */
 export function dispatchSuite(required: { name: string; makeFixture: () => Fixture }): void {
   describe(required.name + " Reddit dispatch", () => {
-    it("is inert and denies all commands before credential access when unadmitted", async () => {
-      const f = required.makeFixture();
-      expect(f.calls).toHaveLength(0); expect(f.credentialCalls).toHaveLength(0);
-      f.state.admitted = false;
-      for (const command of [{ kind: "list_businesses" as const }, { kind: "list_accounts" as const, businessId }, { kind: "list_campaigns" as const }, reportCommand]) {
-        expect(await f.adapter.invoke(invocation({ command }))).toMatchObject({ ok: false, error: { code: "forbidden" } });
-      }
-      expect(f.calls).toHaveLength(0); expect(f.credentialCalls).toHaveLength(0);
-    });
+
     it("binds credentials and projects one business page without secret metadata", async () => {
       const f = required.makeFixture();
       const result = await f.adapter.invoke(invocation());

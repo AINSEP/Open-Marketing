@@ -1,29 +1,50 @@
+import { z } from "zod";
 import { array, bool, currency, date, epoch, id, micros, numericId, object, status, text } from "./schema.ts";
 import type { Schema } from "./schema.ts";
 import type { ToolName } from "./types.ts";
 
-/** Immutable exact Search plan; manual language criteria are intentionally absent. */
-export const planSchema = object({ properties: {
-  name: text, currency, averageDailyBudgetMicros: micros, cpcBidMicros: micros, startsAt: epoch, endsAt: epoch,
-  geoTargetIds: array({ items: numericId, min: 1, max: 20 }),
-  keywords: array({ items: object({ properties: {
-    text: { ...text, maxLength: 80 }, matchType: { type: "string", enum: ["EXACT", "PHRASE"] },
-  } }), min: 1, max: 50 }),
-  headlines: array({ items: { ...text, maxLength: 30 }, min: 3, max: 15 }),
-  descriptions: array({ items: { ...text, maxLength: 90 }, min: 2, max: 4 }),
-  finalUrl: { type: "string", minLength: 8, maxLength: 2048, pattern: "^https://" },
-  euPoliticalAdvertising: { type: "string", enum: ["CONTAINS_EU_POLITICAL_ADVERTISING", "DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING"] },
-} });
-const operation = object({ properties: { operationId: id } });
-const campaign = object({ properties: { operationId: id, campaignId: numericId } });
-/** Closed agent tool schemas: conversion upload and halt permits are backend-only. */
-export const toolSchemas: Record<ToolName, Schema> = {
-  list_accounts: operation, read_campaign: campaign, read_budget: campaign,
-  report: object({ properties: { operationId: id, startDate: date, endDate: date } }),
-  create_paused: object({ properties: { operationId: id, plan: planSchema } }),
-  activate: campaign, set_budget: object({ properties: { operationId: id, campaignId: numericId, averageDailyBudgetMicros: micros } }),
-  pause: campaign, reconcile: operation,
-};
+const headlines = z.array(z.string().min(1).max(30)).min(3).max(15);
+const descriptions = z.array(z.string().min(1).max(90)).min(2).max(4);
+const finalUrl = z.string().min(8).max(2048).regex(/^https:\/\//);
+
+/** Immutable exact Search plan; root RSA plus up to two additional ads. Singletons omit additionalAds. */
+export const campaignDeploymentPlanSchema = z.strictObject({
+  name: z.string().min(1).max(256), currency: z.string().max(3).regex(/^[A-Z]{3}$/),
+  averageDailyBudgetMicros: z.string().min(1).max(18).regex(/^[1-9][0-9]*$/),
+  objective: z.enum(["leads", "sales"]).optional(),
+  cpcBidMicros: z.string().min(1).max(18).regex(/^[1-9][0-9]*$/).optional(),
+  startsAt: z.int().min(0).max(4102444800000), endsAt: z.int().min(0).max(4102444800000),
+  geoTargetIds: z.array(z.string().min(1).max(19).regex(/^[1-9][0-9]*$/)).min(0).max(200),
+  proximity: z.strictObject({
+    latitudeMicroDegrees: z.int().min(-90000000).max(90000000),
+    longitudeMicroDegrees: z.int().min(-180000000).max(180000000),
+    radiusKm: z.number().positive().max(20040),
+  }).optional(),
+  keywords: z.array(z.strictObject({ text: z.string().min(1).max(80), matchType: z.enum(["EXACT", "PHRASE"]) })).min(1).max(50),
+  headlines, descriptions, finalUrl,
+  additionalAds: z.array(z.strictObject({ headlines, descriptions, finalUrl })).min(1).max(2).optional(),
+  euPoliticalAdvertising: z.enum(["CONTAINS_EU_POLITICAL_ADVERTISING", "DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING"]),
+});
+/** Input JSON projection uses only the existing local matcher's validation keywords.
+ * $schema is an annotation; no unions, formats, refs or executable refinements.
+ */
+export const planSchema = z.toJSONSchema(campaignDeploymentPlanSchema, { io: "input" }) as Schema;
+const campaignInput = z.strictObject({ campaignId: z.string().min(1).max(19).regex(/^[1-9][0-9]*$/) });
+const reportDate = z.string().max(10).regex(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/);
+/** Closed fixed-ABI inputs; the host supplies operationId outside model input.
+ * Conversion upload and halt permits remain backend-only. */
+export const toolInputSchemas = {
+  list_accounts: z.strictObject({}), read_campaign: campaignInput, read_budget: campaignInput,
+  report: z.strictObject({ startDate: reportDate, endDate: reportDate }),
+  create_paused: z.strictObject({ plan: campaignDeploymentPlanSchema }),
+  activate: campaignInput,
+  set_budget: campaignInput.extend({ averageDailyBudgetMicros: z.string().min(1).max(18).regex(/^[1-9][0-9]*$/) }),
+  pause: campaignInput, reconcile: z.strictObject({}),
+} satisfies Record<ToolName, z.ZodObject>;
+/** Legacy invocation keeps operationId in arguments until vendor-neutral A3. */
+export const toolSchemas = Object.fromEntries(Object.entries(toolInputSchemas).map(([name, schema]) =>
+  [name, z.toJSONSchema(schema.extend({ operationId: z.string().min(1).max(256) }), { io: "input" }) as Schema],
+)) as Record<ToolName, Schema>;
 /** Sanitized hierarchy projection; provider taint is discarded before this parse. */
 export const hierarchySchema = object({ properties: {
   customerId: numericId, campaignId: numericId, budgetId: numericId, name: text,
@@ -39,6 +60,10 @@ export const bindingSchema = object({ properties: {
   currency, timezone: text, mode: { type: "string", enum: ["sandbox", "read_only", "production"] },
   pluginDigest: { type: "string", pattern: "^[a-f0-9]{64}$", maxLength: 64 },
   schemaFingerprint: { type: "string", pattern: "^[a-f0-9]{64}$", maxLength: 64 },
+} });
+/** Transport consumes only selected identity, never write authority or fabricated account facts. */
+export const transportBindingSchema = object({ properties: {
+  scope: bindingSchema.properties!.scope, connectionId: id, customerId: bindingSchema.properties!.customerId,
 } });
 export const contextSchema = object({ properties: {
   scope: object({ properties: { ownerId: id, workspaceId: id } }),

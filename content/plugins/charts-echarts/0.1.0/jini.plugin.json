@@ -1,0 +1,37 @@
+{
+  "id": "charts-echarts",
+  "name": "Apache ECharts",
+  "extensions": {
+    "io.github.ainsep.openmarketing": {
+      "id": "openmarketing/charts-echarts"
+    }
+  },
+  "version": "0.1.0",
+  "sdkRange": "^1.0.0",
+  "engine": 1,
+  "tier": "tier-3",
+  "capabilities": [],
+  "hooks": [],
+  "fields": [],
+  "browserProviders": [
+    {
+      "id": "plugin.echarts",
+      "kind": "chart",
+      "contractVersion": 1,
+      "kinds": [
+        "line",
+        "bar",
+        "funnel",
+        "heatmap"
+      ],
+      "javascript": "client/provider.js",
+      "stylesheet": "client/styles.css"
+    }
+  ],
+  "integrity": {
+    "client/provider.js": "sha256-bc26e780279facfecdeafd18cfbb677ebbf5910eb9ca2385e03641966f3cb413",
+    "client/styles.css": "sha256-8291fe44230d5a24921b20b6576c3dae335144d1c245b32b93f9431929a7aaab",
+    "server/index.mjs": "sha256-f0417178b69fc2e0462e15e28fc1750e86c7ea77c3fe28fe91ed006ed1bbf6b2",
+    "NOTICE": "sha256-e9fbc0ed5ba7c60fcf3759260654ed346f400b3ee374bbee800db016187fa318"
+  }
+}

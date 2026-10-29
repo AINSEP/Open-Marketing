@@ -1,69 +1,30 @@
-# Amazon SES — R1 reads/auth
+# Amazon SES — R2 provider adapter
 
-After host integration, ask “check my SES sending quota” or “is my SES domain verified?”.
-This inert, disabled plugin reads regional account access/quota/pricing-plan and the configured
-domain's verification/DKIM status. Domain readiness alone never authorizes marketing delivery.
-There are no send commands in R1. No server/studio changes, migrations or live calls.
+The existing read adapter remains unchanged. The public entry additionally exports `createAmazonSesMailProvider({ clock, configuration, authority, fetch, deadlineSignal })` and Zod request/configuration/SNS schemas with inferred types. It implements the published Jini 0.6.12 mail ABI; it creates no registry, mail engine, workers or ambient credentials. The plugin stays disabled/unadmitted and exposes no send capability/tool until server integration.
 
-Create a least-privilege **IAM user**, never root keys. In the owner credential card paste
-access key ID, secret access key and region. The `app-credentials` card serializes the bundle
-into existing sealed `ConnectIntegrationToken.plaintext`; secrets never enter assistant tools.
-Server composition supplies region and a lowercase ASCII verified domain (punycode supported).
-R1 supports standard AWS partition endpoints, not China, custom/FIPS or dual-stack endpoints.
-Create the identity/DNS records and request production access manually in the AWS console.
+Configuration binds `region`, `senderDomain`, `snsTopicArn` and the observed `maxSendRate`. Only standard AWS partition endpoints are supported. Invalid configuration throws at construction. The injected fetch must use normal HTTPS/TLS trust validation. Certificate retrieval validates the exact regional SNS origin, topic and certificate path, rejects redirects and enforces a 10-second deadline and 16-KiB streamed cap. One instance-owned certificate is cached until its expiry or one hour, whichever comes first; a new signing URL replaces it. Missing, expired, invalid or unavailable certificates produce no feedback events.
 
-Minimal R1 IAM policy (replace REGION, ACCOUNT_ID and DOMAIN):
-```json
-{"Version":"2012-10-17","Statement":[
-  {"Effect":"Allow","Action":"ses:GetAccount","Resource":"*","Condition":{"StringEquals":{"aws:RequestedRegion":"REGION"}}},
-  {"Effect":"Allow","Action":"ses:GetEmailIdentity","Resource":"arn:aws:ses:REGION:ACCOUNT_ID:identity/DOMAIN","Condition":{"StringEquals":{"aws:RequestedRegion":"REGION"}}}
-]}
+```ts
+const provider = createAmazonSesMailProvider({ clock, configuration, authority, fetch, deadlineSignal });
+const inner = provider.create({ credential: { token: JSON.stringify(iamBundle) }, kit: { httpClient: guardedHttp } });
+// The host wraps inner with Jini policy and purpose gate, not a plugin-owned engine.
+await mailer.send({ message, workspaceId, idempotencyKey: deliveryId, sourceContext }, { purpose: "bulk" });
 ```
-Root and IAM access-key formats overlap; the schema cannot attest principal ownership.
-The credential broker must bind the sealed credential to the owner/workspace/connection.
-No AWS ambient credentials, STS, SDK, credential cache or automatic retries are used.
 
-[GetAccount](https://docs.aws.amazon.com/ses/latest/APIReference-V2/API_GetAccount.html) reports
-actual regional quotas. [Sandbox](https://docs.aws.amazon.com/ses/latest/dg/request-production-access.html):
-verified recipients only, 200/day, 1/second; production access is regional.
-[Unlimited quota](https://docs.aws.amazon.com/ses/latest/APIReference-V2/API_SendQuota.html):
-`max24HourSend: -1` returns `remaining24HourSend: "unlimited"`; rate and usage remain separate.
-[Identity](https://docs.aws.amazon.com/ses/latest/APIReference-V2/API_GetEmailIdentity.html) exposes DKIM tokens;
-configure DNS yourself. Missing/unknown verification or DKIM evidence leaves domainReady false.
-[Pricing](https://aws.amazon.com/ses/pricing/) checked 2026-10-24: à-la-carte outbound $0.10/1,000;
-Essentials first 10M/month $0.16/1,000; applicable data, SNS and optional services cost extra.
-No price estimate or spending authority is inferred from a plan name.
+Create least-privilege IAM user keys, never root/SMTP credentials. `iamBundle` contains `{ accessKeyId, secretAccessKey, region }`, resolved by the server broker and serialized into Jini's token slot. Region must match configuration. Minimal permissions: `ses:GetAccount` on `*`, `ses:GetEmailIdentity` and `ses:SendEmail` on the configured `arn:aws:ses:REGION:ACCOUNT_ID:identity/DOMAIN`, restricted by `aws:RequestedRegion`. No STS, ambient credential chain, SDK or credential cache. Account/identity configuration and regional production access are manual. Sandbox restrictions still apply.
 
-Integrator NEEDS: resolve exact @jini-ai/platform@0.6.12 and lockfile; add this non-workspace
-plugin to root om:build-plugins. Wire broker/gateway in
-`apps/server/src/composition/{agent-plugin-backends,workers,index,identity}.ts`, integration
-binding in `apps/server/src/integrations.ts`, and tool parity in `apps/server/src/om-tool-coverage.ts`.
-Gateway must recheck admission, connection and scope on each dispatch and audit context IDs.
-Run tests/contract-suite.ts over both real broker/gateway adapters using synthetic fetch.
-DS2 owns credential/status UI; integrator closes HTTP/MCP/CLI bindings.
+Each send translates one recipient into SES v2 Simple content and signs the exact POST body with Jini's public `signSigV4`, injected time and service `ses`. RFC8058 unsubscribe headers are preserved through Simple.Headers. Safe custom headers, including Jini redirect mode's `X-Original-To`, are supported. Duplicate casing and reserved address/MIME headers are refused; attachments remain unsupported. A List-Unsubscribe URI list may include mailto alongside at least one safe HTTPS URI; the one-click POST value remains exact. The sender must belong to the configured domain. The host owns the working HTTPS unsubscribe footer/endpoint; a GET never withdraws consent. [SendEmail](https://docs.aws.amazon.com/ses/latest/APIReference-V2/API_SendEmail.html).
 
-Deferred sends share Resend's ONE server policy, exact bulk card and jobs outbox. Freeze final
-payload/recipient snapshot; recheck contact binding, erasure, suppression and marketing consent
-at every dispatch. Transactional intent requires a trusted approved purpose. Require working
-HTTPS unsubscribe footer, List-Unsubscribe and List-Unsubscribe-Post; POST appends withdrawal
-without login, GET does not withdraw. SES has no documented send idempotency token: durable
-delivery-key/digest/dispatch records belong to the host; ambiguous outcomes require reconciliation.
-R2/later: resolved sends, batch/segment orchestration, configuration-set/SNS checks, authenticated
-feedback ingress, durable event dedupe, suppression and unsubscribe linkage. Tracking stays off.
-No plugin-owned persistence, approval engine, vendor contacts, provisioning or DNS writes.
+SES has no SendEmail idempotency token. Set Jini delivery policy `resendPolicy: () => "never"` explicitly and use the durable OM ledger/outbox delivery identity. A response without a validated MessageId, server failure or transport failure remains unknown and must reconcile without resubmission. Vendor acceptance never claims inbox delivery. One recipient per provider job, <=64KiB request, <=1MiB response, 10s timeout, no internal retries. Guarded HTTP must cap response bytes before buffering, reject redirects and bound body consumption.
 
-Verification: tests are written, not run; no builds/checks/installs/indexing. Run the lane's
-typecheck directly: `corepack pnpm --dir content/agent-plugins/amazon-ses typecheck`.
-R1 execution: `cd content/agent-plugins/amazon-ses && corepack pnpm typecheck` ran once;
-exit 2, sole diagnostic TS2307: @jini-ai/platform unresolved. No installs or rerun.
-Scope basis: `ADS-memory/.local-artifacts/codex-runs/2026-10-24-plugin-amazon-ses/R1-prompt.md`
-explicitly restricts R1 to reads/auth. Its final owner directive approves plan.md without a
-separate plan review; review.status is `skipped` and review.md is absent. No missing cuts
-or broader sending approval are inferred. Scope remains the two read commands only.
+The required `authority({ input, execute }, options)` callback receives a parsed, frozen delivery snapshot. It must recheck current admission, subject binding, consent, suppression/erasure, grants/caps, paid-send authority and exact payload, holding the server subject lane through `await execute()`. Missing/denied authority causes zero HTTP calls, and repeated execution is refused. Post-submission exceptions remain unknown. Guarded HTTP owns transport limits and correlated audit; Jini readiness is insufficient to establish OM authority.
 
-R1F adds synthetic regressions for unlimited/exhausted/invalid daily quota and midstream
-body failure with/without caller cancellation. A cancelled body read reports `cancelled`;
-an expired request deadline reports `unavailable`. Unknown vendor facts grant no readiness
-or sending authority. Real broker/gateway shared-suite execution remains an integrator NEED.
-R1F typecheck ran once with the same command above: exit 2, sole diagnostic TS2307 at
-`src/transport.ts:2` for missing `@jini-ai/platform`. No test/build/install or rerun occurred.
+Domain methods read the configured identity, reuse the existing verification/DKIM decision, and return Easy DKIM CNAME records. Custom MAIL FROM/BYO-DKIM provisioning is outside this adapter; domain readiness alone never grants send authority.
+
+Feedback supports **identity SNS notifications** (`notificationType`: Delivery/Bounce/Complaint), not configuration-set `eventType` payloads. Configure the identity's regional Standard SNS topic for all three kinds. Verify the subscription manually. Verification binds the exact topic, standard regional SNS certificate URL and fetched certificate validity, then verifies AWS's canonical field order (including optional Subject) with SignatureVersion 1/SHA1 or 2/SHA256. Subscription/unsubscribe confirmations are rejected. Jini 0.6.12 verification is synchronous: the server must await `provider.prepareFeedback({ rawBody }, { signal })` before invoking Jini feedback ingest. On preparation failure, do not ingest; return a retryable HTTP failure for certificate-fetch outages. Preparation loads the certificate; the existing verifier and parser still authenticate the SNS signature before events are accepted. Parsed recipients are deduplicated and capped at 100; raw body <=256KiB. Jini ingest owns replay dedup and hard-bounce/complaint suppression under host subject-lane serialization. The fixture secret callback supplies a placeholder because Jini 0.6.12 ingest requires nonempty secrets; SNS authenticity uses certificates, not that placeholder. [SNS signature rules](https://docs.aws.amazon.com/sns/latest/dg/sns-verify-signature-of-message-verify-message-signature.html), [notification shapes](https://docs.aws.amazon.com/ses/latest/dg/notification-contents.html).
+
+NEEDS: resolve the already-declared `@jini-ai/platform@0.6.12`; server provider selection/composition; paid-send integration without owner impersonation; durable ledger/inbox/suppression and one outbox; raw feedback/unsubscribe endpoints and HTTP/studio/CLI/catalog closure. The SNS topic and preparation-before-ingest route must be wired before admission. Ask Jini for additive async feedback verification; do not build a second ingest engine. Real AWS IAM/quota, certificate rotation, delivered DKIM/unsubscribe and production races remain unverified.
+
+Read surfaces still expose actual regional access/quota/plan and configured verification status. `Max24HourSend=-1` means unlimited daily quota; it does not waive rate limits or authorize spend. Unknown evidence stays unknown. Tests are synthetic and written, not run; no builds, installs, full checks, live calls or migrations.
+
+HTTP 429 is definitive retryable `MAIL_RATE_LIMITED` back-pressure. Retry-After seconds or HTTP dates use the injected clock and are clamped to one day; invalid hints are omitted. The host defers the job; the provider performs no internal retry.

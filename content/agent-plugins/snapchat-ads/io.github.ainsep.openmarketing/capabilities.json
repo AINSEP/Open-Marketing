@@ -5,8 +5,8 @@
     {"capabilityId": "campaign.read.v1", "version": 1, "pluginId": "snapchat-ads", "schemaFingerprint": "31873ff5ec7a23f56f9a5a699b60616981a65cd63a768a016ae7ec78257517e4", "admitted": false, "effects": ["read"]},
     {"capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "snapchat-ads", "schemaFingerprint": "555b3a0d5d9abf48eec7bf00a641327bdd0fd8e033d420eb2623bc25ec9ddcad", "admitted": false, "effects": ["read"]},
     {"capabilityId": "campaign.create-paused.v1", "version": 1, "pluginId": "snapchat-ads", "schemaFingerprint": "f457fe6b598df8a8338e338d0fb2209a819bf621e1e1017f3a352fecc154da70", "admitted": false, "effects": ["write"]},
-    {"capabilityId": "conversion.deliver.v1", "version": 1, "pluginId": "snapchat-ads", "schemaFingerprint": "ac32a6c43039b67787e6466b892a0f0072ff565800a2be3c59b7a269e5c09c89", "admitted": false, "effects": ["conversion"]}
-  ],
+    {"capabilityId": "conversion.deliver.v1", "version": 1, "pluginId": "snapchat-ads", "schemaFingerprint": "9439862b6db16ca02f69b1e0bebeb285afdf859d6c117e113e6816f168207ec8", "admitted": false, "effects": ["conversion"]}
+  , {"capabilityId":"report.metrics.v1","version":1,"pluginId":"snapchat-ads","schemaFingerprint":"d342458edec4628a99cded9101d4012ae6c70924f0cac67857af36407c2b77bc","admitted":false,"effects":["read"]}, {"capabilityId":"campaign.status.v1","version":1,"pluginId":"snapchat-ads","schemaFingerprint":"d342458edec4628a99cded9101d4012ae6c70924f0cac67857af36407c2b77bc","admitted":false,"effects":["read"]}],
   "tools": [
     {"name": "list_organizations", "effects": ["read"], "capabilityId": "campaign.read.v1"},
     {"name": "list_accounts", "effects": ["read"], "capabilityId": "campaign.read.v1"},
@@ -14,7 +14,7 @@
     {"name": "list_creatives", "effects": ["read"], "capabilityId": "campaign.read.v1"},
     {"name": "report", "effects": ["read"], "capabilityId": "report.account-spend.v1"}
   ],
-  "fingerprintBasis": "SHA-256 of src/commands.ts for reads, src/reporting.ts for reports, src/campaign-translation.ts for deployment and src/capi.ts for conversion. Compatibility metadata only, never plugin trust or an allowlist.",
+  "fingerprintBasis": "SHA-256 of src/commands.ts for reads, src/reporting.ts for reports, src/campaign-translation.ts for deployment and src/capi.ts for conversion. Compatibility metadata only, never plugin trust or an allowlist. Standard metrics/status: SHA-256 of concatenated src/metrics-status.ts and src/transport.ts; discovery only, unadmitted.",
   "deployment": {"capabilityId": "campaign.create-paused.v1", "create": "deployCampaignPaused", "read": "readCampaignDeployment", "planSchema": "campaignDeploymentPlanSchema", "admitted": false},
   "backendConversion": {"capabilityId": "conversion.deliver.v1", "effects": ["conversion"], "agentTool": false}
 }

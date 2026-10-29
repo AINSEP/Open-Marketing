@@ -15,7 +15,7 @@ const referencesSchema = z.record(slotSchema, vendorId).refine(value => new Set(
 type References = z.infer<typeof referencesSchema>;
 /** Flat saved references fit the existing campaign journal; missing IDs always remain unknown. */
 export interface NaverDeploymentResult { status: "acknowledged" | "unknown"; references: References; entityIds: string[]; hierarchy: unknown[] }
-interface Input { context: CallContext; operationId: string; plan: unknown; dependencies: NaverDependencies }
+interface Input { context: CallContext; operationId: string; plan: unknown; dependencies: Omit<NaverDependencies, "configuration"> & { configuration: z.infer<typeof configurationSchema> } }
 /** The host's ONE outbox owns checkpoints and duplicate suppression; this run performs no creates. */
 export type NaverDeploymentCheckpoint = (input: { step: string; phase: "dispatch" | "acknowledged"; references: References }) => Promise<Outcome<void>>;
 const configurationSchema = z.strictObject({ scope: scopeSchema, connectionId: idSchema, accountId: customerIdSchema, credentialCustomerId: customerIdSchema, admitted: z.boolean() });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { commandSchema, invokeAppleSearchAds } from "../src/index.js";
-import { account, campaign, context, fixture, now, pagination, reportCommand } from "./fixtures.js";
+import { invokeAppleSearchAds } from "../src/index.js";
+import { account, campaign, context, fixture, now, pagination } from "./fixtures.js";
 import { dispatchSuite } from "./contract/dispatch-suite.js";
 dispatchSuite({ name: "plugin fixture", makeFixture: fixture });
 
@@ -12,13 +12,6 @@ describe("Apple bounded reads", () => {
     expect(f.calls[0].init.method).toBe("POST");
     expect(JSON.parse(String(f.calls[0].init.body))).toEqual({ sorting: [{ field: "id", order: "ASC" }], pagination: { offset: 1, pageSize: 2, fetchTotalCount: true } });
     expect(new Headers(f.calls[0].init.headers).get("X-AP-Context")).toBe("adAccountId=123");
-  });
-  it.each([true, false])("keeps reporting unsupported before credentials (bound account: %s)", async bound => {
-    const f = fixture();
-    if (!bound) { f.dependencies.configuration.accountId = null; f.dependencies.configuration.currency = null; }
-    expect(commandSchema.safeParse(reportCommand).success).toBe(true);
-    expect(await f.invoke({ command: reportCommand })).toMatchObject({ ok: false, error: { code: "not_implemented" } });
-    expect(f.calls).toEqual([]); expect(f.credentialCalls).toEqual([]);
   });
   it.each([401, 403, 429, 500, 302])("never retries HTTP %s or returns its raw error", async status => {
     const f = fixture(); f.state.response = () => new Response("synthetic-secret", { status });
@@ -43,7 +36,7 @@ describe("Apple bounded reads", () => {
     const f = fixture(); f.state.response = () => Response.json({ result: { acls: [{ ...account, private: "synthetic-secret" }] } });
     const result = await f.invoke(); expect(result.ok).toBe(true); expect(JSON.stringify(result)).not.toContain("synthetic-secret");
   });
-  it.each([{}, { kind: "list_campaigns", limit: 101 }, { kind: "list_campaigns", offset: -1 }, { kind: "list_accounts", url: "https://foreign.example" }, { kind: "report", startDate: "2026-02-30", endDate: "2026-10-23" }, { kind: "report", startDate: "2026-10-23", endDate: "2026-10-22" }])("rejects invalid command %# before credential access", async command => {
+  it.each([{}, { kind: "list_campaigns", limit: 101 }, { kind: "list_campaigns", offset: -1 }, { kind: "list_accounts", url: "https://foreign.example" }, { kind: "report", startDate: "2026-10-22", endDate: "2026-10-23" }])("rejects invalid command %# before credential access", async command => {
     const f = fixture(); expect(await f.invoke({ command })).toMatchObject({ ok: false, error: { code: "invalid_input" } }); expect(f.credentialCalls).toEqual([]); expect(f.calls).toEqual([]);
   });
   it("cancels a pending response body read on caller abort", async () => {

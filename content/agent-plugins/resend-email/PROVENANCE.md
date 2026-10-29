@@ -19,3 +19,5 @@ Domain/error mappings and fixture expectations derive from the files below. R1F 
 | skills/resend/SKILL.md | 568312fe2a31c2cb8ec81871903cecac2d6aa6820284a7f441dbcbe43ad68b6c |
 | tovu-mail-adapters.json | 070d992b757c3c438573816ac5c70c292275fdcb5e562920851fab5518a6ce18 |
 | root LICENSE | c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4 |
+
+R2 supersedes R1F's send/feedback deferral for the **programmatic provider**, while assistant send tools and production wiring remain deferred. `src/mail.ts` adapts the payload formatting, relative domain-record qualification and Svix raw-byte/HMAC patterns from the same Tovu `adapters/resend.mjs`, `lib/domains.mjs` and `lib/feedback.mjs` snapshot above. It uses Jini 0.6.12's object ABI, injected clock, fixed origin and strict boundary schemas. Positional send, hidden time reads, retry classification, domain-key fallback and fabricated provider IDs were not carried over. The mail policy/registry/limiter/ingest are imported from the published Jini package, never copied. No sibling source import.

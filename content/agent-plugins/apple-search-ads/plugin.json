@@ -2,11 +2,19 @@
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "apple-search-ads",
   "version": "0.1.0",
-  "description": "Apple organization/campaign reads, daily reports and PAUSED install deployment; disabled fixture implementation.",
+  "description": "Apple organization/campaign reads and PAUSED install deployment; disabled fixture implementation.",
   "license": "Apache-2.0",
-  "extensions": { "io.github.ainsep.openmarketing": { "version": 1, "enabled": false, "admitted": false, "capabilities": [
-    {"capabilityId": "campaign.read.v1", "version": 1, "pluginId": "apple-search-ads", "schemaFingerprint": "f7d989b4773f8d74a1e4c2b9c2fed1b4768aa82c4ff302aa231ae4bb4c4579c3", "admitted": false, "effects": ["read"]},
-    {"capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "apple-search-ads", "schemaFingerprint": "f7d989b4773f8d74a1e4c2b9c2fed1b4768aa82c4ff302aa231ae4bb4c4579c3", "admitted": false, "effects": ["read"]},
-    {"capabilityId": "campaign.create-draft.v1", "version": 1, "pluginId": "apple-search-ads", "schemaFingerprint": "0adec0d0a495235cca61763eb4aab15da55a72da76a44c1ad8adbccf62075341", "admitted": false, "effects": ["write"]}
-  ] } }
+  "extensions": { "io.github.ainsep.openmarketing": {
+      "credentialAssets": {"io.github.ainsep.openmarketing/assets/icon.svg": "64cdba77cba9365f60b93acd1109042465333ec9aceddda4e390d1c1307b4452"},
+      "credentialCards": [
+        {
+          "target": "apple-search-ads", "title": "Apple Ads", "label": "Save access token", "category": "Advertising",
+          "intro": "Create the Apple OAuth client and signed JWT secret outside OM, then obtain an access token with searchadsorg. Access tokens last about one hour; replace them externally. Paste only the access token here. Saving does not verify access or enable the plugin.",
+          "usedFor": ["Read accessible ad accounts and campaigns"],
+          "helpUrl": "https://developer.apple.com/documentation/apple-ads-platform-api/implementing-oauth-for-the-apple-ads-platform-api", "helpLabel": "Authentication and setup",
+          "baseUrl": "https://api.ads.apple.com",
+          "saveKind": "api-key", "saveTarget": "apple-search-ads", "icon": "io.github.ainsep.openmarketing/assets/icon.svg",
+          "secretFields": [{"name": "token", "label": "OAuth access token", "required": true}]
+        }
+      ], "version": 1, "enabled": false, "admitted": false, "capabilities": [] } }
 }

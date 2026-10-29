@@ -1,7 +1,9 @@
+import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
-import { callContextSchema, idSchema } from "@open-marketing/contracts";
-import type { CallContext, CallOptions, ClockPort, EffectEnvelope, ObserverPort, Outcome } from "@open-marketing/contracts";
+import { callContextSchema, definePluginTools, pluginConfigurationSchema, pluginConnectionConfigurationSchema, idSchema } from "@open-marketing/contracts";
+import type { CallContext, CallOptions, ClockPort, EffectEnvelope, ObserverPort, Outcome, PluginCapabilityDependencies, PluginConfiguration, PluginConnectionConfiguration, PluginToolsFactory } from "@open-marketing/contracts";
 import { boundedJson, digest, failure, parse } from "./boundary.js";
+import { bindDispatch, organicGraphVersion } from "./instagram-fetch.js";
 import { vendorIdSchema } from "./commands.js";
 import { decodeInstagramResponse, publishInstagramPost, readInstagramQuota, readInstagramStatus } from "./instagram-publish.js";
 import { localMediaMessage, metaInstagramPostSchema } from "./instagram-post.js";
@@ -42,12 +44,38 @@ export type MetaInstagramResult = MetaInstagramPublishResult
 /** Plain definitions for the server/assistant ONE catalog; importing registers nothing. Input schemas
  * are the tool arguments (publish takes the post directly); the host adds context/connection/operation.
  */
-export const metaInstagramTools = [
-  { name: "instagram_accounts", description: "Discover Instagram professional accounts connected to Facebook Pages.", inputSchema: z.toJSONSchema(accountsInput), effects: ["read"] },
-  { name: "instagram_publish_post", description: "Publish an image, ordered carousel or Reel with a caption; resume a known post container. No scheduling.", inputSchema: z.toJSONSchema(metaInstagramPostSchema), effects: ["write"] },
-  { name: "instagram_post_status", description: "Read a container's processing status and the account's publishing quota.", inputSchema: z.toJSONSchema(statusInput), effects: ["read"] },
-  { name: "instagram_media_insights", description: "Read reach, views and total interactions for Instagram media.", inputSchema: z.toJSONSchema(insightsInput), effects: ["read"] },
-] as const;
+const declarations = [
+  { name: "instagram_accounts", description: "Discover Instagram professional accounts connected to Facebook Pages.", inputSchema: accountsInput, effects: ["read"] },
+  { name: "instagram_publish_post", description: "Publish an image, ordered carousel or Reel with a caption; resume a known post container. No scheduling.", inputSchema: metaInstagramPostSchema, effects: ["write"] },
+  { name: "instagram_post_status", description: "Read a container's processing status and the account's publishing quota.", inputSchema: statusInput, effects: ["read"] },
+  { name: "instagram_media_insights", description: "Read reach, views and total interactions for Instagram media.", inputSchema: insightsInput, effects: ["read"] },
+] satisfies Parameters<typeof definePluginTools>[0]["tools"];
+
+export const { tools, parseTool } = definePluginTools({ tools: declarations.map(tool => tool.name === "instagram_accounts" ? { ...tool, connectionOnly: true } : tool) });
+
+/** Bind tools per invocation before credential access; only connectionOnly tools accept null accounts.
+ * Returns typed validation/binding failures. O(b), bounded by each existing tool schema.
+ * @example createTools(dependencies).invoke(invocation)
+ */
+export const createTools = ((dependencies: PluginCapabilityDependencies<PluginConfiguration | PluginConnectionConfiguration>) => ({
+  async invoke(input, options = undefined) {
+    const parsed = parseTool({ name: input.name, input: input.input });
+    if (!parsed.ok) return parsed;
+    const connectionOnly = tools.find(tool => tool.name === input.name)?.connectionOnly === true;
+    const schema = connectionOnly ? pluginConfigurationSchema.or(pluginConnectionConfigurationSchema) : pluginConfigurationSchema;
+    const configuration = schema.safeParse(dependencies.configuration);
+    const context = callContextSchema.safeParse(input.context);
+    if (!configuration.success || !context.success) return failure({ code: "invalid_input", message: "Invalid Instagram tool binding" });
+    const binding = configuration.data;
+    const accountMatches = input.connection.accountId === binding.accountId || (input.connection.accountId === null && tools.find(tool => tool.name === input.name)?.connectionOnly === true);
+    if (!accountMatches || !isDeepStrictEqual({ connectionId: input.connection.connectionId, scope: context.data.scope }, { connectionId: binding.connectionId, scope: binding.scope })) return failure({ code: "forbidden", message: "Instagram tool binding mismatch" });
+    const dispatch = bindDispatch({ dependencies, accountId: binding.accountId });
+    const command = input.name === "instagram_publish_post" ? { kind: input.name, post: parsed.value } : { ...parsed.value as object, kind: input.name };
+    const request = parse({ schema: requestSchema, input: { context: context.data, connectionId: binding.connectionId, operationId: input.operationId, command } });
+    if (!request.ok) return request;
+    return invokeMetaInstagram({ request: request.value, dispatch, configuration: { apiVersion: organicGraphVersion, timeoutMs: 15000 }, clock: dependencies.clock, wait: dependencies.wait, observer: dependencies.observer }, options);
+  },
+})) satisfies PluginToolsFactory;
 
 interface Dependencies { request: MetaInstagramRequest; dispatch: MetaInstagramDispatch; clock: ClockPort; wait: MetaInstagramWait; observer: ObserverPort; configuration: MetaInstagramConfiguration }
 

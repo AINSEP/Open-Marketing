@@ -1,4 +1,4 @@
-import type { CallContext, CallOptions, EffectEnvelope, HaltStopPermit, Outcome, ServiceContext } from "@open-marketing/contracts";
+import type { CallContext, CallOptions, EffectEnvelope, Outcome, ServiceContext } from "@open-marketing/contracts";
 import type { TikTokDispatchCommand } from "./commands.js";
 import type { TikTokEventsPayload } from "./events-payload.js";
 
@@ -41,13 +41,11 @@ export interface TikTokCall {
   readonly argumentsDigest: string;
   readonly pluginDigest: string;
   readonly schemaFingerprint: string;
-  readonly haltStopPermit?: HaltStopPermit;
 }
 
 /** Trusted host re-encodes requests, checks digests/effects/current binding, and returns
  * a validated code/data envelope. Duplicate write claims must never send twice.
- * For halt_stop verify the current permit/epoch and existing campaign ownership under
- * the halt fence; normal invoke cannot acquire halt authority. Never retry writes.
+ * Never retry writes.
  */
 export interface TikTokGatewayPort {
   invoke(required: { context: CallContext; call: TikTokCall; effect: EffectEnvelope }, optional?: CallOptions): Promise<Outcome<unknown>>;

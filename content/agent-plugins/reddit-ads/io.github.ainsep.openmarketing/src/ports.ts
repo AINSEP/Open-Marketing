@@ -19,13 +19,13 @@ export interface RedditResult { readonly operationId: string; readonly status: "
 /** Read-only invocation: spend metadata must be null. */
 export interface RedditInvocation { readonly context: CallContext; readonly operationId: string; readonly command: RedditCommand; readonly moneyExposure: null; readonly requiredLimit: null }
 /** Server composition and fixtures share this inert boundary; no services start at import/factory. */
-export interface RedditAdsAdapter { invoke(required: RedditInvocation, optional?: CallOptions): Promise<Outcome<RedditResult>> }
-/** Host supplies its guarded fetch and current admission check; no second policy or gateway.
+export interface RedditAdsAdapter {
+  invoke(required: RedditInvocation, optional?: CallOptions): Promise<Outcome<RedditResult>> }
+/** Host supplies fetch guarded by current authority; no second policy or gateway.
  * Fetch uses the native ABI; observer and clock use canonical contracts.
  */
 export interface RedditDependencies {
   readonly configuration: RedditConfiguration;
-  readonly admitted: (required: { context: CallContext }) => boolean;
   readonly credentials: RedditCredentialPort;
   readonly fetch: typeof fetch;
   /** Host creates a fresh signal that aborts after timeoutMs, including during response streaming. */

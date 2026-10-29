@@ -132,11 +132,14 @@ async function readAll(required: { input: Checked; references: MicrosoftDeployme
 async function readStep(required: { input: Checked; references: MicrosoftDeploymentReferences; step: Step }, optional?: CallOptions): Promise<Outcome<unknown>> {
   const shape = stepShape({ plan: required.input.plan, ...required });
   if (shape.keys.some(key => !required.references[key])) return failure({ code: "protocol_mismatch" });
-  const chunks = required.step === "locations" ? [shape.keys.slice(0, -1), ["locationIntent"]] : [shape.keys];
+  const campaign = { CampaignId: required.references.campaign };
+  const queries: Partial<Record<Step, { keys: string[]; parent: Record<string, unknown>; extra?: Record<string, unknown> }[]>> = {
+    locations: [{ keys: shape.keys.slice(0, -1), parent: { ...campaign, CriterionType: "Location" } }, { keys: ["locationIntent"], parent: { ...campaign, CriterionType: "LocationIntent" } }],
+    ad: [{ keys: shape.keys, parent: shape.parent, extra: { AdTypes: ["ResponsiveSearch"] } }],
+  };
   const rows: unknown[] = [];
-  for (const keys of chunks) {
-    const parent = required.step === "locations" ? { CampaignId: required.references.campaign, CriterionType: keys[0] === "locationIntent" ? "LocationIntent" : "Location" } : shape.parent;
-    const body = { ...parent, [shape.ids]: keys.map(key => required.references[key]), ...(required.step === "ad" ? { AdTypes: ["ResponsiveSearch"] } : {}) };
+  for (const { keys, parent, extra } of queries[required.step] ?? [{ keys: shape.keys, parent: shape.parent }]) {
+    const body = { ...parent, [shape.ids]: keys.map(key => required.references[key]), ...extra };
     const response = await send({ input: required.input, path: shape.path + "/QueryByIds", body }, optional);
     if (!response.ok) return response;
     const decoded = decodeRows({ shape, keys, references: required.references, body: response.value, ownership: { AccountId: required.input.configuration.accountId, CampaignId: required.references.campaign, ...shape.parent, ...parent } });

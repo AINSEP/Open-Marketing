@@ -18,13 +18,14 @@ export function fixture() {
   const state = { admitted: true };
   let stored: VkCredential = { accessToken: "SYNTHETIC_SECRET", expiresAt: retrievedAt + 86400000 };
   const credentials = {
-    access: vi.fn(async () => ({ ok: true as const, value: stored })),
+    access: vi.fn(async () => state.admitted ? ({ ok: true as const, value: stored }) : ({ ok: false as const, error: { code: "forbidden" as const, message: "Host denied", retryable: false } })),
     save: vi.fn(async (input: { token: VkToken }) => {
       if ("clientId" in stored) stored = { ...stored, token: input.token };
       return { ok: true as const, value: undefined };
     }),
   };
   const fetch = vi.fn<typeof globalThis.fetch>(async (url, options) => {
+    if (!state.admitted) throw new Error("Host denied");
     if (options?.method !== "GET") throw new Error("Unexpected fixture method");
     const token = "accessToken" in stored ? stored : stored.token;
     if (new Headers(options.headers).get("Authorization") !== "Bearer " + token?.accessToken) return new Response(null, { status: 401 });
@@ -38,7 +39,7 @@ export function fixture() {
   const deadlineController = new AbortController();
   const deadline = vi.fn(() => deadlineController.signal);
   const configuration = { scope: structuredClone(context.scope), connectionId: "fixture-connection", accountId: "123" as string | null };
-  const dependencies: VkDependencies = { get admitted() { return state.admitted; }, configuration, credentials, fetch, clock, observer, deadline };
+  const dependencies: VkDependencies = { configuration, credentials, fetch, clock, observer, deadline };
   return { adapter: createVkAdsAdapter(dependencies), dependencies, state, configuration, credentials, fetch, clock, observer, deadline, deadlineController,
     setCredential(input: VkCredential) { stored = structuredClone(input); } };
 }

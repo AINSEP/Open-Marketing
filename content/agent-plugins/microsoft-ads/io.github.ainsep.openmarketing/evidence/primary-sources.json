@@ -1,5 +1,5 @@
 {
-  "checkedAt": "2026-10-24", "scope": "R1 reads/auth and R2 paused deployment/narrow enhanced offline conversions; official documentation and synthetic fixtures only",
+  "checkedAt": "2026-10-25", "scope": "R1 reads/auth and R2 paused deployment/narrow enhanced offline conversions; official documentation and synthetic fixtures only",
   "facts": [
     {"fact": "REST v13; SOAP retires January 31, 2027; no general v13 sunset guarantee verified", "url": "https://learn.microsoft.com/en-us/advertising/guides/migrate-to-rest?view=bingads-13", "quote": "full deprecation on January 31, 2027"},
     {"fact": "OAuth authorization-code/refresh endpoints, msads.manage/offline_access, response-based expiry and web client secret; PKCE supported", "url": "https://learn.microsoft.com/en-us/advertising/guides/authentication-oauth-get-tokens?view=bingads-13", "quote": "Required if PKCE was used"},
@@ -36,5 +36,60 @@
   ],
   "blocked": ["Learn reporting-service-report-file-schema was inaccessible; official guides/reports supplied schema evidence", "Raw guides/reporting-service-report-file-schema.md and msads/v13/reporting/report_file_reader.py returned 404; guides/reports and bingads SDK path readable", "R2: campaign-management-service/timezonetype page did not supply evidence; guides/time-zones supplies the documented table", "R2: shell raw-GitHub download failed DNS; web reader successfully loaded the official SDK/docs instead"],
   "omBounds": "Local bounds, not vendor quotas: 60s total; 15s/RPC; 1 submit/6 polls; 2MiB ZIP/8MiB expanded/1 file/10000 rows; no retries; R2 <=64KiB plan/config, 20 countries, 100 exact keywords, 5 mutations plus <=12 reads, <=15s/1MiB each; no mutation retries",
-  "unverified": ["Registered OM OAuth callback/client and actual tenant consent", "Live account access and production permissions", "Create idempotency and general v13 sunset guarantee; uncertain writes never replay", "Standalone dependency importer intentionally deferred to integrator; no dependency changes installed", "No browser evidence-chrome.md was present", "Dispatch says GET-only reconciliation but official REST SDK documents POST QueryByIds: deployment readback uses documented reads; public reconciliation remains unsupported/zero network pending clarification", "Production account/creative/country resolution, country lifecycle evidence and measurement-goal eligibility require host integration; no live verification", "Only static ASCII ad copy, fixed supported language/timezone subset, one Search hierarchy; other metadata returns typed unsupported"]
+  "unverified": ["Registered OM OAuth callback/client and actual tenant consent", "Live account access and production permissions", "Create idempotency and general v13 sunset guarantee; uncertain writes never replay", "Standalone dependency importer intentionally deferred to integrator; no dependency changes installed", "No browser evidence-chrome.md was present", "Dispatch says GET-only reconciliation but official REST SDK documents POST QueryByIds: deployment readback uses documented reads; public reconciliation remains unsupported/zero network pending clarification", "Production account/creative/country resolution, country lifecycle evidence and measurement-goal eligibility require host integration; no live verification", "Only static ASCII ad copy, fixed supported language/timezone subset, one Search hierarchy; other metadata returns typed unsupported"],
+  "canonicalCapabilities": {
+    "scope": "B1 Microsoft/X only; official documentation and synthetic fixtures; no live account validation",
+    "sources": [
+      {
+        "url": "https://learn.microsoft.com/en-us/advertising/guides/reports?view=bingads-13",
+        "fact": "Downloaded daily buckets use UTC regardless of account timezone. ReturnOnlyCompleteData=true guarantees processed requested coverage, so dataThrough is the requested exclusive UTC end, including a valid empty report. Finality remains provisional: conversions and billing can be restated."
+      },
+      {
+        "url": "https://learn.microsoft.com/en-us/advertising/reporting-service/accountperformancereportcolumn?view=bingads-13",
+        "fact": "v13 account daily report includes its hierarchy IDs, TimePeriod, CurrencyCode, Spend, Impressions, Clicks, ConversionsQualified and Revenue. Exact currency units and fractional conversions become integer millionths; no two-decimal currency assumption."
+      },
+      {
+        "url": "https://learn.microsoft.com/en-us/advertising/reporting-service/campaignperformancereportcolumn?view=bingads-13",
+        "fact": "v13 campaign daily report includes its hierarchy IDs, TimePeriod, CurrencyCode, Spend, Impressions, Clicks, ConversionsQualified and Revenue. Exact currency units and fractional conversions become integer millionths; no two-decimal currency assumption."
+      },
+      {
+        "url": "https://learn.microsoft.com/en-us/advertising/reporting-service/adgroupperformancereportcolumn?view=bingads-13",
+        "fact": "v13 adgroup daily report includes its hierarchy IDs, TimePeriod, CurrencyCode, Spend, Impressions, Clicks, ConversionsQualified and Revenue. Exact currency units and fractional conversions become integer millionths; no two-decimal currency assumption."
+      },
+      {
+        "url": "https://learn.microsoft.com/en-us/advertising/reporting-service/adperformancereportcolumn?view=bingads-13",
+        "fact": "v13 ad daily report includes its hierarchy IDs, TimePeriod, CurrencyCode, Spend, Impressions, Clicks, ConversionsQualified and Revenue. Exact currency units and fractional conversions become integer millionths; no two-decimal currency assumption."
+      },
+      {
+        "url": "https://learn.microsoft.com/en-us/advertising/campaign-management-service/geteditorialreasonsbyids?view=bingads-13",
+        "fact": "Scoped ad/keyword EntityIdToParentIdAssociations use separate entity types. EditorialReasons/QueryByIds returns positional nullable collections; correlate AdGroupId and AdOrKeywordId, preserve ReasonCode and Location."
+      },
+      {
+        "url": "https://learn.microsoft.com/en-us/advertising/campaign-management-service/adeditorialstatus?view=bingads-13",
+        "fact": "Active means reviewed; Inactive means pending; Disapproved means failed; ActiveLimited is partly reviewed, not a disapproval. B1 returns pending for ActiveLimited, never invents a rejection."
+      },
+      {
+        "url": "https://learn.microsoft.com/en-us/advertising/campaign-management-service/adtype?view=bingads-13",
+        "fact": "The documented AdType enumeration covers Text, Image, Product, AppInstall, ExpandedText, DynamicSearch, ResponsiveAd and ResponsiveSearch. Search status uses scoped ad groups, these ad types and keywords; other campaign types return not_implemented."
+      },
+      {
+        "url": "https://learn.microsoft.com/en-us/advertising/campaign-management-service/getcampaignsbyids?view=bingads-13",
+        "fact": "CampaignType defaults to Search. PartialErrors.Index names the requested ID position; failed or unsupported IDs remain unknown while successful Search observations are preserved."
+      }
+    ],
+    "bounds": {
+      "totalMilliseconds": 60000,
+      "requests": 1000,
+      "outputRows": 5000,
+      "statusIds": 100,
+      "automaticRetries": 0,
+      "adGroupsPerCampaign": 1000
+    },
+    "deferred": [
+      "B2 LINE/Naver implementation",
+      "server manifest-invoker binding and account metadata; no production admission claimed",
+      "Canonical createCapabilities awaits shared ABI support for guarded download/archiveReader and a narrowly bound developer-token lookup; no permissive gateway shim was added."
+    ],
+    "checkedAt": "2026-10-26"
+  }
 }

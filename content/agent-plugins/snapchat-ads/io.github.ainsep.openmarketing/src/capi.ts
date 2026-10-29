@@ -33,9 +33,9 @@ export interface SnapchatCapiBackend {
 type Prepared = { request: SnapchatCapiRequest; configuration: SnapchatCapiConfiguration; payload: SnapchatCapiPayload; body: string };
 
 /** Inert factory for one durable server job/event; host owns current grant/consent/outbox/audit.
- * @param required - Explicit offline mapping, admission, authority, Pixel credential broker and I/O.
+ * @param required - Explicit offline mapping, authority, Pixel credential broker and I/O.
  * @returns Typed preflight denials, delivered or unknown. Unknown never authorizes resending.
- * @example createSnapchatCapiBackend({ configuration, admitted, authority, credentials, fetch, clock, observer })
+ * @example createSnapchatCapiBackend({ configuration, authority, credentials, fetch, clock, observer })
  * @complexity O(b) time/space, <=64KiB input and <=16 granted definitions; one <=15s POST, zero retries.
  */
 export function createSnapchatCapiBackend(required: SnapchatCapiDependencies): SnapchatCapiBackend {
@@ -56,7 +56,6 @@ export function createSnapchatCapiBackend(required: SnapchatCapiDependencies): S
 }
 /** Bound/copy strict input and config before awaiting; no raw identifiers or unmapped events. O(b). */
 function prepare(required: { dependencies: SnapchatCapiDependencies; input: SnapchatCapiRequest }, optional: CallOptions): Outcome<Prepared> {
-  if (!required.dependencies.admitted) return failure({ code: "forbidden" });
   if (optional.signal?.aborted) return failure({ code: "cancelled" });
   const bounded = boundInput({ input: { request: required.input, configuration: required.dependencies.configuration } });
   if (!bounded.ok) return bounded;

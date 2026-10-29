@@ -3,6 +3,12 @@ import { createMicrosoftAdsAdapter } from "../src/index.js";
 import { dispatchSuite } from "./contract/dispatch-suite.js";
 import { fixture, invocation, campaignPage } from "./fixtures.js";
 dispatchSuite({ name: "memory", makeFixture: fixture });
+it("uses host admission even when the legacy configuration flag is false", async () => {
+  const f = fixture();
+  const dependencies = { ...f.dependencies, configuration: { ...f.dependencies.configuration, admitted: false } };
+  expect(await createMicrosoftAdsAdapter(dependencies).invoke(invocation())).toMatchObject({ ok: true });
+  expect(f.calls).toHaveLength(1);
+});
 it("supports account-less authenticated discovery with explicit paging", async () => {
   const f = fixture(); const dependencies = { ...f.dependencies, configuration: { ...f.dependencies.configuration, accountId: null, customerId: null, currency: null } };
   f.state.responses = [{ User: { Id: 345, Email: "private" } }, { Accounts: [{ Id: 123, ParentCustomerId: 234, Name: "Fixture", CurrencyCode: "USD", AccountLifeCycleStatus: "Active" }] }];
@@ -10,8 +16,8 @@ it("supports account-less authenticated discovery with explicit paging", async (
   expect(result).toMatchObject({ ok: true, value: { data: { nextPageIndex: 3, items: [{ Id: "123" }] } } });
   expect(JSON.parse(String(f.calls[1].init.body))).toMatchObject({ Predicates: [{ Field: "UserId", Value: "345" }], PageInfo: { Index: 2, Size: 1 } });
 });
-it("denies static non-admission and cancellation before all effects", async () => {
-  const f = fixture(); const dependencies = { ...f.dependencies, configuration: { ...f.dependencies.configuration, admitted: false } };
+it("delegates admission to the host and rejects pre-cancellation", async () => {
+  const f = fixture(); f.state.admitted = false; const dependencies = f.dependencies;
   expect(await createMicrosoftAdsAdapter(dependencies).invoke(invocation())).toMatchObject({ ok: false, error: { code: "forbidden" } });
   expect(await f.adapter.invoke(invocation(), { signal: AbortSignal.abort() })).toMatchObject({ ok: false, error: { code: "cancelled" } });
   expect(f.credentials).toEqual([]); expect(f.calls).toEqual([]);

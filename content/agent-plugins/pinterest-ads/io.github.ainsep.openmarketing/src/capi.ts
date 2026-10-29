@@ -45,9 +45,9 @@ export interface PinterestCapiBackend {
 interface Prepared { request: PinterestCapiRequest; configuration: PinterestCapiConfiguration; payload: PinterestCapiPayload }
 
 /** One documented web signup POST under current measurement authority; reconciliation performs no I/O.
- * @param required - Explicit mappings, admission, authority, broker and injected fetch/deadline/clock/observer.
+ * @param required - Explicit mappings, authority, broker and injected fetch/deadline/clock/observer.
  * @returns Typed preflight denial or delivered/unknown; uncertainty never permits resending.
- * @example createPinterestCapiBackend({ configuration, admitted, authority, credentials, fetch, deadline, clock, observer })
+ * @example createPinterestCapiBackend({ configuration, authority, credentials, fetch, deadline, clock, observer })
  * @complexity O(b) time/space, <=64KiB input, <=100 mappings, one <=15s/1MiB POST; no retries.
  */
 export function createPinterestCapiBackend(required: PinterestCapiDependencies): PinterestCapiBackend {
@@ -66,7 +66,6 @@ export function createPinterestCapiBackend(required: PinterestCapiDependencies):
 }
 /** Snapshot all reviewed bytes before awaits. Unsupported mappings fail with zero credential/network I/O. O(b). */
 function prepare(required: { dependencies: PinterestCapiDependencies; input: PinterestCapiRequest }, optional?: CallOptions): Outcome<Prepared> {
-  if (!required.dependencies.admitted) return failure({ code: "forbidden" });
   if (optional?.signal?.aborted) return failure({ code: "cancelled" });
   const bounded = boundInput({ input: { request: required.input, configuration: required.dependencies.configuration } });
   if (!bounded.ok) return bounded;

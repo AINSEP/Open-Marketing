@@ -1,18 +1,55 @@
-import type { ObserverPort, Outcome } from "@open-marketing/contracts";
+import { z } from "zod";
+import type { CallOptions, ObserverPort, Outcome, PluginCapabilityDependencies } from "@open-marketing/contracts";
+import { parseBoundary, parseExactIntegerJson, pluginConfigurationSchema } from "@open-marketing/contracts";
 import { failure, parse, success, id, numericId, object, text } from "./schema.ts";
-import { bindingSchema } from "./schemas.ts";
+import { transportBindingSchema } from "./schemas.ts";
 import type { AccountBinding, CredentialPort, GoogleTransportPort, HttpPort, HttpRequest, VendorRequest } from "./types.ts";
 
 const dataManagerScope = "https://www.googleapis.com/auth/datamanager";
+const managerSchema = z.string().regex(/^[1-9][0-9]{9}$/).optional();
+const credentialSchema = z.object({
+  accessToken: z.string().min(1).max(4096).regex(/^[^\r\n]+$/),
+  loginCustomerId: managerSchema, developerToken: z.string().regex(/^[A-Za-z0-9]{22}$/).optional(),
+});
+/** Fresh canonical binding for reads, halt and deployment; configuration fails before effects.
+ * Tokens are resolved and validated at each request, never retained between calls. O(1).
+ * @example createCallTransport({ dependencies }, { signal })
+ */
+export function createCallTransport(required: { dependencies: PluginCapabilityDependencies }, optional?: CallOptions) {
+  const { dependencies } = required;
+  const configuration = parseBoundary({ schema: pluginConfigurationSchema, input: dependencies.configuration });
+  if (!configuration.ok) return configuration;
+  const manager = managerSchema.safeParse(configuration.value.settings.loginCustomerId);
+  if (!manager.success) return failure<never>({ code: "invalid_input", message: "Invalid Google manager setting" });
+  const { scope, connectionId, accountId } = configuration.value;
+  const binding = { scope, connectionId, customerId: accountId };
+  const signal = readSignal({ signal: optional?.signal });
+  const transport = createGoogleRestTransport({ binding,
+    credentials: { access: async () => {
+      const credential = await dependencies.credentials.access({ connectionId, accountId }, { ...optional, signal });
+      if (!credential.ok) return credential;
+      const developerToken = credential.value.secrets?.developerToken;
+      const loginCustomerId = manager.data;
+      return parseBoundary({ schema: credentialSchema, input: { accessToken: credential.value.accessToken,
+        ...(developerToken === undefined ? {} : { developerToken }), ...(loginCustomerId === undefined ? {} : { loginCustomerId }) } });
+    } },
+    http: createHttpAdapter({ fetch: dependencies.fetch, observer: dependencies.observer, signal }),
+  });
+  return success({ value: { binding, transport, configuration: configuration.value } });
+}
+/** Caller cancellation can only shorten the shared 30s call deadline. O(1), no I/O. */
+export function readSignal({ signal }: { signal?: AbortSignal }): AbortSignal {
+  return AbortSignal.any([AbortSignal.timeout(30000), ...(signal ? [signal] : [])]);
+}
 /** OAuth credentials remain in the server/plugin path. Fixed Search and Data Manager
- * endpoints, per-advertiser scope/project lookup, no retries or legacy upload.
+ * endpoints, per-advertiser credential lookup, no retries or legacy upload.
  * @example createGoogleRestTransport({ binding, credentials, http }) */
-export function createGoogleRestTransport(required: { binding: AccountBinding; credentials: CredentialPort; http: HttpPort }): GoogleTransportPort {
+export function createGoogleRestTransport(required: { binding: Pick<AccountBinding, "scope" | "connectionId" | "customerId">; credentials: CredentialPort; http: HttpPort }): GoogleTransportPort {
   return { request: input => restRequest({ ...required, input }) };
 }
 /** Validate scoped credentials before choosing one fixed provider endpoint. */
-async function restRequest(required: { binding: AccountBinding; credentials: CredentialPort; http: HttpPort; input: VendorRequest }): Promise<Outcome<unknown>> {
-  const binding = parse<AccountBinding>({ schema: bindingSchema, input: required.binding });
+async function restRequest(required: { binding: Pick<AccountBinding, "scope" | "connectionId" | "customerId">; credentials: CredentialPort; http: HttpPort; input: VendorRequest }): Promise<Outcome<unknown>> {
+  const binding = parse<Pick<AccountBinding, "scope" | "connectionId" | "customerId">>({ schema: transportBindingSchema, input: { scope: required.binding.scope, connectionId: required.binding.connectionId, customerId: required.binding.customerId } });
   if (!binding.ok) return binding;
   const access = checkDataManagerAccess(required);
   if (!access.ok) return access;
@@ -36,16 +73,15 @@ function credentialHeaders(required: { credential: { accessToken: string; loginC
   if (credential.developerToken) headers["developer-token"] = credential.developerToken;
   return headers;
 }
-/** Search-only hosts remain valid; ingestion requires a project and GET diagnostics.
+/** Search-only hosts remain valid; ingestion requires GET diagnostics; Google enforces the OAuth scope.
  * Returns whether this request needs Data Manager OAuth. O(1) time/space. */
 function checkDataManagerAccess(required: { input: VendorRequest; http: HttpPort }): Outcome<boolean> {
   const manager = required.input.method === "ingest" || required.input.method === "request_status";
   if (!manager) return success({ value: false });
   if (!required.http.get) return failure({ code: "unavailable", message: "Data Manager requires bounded GET diagnostics" });
-  if (!parse({ schema: id, input: required.input.cloudProjectId }).ok) return failure({ code: "invalid_input", message: "Data Manager OAuth project is required" });
   return success({ value: true });
 }
-/** Tainted broker output must attest to the requested scope and OAuth project. */
+/** Validate tainted broker output shape; scope/project attestation is not required (canonical broker returns token/expiry only). */
 function checkCredential(required: { credential: unknown; input: VendorRequest; manager: boolean }): Outcome<void> {
   const parsed = parse<{ accessToken: string; loginCustomerId?: string; scopes?: string[]; cloudProjectId?: string }>({ schema: object({ properties: {
     accessToken: { ...text, maxLength: 4096, pattern: "^[^\\r\\n]+$" }, loginCustomerId: { ...numericId, minLength: 10, maxLength: 10 },
@@ -53,14 +89,12 @@ function checkCredential(required: { credential: unknown; input: VendorRequest; 
     scopes: { type: "array", items: { ...text, maxLength: 256 }, minItems: 1, maxItems: 32 }, cloudProjectId: id,
   }, optional: ["loginCustomerId", "developerToken", "scopes", "cloudProjectId"] }), input: required.credential });
   if (!parsed.ok) return parsed;
-  if (!required.manager) return success({ value: undefined });
-  if (parsed.value.cloudProjectId !== required.input.cloudProjectId || !parsed.value.scopes?.includes(dataManagerScope)) return failure({ code: "forbidden", message: "Data Manager credential scope/project mismatch" });
   return success({ value: undefined });
 }
 /** Exactly one bounded POST or diagnostic GET. URL is never selected by tools.
  * POST googleAds:search is read-only by API contract, including reconciliation;
  * mutation uses the separate googleAds:mutate endpoint. */
-async function sendRequest(required: { binding: AccountBinding; http: HttpPort; input: VendorRequest; headers: Record<string, string> }): Promise<Outcome<{ status: number; body: unknown; requestId?: string }>> {
+async function sendRequest(required: { binding: Pick<AccountBinding, "scope" | "connectionId" | "customerId">; http: HttpPort; input: VendorRequest; headers: Record<string, string> }): Promise<Outcome<{ status: number; body: unknown; requestId?: string }>> {
   const bounds = { headers: required.headers, timeoutMs: 15000, maxBytes: 1048576, context: required.input.context, operationId: required.input.operationId };
   if (required.input.method === "request_status") {
     const receipt = parse<{ requestId: string }>({ schema: object({ properties: { requestId: id } }), input: required.input.body });
@@ -71,7 +105,7 @@ async function sendRequest(required: { binding: AccountBinding; http: HttpPort; 
   const url = endpoint({ binding: required.binding, method: required.input.method });
   return required.http.post({ ...bounds, url, body: JSON.stringify(required.input.body) });
 }
-function endpoint(required: { binding: AccountBinding; method: Exclude<VendorRequest["method"], "request_status"> }): string {
+function endpoint(required: { binding: Pick<AccountBinding, "scope" | "connectionId" | "customerId">; method: Exclude<VendorRequest["method"], "request_status"> }): string {
   switch (required.method) {
     case "search": return `https://googleads.googleapis.com/v26/customers/${required.binding.customerId}/googleAds:search`;
     case "mutate": return `https://googleads.googleapis.com/v26/customers/${required.binding.customerId}/googleAds:mutate`;
@@ -127,7 +161,7 @@ async function readBody(required: { response: Response; maxBytes: number }): Pro
     if (size > required.maxBytes) { await reader.cancel(); return failure({ code: "limit_exceeded", message: "Google response exceeds payload bound" }); }
     chunks.push(chunk.value);
   }
-  return success({ value: JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown });
+  return parseExactIntegerJson({ text: Buffer.concat(chunks).toString("utf8") }, { numericTextKeys: ["conversions", "conversionsValue"] });
 }
 function requestId(required: { value: string | null }): { requestId?: string } {
   const parsed = parse<string>({ schema: id, input: required.value });

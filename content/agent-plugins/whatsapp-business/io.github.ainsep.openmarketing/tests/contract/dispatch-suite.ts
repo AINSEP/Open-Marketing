@@ -11,13 +11,13 @@ export function dispatchSuite(required: { name: string; makeFixture: () => Retur
       expect(f.calls).toHaveLength(1);
       expect(f.calls[0].url).toBe("https://graph.facebook.com/v26.0/123?fields=id,name,business_verification_status,account_review_status");
       expect(f.calls[0].init).toMatchObject({ method: "GET", redirect: "error", headers: { Authorization: "Bearer synthetic-secret" } });
-      expect(f.credentials).toMatchObject([{ configuration: { connectionId: "meta-connection", wabaId: "123", phoneNumberId: "456" }, context: { scope: { ownerId: "owner", workspaceId: "workspace" } } }]);
+      expect(f.credentials).toMatchObject([{ connectionId: "meta-connection", accountId: "123" }]);
       expect(f.observations).toEqual([{ operation: "whatsapp-business.get_account_status", outcome: "succeeded", correlationId: "correlation", traceId: "trace", runId: "run" }]);
     });
-    it("host denial prevents credential lookup, refresh and network", async () => {
-      const f = required.makeFixture(); f.state.admitted = false;
+    it("broker denial prevents network", async () => {
+      const f = required.makeFixture(); f.state.credentialsAllowed = false;
       expect(await f.adapter.invoke(invocation())).toMatchObject({ ok: false, error: { code: "forbidden" } });
-      expect(f.credentials).toHaveLength(0); expect(f.calls).toHaveLength(0);
+      expect(f.credentials).toHaveLength(1); expect(f.calls).toHaveLength(0);
     });
     it("rejects foreign owner/workspace and cancellation before I/O", async () => {
       const f = required.makeFixture();

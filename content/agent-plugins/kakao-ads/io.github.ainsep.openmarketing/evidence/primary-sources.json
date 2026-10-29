@@ -1,23 +1,73 @@
 {
   "checkedAt": "2026-10-24",
   "sources": [
-    {"url": "https://developers.kakao.com/docs/en/kakaomoment/ad-account", "quote": "Page number(Default: 0)", "fact": "GET https://apis.moment.kakao.com/openapi/v4/adAccounts/pages uses a Business bearer token; page/size default 0/10. Response: content(id,name,config,memberType), number,size,totalElements,totalPages,page. Requires usage permission and Biz app."},
-    {"url": "https://developers.kakao.com/docs/en/kakaomoment/campaign", "quote": "Business token", "fact": "GET /openapi/v4/campaigns uses bearer authorization and adAccountId header; optional config. content projects id,name,config,systemConfig. The list does not guarantee an account field. Create has no documented initial config input; example returns ON. No safe creation assumption."},
-    {"url": "https://developers.kakao.com/docs/en/kakaomoment/report", "quote": "Today's date is excluded", "fact": "GET /openapi/v4/adAccounts/report: explicit start/end yyyyMMdd, inclusive <=31 days, timeUnit=DAY, level=AD_ACCOUNT, metricsGroup=BASIC, adAccountId query plus single-account header. Response code=200, data(start,end,dimensions,metrics); no-data may have empty dimensions/metrics. BASIC is not Message reporting."},
-    {"url": "https://developers.kakao.com/docs/en/kakaomoment/report", "quote": "You cannot make a call within 5 seconds", "fact": "Account reports: one call per five seconds, scoped by ad account for single-account requests and app for multiple-account requests. No plugin polling, quota state or retries."},
-    {"url": "https://developers.kakao.com/docs/en/kakaomoment/type-info", "quote": "Basic metrics", "fact": "BASIC metrics: imp, click, ctr, cost, video_play_3s, vtr. Config: ON/OFF/DEL; user configuration is distinct from system/delivery state. Output consumes only validated projections. Data type table states yyyyMMdd but report samples use yyyy-MM-dd; decoder accepts both and preserves the provider strings."},
-    {"url": "https://developers.kakao.com/docs/en/business-auth/common", "quote": "Automatically expires after long periods of inactivity.", "fact": "Business tokens differ from ordinary Kakao Login tokens. moment_management authorizes management APIs. R1 accepts pasted Business tokens only; no inferred lifetime or refresh."},
-    {"url": "https://devtalk.kakao.com/t/default-timezone/151914", "quote": "The time zone is KST (Korea Standard Time).", "fact": "Kakao support woody.ho confirmed report timezone on 2026-10-08. Guard excludes current/future KST dates using injected time; output preserves provider dates without UTC conversion."},
-    {"url": "https://developers.kakao.com/docs/en/kakaomoment/error-code", "quote": "exceeded the allowed quota limit", "fact": "Quota errors include HTTP 429 and HTTP 400 code -10. Permission errors use 403. Provider payloads are discarded after bounded parsing; failures remain redacted and non-retryable."}
+    {
+      "url": "https://developers.kakao.com/docs/en/kakaomoment/ad-account",
+      "quote": "Page number(Default: 0)",
+      "fact": "GET https://apis.moment.kakao.com/openapi/v4/adAccounts/pages uses a Business bearer token; page/size default 0/10. Response: content(id,name,config,memberType), number,size,totalElements,totalPages,page. Requires usage permission and Biz app."
+    },
+    {
+      "url": "https://developers.kakao.com/docs/en/kakaomoment/campaign",
+      "quote": "Business token",
+      "fact": "GET /openapi/v4/campaigns uses bearer authorization and adAccountId header; optional config. content projects id,name,config,systemConfig. The list does not guarantee an account field. Create has no documented initial config input; example returns ON. No safe creation assumption."
+    },
+    {
+      "url": "https://developers.kakao.com/docs/en/kakaomoment/report",
+      "quote": "Today's date is excluded",
+      "fact": "GET /openapi/v4/adAccounts/report: explicit start/end yyyyMMdd, inclusive <=31 days, timeUnit=DAY, level=AD_ACCOUNT, metricsGroup=BASIC, adAccountId query plus single-account header. Response code=200, data(start,end,dimensions,metrics); no-data may have empty dimensions/metrics. BASIC is not Message reporting."
+    },
+    {
+      "url": "https://developers.kakao.com/docs/en/kakaomoment/report",
+      "quote": "You cannot make a call within 5 seconds",
+      "fact": "Account reports: one call per five seconds, scoped by ad account for single-account requests and app for multiple-account requests. No plugin polling, quota state or retries."
+    },
+    {
+      "url": "https://developers.kakao.com/docs/en/kakaomoment/type-info",
+      "quote": "Basic metrics",
+      "fact": "BASIC metrics: imp, click, ctr, cost, video_play_3s, vtr. Config: ON/OFF/DEL; user configuration is distinct from system/delivery state. Output consumes only validated projections. Data type table states yyyyMMdd but report samples use yyyy-MM-dd; decoder accepts both and preserves the provider strings."
+    },
+    {
+      "url": "https://developers.kakao.com/docs/en/business-auth/common",
+      "quote": "Automatically expires after long periods of inactivity.",
+      "fact": "Business tokens differ from ordinary Kakao Login tokens. moment_management authorizes management APIs. R1 accepts pasted Business tokens only; no inferred lifetime or refresh."
+    },
+    {
+      "url": "https://devtalk.kakao.com/t/default-timezone/151914",
+      "quote": "The time zone is KST (Korea Standard Time).",
+      "fact": "Kakao support woody.ho confirmed report timezone on 2026-10-08. Guard excludes current/future KST dates using injected time; output preserves provider dates without UTC conversion."
+    },
+    {
+      "url": "https://developers.kakao.com/docs/en/kakaomoment/error-code",
+      "quote": "exceeded the allowed quota limit",
+      "fact": "Quota errors include HTTP 429 and HTTP 400 code -10. Permission errors use 403. Provider payloads are discarded after bounded parsing; failures remain redacted and non-retryable."
+    }
   ],
-  "unverified": ["Business Authentication loopback eligibility and O1 compatibility: OAuth absent", "Fixed token lifetime/refresh contract: no refresh implementation", "General version sunset notice guarantee: selected documented v4 reads only", "Creation-time non-serving campaign/group/creative hierarchy and schedules: deployment absent", "Mutation idempotency and server conversion ingestion: no writes or conversions"],
+  "unverified": [
+    "Business Authentication loopback eligibility and O1 compatibility: OAuth absent",
+    "Fixed token lifetime/refresh contract: no refresh implementation",
+    "General version sunset notice guarantee: selected documented v4 reads only",
+    "Creation-time non-serving campaign/group/creative hierarchy and schedules: deployment absent",
+    "Mutation idempotency and server conversion ingestion: no writes or conversions"
+  ],
   "r2": {
     "checkedAt": "2026-10-24",
     "status": "blocked; zero implementation LOC approved by review.md; evidence-chrome.md absent",
     "sources": [
-      {"url": "https://developers.kakao.com/docs/en/kakaomoment/campaign", "quote": "\"config\": \"ON\"", "fact": "Create campaign request fields omit initial config; its response example is ON. Explicit OFF creation is not established; no create-then-pause workaround."},
-      {"url": "https://developers.kakao.com/docs/en/kakaomoment/ad-group", "quote": "You cannot set the start time and end time.", "fact": "Display delivery period selects dates, not arbitrary start/end times. Exact OM schedule/timezone mapping and complete non-serving hierarchy creation remain unverified."},
-      {"url": "https://developers.kakao.com/docs/en/kakaomoment/creatives-display", "quote": "Review status.", "fact": "Creative config and reviewStatus are separate response fields; review waiting does not establish explicit OFF creation."}
+      {
+        "url": "https://developers.kakao.com/docs/en/kakaomoment/campaign",
+        "quote": "\"config\": \"ON\"",
+        "fact": "Create campaign request fields omit initial config; its response example is ON. Explicit OFF creation is not established; no create-then-pause workaround."
+      },
+      {
+        "url": "https://developers.kakao.com/docs/en/kakaomoment/ad-group",
+        "quote": "You cannot set the start time and end time.",
+        "fact": "Display delivery period selects dates, not arbitrary start/end times. Exact OM schedule/timezone mapping and complete non-serving hierarchy creation remain unverified."
+      },
+      {
+        "url": "https://developers.kakao.com/docs/en/kakaomoment/creatives-display",
+        "quote": "Review status.",
+        "fact": "Creative config and reviewStatus are separate response fields; review waiting does not establish explicit OFF creation."
+      }
     ],
     "hostBlocker": "prepareDestination in apps/server/src/composition/agent-plugin-backends.ts requires sandbox campaignFixture metadata; production scoped account/creative/declaration resolution remains integrator work.",
     "resumeNeeds": "Official explicit non-serving creation and exact schedule evidence, amended R2 approval, then existing grouped exact card/policy/outbox integration. Preserve refs on partial failure; reconcile unknown outcomes read-only without resending creates. Conversions unapproved.",
@@ -25,6 +75,54 @@
     "limits": "Official documentation only; no live vendor API calls or app/account acceptance. No SDK/spec fallback needed: pages loaded, evidence gaps remain."
   },
   "blockedPages": [],
-  "omBounds": {"inputBytes": 65536, "responseBytes": 1048576, "timeoutMs": 15000, "accountPageSize": 10, "campaignRows": 1000, "reportRows": 31, "retries": 0},
-  "limits": "Documentation and support evidence only; no live app/account acceptance or provider requests. No OpenAPI/official Moment SDK identified in the approved research."
+  "omBounds": {
+    "inputBytes": 65536,
+    "responseBytes": 1048576,
+    "timeoutMs": 15000,
+    "accountPageSize": 10,
+    "campaignRows": 1000,
+    "reportRows": 31,
+    "retries": 0
+  },
+  "limits": "Documentation and support evidence only; no live app/account acceptance or provider requests. No OpenAPI/official Moment SDK identified in the approved research.",
+  "canonicalReadReview": {
+    "checkedAt": "2026-10-26",
+    "liveVendorCalls": false,
+    "verified": [
+      {
+        "url": "https://developers.kakao.com/docs/en/kakaomoment/report",
+        "fact": "v4 daily report endpoints and BASIC field names are documented, but the retrieved reference did not establish cost currency units sufficiently for canonical monetary reporting."
+      },
+      {
+        "url": "https://devtalk.kakao.com/t/default-timezone/151914",
+        "fact": "Kakao support documents KST reporting timezone."
+      },
+      {
+        "url": "https://developers.kakao.com/docs/en/kakaomoment/campaign",
+        "fact": "GET /openapi/v4/campaigns/{ID} uses adAccountId header and returns id, adAccountId, config, systemConfig, status and isDailyBudgetAmountOver."
+      },
+      {
+        "url": "https://developers.kakao.com/docs/en/kakaomoment/type-info",
+        "fact": "Campaign LIVE, READY, FINISHED, OFF, DELETED, PAUSED and CANCELED states are documented. Creative review status is separate; no campaign rejection explanation is invented."
+      }
+    ],
+    "implemented": [
+      "campaign.status.v1: all requested IDs (maximum 100) through sequential account-scoped detail reads; missing/ambiguous states remain unknown."
+    ],
+    "unverified": [
+      "report.metrics.v1 is not declared and has no handler: currency units and complete lower-grain parent mappings remain unverified.",
+      "No claimed campaign disapproval from creative review or config alone.",
+      "Unsafe numeric campaign/account IDs are rejected, not rounded."
+    ],
+    "bounds": {
+      "requestedDays": 366,
+      "rows": 5000,
+      "responseBytes": 1048576,
+      "vendorReads": 100,
+      "retries": 0,
+      "deadline": "caller CallOptions.signal"
+    },
+    "abi": "createCapabilities(PluginCapabilityDependencies) returns handlers keyed by callable catalog ID; host guarded fetch alone enforces current admission/authority. CallOptions supplies the invocation deadline.",
+    "configuration": "pluginConfigurationSchema; Business token comes from credentials.access and returned campaign adAccountId must match the bound account. No account metadata is needed for status-only output."
+  }
 }

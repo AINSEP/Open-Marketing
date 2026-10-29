@@ -10,11 +10,11 @@ const request: SnapchatCapiRequest = { context: { scope, serviceId: "measure", c
     identifiers: { email: "b".repeat(64) }, identifierDigests: { email: "c".repeat(64) } },
   grant: { kind: "measurement", grantId: "grant", scope, connectionId: "connection", accountId: account, definitionIds: ["offline-signup"], destination: "snapchat-offline", purpose: "measurement", payloadSchema: "offline-signup-v1", payloadVersion: 1, expiresAt: now + 10000, revoked: false } };
 /** Memory measurement authority and injected fetch only; durable identity/current consent belong to host. */
-function fixture(required: { admitted?: boolean; config?: SnapchatCapiConfiguration; response?: () => Response; credentialHook?: () => void;
+function fixture(required: { config?: SnapchatCapiConfiguration; response?: () => Response; credentialHook?: () => void;
   authority?: SnapchatCapiDependencies["authority"]; expiresAt?: number } = {}) {
   const calls: { url: string; init: RequestInit }[] = [], observations: unknown[] = [], claims: unknown[] = [], delivered = new Set<string>();
   const state = { current: true }; let credentials = 0;
-  const dependencies: SnapchatCapiDependencies = { admitted: required.admitted ?? true, configuration: required.config ?? configuration,
+  const dependencies: SnapchatCapiDependencies = { configuration: required.config ?? configuration,
     credentials: { async access() { credentials++; required.credentialHook?.(); return { ok: true, value: { accessToken: "synthetic-secret", expiresAt: required.expiresAt ?? now + 10000 } }; } },
     clock: { now: () => now }, observer: { observe(event) { observations.push(event); } },
     authority: required.authority ?? { async dispatch(input) { claims.push(input); if (!state.current || delivered.has(input.deliveryId)) return { ok: false, error: { code: "forbidden", message: "Fixture denial", retryable: false } };
@@ -33,10 +33,7 @@ describe("Snapchat offline SIGN_UP", () => {
     expect(String(f.calls[0].init.body)).not.toContain(request.event.identifierDigests.email); expect(f.calls[0].init.redirect).toBe("error"); expect(f.calls[0].init.signal).toBeDefined();
     expect(JSON.stringify(f.observations)).not.toContain("synthetic-secret"); expect(f.claims).toHaveLength(1);
   });
-  it("denies unadmitted deliver AND reconcile with zero credentials/network", async () => {
-    const f = fixture({ admitted: false }); expect(await f.backend.deliver(request)).toMatchObject({ ok: false, error: { code: "forbidden" } });
-    expect(await f.backend.reconcile(request)).toMatchObject({ ok: false, error: { code: "forbidden" } }); expect(f.credentials()).toBe(0); expect(f.calls).toHaveLength(0); expect(f.claims).toHaveLength(0);
-  });
+
   it.each([
     { event: { ...request.event, definitionId: "ordinary-web-signup" } }, { event: { ...request.event, destination: "other" } },
     { event: { ...request.event, purpose: "other" } }, { event: { ...request.event, occurredAt: now + 1 } },

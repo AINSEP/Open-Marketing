@@ -61,7 +61,6 @@ export async function readCampaignDeployment(required: Omit<SnapchatDeploymentIn
 /** Parse/copy the complete bounded intent before any awaited host code; pure O(b). */
 function checkInput(required: { input: Omit<SnapchatDeploymentInput, "checkpoint"> }): Outcome<Checked> {
   const input = required.input;
-  if (input.dependencies.admitted !== true) return failure({ code: "forbidden" });
   const bounded = boundInput({ input: { context: input.context, operationId: input.operationId, plan: input.plan, configuration: input.dependencies.configuration } });
   if (!bounded.ok) return bounded;
   const parsed = inputSchema.safeParse(bounded.value);
@@ -150,7 +149,6 @@ async function checkpoint(required: { input: Checked & Pick<SnapchatDeploymentIn
 /** Token per request, then current host-guarded fetch; correlated outcomes only, no secret/body logs. O(b). */
 async function send(required: { input: Checked; request: Request }, optional: CallOptions): ReturnType<typeof requestSnapchat> {
   const { input } = required;
-  if (!input.dependencies.admitted) return failure({ code: "forbidden" });
   try {
     const credential = await resolveCredential({ dependencies: input.dependencies, configuration: input.configuration }, optional);
     if (!credential.ok) return credential;

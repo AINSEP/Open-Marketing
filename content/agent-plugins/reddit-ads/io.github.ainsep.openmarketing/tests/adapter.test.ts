@@ -17,10 +17,7 @@ describe("Reddit bounds and evidence", () => {
     expect(f.credentialCalls).toEqual([{ connectionId: "connection", accountId: null }]);
     expect(await f.adapter.invoke(invocation({ command: reportCommand }))).toMatchObject({ ok: false, error: { code: "invalid_input" } }); expect(f.calls).toHaveLength(1);
   });
-  it("rechecks revocation after awaiting credentials", async () => {
-    const f = fixture({ credentialHook: ({ state }) => { state.admitted = false; } });
-    expect(await f.adapter.invoke(invocation())).toMatchObject({ ok: false, error: { code: "forbidden" } }); expect(f.calls).toHaveLength(0);
-  });
+
   it("cancels after credentials and sanitizes broker denials", async () => {
     const controller = new AbortController(), f = fixture({ credentialHook: () => { controller.abort(); } });
     expect(await f.adapter.invoke(invocation(), { signal: controller.signal })).toMatchObject({ ok: false, error: { code: "cancelled" } }); expect(f.calls).toHaveLength(0);

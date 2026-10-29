@@ -1,310 +1,238 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createConversionBinding, mapConversion } from "../src/conversions.ts";
+import { pluginConfigurationSchema } from "@open-marketing/contracts";
+import { createConversionDelivery, mapConversion } from "../src/index.ts";
 import { createGoogleRestTransport, createHttpAdapter } from "../src/transport.ts";
 import { fixtureBinding, fixtureContext, fixtureTime } from "../src/fixture.ts";
 import { failure, success } from "../src/schema.ts";
-import type { ConversionConfiguration, ConversionEvent, ConversionJournalPort, ConversionAuthorityPort, DeliveryRecord } from "../src/conversions.ts";
-import type { GoogleTransportPort, CredentialPort } from "../src/types.ts";
-import type { MeasurementGrant } from "@open-marketing/contracts";
+import type { CredentialPort } from "../src/types.ts";
 
-const binding = { ...fixtureBinding, mode: "production" as const };
-const configuration: ConversionConfiguration = { api: "data-manager-v1", cloudProjectId: "fixture-project", eligibility: "verified", actionIds: { "definition-lead": "601", "definition-trial": "602" } };
-const event: ConversionEvent = { eventId: "conversion-1", definitionId: "definition-lead", eventType: "signup", occurredAt: fixtureTime - 60000, destination: "google-ads", purpose: "measurement", gclid: "fixture-gclid-unchanged", hashedEmail: "e".repeat(64), hashedPhoneNumber: "f".repeat(64), adUserData: "GRANTED", adPersonalization: "DENIED", valueMicros: "1230000", currency: "USD" };
-const grant: MeasurementGrant = { kind: "measurement", grantId: "grant-1", scope: binding.scope, connectionId: binding.connectionId, accountId: binding.customerId, eventTypes: ["signup", "trial"], destination: event.destination, purpose: event.purpose, payloadSchema: "om.conversion.v1", payloadVersion: 1, expiresAt: fixtureTime + 10000, revoked: false };
-const request = { context: fixtureContext, event, grant, deliveryId: "delivery-1" };
-const destination = { operatingAccount: { accountType: "GOOGLE_ADS", accountId: binding.customerId }, productDestinationId: "601" };
-const allowed: ConversionAuthorityPort = { async dispatchConversion(input) { return input.execute(); } };
-function diagnostic(required: { status?: string; destination?: unknown; count?: string; extra?: Record<string, unknown> } = {}): unknown {
-  return { requestStatusPerDestination: [{ destination: required.destination ?? destination, requestStatus: required.status ?? "SUCCESS", eventsIngestionStatus: { recordCount: required.count ?? "1" }, ...required.extra }] };
-}
-/** Durable-state double persists across factory restarts and keeps appended history. */
-function journal(required: { failAppend?: boolean } = {}): ConversionJournalPort & { history: DeliveryRecord[]; records: Map<string, DeliveryRecord> } {
-  const records = new Map<string, DeliveryRecord>();
-  const history: DeliveryRecord[] = [];
-  return {
-    records, history,
-    async get(input) { return success({ value: structuredClone(records.get(input.identity) ?? null) }); },
-    async claim(input) {
-      const existing = records.get(input.record.identity);
-      if (existing) return success({ value: { acquired: false, record: structuredClone(existing) } });
-      records.set(input.record.identity, structuredClone(input.record));
-      return success({ value: { acquired: true, record: structuredClone(input.record) } });
-    },
-    async append(input) {
-      if (required.failAppend) return failure({ code: "unavailable", message: "Fixture receipt storage failed" });
-      records.set(input.record.identity, structuredClone(input.record));
-      history.push(structuredClone(input.record));
-      return success({ value: undefined });
-    },
-  };
-}
-type FixtureOptions = {
-  adapter: "double" | "rest"; preflight?: unknown; ingest?: unknown; diagnostic?: unknown;
-  lostResponse?: boolean; afterPreflight?: () => void; journal?: ConversionJournalPort;
-  authority?: ConversionAuthorityPort; configuration?: ConversionConfiguration;
-};
-/** Same behavioral suite drives a vendor double and real REST + bounded fetch adapter.
- * Foreign fetch ABI is fixture-only; it never delegates to global fetch. */
-function harness(required: FixtureOptions) {
-  const calls: { method: string; body: Record<string, unknown>; url?: string }[] = [];
-  const credentials: Parameters<CredentialPort["access"]>[0][] = [];
-  const observations: unknown[] = [];
-  const state = required.journal ?? journal();
-  const respond = (input: { method: string; body: Record<string, unknown> }): unknown => {
-    if (input.method === "request_status") return required.diagnostic ?? diagnostic();
-    if (input.body.validateOnly === true) {
-      required.afterPreflight?.();
-      return Object.hasOwn(required, "preflight") ? required.preflight : {};
-    }
-    if (required.lostResponse) throw new Error("Fixture lost response after acceptance");
-    return required.ingest ?? { requestId: "google-receipt-1" };
-  };
-  const fixtureFetch: typeof fetch = async (url, init) => {
-    const address = String(url);
-    const method = init?.method === "GET" ? "request_status" : "ingest";
-    const body = method === "request_status" ? { requestId: new URL(address).searchParams.get("requestId") } : JSON.parse(String(init?.body)) as Record<string, unknown>;
-    calls.push({ method, body, url: address });
-    assert.equal(init?.redirect, "error");
-    return new Response(JSON.stringify(respond({ method, body })), { status: 200 });
-  };
-  const double: GoogleTransportPort = { async request(input) {
-    calls.push(structuredClone(input));
-    try { return success({ value: respond(input) }); }
-    catch { return failure({ code: "unavailable", message: "Fixture lost receipt" }); }
-  } };
-  const rest = createGoogleRestTransport({ binding,
-    credentials: { async access(input) { credentials.push(input); return success({ value: { accessToken: "fixture-token", scopes: ["https://www.googleapis.com/auth/datamanager"], cloudProjectId: configuration.cloudProjectId } }); } },
-    http: createHttpAdapter({ fetch: fixtureFetch, observer: { observe(input) { observations.push(input); } } }),
-  });
-  const transport = required.adapter === "double" ? double : rest;
-  const dependencies = { binding, configuration: required.configuration ?? configuration, transport, journal: state, now: () => fixtureTime, authority: required.authority ?? allowed };
-  return { plugin: createConversionBinding(dependencies), dependencies, calls, credentials, observations, state };
-}
+type Dependencies = Parameters<typeof createConversionDelivery>[0];
+type Input = Parameters<ReturnType<typeof createConversionDelivery>["deliver"]>[0];
+const binding = fixtureBinding;
+const configuration = pluginConfigurationSchema.parse({ scope: binding.scope, connectionId: binding.connectionId, accountId: binding.customerId, pluginDigest: binding.pluginDigest, settings: { conversionConfiguration: { actionIds: { signup: "601", trial: "602", won: "603" } }, loginCustomerId: "9876543210" } });
+const event: Input["event"] = { eventId: "conversion-1", definitionId: "signup", subjectId: "private-subject", occurredAt: fixtureTime - 60000, destination: "google-ads", purpose: "measurement", identifierDigests: { email: "e".repeat(64) }, identifiers: { email: "e".repeat(64), phone: "f".repeat(64), gclid: "fixture-gclid-unchanged", phone_digits: "d".repeat(64), fbc: "fb.1.123.fixture" }, value: { minorUnits: 1234, currency: "USD" } };
+const request: Input = { context: { scope: binding.scope, serviceId: "measure-worker", correlationId: fixtureContext.correlationId, traceId: fixtureContext.traceId }, event,
+  grant: { kind: "measurement", grantId: "grant-1", scope: binding.scope, connectionId: binding.connectionId, accountId: binding.customerId, definitionIds: [event.definitionId], destination: event.destination, purpose: event.purpose, payloadSchema: "om.conversion.v1", payloadVersion: 1, expiresAt: fixtureTime + 10000, revoked: false }, deliveryId: "delivery-1" };
 const unknown = { ok: true, value: { status: "unknown" } };
-const delivered = { ok: true, value: { status: "delivered" } };
-function ingestionCount(required: { calls: { method: string; body: Record<string, unknown> }[] }): number {
-  return required.calls.filter(call => call.method === "ingest" && call.body.validateOnly === false).length;
+const delivered = { ok: true, value: { status: "delivered", receiptId: "receipt-1", diagnostics: { accepted: true, processed: null, attributed: null, observedAt: fixtureTime } } };
+
+/** Real public factory and REST/HTTP adapters; every effect is a deterministic fixture, never live I/O. */
+function harness(required: { configuration?: Dependencies["configuration"]; receipt?: unknown; lostResponse?: boolean; authority?: Dependencies["authority"] } = {}) {
+  const calls: { url: string; init?: RequestInit; body: Record<string, unknown> }[] = [];
+  const credentials: Parameters<Dependencies["credentials"]["access"]>[0][] = [];
+  const observations: unknown[] = [];
+  const state = { current: true, withdrawAtCredential: false, credentialFailure: false, token: "fixture-token-secret", authorityCalls: 0, abortAtCredential: undefined as AbortController | undefined };
+  const dependencies: Dependencies = {
+    configuration: required.configuration ?? configuration,
+    clock: { now: () => fixtureTime }, observer: { observe(input) { observations.push(input); } }, wait: async () => success({ value: undefined }),
+    authority: required.authority ?? { async dispatch(input) { state.authorityCalls += 1; return input.execute({ isCurrent: () => state.current }); } },
+    credentials: { async access(input) {
+      credentials.push(input);
+      if (state.withdrawAtCredential) state.current = false;
+      state.abortAtCredential?.abort();
+      if (state.credentialFailure) return failure({ code: "forbidden", message: "fixture-token-secret credential JSON" });
+      return success({ value: { accessToken: state.token, expiresAt: fixtureTime + 1000, secrets: { developerToken: "a".repeat(22) } } });
+    } },
+    fetch: async (url, init) => {
+      calls.push({ url: String(url), init, body: init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : {} });
+      if (required.lostResponse) throw new Error("fixture-token-secret ACK lost after send");
+      return Response.json(Object.hasOwn(required, "receipt") ? required.receipt : { requestId: "receipt-1" });
+    },
+  };
+  return { backend: createConversionDelivery(dependencies), calls, credentials, state, observations };
 }
 
-test("maps definition-selected action, untouched digests, WEB timestamp, transaction ID and both consent signals", () => {
-  assert.deepEqual(mapConversion({ binding, configuration, event }), {
-    destinations: [destination], encoding: "HEX", validateOnly: false,
-    events: [{ transactionId: event.eventId, eventTimestamp: "2026-10-12T11:59:00.000Z", eventSource: "WEB", conversionValue: 1.23, currency: "USD",
-      consent: { adUserData: "CONSENT_GRANTED", adPersonalization: "CONSENT_DENIED" }, adIdentifiers: { gclid: event.gclid },
-      userData: { userIdentifiers: [{ emailAddress: event.hashedEmail }, { phoneNumber: event.hashedPhoneNumber }] },
-    }],
+test("A3-shaped real factory accepts canonical credentials and makes one Data Manager POST", async () => {
+  const f = harness();
+  assert.deepEqual(await f.backend.deliver(request), delivered);
+  assert.equal(f.calls.length, 1);
+  assert.equal(f.calls[0].url, "https://datamanager.googleapis.com/v1/events:ingest");
+  assert.equal(f.calls[0].init?.method, "POST");
+  assert.equal(f.calls[0].init?.redirect, "error");
+  assert.deepEqual(f.calls[0].body, {
+    destinations: [{ operatingAccount: { accountType: "GOOGLE_ADS", accountId: configuration.accountId }, loginAccount: { accountType: "GOOGLE_ADS", accountId: "9876543210" }, productDestinationId: "601" }],
+    encoding: "HEX", validateOnly: false,
+    events: [{ transactionId: event.eventId, eventTimestamp: "2026-10-12T11:59:00.000Z", eventSource: "WEB", conversionValue: 12.34, currency: "USD", consent: { adUserData: "CONSENT_GRANTED" }, adIdentifiers: { gclid: event.identifiers.gclid }, userData: { userIdentifiers: [{ emailAddress: event.identifiers.email }, { phoneNumber: event.identifiers.phone }] } }],
   });
-  const clickOnly = { ...event }; delete clickOnly.hashedEmail; delete clickOnly.hashedPhoneNumber; delete clickOnly.adPersonalization;
-  const body = mapConversion({ binding, configuration: { ...configuration, loginCustomerId: "9876543210" }, event: clickOnly });
-  assert.equal(JSON.stringify(body).includes("userData"), false);
-  assert.equal(JSON.stringify(body).includes("adPersonalization"), false);
-  assert.deepEqual((body.destinations as Record<string, unknown>[])[0].loginAccount, { accountType: "GOOGLE_ADS", accountId: "9876543210" });
-  const digestOnly = { ...event }; delete digestOnly.gclid;
-  const digestBody = mapConversion({ binding, configuration, event: digestOnly });
-  assert.equal(JSON.stringify(digestBody).includes("adIdentifiers"), false);
-  assert.deepEqual((digestBody.events as Record<string, unknown>[])[0].userData, { userIdentifiers: [{ emailAddress: event.hashedEmail }, { phoneNumber: event.hashedPhoneNumber }] });
+  assert.deepEqual(f.credentials, [{ connectionId: binding.connectionId, accountId: configuration.accountId }]);
+  assert.deepEqual(f.calls[0].init?.headers, { Authorization: "Bearer fixture-token-secret", "Content-Type": "application/json" });
+  const observed = JSON.stringify(f.observations);
+  assert.equal(observed.includes("fixture-token-secret"), false);
+  assert.equal(observed.includes(event.identifiers.email), false);
+  assert.equal(observed.includes(request.context.traceId), true);
 });
 
-for (const adapter of ["double", "rest"] as const) {
-  test(adapter + ": preflight, immutable ingest, durable receipt, read-only processing/success and duplicate success", async () => {
-    let dispatches = 0;
-    const fixture = harness({ adapter, authority: { async dispatchConversion(input) { dispatches += 1; return input.execute(); } } });
-    assert.deepEqual(await fixture.plugin.deliver(request), unknown);
-    assert.equal(dispatches, 1);
-    assert.equal(fixture.calls.length, 2);
-    assert.equal(fixture.calls[0].body.validateOnly, true);
-    assert.deepEqual(fixture.calls[1].body, { ...fixture.calls[0].body, validateOnly: false });
-    const persisted = await fixture.state.get({ identity: (fixture.state as ReturnType<typeof journal>).history[0].identity });
-    assert.equal(persisted.ok && persisted.value?.requestId, "google-receipt-1");
-    assert.deepEqual(await fixture.plugin.reconcile(request), delivered);
-    assert.equal(dispatches, 2);
-    assert.deepEqual(await fixture.plugin.deliver({ ...request, deliveryId: "another-job-attempt" }), delivered);
-    assert.equal(ingestionCount(fixture), 1);
-    assert.equal(fixture.calls.length, 3);
-    if (adapter === "rest") {
-      assert.equal(fixture.calls[0].url, "https://datamanager.googleapis.com/v1/events:ingest");
-      assert.equal(fixture.calls[2].url, "https://datamanager.googleapis.com/v1/requestStatus:retrieve?requestId=google-receipt-1");
-      assert.equal(fixture.credentials.length, 3);
-      assert.deepEqual(fixture.credentials[0], { binding, requiredScope: "https://www.googleapis.com/auth/datamanager", cloudProjectId: configuration.cloudProjectId });
-      assert.equal(JSON.stringify(fixture.observations).includes("fixture-token"), false);
-      assert.equal(JSON.stringify(fixture.observations).includes(event.hashedEmail!), false);
-      assert.equal(JSON.stringify(fixture.observations).includes(fixtureContext.correlationId), true);
-    }
-  });
-  for (const preflight of [{ error: { code: 400 } }, { fieldWarnings: [{}] }, { fieldWarnings: null }, null, [], "invalid"]) {
-    test(adapter + ": rejected or malformed preflight does not claim or ingest: " + JSON.stringify(preflight), async () => {
-      const state = journal();
-      const fixture = harness({ adapter, preflight, journal: state });
-      assert.equal((await fixture.plugin.deliver(request)).ok, false);
-      assert.equal(ingestionCount(fixture), 0);
-      assert.equal(state.records.size, 0);
-    });
-  }
-  test(adapter + ": unavailable eligibility and malformed event fields deny before egress", async () => {
-    const unavailable = harness({ adapter, configuration: { ...configuration, eligibility: "unavailable" } });
-    assert.equal((await unavailable.plugin.deliver(request)).ok, false);
-    assert.equal(unavailable.calls.length, 0);
-    const fixture = harness({ adapter });
-    for (const invalid of [
-      { ...event, adUserData: "DENIED" }, { ...event, email: "raw@example.test" }, { ...event, phone: "+15551234567" },
-      { ...event, hashedEmail: "E".repeat(64) }, { ...event, hashedPhoneNumber: "raw" }, { ...event, ipAddress: "192.0.2.1" },
-      { ...event, occurredAt: NaN }, { ...event, occurredAt: fixtureTime + 1 }, { ...event, occurredAt: -1 },
-      { ...event, gclid: "a".repeat(257) }, { ...event, gclid: "bad click id" }, { ...event, valueMicros: "9007199254740992" },
-      { ...event, valueMicros: "-1" }, { ...event, currency: "EUR" }, { ...event, definitionId: "unconfigured" },
-      { ...event, gclid: undefined, hashedEmail: undefined, hashedPhoneNumber: undefined },
-    ]) assert.equal((await fixture.plugin.deliver({ ...request, event: invalid as ConversionEvent })).ok, false);
-    assert.equal(fixture.calls.length, 0);
-  });
-  test(adapter + ": multiple OM definitions in one covered category select their own action", async () => {
-    const fixture = harness({ adapter, configuration: { ...configuration, actionIds: { "custom-purchase-definition": "777" } } });
-    const customEvent = { ...event, definitionId: "custom-purchase-definition" };
-    assert.deepEqual(await fixture.plugin.deliver({ ...request, event: customEvent }), unknown);
-    assert.equal((fixture.calls[1].body.destinations as Record<string, unknown>[])[0].productDestinationId, "777");
-  });
-  test(adapter + ": scoped grants, expired grants and closed configuration reject before egress", async () => {
-    const fixture = harness({ adapter });
-    for (const deniedGrant of [
-      { ...grant, scope: { ...grant.scope, ownerId: "other-owner" } },
-      { ...grant, scope: { ...grant.scope, workspaceId: "other-workspace" } },
-      { ...grant, connectionId: "other-connection" }, { ...grant, accountId: "9876543210" },
-      { ...grant, expiresAt: fixtureTime }, { ...grant, destination: "other-destination" },
-      { ...grant, eventTypes: ["trial"] as MeasurementGrant["eventTypes"] },
-    ]) assert.equal((await fixture.plugin.deliver({ ...request, grant: deniedGrant })).ok, false);
-    assert.equal((await fixture.plugin.deliver({ ...request, context: { ...fixtureContext, scope: { ...fixtureContext.scope, ownerId: "other-owner" } } })).ok, false);
-    for (const invalidConfig of [
-      { ...configuration, rawToken: "forbidden" }, { ...configuration, actionIds: {} },
-      { ...configuration, actionIds: { "definition-lead": "not-numeric" } },
-      { ...configuration, actionIds: Object.fromEntries(Array.from({ length: 101 }, (_, i) => ["definition-" + i, "601"])) },
-      { ...configuration, loginCustomerId: "bad-manager" },
-    ]) {
-      const configured = createConversionBinding({ ...fixture.dependencies, configuration: invalidConfig });
-      assert.equal((await configured.deliver(request)).ok, false);
-    }
-    assert.equal(fixture.calls.length, 0);
-  });
-  test(adapter + ": CURRENT authority denial and consent/grant withdrawal after preflight block ingestion", async () => {
-    const denied = harness({ adapter, authority: { async dispatchConversion() { return failure({ code: "forbidden", message: "Current consent withdrawn" }); } } });
-    assert.equal((await denied.plugin.deliver(request)).ok, false);
-    assert.equal(denied.calls.length, 0);
-    const withdrawn = structuredClone(request);
-    const fixture = harness({ adapter, afterPreflight: () => { withdrawn.grant.revoked = true; } });
-    assert.equal((await fixture.plugin.deliver(withdrawn)).ok, false);
-    assert.equal(ingestionCount(fixture), 0);
-    const consentWithdrawn = structuredClone(request);
-    const consentFixture = harness({ adapter, afterPreflight: () => { consentWithdrawn.event.adUserData = "DENIED"; } });
-    assert.equal((await consentFixture.plugin.deliver(consentWithdrawn)).ok, false);
-    assert.equal(ingestionCount(consentFixture), 0);
-  });
-  test(adapter + ": concurrent duplicate claims ingest once; changed payload and action configuration conflict", async () => {
-    const fixture = harness({ adapter });
-    await Promise.all([fixture.plugin.deliver(request), fixture.plugin.deliver({ ...request, deliveryId: "delivery-2" })]);
-    assert.equal(ingestionCount(fixture), 1);
-    for (const changed of [{ ...event, valueMicros: "9990000" }, { ...event, purpose: "different-purpose" }]) {
-      const matchingGrant = { ...grant, purpose: changed.purpose };
-      assert.equal((await fixture.plugin.deliver({ ...request, event: changed, grant: matchingGrant })).ok, false);
-    }
-    const changedConfiguration = createConversionBinding({ ...fixture.dependencies, configuration: { ...configuration, actionIds: { "definition-lead": "999" } } });
-    assert.equal((await changedConfiguration.deliver(request)).ok, false);
-    const changedProject = createConversionBinding({ ...fixture.dependencies, configuration: { ...configuration, cloudProjectId: "another-project" } });
-    const conflict = await changedProject.deliver(request);
-    assert.equal(conflict.ok, false);
-    if (!conflict.ok) assert.equal(conflict.error.code, "conflict");
-    assert.equal(ingestionCount(fixture), 1);
-  });
-  test(adapter + ": valid data changed during preflight cannot ingest a stale validated body", async () => {
-    const changed = structuredClone(request);
-    const state = journal();
-    const fixture = harness({ adapter, journal: state, afterPreflight: () => { changed.event.valueMicros = "9990000"; } });
-    const result = await fixture.plugin.deliver(changed);
+test("supports open granted definitions without inventing a Google event age limit", async () => {
+  const f = harness();
+  assert.deepEqual(await f.backend.deliver({ ...request, grant: { ...request.grant, definitionIds: ["won"] }, event: { ...event, definitionId: "won", occurredAt: fixtureTime - 30 * 86400000 } }), delivered);
+  assert.equal((f.calls[0].body.destinations as Record<string, unknown>[])[0].productDestinationId, "603");
+});
+
+test("ignores other destinations' identifier keys and refuses an empty supported set", async () => {
+  const f = harness();
+  const result = await f.backend.deliver({ ...request, event: { ...event, identifiers: { fbc: "irrelevant", phone_digits: "d".repeat(64) } } });
+  assert.deepEqual(result, failure({ code: "invalid_input", message: "Google conversion not sent: no supported identifier" }));
+  assert.equal(f.calls.length, 0);
+  assert.equal(f.credentials.length, 0);
+});
+
+test("unmapped and ungranted definitions refuse before credentials or fetch", async () => {
+  for (const granted of [true, false]) {
+    const f = harness();
+    const result = await f.backend.deliver({ ...request, event: { ...event, definitionId: "custom" }, grant: { ...request.grant, definitionIds: granted ? ["custom"] : ["signup"] } });
     assert.equal(result.ok, false);
-    if (!result.ok) assert.equal(result.error.code, "conflict");
-    assert.equal(ingestionCount(fixture), 0);
-    assert.equal(state.records.size, 0);
-  });
-  test(adapter + ": durable receipt survives factory restart; processing stays unknown and never resubmits", async () => {
-    const fixture = harness({ adapter, diagnostic: diagnostic({ status: "PROCESSING" }) });
-    assert.deepEqual(await fixture.plugin.deliver(request), unknown);
-    const restarted = createConversionBinding(fixture.dependencies);
-    assert.deepEqual(await restarted.deliver(request), unknown);
-    assert.equal(fixture.calls[2].method, "request_status");
-    assert.equal(ingestionCount(fixture), 1);
-  });
-  for (const fault of ["lost-response", "lost-storage", "missing-receipt"] as const) {
-    test(adapter + ": " + fault + " stays unknown across restart without any resubmission", async () => {
-      const fixture = harness({ adapter, lostResponse: fault === "lost-response", journal: journal({ failAppend: fault === "lost-storage" }), ingest: fault === "missing-receipt" ? {} : undefined });
-      assert.deepEqual(await fixture.plugin.deliver(request), unknown);
-      const restarted = createConversionBinding(fixture.dependencies);
-      assert.deepEqual(await restarted.deliver(request), unknown);
-      assert.deepEqual(await restarted.reconcile(request), unknown);
-      assert.equal(ingestionCount(fixture), 1);
-      assert.equal(fixture.calls.length, 2);
-    });
+    if (!result.ok) assert.equal(result.error.code, granted ? "unavailable" : "forbidden");
+    assert.equal(f.calls.length, 0); assert.equal(f.credentials.length, 0);
   }
-  for (const status of ["FAILED", "PARTIAL_SUCCESS"]) {
-    test(adapter + ": terminal " + status + " persists non-retryable failure without reingesting", async () => {
-      const fixture = harness({ adapter, diagnostic: diagnostic({ status, extra: { errorInfo: { errorCounts: [{ reason: "PROCESSING_ERROR_REASON_INVALID_EVENT", recordCount: "1" }] } } }) });
-      await fixture.plugin.deliver(request);
-      const result = await fixture.plugin.reconcile(request);
-      assert.equal(result.ok, false);
-      if (!result.ok) assert.equal(result.error.retryable, false);
-      assert.equal((await fixture.plugin.deliver(request)).ok, false);
-      assert.equal(ingestionCount(fixture), 1);
-      assert.equal(fixture.calls.length, 3);
-    });
+});
+
+test("preserves click-only/digest-only payloads and currency-specific minor-unit exponents", () => {
+  const parsedConfiguration = { ...configuration, settings: { conversionConfiguration: { actionIds: { signup: "601" } } } };
+  const clickOnly = mapConversion({ configuration: parsedConfiguration, event: { ...event, identifiers: { gclid: "fixture-click" }, value: undefined } });
+  const click = (clickOnly.events as Record<string, unknown>[])[0];
+  assert.equal(Object.hasOwn(click, "userData"), false);
+  assert.equal(Object.hasOwn(click, "conversionValue"), false);
+  assert.equal(Object.hasOwn(click, "currency"), false);
+  assert.equal(Object.hasOwn((clickOnly.destinations as Record<string, unknown>[])[0], "loginAccount"), false);
+  for (const [currency, minorUnits, expected] of [["JPY", 1234, 1234], ["KWD", 1234, 1.234], ["USD", 0, 0]] as const) {
+    const body = mapConversion({ configuration: parsedConfiguration, event: { ...event, identifiers: { email: event.identifiers.email }, value: { currency, minorUnits } } });
+    const mapped = (body.events as Record<string, unknown>[])[0];
+    assert.equal(Object.hasOwn(mapped, "adIdentifiers"), false);
+    assert.equal(mapped.conversionValue, expected); assert.equal(mapped.currency, currency);
   }
-  for (const ambiguous of [
-    {}, diagnostic({ destination: { ...destination, productDestinationId: "999" } }), diagnostic({ count: "2" }),
-    diagnostic({ count: "not-a-count" }), diagnostic({ status: "UNRECOGNIZED" }), diagnostic({ extra: { errorInfo: {} } }),
-    diagnostic({ extra: { audienceMembersIngestionStatus: {} } }), { requestStatusPerDestination: [] },
-    diagnostic({ extra: { audienceMembersIngestionStatus: null } }), diagnostic({ extra: { warningInfo: "malformed" } }),
-    diagnostic({ extra: { unsupported: true } }), { requestStatusPerDestination: [null] },
-    { ...diagnostic() as Record<string, unknown>, error: { code: 400 } },
-    { requestStatusPerDestination: [destination, destination] },
-  ]) {
-    test(adapter + ": ambiguous/malformed/wrong-destination diagnostics cannot establish delivery: " + JSON.stringify(ambiguous), async () => {
-      const fixture = harness({ adapter, diagnostic: ambiguous });
-      await fixture.plugin.deliver(request);
-      assert.deepEqual(await fixture.plugin.reconcile(request), unknown);
-      assert.equal(ingestionCount(fixture), 1);
-    });
-  }
-  test(adapter + ": documented processing warnings permit clean SUCCESS without claiming attribution", async () => {
-    const fixture = harness({ adapter, diagnostic: diagnostic({ extra: { warningInfo: { warningCounts: [{ reason: "PROCESSING_WARNING_REASON_INTERNAL_ERROR", recordCount: "1" }] } } }) });
-    await fixture.plugin.deliver(request);
-    assert.deepEqual(await fixture.plugin.reconcile(request), delivered);
-    assert.equal(ingestionCount(fixture), 1);
-  });
-  test(adapter + ": reconcile before claim performs no HTTP; read dispatch denial never ingests", async () => {
-    const fixture = harness({ adapter });
-    assert.deepEqual(await fixture.plugin.reconcile(request), unknown);
-    assert.equal(fixture.calls.length, 0);
-    await fixture.plugin.deliver(request);
-    const denied = createConversionBinding({ ...fixture.dependencies, authority: { async dispatchConversion() { return failure({ code: "forbidden", message: "Reconcile authority denied" }); } } });
-    assert.equal((await denied.reconcile(request)).ok, false);
-    assert.equal(fixture.calls.length, 2);
+});
+
+for (const receipt of [{}, null, { requestId: "" }, { requestId: 123 }]) {
+  test("missing or malformed requestId is unknown: " + JSON.stringify(receipt), async () => {
+    const f = harness({ receipt });
+    assert.deepEqual(await f.backend.deliver(request), unknown);
+    assert.equal(f.calls.length, 1);
   });
 }
 
-test("Data Manager credentials require validated advertiser scope/project metadata, never leaking to agent input", async () => {
-  let posts = 0;
-  for (const token of [
-    { accessToken: "fixture-token" },
-    { accessToken: "fixture-token", scopes: ["https://www.googleapis.com/auth/adwords"], cloudProjectId: configuration.cloudProjectId },
-    { accessToken: "fixture-token", scopes: ["https://www.googleapis.com/auth/datamanager"], cloudProjectId: "another-project" },
-    { accessToken: "bad\r\nheader", scopes: ["https://www.googleapis.com/auth/datamanager"], cloudProjectId: configuration.cloudProjectId },
+test("lost acknowledgement and reconciliation never cause a second send", async () => {
+  const f = harness({ lostResponse: true });
+  assert.deepEqual(await f.backend.deliver(request), unknown);
+  assert.deepEqual(await f.backend.reconcile(request), unknown);
+  assert.equal(f.calls.length, 1); assert.equal(f.credentials.length, 1); assert.equal(f.state.authorityCalls, 1);
+});
+test("reconciliation has zero credentials, authority calls or fetch", async () => {
+  const f = harness();
+  const { identifiers: _identifiers, ...event } = request.event;
+  assert.deepEqual(await f.backend.reconcile({ ...request, event }), unknown);
+  assert.equal(f.calls.length, 0); assert.equal(f.credentials.length, 0); assert.equal(f.state.authorityCalls, 0);
+  const invalid = await f.backend.reconcile({ ...request, grant: { ...request.grant, revoked: true } });
+  assert.equal(invalid.ok, false);
+});
+
+for (const [requestStatus, processed] of [["SUCCESS", true], ["FAILED", false], ["PROCESSING", null], ["PARTIAL_SUCCESS", null], ["REQUEST_STATUS_UNKNOWN", null]] as const) {
+  test("receipt readback makes one GET and reports " + requestStatus, async () => {
+    const f = harness({ receipt: { requestStatusPerDestination: [{ requestStatus, destination: { operatingAccount: { accountId: binding.customerId } }, errorInfo: { private: "fixture-secret" } }] } });
+    const { identifiers: _identifiers, ...event } = request.event;
+    const result = await f.backend.reconcile({ ...request, event, receiptId: "receipt-1" });
+    assert.deepEqual(result, { ok: true, value: { ...delivered.value, diagnostics: { ...delivered.value.diagnostics, processed } } });
+    assert.equal(f.calls.length, 1);
+    assert.equal(f.calls[0].url, "https://datamanager.googleapis.com/v1/requestStatus:retrieve?requestId=receipt-1");
+    assert.equal(f.calls[0].init?.method, "GET");
+    assert.equal(f.calls[0].init?.body, undefined);
+    assert.equal(f.credentials.length, 1);
+    assert.equal(f.state.authorityCalls, 0);
+    assert.equal(JSON.stringify([result, f.observations]).includes("fixture-secret"), false);
+  });
+}
+for (const receipt of [
+  {}, null, { requestStatusPerDestination: [] },
+  { requestStatusPerDestination: [{ requestStatus: "SUCCESS" }, { requestStatus: "SUCCESS" }] },
+  { requestStatusPerDestination: [{ requestStatus: "SUCCESS", destination: { operatingAccount: { accountId: "9999999999" } } }] },
+  { requestStatusPerDestination: [{ requestStatus: "unexpected" }] },
+]) {
+  test("inconclusive status body retains acceptance without confirming processing: " + JSON.stringify(receipt), async () => {
+    const f = harness({ receipt });
+    assert.deepEqual(await f.backend.reconcile({ ...request, receiptId: "receipt-1" }), delivered);
+    assert.equal(f.calls.length, 1);
+    assert.equal(f.calls[0].init?.method, "GET");
+  });
+}
+test("a failed status GET retains acceptance and never retries ingestion", async () => {
+  const f = harness({ lostResponse: true });
+  assert.deepEqual(await f.backend.reconcile({ ...request, receiptId: "receipt-1" }), delivered);
+  assert.equal(f.calls.length, 1);
+  assert.equal(f.calls[0].init?.method, "GET");
+  assert.equal(f.state.authorityCalls, 0);
+});
+
+test("withdrawal after credential resolution prevents the single POST", async () => {
+  const f = harness(); f.state.withdrawAtCredential = true;
+  assert.deepEqual(await f.backend.deliver(request), failure({ code: "forbidden", message: "Google conversion authority withdrawn" }));
+  assert.equal(f.credentials.length, 1); assert.equal(f.calls.length, 0);
+});
+test("a false current-authority fence prevents credential access", async () => {
+  const f = harness(); f.state.current = false;
+  const result = await f.backend.deliver(request);
+  assert.equal(result.ok, false); assert.equal(f.credentials.length, 0); assert.equal(f.calls.length, 0);
+});
+for (const phase of ["before", "credentials"]) {
+  test("cancellation at " + phase + " prevents POST", async () => {
+    const f = harness(); const controller = new AbortController();
+    if (phase === "before") controller.abort(); else f.state.abortAtCredential = controller;
+    const result = await f.backend.deliver(request, { signal: controller.signal });
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.error.code, "cancelled");
+    assert.equal(f.calls.length, 0);
+  });
+}
+
+test("credential and transport failure text never echoes a token", async () => {
+  const f = harness(); f.state.credentialFailure = true;
+  const result = await f.backend.deliver(request);
+  assert.equal(result.ok, false);
+  assert.equal(JSON.stringify(result).includes("fixture-token-secret"), false);
+  assert.equal(f.calls.length, 0);
+  const malformed = harness(); malformed.state.token = "fixture-token-secret\r\nInjected";
+  assert.deepEqual(await malformed.backend.deliver(request), unknown);
+  assert.equal(malformed.calls.length, 0);
+});
+
+test("stale and mismatched grants fail before effects", async () => {
+  for (const grant of [
+    { ...request.grant, revoked: true }, { ...request.grant, expiresAt: fixtureTime },
+    { ...request.grant, accountId: "9999999999" }, { ...request.grant, connectionId: "foreign" },
+    { ...request.grant, destination: "other" }, { ...request.grant, purpose: "other" },
+    { ...request.grant, scope: { ...binding.scope, ownerId: "foreign" } },
   ]) {
-    const transport = createGoogleRestTransport({ binding, credentials: { async access(input) { assert.equal(input.binding.connectionId, binding.connectionId); return success({ value: token }); } }, http: {
-      async post() { posts += 1; return success({ value: { status: 200, body: {} } }); }, async get() { return success({ value: { status: 200, body: {} } }); },
-    } });
-    assert.equal((await transport.request({ method: "ingest", body: {}, cloudProjectId: configuration.cloudProjectId, context: fixtureContext, operationId: "test" })).ok, false);
+    const f = harness(); const result = await f.backend.deliver({ ...request, grant });
+    assert.equal(result.ok, false); assert.equal(f.credentials.length, 0); assert.equal(f.calls.length, 0);
   }
-  assert.equal(posts, 0);
+});
+test("malformed known identifiers and future times fail even alongside valid identifiers", async () => {
+  for (const invalid of [
+    { ...event, identifiers: { ...event.identifiers, email: "raw@example.test" } },
+    { ...event, identifiers: { ...event.identifiers, phone: "+15551234567" } },
+    { ...event, identifiers: { ...event.identifiers, email: "E".repeat(64) } },
+    { ...event, identifiers: { ...event.identifiers, gclid: "bad click" } },
+    { ...event, identifiers: { ...event.identifiers, gclid: "a".repeat(257) } },
+    { ...event, occurredAt: fixtureTime + 1 }, { ...event, occurredAt: -1 },
+  ]) {
+    const f = harness(); assert.equal((await f.backend.deliver({ ...request, event: invalid })).ok, false);
+    assert.equal(f.calls.length, 0); assert.equal(f.credentials.length, 0);
+  }
+});
+test("malformed conversion settings, foreign context and missing deliveryId have no effects", async () => {
+  for (const settings of [{}, { conversionConfiguration: { actionIds: {} } }, { conversionConfiguration: { actionIds: { signup: "bad" } } }]) {
+    const f = harness({ configuration: { ...configuration, settings } });
+    assert.equal((await f.backend.deliver(request)).ok, false); assert.equal(f.credentials.length, 0); assert.equal(f.calls.length, 0);
+  }
+  const f = harness();
+  assert.equal((await f.backend.deliver({ ...request, context: { ...request.context, scope: { ...binding.scope, ownerId: "foreign" } } })).ok, false);
+  const { deliveryId: _deliveryId, ...missingId } = request;
+  assert.equal((await f.backend.deliver(missingId as Input)).ok, false);
+  assert.equal(f.calls.length, 0);
 });
 test("Data Manager rejects a Search-only HTTP port before ingestion", async () => {
   let lookups = 0;
   const transport = createGoogleRestTransport({ binding, credentials: { async access() { lookups += 1; return success({ value: { accessToken: "fixture-token" } }); } }, http: { async post() { assert.fail("No ingress permitted"); } } });
-  assert.equal((await transport.request({ method: "ingest", body: {}, cloudProjectId: configuration.cloudProjectId, context: fixtureContext, operationId: "test" })).ok, false);
+  assert.equal((await transport.request({ method: "ingest", body: {}, cloudProjectId: "fixture-project", context: fixtureContext, operationId: "test" })).ok, false);
   assert.equal(lookups, 0);
 });
 test("each advertiser resolves its own server token and Data Manager never sends Ads auth headers", async () => {
@@ -320,7 +248,7 @@ test("each advertiser resolves its own server token and Data Manager never sends
       async post(input) { headers.push(input.headers); return success({ value: { status: 200, body: {} } }); },
       async get() { assert.fail("Ingestion must POST"); },
     } });
-    assert.equal((await transport.request({ method: "ingest", body: { validateOnly: true }, cloudProjectId: configuration.cloudProjectId, context: fixtureContext, operationId: "fixture" })).ok, true);
+    assert.equal((await transport.request({ method: "ingest", body: { validateOnly: true }, cloudProjectId: "fixture-project", context: fixtureContext, operationId: "fixture" })).ok, true);
   }
   assert.deepEqual(lookups.map(input => input.binding.connectionId), ["advertiser-a", "advertiser-b"]);
   assert.deepEqual(headers, [

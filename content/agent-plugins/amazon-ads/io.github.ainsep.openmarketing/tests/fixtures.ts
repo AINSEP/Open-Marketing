@@ -1,5 +1,6 @@
+import { pluginConfigurationSchema } from "@open-marketing/contracts";
 import type { CallContext, ObserverEvent, Outcome } from "@open-marketing/contracts";
-import { createAmazonAdsAdapter, commandSchema } from "../src/index.js";
+import { createCapabilities, createAmazonAdsAdapter, commandSchema } from "../src/index.js";
 import type { AmazonAdsAdapter, AmazonCommand, AmazonDependencies, AmazonInvocation } from "../src/index.js";
 
 /** Synthetic values only. Each fixture owns admission, time and intercepted requests. */
@@ -21,9 +22,8 @@ export function fixture(required: { credential?: unknown; credentialHook?: () =>
   const calls: { url: string; init: RequestInit }[] = [];
   const observations: ObserverEvent[] = [];
   const deadlines: { timeoutMs: number; controller: AbortController }[] = [];
-  const state = { admitted: true, authority: true, credentialCalls: 0, time: now };
+  const state = { authority: true, credentialCalls: 0, time: now };
   const dependencies: AmazonDependencies = {
-    get admitted() { return state.admitted; },
     configuration: { scope: context.scope, connectionId: "connection", accountId: required.accountId === undefined ? "123" : required.accountId, region: "NA" },
     credentials: { async access() { state.credentialCalls++; required.credentialHook?.(); return { ok: true, value: { accessToken: JSON.stringify(required.credential ?? credential) } }; } },
     createDeadlineSignal: ({ timeoutMs }) => { const controller = new AbortController(); deadlines.push({ timeoutMs, controller }); return controller.signal; },
@@ -34,14 +34,14 @@ export function fixture(required: { credential?: unknown; credentialHook?: () =>
     },
     clock: { now: () => state.time }, observer: { observe(event) { observations.push(event); } },
   };
-  return { adapter: createAmazonAdsAdapter(dependencies), dependencies, state, calls, observations, deadlines };
+  return { capabilities: createCapabilities({ ...dependencies, configuration: pluginConfigurationSchema.parse({ scope: context.scope, connectionId: "connection", accountId: "123", pluginDigest: "a".repeat(64), settings: { version: 1, enabled: false, capabilities: [] } }), wait: async () => ({ ok: true as const, value: undefined }) }), adapter: createAmazonAdsAdapter(dependencies), dependencies, state, calls, observations, deadlines };
 }
 
 /** Independent memory double for the shared account-discovery contract; no HTTP or credentials. */
 export function memoryFixture() {
-  const state = { admitted: true };
-  const adapter: AmazonAdsAdapter = { async invoke(input) {
-    if (!state.admitted) return denial();
+  const state = {};
+  const adapter: AmazonAdsAdapter = {
+    async invoke(input) {
     if (!commandSchema.safeParse(input.command).success) return { ok: false, error: { code: "invalid_input", message: "Fixture input", retryable: false } };
     return { ok: true, value: { operationId: input.operationId, status: "succeeded", observedState: "unknown", data: { items: [{ ...profile, profileId: "123" }], nextToken: null } } };
   } };

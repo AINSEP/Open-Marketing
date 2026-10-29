@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { Outcome } from "@open-marketing/contracts";
+import type { Outcome, ReportMetricsInput } from "@open-marketing/contracts";
 
 const dayMs = 86400000;
 const utcDay = z.number().int().min(Date.UTC(2000, 0, 1)).max(Date.UTC(2100, 0, 1)).refine(value => value % dayMs === 0);
@@ -12,7 +12,11 @@ export const reportCommandSchema = z.strictObject({
   ...pageFields,
 }).refine(value => value.window.end > value.window.start && value.window.end - value.window.start <= 31 * dayMs);
 type ReportCommand = z.output<typeof reportCommandSchema>;
-const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).nullable();
+// The shared exact JSON reader yields metric lexemes. The legacy codec keeps safe numeric
+// output and rejects fractions/exponents before conversion, including rounded-safe decimals.
+const count = z.union([z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  z.string().regex(/^(0|[1-9]\d{0,15})$/).refine(value => Number.isSafeInteger(Number(value))).transform(value => Number(value)),
+]).nullable();
 const rowSchema = z.object({ account_id: z.string().min(1).max(128), campaign_id: z.string().regex(/^[0-9]{1,128}$/).optional(), currency: z.string().regex(/^[A-Z]{3}$/).nullable().optional(), spend: count, impressions: count, clicks: count });
 const reportSchema = z.object({ metrics: z.array(rowSchema).max(100), metrics_updated_at: z.iso.datetime({ offset: true }).optional() });
 /** Source-labelled report; null metrics and empty pages never imply zero spend or completeness. */
@@ -30,6 +34,16 @@ export function encodeReport(required: { command: ReportCommand }): string {
   const { command } = required;
   const breakdowns = command.pivot === "ACCOUNT" ? ["AD_ACCOUNT_ID"] : ["AD_ACCOUNT_ID", "CAMPAIGN_ID"];
   return JSON.stringify({ data: { breakdowns, fields: ["SPEND", "IMPRESSIONS", "CLICKS"], starts_at: new Date(command.window.start).toISOString().replace(".000Z", "Z"), ends_at: new Date(command.window.end).toISOString().replace(".000Z", "Z"), time_zone_id: "UTC" } });
+}
+/** Canonical UTC DAY request; aggregate report encoding above remains unchanged.
+ * @returns Fixed three-field JSON body. O(1) time/space, no effects. */
+export function encodeDailyReport(required: { input: ReportMetricsInput }): string {
+  const { grain, days } = required.input;
+  return JSON.stringify({ data: {
+    breakdowns: [grain === "account" ? "AD_ACCOUNT_ID" : "CAMPAIGN_ID", "DATE"],
+    fields: ["SPEND", "IMPRESSIONS", "CLICKS"], starts_at: days.start + "T00:00:00Z",
+    ends_at: days.end + "T00:00:00Z", time_zone_id: "UTC",
+  } });
 }
 /** Validate a complete page atomically; preserve exact safe microcurrency without summing/FX.
  * @param required - Tainted data plus validated host selection and retrieval clock.

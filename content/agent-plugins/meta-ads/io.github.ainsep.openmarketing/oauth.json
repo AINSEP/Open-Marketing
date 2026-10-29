@@ -6,5 +6,5 @@
     "defaultScopes": ["ads_read", "ads_management", "business_management", "pages_show_list", "pages_read_engagement", "instagram_basic", "instagram_content_publish", "instagram_manage_insights"],
     "usesPkce": false, "clientAuth": "none"
   },
-  "debugTokenEndpoint": "https://graph.facebook.com/v26.0/debug_token"
+  "exchange": { "authorizationScopes": [], "authorizationParams": { "config_id": "configId" } }
 }

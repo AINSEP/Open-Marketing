@@ -37,14 +37,16 @@ async function stop(required: { binding: AccountBinding; transport: GoogleTransp
     execute: () => transmitStop({ transport: required.transport, context: context.value, request: parsed.value }),
   });
 }
-function stopScopeMatches(required: { binding: AccountBinding; context: CallContext; request: HaltStopRequest }): boolean {
+/** Compare only identity/digest fields; halt does not need account metadata. O(1), no effects. */
+export function stopScopeMatches(required: { binding: Pick<AccountBinding, "scope" | "connectionId" | "customerId" | "pluginDigest">; context: CallContext; request: HaltStopRequest }): boolean {
   const { binding, context, request } = required;
   return request.scope.ownerId === binding.scope.ownerId && request.scope.workspaceId === binding.scope.workspaceId
     && context.scope.ownerId === binding.scope.ownerId && context.scope.workspaceId === binding.scope.workspaceId
     && request.adAccountId === binding.customerId && request.connectionId === binding.connectionId
     && request.pluginDigest === binding.pluginDigest && request.bindingId === "google-ads.stop.v1";
 }
-async function transmitStop(required: { transport: GoogleTransportPort; context: CallContext; request: HaltStopRequest }): Promise<Outcome<{ status: "stopped" | "unknown" }>> {
+/** Send status-only PAUSED operations, then read back <=100 IDs; failures remain unknown. */
+export async function transmitStop(required: { transport: GoogleTransportPort; context: CallContext; request: HaltStopRequest }): Promise<Outcome<{ status: "stopped" | "unknown" }>> {
   const { request, context, transport } = required;
   const operations = request.entityIds.map(entityId => ({ campaignOperation: { update: { resourceName: `customers/${request.adAccountId}/campaigns/${entityId}`, status: "PAUSED" }, updateMask: "status" } }));
   const response = await transport.request({ method: "mutate", body: { mutateOperations: operations, partialFailure: false, validateOnly: false }, context, operationId: request.operationId });

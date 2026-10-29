@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { CallContext, CallOptions, EffectEnvelope, ObserverEvent, Outcome } from "@open-marketing/contracts";
+import { pluginConfigurationSchema } from "@open-marketing/contracts";
+import type { PluginCapabilityDependencies, CallContext, CallOptions, EffectEnvelope, ObserverEvent, Outcome } from "@open-marketing/contracts";
 import { invokeXAds } from "../src/index.js";
-import type { XCommand, XDependencies, XResult } from "../src/index.js";
+import type { XCommand, XConfiguration, XDependencies, XResult } from "../src/index.js";
 import type { CampaignTranslationInput, XPausedPlan, XDeploymentReferences } from "../src/index.js";
 
 /** Synthetic secrets and responses only; each fixture owns all mutable state. */
@@ -29,11 +30,11 @@ export interface DispatchHarness {
 export function fixture(required: { response?: () => Response | Promise<Response>; credential?: string; expiresAt?: number; gateway?: XDependencies["gateway"]; timeoutSignal?: XDependencies["timeoutSignal"] } = {}) {
   const calls: DispatchHarness["calls"] = [], credentialCalls: DispatchHarness["credentialCalls"] = [], observations: ObserverEvent[] = [], effects: EffectEnvelope[] = [];
   let admitted = true;
-  const dependencies: XDependencies = {
+  const dependencies: XDependencies & { configuration: XConfiguration } = {
     configuration: { scope: context.scope, connectionId: "connection", accountId: "abc1", currency: "USD", pluginDigest: "a".repeat(64), bindingId: "binding", admitted: true },
     credentials: { async access(input) { credentialCalls.push(input); harness.credentialHook?.(); return { ok: true, value: { accessToken: required.credential ?? JSON.stringify(pasted), expiresAt: required.expiresAt } }; } },
     gateway: required.gateway ?? { async dispatch(input) { effects.push(input.effect); if (!admitted) return { ok: false, error: { code: "forbidden", message: "Fixture admission withdrawn", retryable: false } }; return input.execute(); } },
-    fetch: async (url, init) => { calls.push({ url: String(url), init: init ?? {} }); return required.response ? required.response() : Response.json(accountPage); },
+    fetch: async (url, init) => { if (!admitted) throw new Error("Host denied"); calls.push({ url: String(url), init: init ?? {} }); return required.response ? required.response() : Response.json(accountPage); },
     clock: { now: () => now }, timeoutSignal: required.timeoutSignal ?? (() => new AbortController().signal), ids: { next: () => "nonce" }, observer: { observe: event => observations.push(event) },
   };
   const harness: DispatchHarness = { calls, credentialCalls, observations,
@@ -52,10 +53,10 @@ export function dispatchSuite(required: { name: string; makeFixture: () => Dispa
       expect(f.calls.map(call => [call.url, call.init.method])).toEqual([["https://ads-api.x.com/12/accounts?count=100", "GET"]]);
       expect(f.credentialCalls).toEqual([{ connectionId: "connection", accountId: "abc1" }]);
     });
-    it("admission false prevents credentials and network", async () => {
+    it("host denial prevents network after credential lookup", async () => {
       const f = required.makeFixture(); f.setAdmission({ admitted: false });
       expect(await f.invoke()).toMatchObject({ ok: false, error: { code: "forbidden" } });
-      expect(f.credentialCalls).toEqual([]); expect(f.calls).toEqual([]);
+      expect(f.credentialCalls).toHaveLength(1); expect(f.calls).toEqual([]);
     });
     it("withdrawal during credential resolution prevents network", async () => {
       const f = required.makeFixture(); f.credentialHook = () => f.setAdmission({ admitted: false });
@@ -110,4 +111,55 @@ export function deploymentFixture(required: { response?: (input: { url: URL; met
     return { ok: true, value: undefined };
   }
   return { ...f, journal, rows, checkpoint, plan: pausedPlan(), context, operationId: "deployment", dependencies };
+}
+
+/** Synthetic current-v12 catalog and two-day analytics; unsafe micros are literal JSON
+ * numbers on the wire so precision tests exercise the real HTTP parser, not just strings.
+ */
+export function metricsFixture() {
+  const page = (required: { data: unknown[] }) => ({ request: { params: { account_id: "abc1" } }, next_cursor: null, data: required.data });
+  const state = {
+    time: now,
+    pages: {
+      account: { request: { params: { account_id: "abc1" } }, data: { id: "abc1", timezone: "UTC", timezone_switch_at: "2020-01-01T00:00:00Z" } },
+      campaigns: page({ data: [{ id: "camp1", currency: "USD", deleted: false, entity_status: "ACTIVE", servable: true, reasons_not_servable: [] }] }),
+      line_items: page({ data: [{ id: "line1", campaign_id: "camp1" }] }),
+      promoted_tweets: page({ data: [{ id: "post1", line_item_id: "line1" }] }),
+    } as Record<string, unknown>,
+    metrics: { impressions: [10, null], clicks: [0, 2], billed_charge_local_micro: ["9007199254740993", "0"] } as Record<string, unknown>,
+    placementMetrics: {} as Record<string, Record<string, unknown>>,
+    active: null as Record<string, unknown[]> | null,
+    missingPlacement: "", duplicate: false, foreign: false, wrongEcho: false, dayCount: 2,
+  };
+  const f = fixture({ response: () => {
+    const url = new URL(f.calls.at(-1)!.url), resource = url.pathname.split("/").at(-1)!;
+    if (!url.pathname.includes("/stats/")) return Response.json(state.pages[resource === "abc1" ? "account" : resource]);
+    if (resource === "active_entities") {
+      const entity = url.searchParams.get("entity")!, resource = ({ CAMPAIGN: "campaigns", LINE_ITEM: "line_items", PROMOTED_TWEET: "promoted_tweets" } as Record<string, string>)[entity];
+      const data = state.active?.[entity] ?? (state.pages[resource] as { data: { id: string }[] }).data.map(item => ({ entity_id: item.id, activity_start_time: url.searchParams.get("start_time"), activity_end_time: url.searchParams.get("end_time"), placements: ["ALL_ON_TWITTER", "SPOTLIGHT", "TREND"] }));
+      return Response.json({ data, request: { params: { account_id: "abc1", entity, start_time: url.searchParams.get("start_time"), end_time: url.searchParams.get("end_time") } } });
+    }
+    const query = url.searchParams, entity = query.get("entity"), id = ({ ACCOUNT: "abc1", CAMPAIGN: "camp1", LINE_ITEM: "line1", PROMOTED_TWEET: "post1" } as Record<string, string>)[entity!];
+    const record = { id: state.foreign ? "foreign" : id, id_data: [{ segment: null, metrics: state.placementMetrics[query.get("placement")!] ?? state.metrics }] };
+    const data = state.missingPlacement === query.get("placement") ? [] : state.duplicate ? [record, record] : [record];
+    const body = { data_type: "stats", time_series_length: state.dayCount, data, request: { params: { account_id: "abc1", entity, entity_ids: state.wrongEcho ? ["foreign"] : query.get("entity_ids")!.split(","), granularity: query.get("granularity"), placement: query.get("placement"), start_time: query.get("start_time"), end_time: query.get("end_time"), metric_groups: query.get("metric_groups")!.split(",") } } };
+    return new Response(JSON.stringify(body).replace(/"(900719925474099[0-9](?:\.\d+)?)"/g, "$1"), { status: 200 });
+  } });
+  const dependencies = { ...f.dependencies, clock: { now: () => state.time } };
+  return Object.assign(f, { dependencies, state });
+}
+
+/** Host-shaped effects with cancellable waits; no real timers or network. */
+export function factoryFixture() {
+  const f = metricsFixture();
+  const waits: AbortSignal[] = [];
+  const dependencies: PluginCapabilityDependencies = {
+    ...f.dependencies,
+    configuration: pluginConfigurationSchema.parse({ scope: context.scope, connectionId: "connection", accountId: "abc1", pluginDigest: "a".repeat(64), settings: { currency: "IGNORED" } }),
+    wait: (_input, options) => new Promise(resolve => {
+      const signal = options!.signal!; waits.push(signal);
+      signal.addEventListener("abort", () => resolve({ ok: false, error: { code: "cancelled", message: "Wait cancelled", retryable: false } }), { once: true });
+    }),
+  };
+  return Object.assign(f, { dependencies, waits });
 }

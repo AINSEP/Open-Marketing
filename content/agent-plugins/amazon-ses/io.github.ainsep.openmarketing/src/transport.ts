@@ -149,7 +149,7 @@ function decode(required: { kind: SesCommand["kind"]; configuration: SesConfigur
   }
 }
 /** Fail closed for incomplete/unknown status evidence; does not evaluate marketing consent. */
-function domainReady(required: { data: ReturnType<typeof identitySchema.parse> }): boolean {
+export function domainReady(required: { data: ReturnType<typeof identitySchema.parse> }): boolean {
   const data = required.data;
   return data.IdentityType === "DOMAIN" && data.VerifiedForSendingStatus && data.VerificationStatus === "SUCCESS"
     && data.DkimAttributes?.SigningEnabled === true && data.DkimAttributes.Status === "SUCCESS";

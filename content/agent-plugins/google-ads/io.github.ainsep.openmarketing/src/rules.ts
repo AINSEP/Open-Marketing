@@ -1,8 +1,14 @@
 import { createHash } from "node:crypto";
 import type { EffectEnvelope, Money, Outcome } from "@open-marketing/contracts";
 import { failure, parse, success } from "./schema.ts";
-import { billingSchema } from "./schemas.ts";
+import { billingSchema, campaignDeploymentPlanSchema } from "./schemas.ts";
 import type { AccountBinding, BillingEvidence, Hierarchy, SearchPlan, ToolCall } from "./types.ts";
+
+/** Supported website objectives share one bidding/goal definition for writes and readback. */
+export const objectiveGoal = {
+  leads: { category: "SUBMIT_LEAD_FORM", origin: "WEBSITE", strategy: "MAXIMIZE_CONVERSIONS", field: "maximizeConversions" },
+  sales: { category: "PURCHASE", origin: "WEBSITE", strategy: "MAXIMIZE_CONVERSION_VALUE", field: "maximizeConversionValue" },
+} as const;
 
 /** Canonical digest is key-order independent; callers pass schema-parsed bounded JSON.
  * @complexity O(n log n) for sorted object keys, O(n) space.
@@ -22,20 +28,34 @@ export function operationIdentity(required: { binding: AccountBinding; operation
   const key = digest({ value: { scope: required.binding.scope, connectionId: required.binding.connectionId, customerId: required.binding.customerId, operationId: required.operationId } });
   return { key, marker: "om-" + key };
 }
-/** Validate finite Search-only intent before any vendor request. @complexity O(n), n<=50. */
+/** Validate finite Search-only intent before any vendor request. @complexity O(n), n<=200. */
 export function validatePlan(required: { plan: SearchPlan; binding: AccountBinding }): Outcome<SearchPlan> {
   const { plan, binding } = required;
+  if (!validPlanControls({ plan })) return failure({ code: "invalid_input", message: "Plan requires exclusive geography and objective or manual CPC" });
   if (plan.currency !== binding.currency) return failure({ code: "conflict", message: "Plan currency differs from account currency" });
   if (plan.startsAt >= plan.endsAt || plan.endsAt - plan.startsAt > 90 * 86400000) return failure({ code: "invalid_input", message: "Flight must be finite and at most 90 days" });
   if (plan.startsAt % 1000 || plan.endsAt % 1000) return failure({ code: "invalid_input", message: "Google flight timestamps require whole seconds" });
-  const collections = [plan.headlines, plan.descriptions, plan.geoTargetIds, plan.keywords.map(keyword => keyword.matchType + ":" + keyword.text.toLowerCase())];
+  const ads = [plan, ...(plan.additionalAds ?? [])];
+  const collections = [...ads.flatMap(ad => [ad.headlines, ad.descriptions]), plan.geoTargetIds, plan.keywords.map(keyword => keyword.matchType + ":" + keyword.text.toLowerCase())];
   if (collections.some(values => new Set(values).size !== values.length)) return failure({ code: "invalid_input", message: "Duplicate plan entries" });
   try {
-    const url = new URL(plan.finalUrl);
-    if (url.username || url.password || !url.hostname) return failure({ code: "invalid_input", message: "Invalid final URL" });
+    const urls = ads.map(ad => new URL(ad.finalUrl));
+    if (urls.some(url => url.username || url.password || !url.hostname)) return failure({ code: "invalid_input", message: "Invalid final URL" });
     new Intl.DateTimeFormat("en", { timeZone: binding.timezone });
   } catch { return failure({ code: "invalid_input", message: "Invalid URL or account timezone" }); }
   return success({ value: plan });
+}
+/** Recheck the canonical Zod shape at the plan boundary.
+ * Exactly one positive geography is required, including for legacy create_paused. O(1).
+ */
+function validGeography(required: { plan: SearchPlan }): boolean {
+  const { plan } = required;
+  if ((plan.geoTargetIds.length > 0) === (plan.proximity !== undefined)) return false;
+  return campaignDeploymentPlanSchema.shape.proximity.safeParse(plan.proximity).success;
+}
+/** Exclusive geography and bidding guard legacy calls too; optimized bidding forbids CPC. Pure O(1). */
+function validPlanControls(required: { plan: SearchPlan }): boolean {
+  return validGeography(required) && (required.plan.objective !== undefined) === (required.plan.cpcBidMicros === undefined);
 }
 /** Scope and controlled hierarchy readback, including children; PAUSED is never inferred.
  * @complexity O(n), n<=100. */

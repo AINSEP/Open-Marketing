@@ -63,5 +63,20 @@
     ],
     "retrieval": "2026-10-24 R2F: Quick start, Banner, AdGroup and AdPlans direct web retrieval failed; official searches returned no results. Browser navigation rejected: approval required, approval policy never. Prior blocked pages retained; Package/Currencies URLs remain probes, not verified contracts.",
     "implementation": "R1 read-only boundary unchanged. Public translation/deploy/readback functions return non-retryable unavailable without I/O; deployment admission/cancellation take precedence. The plan schema rejects all payloads; no successful plan/receipt, guessed fields, checkpoint calls, create/readback transport or advertised write capability. Unknown adapter commands remain invalid_input. Guard tests are not lifecycle acceptance."
+  },
+  "canonicalReadReview": {
+    "checkedAt": "2026-10-26",
+    "liveVendorCalls": false,
+    "verified": [],
+    "implemented": [
+      "Canonical report.metrics.v1 and campaign.status.v1 declarations/stubs removed; createCapabilities accepts the host ABI and returns an empty map with zero I/O. Existing account/campaign tools unchanged."
+    ],
+    "unverified": [
+      "Official Statistics documentation remains unreadable; response envelopes, currency units, reporting timezone and rejection mappings remain unresolved. Canonical handlers are not offered."
+    ],
+    "attemptedSources": [
+      "https://ads.vk.ru/en/doc/api/info/Statistics"
+    ],
+    "abi": "createCapabilities(PluginCapabilityDependencies) returns handlers keyed by callable catalog ID; host guarded fetch alone enforces current admission/authority. CallOptions supplies the invocation deadline."
   }
 }

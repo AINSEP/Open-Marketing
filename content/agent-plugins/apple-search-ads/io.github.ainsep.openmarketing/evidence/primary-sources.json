@@ -16,7 +16,7 @@
     {"id": "creative-identity", "url": "https://developer.apple.com/documentation/apple-ads-platform-api/creative", "quote": "adAccountId", "meaning": "Creative result supplies account identity and deleted; require matching ID/account and deleted:false."}
   ],
   "bounds": { "pageRows": 100, "requestBytes": 65536, "responseBytes": 1048576, "timeoutMs": 15000, "retries": 0 },
-  "unsupported": ["Reporting date inclusion/watermarks/freshness/finality/restatements: typed not_implemented before credentials or egress", "Create idempotency, browser OAuth, Apple Maps, keywords, creative creation, activation and conversions"],
-  "integrationNeeds": ["Explicit ad-account reselection and server origin/account binding", "Integrator-owned plugin.json/capabilities.json fingerprints and reporting declarations; keep admission disabled", "Launch-objective compatibility, production metadata, packaging and host acceptance"],
+  "unsupported": ["Reporting date inclusion/watermarks/freshness/finality/restatements: no report command or capability exists", "Create idempotency, browser OAuth, Apple Maps, keywords, creative creation, activation and conversions"],
+  "integrationNeeds": ["Explicit ad-account reselection and server origin/account binding", "Integrator-owned capability declarations once reporting is supported; keep admission disabled", "Launch-objective compatibility, production metadata, packaging and host acceptance"],
   "scope": "Run A only: v1 reads and PAUSED creation/readback, durable checkpoints and GET-only reconciliation; reporting disabled. Fixtures only; tests unrun. No dependencies, contracts or migrations added."
 }

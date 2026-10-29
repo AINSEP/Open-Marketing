@@ -1,3 +1,4 @@
 Open Marketing Meta plugin, AINSEP. Apache-2.0. Agent Plugins format 1.1.0.
 No vendor source code copied. Meta SDK documentation/source informed field naming and normalization; primary-source URLs and limitations are recorded in the namespace evidence directory.
 Meta and Facebook are trademarks of their respective owners. No affiliation or account eligibility is asserted.
+Includes MIT-licensed material adapted from AgriciDaniel/claude-ads; see skills/meta-ads/PROVENANCE.md.

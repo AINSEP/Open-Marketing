@@ -18,14 +18,15 @@ function safetyFixture(required: { amount: number | null }) {
     generation: { request: { ...generation.request, operationId }, quote: { ...generation.quote, quoteId: "quote-" + operationId } },
   }))];
   const timing = { clock: d.clock, ids: d.ids, ownerTimezone: "America/Los_Angeles" };
-  const confirmations = createMemoryConfirmationExchange(timing);
+  const confirmations = createMemoryConfirmationExchange({ ...timing, recordAnswer: async () => ({ ok: true as const, value: undefined }) });
+  const approver = { kind: "local_token" as const, ownerId: d.context.scope.ownerId, deviceId: "fixture-device", tokenId: "fixture-token-reference" };
   const service = createSafetyService({ ...timing, repo: createMemorySafetyRepo(timing), confirmations,
     accountLocks: createMemoryAccountDispatchLock(timing), audit: createMemorySafetyAudit({}), policy: createMemorySpendPolicy({}),
     effects: createMemoryVerifiedEffectResolver({ effects: requests.map(item => ({ scope: d.context.scope, request: item, envelope: item.envelope })),
       quotes: requests.map(item => ({ scope: d.context.scope, ...item.generation!, pluginDigest: item.pluginDigest, schemaFingerprint: item.schemaFingerprint })) }),
     platformLimits: createMemoryPlatformLimitEvidence({}),
   });
-  return { f, request, requests, confirmations, service };
+  return { f, request, requests, confirmations, service, approver };
 }
 
 describe("server allowance authority consumes Higgsfield evidence", () => {
@@ -33,7 +34,7 @@ describe("server allowance authority consumes Higgsfield evidence", () => {
     const f = safetyFixture({ amount: 400 });
     const context = f.f.dependencies.context;
     const card = value({ outcome: await f.service.prepareApproval({ context, request: f.request }) });
-    value({ outcome: await f.confirmations.confirm({ context, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: "always_allow" } }) });
+    value({ outcome: await f.confirmations.confirm({ context, approver: f.approver, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: "always_allow" } }) });
     let egress = 0;
     const dispatch = async () => { egress += 1; return { ok: true as const, value: "fixture" }; };
     for (const request of f.requests.slice(0, 2)) {
@@ -60,7 +61,7 @@ describe("server allowance authority consumes Higgsfield evidence", () => {
     const dispatch = () => { egress += 1; return Promise.resolve({ ok: true as const, value: "fixture" }); };
     expect((await f.service.withDispatch({ context: d.context, request: { ...f.request, approvalId: "forged", policyRevision: 0 }, dispatch })).ok).toBe(false);
     const card = value({ outcome: await f.service.prepareApproval({ context: d.context, request: f.request }) });
-    value({ outcome: await f.confirmations.confirm({ context: d.context, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: "allow" } }) });
+    value({ outcome: await f.confirmations.confirm({ context: d.context, approver: f.approver, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: "allow" } }) });
     expect((await f.service.withDispatch({ context: d.context, request: { ...f.request, approvalId: card.cardId, policyRevision: 0 }, dispatch })).ok).toBe(false);
     expect(egress).toBe(0);
   });
@@ -68,7 +69,7 @@ describe("server allowance authority consumes Higgsfield evidence", () => {
     const f = safetyFixture({ amount: 25 });
     const d = f.f.dependencies;
     const card = value({ outcome: await f.service.prepareApproval({ context: d.context, request: f.request }) });
-    value({ outcome: await f.confirmations.confirm({ context: d.context, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: "always_allow" } }) });
+    value({ outcome: await f.confirmations.confirm({ context: d.context, approver: f.approver, response: { cardId: card.cardId, operationId: card.operationId, argumentsDigest: card.argumentsDigest, choice: "always_allow" } }) });
     let egress = 0;
     const approved = { ...f.request, approvalId: card.cardId, policyRevision: 0 };
     const first = await f.service.withDispatch({ context: d.context, request: approved, dispatch: async input => {

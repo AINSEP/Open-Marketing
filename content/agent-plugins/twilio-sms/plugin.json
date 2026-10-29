@@ -3,47 +3,23 @@
   "name": "twilio-sms",
   "version": "0.1.0",
   "license": "Apache-2.0",
-  "description": "Twilio account, Messaging Service, sender and registration reads. Disabled and unadmitted; sends unavailable in R1.",
+  "description": "Twilio reads, gated recipient delivery and signature-verified STOP/status webhooks. Disabled until server integration.",
   "extensions": {
     "io.github.ainsep.openmarketing": {
+      "credentialAssets": {"io.github.ainsep.openmarketing/assets/icon.svg": "d0923b61f6b5bf7163a0b59742bed6bd71597b4af1c0b562b061b1ef5ec6115f"},
       "version": 1,
       "enabled": false,
       "admitted": false,
       "credentialCards": [
         {
-          "target": "twilio-sms",
-          "title": "Connect Twilio",
-          "saveKind": "agent-plugin-token",
-          "saveTarget": "twilio-sms",
-          "helpUrl": "https://www.twilio.com/console",
-          "helpLabel": "Open Twilio Console",
-          "intro": "Paste an Account SID and API key. Credentials stay on the server. Standard keys cannot read Accounts; other permitted reads remain usable.",
-          "fields": [
-            {
-              "id": "accountSid",
-              "label": "Account SID",
-              "secret": false,
-              "required": true
-            },
-            {
-              "id": "apiKeySid",
-              "label": "API Key SID",
-              "secret": false,
-              "required": true
-            },
-            {
-              "id": "apiKeySecret",
-              "label": "API Key secret",
-              "secret": true,
-              "required": true
-            },
-            {
-              "id": "authToken",
-              "label": "Account Auth Token (webhook verification)",
-              "secret": true,
-              "required": false
-            }
-          ]
+          "target": "twilio-sms", "title": "Twilio SMS", "label": "Save credentials", "category": "Messaging",
+          "intro": "Enter your Account SID, API Key SID and API Key secret. Add the Account Auth Token to verify incoming opt-outs and delivery updates. Saving does not enable delivery.",
+          "usedFor": ["Read account status where key permissions allow", "Read sender and registration status"],
+          "helpUrl": "https://www.twilio.com/docs/iam/api-keys", "helpLabel": "Authentication and setup",
+          "baseUrl": "https://api.twilio.com", "additionalHosts": ["https://messaging.twilio.com"],
+          "saveKind": "app-credentials", "saveTarget": "twilio-sms", "icon": "io.github.ainsep.openmarketing/assets/icon.svg",
+          "fields": [{"name": "webhookUrl", "label": "HTTPS webhook URL", "required": false, "type": "string"}, {"name": "accountSid", "label": "Account SID", "required": true, "type": "string"}, {"name": "apiKeySid", "label": "API Key SID", "required": true, "type": "string"}, {"name": "messagingServiceSid", "label": "Messaging Service SID", "required": false, "type": "string"}, {"name": "phoneNumberSid", "label": "Phone Number SID", "required": false, "type": "string"}, {"name": "brandSid", "label": "Brand Registration SID", "required": false, "type": "string"}, {"name": "campaignSid", "label": "A2P Campaign SID", "required": false, "type": "string"}, {"name": "tollfreeVerificationSid", "label": "Toll-free Verification SID", "required": false, "type": "string"}],
+          "secretFields": [{"name": "apiKeySecret", "label": "API Key secret", "required": true}, {"name": "authToken", "label": "Account Auth Token (webhook signing)", "required": false}]
         }
       ],
       "capabilities": [
@@ -51,7 +27,7 @@
           "capabilityId": "sms.read.v1",
           "version": 1,
           "pluginId": "twilio-sms",
-          "schemaFingerprint": "1e6e2c88b6b3682f733af5f3095099b8adda6d689f7d367dc545df50d3b555c1",
+          "schemaFingerprint": "faebe3e09bac92105b3c5b1a44292b8c071353efe93a243d08672dd680c8df2b",
           "admitted": false,
           "effects": [
             "read"

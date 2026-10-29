@@ -2,3 +2,4 @@ Open Marketing — Snapchat Ads agent plugin
 Copyright Open Marketing contributors.
 Apache-2.0; package/transport/fixture patterns adapted from OM LinkedIn Ads.
 Snapchat is a trademark of Snap Inc. This independent project distributes no vendor SDK or sibling Jini/Tovu source.
+Includes MIT-licensed material adapted from AgriciDaniel/claude-ads; see skills/snapchat-ads/PROVENANCE.md.

@@ -108,7 +108,7 @@ describe("VK unavailable deployment API", () => {
     expect(f.observer.observe).not.toHaveBeenCalled();
   });
 
-  it.each([deployCampaignPaused, readCampaignDeployment])("checks admission first: %s", async operation => {
+  it.each([deployCampaignPaused, readCampaignDeployment])("returns cancellation, else unavailable: %s", async operation => {
     const f = fixture();
     f.state.admitted = false;
     const checkpoint = vi.fn();
@@ -116,8 +116,9 @@ describe("VK unavailable deployment API", () => {
     const controller = new AbortController();
     controller.abort();
     expect(await operation(input, { signal: controller.signal })).toEqual({
-      ok: false, error: { code: "forbidden", message: "VK request forbidden", retryable: false },
+      ok: false, error: { code: "cancelled", message: "VK request cancelled", retryable: false },
     });
+    expect(await operation(input)).toMatchObject({ ok: false, error: { code: "unavailable" } });
     expect(checkpoint).not.toHaveBeenCalled();
     expect(f.credentials.access).not.toHaveBeenCalled();
     expect(f.fetch).not.toHaveBeenCalled();

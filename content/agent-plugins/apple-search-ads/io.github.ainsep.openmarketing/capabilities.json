@@ -1,15 +1,9 @@
 {
   "version": 1, "admitted": false,
-  "capabilities": [
-    {"capabilityId": "campaign.read.v1", "version": 1, "pluginId": "apple-search-ads", "schemaFingerprint": "f7d989b4773f8d74a1e4c2b9c2fed1b4768aa82c4ff302aa231ae4bb4c4579c3", "admitted": false, "effects": ["read"]},
-    {"capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "apple-search-ads", "schemaFingerprint": "f7d989b4773f8d74a1e4c2b9c2fed1b4768aa82c4ff302aa231ae4bb4c4579c3", "admitted": false, "effects": ["read"]},
-    {"capabilityId": "campaign.create-draft.v1", "version": 1, "pluginId": "apple-search-ads", "schemaFingerprint": "0adec0d0a495235cca61763eb4aab15da55a72da76a44c1ad8adbccf62075341", "admitted": false, "effects": ["write"]}
-  ],
+  "capabilities": [],
   "tools": [
-    {"name": "list_accounts", "effects": ["read"], "capabilityId": "campaign.read.v1"},
-    {"name": "list_campaigns", "effects": ["read"], "capabilityId": "campaign.read.v1"},
-    {"name": "report", "effects": ["read"], "capabilityId": "report.account-spend.v1"}
+    {"name": "list_accounts", "effects": ["read"]},
+    {"name": "list_campaigns", "effects": ["read"]}
   ],
-  "deployment": {"capabilityId": "campaign.create-draft.v1", "create": "deployCampaignPaused", "read": "readCampaignDeployment", "planSchema": "campaignDeploymentPlanSchema", "admitted": false},
-  "fingerprintBasis": "SHA-256 of concatenated src/commands.ts + src/reporting.ts + src/transport.ts for reads; src/campaign-translation.ts + src/campaign-deployment.ts for deployment. Compatibility metadata only, never plugin trust or an allowlist."
+  "deployment": {"create": "deployCampaignPaused", "read": "readCampaignDeployment", "planSchema": "campaignDeploymentPlanSchema", "admitted": false}
 }

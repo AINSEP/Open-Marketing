@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { callContextSchema, dailyLimitRequirementSchema, moneyExposureSchema, idSchema, parseBoundary } from "@open-marketing/contracts";
-import type { EffectCategory, Outcome } from "@open-marketing/contracts";
+import { canonicalizeArguments, callContextSchema, dailyLimitRequirementSchema, moneyExposureSchema, idSchema, definePluginTools, parseBoundary } from "@open-marketing/contracts";
+import type { EffectCategory, HaltStopRequest, Outcome } from "@open-marketing/contracts";
 import type { LinkedInWireRequest } from "./wire.js";
 import { encodeLinkedInReport, reportCommandSchema } from "./reporting.js";
 
@@ -55,14 +55,15 @@ export const invocationSchema = z.strictObject({ context: callContextSchema, ope
 export interface LinkedInEncodedCommand { readonly request: LinkedInWireRequest; readonly effect: EffectCategory }
 
 /** One source for schemas consumed by the host's tool catalog; no registration or startup.
- * Zod refinements stay in the adapter boundary; JSON-schema generation is intentionally unnecessary.
+ * Zod refinements stay in the adapter boundary; the fixed ABI derives JSON Schema below.
  * Draft child variants are internal to neutral deployment, not additional standalone tools.
  */
-export const linkedinAdsTools = commandSchema.options.filter(schema => !["create_campaign_draft", "create_creative_draft"].includes(schema.shape.kind.value)).map(schema => ({
+export const { tools, parseTool } = definePluginTools({ tools: commandSchema.options.filter(schema => !["create_campaign_draft", "create_creative_draft"].includes(schema.shape.kind.value)).map(schema => ({
   name: schema.shape.kind.value,
+  description: "LinkedIn " + schema.shape.kind.value,
+  effects: [commandEffect({ kind: schema.shape.kind.value })],
   inputSchema: schema,
-  effect: commandEffect({ kind: schema.shape.kind.value }),
-}));
+})) });
 
 /** Map only documented fields/paths. No egress or arbitrary updater.
  * @param required - Unknown command, server-bound account and currency.
@@ -124,7 +125,7 @@ function mapCommand(required: { command: ParsedCommand; accountId: string }): Li
     case "create_creative_paused": return post({ url: base + "/creatives", body: { campaign: `urn:li:sponsoredCampaign:${command.campaignId}`, content: { reference: command.reference }, intendedStatus: "PAUSED" } });
     case "activate": return patch({ url: entityUrl({ base, entityType: command.entityType, entityId: command.entityId }), fields: command.entityType === "creative" ? { intendedStatus: "ACTIVE" } : { status: "ACTIVE" } });
     case "set_budget": return patch({ url: base + "/adCampaigns/" + command.campaignId, fields: { dailyBudget: command.dailyBudget } });
-    case "pause": return patch({ url: base + "/adCampaigns/" + command.campaignId, fields: { status: "PAUSED" } });
+    case "pause": return pauseRequest({ accountId, campaignId: command.campaignId });
     case "report": return encodeLinkedInReport({ command, accountId });
     case "list_conversion_rules": return { url: "https://api.linkedin.com/rest/conversions?q=account&account=" + encodeURIComponent(account), method: "GET", restliMethod: "FINDER" };
     case "create_conversion_rule": return post({ url: "https://api.linkedin.com/rest/conversions" + (command.autoAssociationType ? "?autoAssociationType=" + command.autoAssociationType : ""), body: { account, name: command.name, type: command.type, conversionMethod: "CONVERSIONS_API", postClickAttributionWindowSize: command.postClickAttributionWindowSize, viewThroughAttributionWindowSize: command.viewThroughAttributionWindowSize, attributionType: command.attributionType } });
@@ -171,3 +172,17 @@ function patch(required: { url: string; fields: object }): LinkedInWireRequest {
  * @complexity O(b) time/space for bounded JSON; object insertion order is retained.
  */
 export function linkedInDigest(required: { value: unknown }): string { return createHash("sha256").update(JSON.stringify(required.value)).digest("hex"); }
+
+/** Closed non-serving campaign patch shared by ordinary pause and the halt worker. O(1).
+ * @example pauseRequest({ accountId: "123", campaignId: "567" }) */
+export function pauseRequest(required: { accountId: string; campaignId: string }): LinkedInWireRequest {
+  return patch({ url: `https://api.linkedin.com/rest/adAccounts/${required.accountId}/adCampaigns/${required.campaignId}`, fields: { status: "PAUSED" } });
+}
+/** Bind stop arguments to safety's canonical bytes; returns typed canonicalization failures.
+ * O(n) time/space, n<=100 entity IDs, no effects.
+ * @example stopArgumentsDigest({ action: "pause", adAccountId: "123", entityIds: ["567"] }) */
+export function stopArgumentsDigest(request: Pick<HaltStopRequest, "action" | "adAccountId" | "entityIds">): Outcome<string> {
+  // Same algorithm as features/safety/src/rules.ts digestArguments.
+  const canonical = canonicalizeArguments({ arguments: { action: request.action, adAccountId: request.adAccountId, entityIds: request.entityIds } });
+  return canonical.ok ? { ok: true, value: createHash("sha256").update(canonical.value).digest("hex") } : canonical;
+}

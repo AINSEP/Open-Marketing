@@ -6,9 +6,23 @@ import { decodeList, encodeCommand, failure, loginSchema, vendorId, yandexDirect
 import type { ParsedCommand, YandexDirectCommand, YandexDirectRequest } from "./commands.js";
 import { decodeReport } from "./reporting.js";
 
-const configurationSchema = z.strictObject({ scope: scopeSchema, connectionId: idSchema, accountId: vendorId.optional(), clientLogin: loginSchema.optional(), currency: z.string().regex(/^[A-Z]{3}$/).optional(), apiVersion: z.literal("v501"), pluginDigest: digestSchema, bindingId: idSchema });
+export const configurationSchema = z.strictObject({ scope: scopeSchema, connectionId: idSchema, accountId: vendorId.optional(), clientLogin: loginSchema.optional(), currency: z.string().regex(/^[A-Z]{3}$/).optional(), apiVersion: z.literal("v501"), pluginDigest: digestSchema, bindingId: idSchema });
 const invocationSchema = z.strictObject({ context: callContextSchema, operationId: idSchema, command: yandexDirectCommandSchema, moneyExposure: z.null(), requiredLimit: z.null() });
-const credentialSchema = z.strictObject({ accessToken: z.string().min(1).max(4096).regex(/^[\x21-\x7e]+$/), expiresAt: epochSchema.optional() });
+export const credentialSchema = z.strictObject({ accessToken: z.string().min(1).max(4096).regex(/^[\x21-\x7e]+$/), expiresAt: epochSchema.optional() });
+const credentialBundle = z.strictObject({ accessToken: credentialSchema.shape.accessToken, clientLogin: loginSchema });
+/** Both read entry points consume the app-credentials bundle, never settings identity.
+ * @returns Validated token/login or a redacted credential/expiry failure. O(b), b<=4096.
+ */
+export function checkCredential(required: { input: unknown; now: number }): Outcome<z.infer<typeof credentialBundle> & Pick<z.infer<typeof credentialSchema>, "expiresAt">> {
+  const envelope = credentialSchema.safeParse(required.input);
+  if (!envelope.success) return failure({ code: "unauthenticated" });
+  if (!epochSchema.safeParse(required.now).success) return failure({ code: "invalid_input" });
+  if (envelope.data.expiresAt !== undefined && envelope.data.expiresAt <= required.now) return failure({ code: "expired" });
+  try {
+    const bundle = credentialBundle.safeParse(JSON.parse(envelope.data.accessToken));
+    return bundle.success ? { ok: true, value: { ...bundle.data, expiresAt: envelope.data.expiresAt } } : failure({ code: "unauthenticated" });
+  } catch { return failure({ code: "unauthenticated" }); }
+}
 /** Host-owned binding. Discovery may omit account; all campaign/report calls require ID/login/currency. */
 export type YandexDirectConfiguration = z.infer<typeof configurationSchema>;
 /** Read-only host invocation; write/spend metadata cannot be supplied. */
@@ -30,14 +44,13 @@ export interface YandexDirectDependencies {
 }
 type Prepared = { configuration: YandexDirectConfiguration; context: CallContext; operationId: string; command: ParsedCommand; request: YandexDirectRequest; effect: EffectEnvelope };
 
-/** No import/factory I/O. Admission is checked before credentials and again at actual egress.
- * @example createYandexDirectAdapter({ configuration, admitted, credentials, gateway, createDeadline, fetch, clock, observer })
+/** No import/factory I/O. The injected host broker, gateway and fetch own admission.
+ * @example createYandexDirectAdapter({ configuration, credentials, gateway, createDeadline, fetch, clock, observer })
  * @complexity O(b+n*m) bounded parsing, <=64KiB input, <=1MiB response, one 15s call. */
 export function createYandexDirectAdapter(required: YandexDirectDependencies): YandexDirectAdapter {
   const dependencies = { ...required, configuration: { ...required.configuration, scope: { ...required.configuration.scope } } };
   return { async invoke(input, options) {
     try {
-      if (!dependencies.admitted()) return failure({ code: "forbidden" });
       if (options?.signal?.aborted) return failure({ code: "cancelled" });
       const prepared = prepare({ input, configuration: dependencies.configuration });
       if (!prepared.ok) return prepared;
@@ -59,7 +72,7 @@ function prepare(required: { input: YandexDirectInvocation; configuration: Yande
   const { context, operationId, command } = invocation.data;
   const config = configuration.data;
   if (context.scope.ownerId !== config.scope.ownerId || context.scope.workspaceId !== config.scope.workspaceId) return failure({ code: "forbidden" });
-  if (command.kind !== "list_accounts" && (!config.accountId || !config.clientLogin || !config.currency)) return failure({ code: "invalid_input" });
+  if (command.kind !== "list_accounts" && (!config.accountId || !config.currency)) return failure({ code: "invalid_input" });
   const request = encodeCommand({ command, clientLogin: config.clientLogin });
   const argumentsDigest = createHash("sha256").update(JSON.stringify({ configuration: config, request })).digest("hex");
   return { ok: true, value: { configuration: config, context, operationId, command, request, effect: { operationId, connectionId: config.connectionId, accountId: config.accountId ?? null, effects: ["read"], argumentsDigest, moneyExposure: null, requiredLimit: null } } };
@@ -79,34 +92,46 @@ async function dispatch(required: { dependencies: YandexDirectDependencies; prep
   const { dependencies, prepared } = required;
   const resolved = await dependencies.credentials.access({ connectionId: prepared.configuration.connectionId, accountId: prepared.configuration.accountId }, optional);
   if (!resolved.ok) return failure({ code: resolved.error.code });
-  const credential = credentialSchema.safeParse(resolved.value);
-  if (!credential.success) return failure({ code: "unauthenticated" });
+  const credential = checkCredential({ input: resolved.value, now: dependencies.clock.now({}) });
+  if (!credential.ok) return credential;
+  const request = encodeCommand({ command: prepared.command, clientLogin: credential.value.clientLogin });
+  const bound = { ...prepared, request: { ...request, headers: { ...request.headers, "Client-Login": credential.value.clientLogin } } };
   let sent = false;
   return dependencies.gateway.dispatch({ context: prepared.context, configuration: structuredClone(prepared.configuration), operation: prepared.command.kind,
-    request: Object.freeze({ ...prepared.request }), effect: structuredClone(prepared.effect), execute: async () => {
+    request: Object.freeze({ ...bound.request }), effect: { ...prepared.effect, argumentsDigest: createHash("sha256").update(JSON.stringify({ configuration: prepared.configuration, request: bound.request })).digest("hex") }, execute: async () => {
       if (sent) return failure({ code: "conflict" });
-      if (!dependencies.admitted()) return failure({ code: "forbidden" });
       if (optional?.signal?.aborted) return failure({ code: "cancelled" });
       const now = dependencies.clock.now({});
       if (!epochSchema.safeParse(now).success) return failure({ code: "invalid_input" });
-      if (credential.data.expiresAt !== undefined && now >= credential.data.expiresAt) return failure({ code: "expired" });
+      if (credential.value.expiresAt !== undefined && credential.value.expiresAt <= now) return failure({ code: "expired" });
       sent = true;
-      return send({ dependencies, prepared, token: credential.data.accessToken }, optional);
+      return send({ dependencies, prepared: bound, token: credential.value.accessToken }, optional);
     } }, optional);
 }
 /** Fixed HTTPS request; redirects forbidden, injected deadline covers fetch and streamed body.
  * Catch only at the external edge; never return tainted vendor text. @complexity O(b), b<=1MiB. */
 async function send(required: { dependencies: YandexDirectDependencies; prepared: Prepared; token: string }, optional?: CallOptions): Promise<Outcome<YandexDirectReadResult>> {
   try {
-    const deadline = required.dependencies.createDeadline({ milliseconds: 15000 });
-    const signal = optional?.signal ? AbortSignal.any([deadline, optional.signal]) : deadline;
-    const request = required.prepared.request;
-    const response = await required.dependencies.fetch(request.url, { method: request.method, body: request.body, headers: { ...request.headers, Authorization: "Bearer " + required.token }, redirect: "error", signal });
-    if (response.status !== 200) { await response.body?.cancel(); return httpFailure({ status: response.status }); }
-    const body = await readBody({ response });
+    const body = await requestYandexRead({ dependencies: required.dependencies, request: required.prepared.request, token: required.token }, optional);
     if (!body.ok) return body;
     const data = decode({ prepared: required.prepared, text: body.value, retrievedAt: required.dependencies.clock.now({}) });
     return data.ok ? { ok: true, value: { operationId: required.prepared.operationId, status: "succeeded", observedState: "unknown", data: data.value } } : data;
+  } catch { return failure({ code: optional?.signal?.aborted ? "cancelled" : "unavailable" }); }
+}
+/** Shared internal HTTP edge for command reads and canonical capabilities. Authority is checked
+ * by the caller after credentials, immediately before entry. One 15s request, <=1MiB, no retries.
+ * @complexity O(b) time/space for b<=1MiB; no provider URLs or errors escape. */
+export async function requestYandexRead(required: { dependencies: Pick<YandexDirectDependencies, "fetch"> & Partial<Pick<YandexDirectDependencies, "createDeadline">>; request: YandexDirectRequest; token: string }, optional?: CallOptions): Promise<Outcome<string>> {
+  if (optional?.signal?.aborted) return failure({ code: "cancelled" });
+  try {
+    const deadline = required.dependencies.createDeadline?.({ milliseconds: 15000 });
+    const signal = optional?.signal && deadline ? AbortSignal.any([deadline, optional.signal]) : optional?.signal ?? deadline;
+    if (!signal) return failure({ code: "invalid_input" });
+    const request = required.request;
+    const response = await required.dependencies.fetch(request.url, { method: request.method, body: request.body, headers: { ...request.headers, Authorization: "Bearer " + required.token }, redirect: "error", signal });
+    if (response.status !== 200) { await response.body?.cancel(); return httpFailure({ status: response.status }); }
+    const body = await readBody({ response });
+    return signal.aborted ? failure({ code: "cancelled" }) : body;
   } catch { return failure({ code: optional?.signal?.aborted ? "cancelled" : "unavailable" }); }
 }
 function httpFailure(required: { status: number }): Outcome<never> {
@@ -119,7 +144,7 @@ function httpFailure(required: { status: number }): Outcome<never> {
 }
 /** Stream cap is authoritative even without Content-Length; cancel immediately on overflow.
  * @complexity O(b) time/space, b<=1MiB; no JSON parsing until bounded. */
-async function readBody(required: { response: Response }): Promise<Outcome<string>> {
+export async function readBody(required: { response: Response }): Promise<Outcome<string>> {
   if (!required.response.body) return failure({ code: "protocol_mismatch" });
   const reader = required.response.body.getReader();
   const chunks: Uint8Array[] = [];

@@ -29,5 +29,30 @@
   "behavior": "R2 explicit-date paused SP hierarchy and saved-reference reconciliation via documented POST-list reads; disabled/unadmitted pending host policy/outbox binding. Neutral epoch/calendar translation returns unavailable before effects because vendor boundaries are unverified. No retries, discovery, continuation or conversions. R1 reporting AccountId header binding remains an admission blocker. Unknown report states/configuration and storage hosts deny. Limits are OM caps, not vendor quotas.",
   "blockedPages": ["https://advertising.amazon.com/API/docs/en-us/reporting-3p", "https://advertising.amazon.com/API/docs/en-us/offline-report-prod-3p", "https://advertising.amazon.com/API/docs/en-us/reference/2/profiles", "https://advertising.amazon.com/API/docs/en-us/sponsored-brands/4-0/openapi", "https://advertising.amazon.com/API/docs/en-us/concepts/rate-limits"],
   "blockedDetails": "Historical blocked URLs retained above. Owner Chrome subsequently resolved auth/profiles/hosts/reporting/rate-limiting documentation (see browserEvidence); legacy rate-limits path is document-not-found, current reference/concepts/rate-limiting rendered. SB creation schemas and campaign calendar semantics remain unresolved. Official GitHub/SP CDN fallback readable via web; shell DNS unavailable. No live vendor API calls.",
-  "browserEvidence": {"capturedAt": "2026-10-24", "artifact": "ADS-memory/.local-artifacts/codex-runs/2026-10-24-plugin-amazon-ads/evidence-chrome.md", "provenance": "Owner Chrome captures of official documentation, binding evidence; not live API acceptance"}
+  "browserEvidence": {"capturedAt": "2026-10-24", "artifact": "ADS-memory/.local-artifacts/codex-runs/2026-10-24-plugin-amazon-ads/evidence-chrome.md", "provenance": "Owner Chrome captures of official documentation, binding evidence; not live API acceptance"},
+  "metricsStatus": {
+  "checkedAt": "2026-10-26",
+  "status": "documentation and synthetic fixtures only; tests written, not run; not production admission",
+  "sources": [
+    {
+      "url": "https://raw.githubusercontent.com/amzn/ads-advanced-tools-docs/main/postman/Amazon_Ads_API.postman_collection.json",
+      "facts": "Reporting v3 is asynchronous; canonical metrics remain omitted pending completed-report selection and verified semantics."
+    },
+    {
+      "url": "https://advertising.amazon.com/API/docs/en-us/guides/campaign-management/global-campaigns",
+      "facts": "Modern delivery state may differ across marketplaces; configured state alone is insufficient."
+    },
+    {
+      "url": "https://developer.amazon.com/docs/login-with-amazon/refresh-token.html",
+      "facts": "Access tokens expire; server refresh uses refresh_token and computes expiry from expires_in. Owner must not type epoch expiry."
+    }
+  ],
+  "supported": [],
+  "abi": "createCapabilities(PluginCapabilityDependencies) accepts shared server configuration and returns an empty object with no credential or network effects. No canonical metrics/status declarations or handlers are shipped.",
+  "ownerSetup": "Unavailable: manual token/expiry card removed. NEEDS server-owned OAuth/refresh and HTTPS callback; calculate expiry from token responses.",
+  "omittedCapabilities": [
+    "report.metrics.v1: completed-report binding and currency/timezone/header semantics unresolved",
+    "campaign.status.v1: effective review/disapproval semantics unresolved"
+  ]
+}
 }

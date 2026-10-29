@@ -72,3 +72,26 @@ R2 TYPECHECK: `corepack pnpm --dir content/agent-plugins/snapchat-ads typecheck`
 R2F: Snap's [Ad Squad Attributes table](https://developers.snap.com/marketing-api/Ads-API/ad-squads) requires `delivery_constraint` and specifies `DAILY_BUDGET` for `daily_budget_micro`; the create example omits it. OM follows the explicit table rather than assuming a default: the reviewed schema, POST and readback require `DAILY_BUDGET`. Earlier frozen plans missing it need preparation/review again; deployment fingerprints are refreshed. An independent synthetic payload assertion plus missing/changed constraint and readback regressions are written, not run. The six existing fault scenarios now use focused object-argument helpers. Official documentation was fetched as text; no Chrome evidence artifact or live vendor validation is claimed. Server policy wiring and production/UI acceptance remain the integrator/DS2 NEEDS above.
 
 R2F TYPECHECK: `corepack pnpm --dir content/agent-plugins/snapchat-ads typecheck` exited 0 on 2026-10-24, exactly one invocation including source and tests. No tests, builds, om:check, installs or live vendor calls were run. Complexity is assessed by inspection only; runtime verification remains deferred to integrator/T1.
+
+Fix wave 2026-10-26: `createCapabilities` uses the contracts host ABI and catalog-keyed handlers;
+canonical reads have no plugin admission/approval ports. Legacy `invoke` remains separate.
+Campaign DAY metrics use one `/adaccounts/{id}/stats?breakdown=campaign` request, parsing the
+account wrapper and nested campaign series. There is no campaign enumeration or nine-campaign cap.
+Response bytes (1MiB), canonical rows (5,000), local-day/DST, identity, duplicates and window checks
+still bound the read. Pagination is incomplete at every consumed level and links are never followed.
+An unpaged empty campaign breakdown is complete response coverage; missing watermarks remain
+zero/stale/provisional. Account spend and campaign purchase values retain native currency micros.
+Requests select 28-day swipe-up, 1-day view and total conversion source. Engaged-view attribution
+uses the vendor default; no undocumented engaged_view_attribution_window is sent or claimed.
+Primary evidence: [Snap measurement](https://developers.snap.com/marketing-api/Ads-API/measurement).
+NEEDS: replace local DST helper when contracts exports zonedMidnight; bounded response reader
+replacement follows Jini 0.6.15. Host wiring and executed test/build acceptance remain integrator work.
+
+Canonical factories parse contracts `pluginConfigurationSchema` with exactly
+`{scope, connectionId, accountId, pluginDigest, settings}`. Install settings cannot provide account
+facts. A bounded [account GET](https://developers.snap.com/marketing-api/Ads-API/ad-accounts)
+supplies validated currency/timezone before local-midnight planning; the broker supplies the token.
+DAY windows above 31 calendar days return `limit_exceeded` before credential or network work,
+following the [measurement limit](https://developers.snap.com/marketing-api/Ads-API/measurement).
+Metrics use two bounded reads (metadata and stats). DST handling and identity versus window errors
+are preserved. Real-factory, account facts, 31/32-day and projection regressions are written, not run.

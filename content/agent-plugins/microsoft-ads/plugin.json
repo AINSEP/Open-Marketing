@@ -3,12 +3,34 @@
   "name": "microsoft-ads", "version": "0.1.0", "license": "Apache-2.0",
   "description": "Microsoft Advertising reads/reporting, server-owned paused Search deployment and narrow offline conversions; disabled until host admission.",
   "extensions": { "io.github.ainsep.openmarketing": {
+      "credentialAssets": {"io.github.ainsep.openmarketing/assets/icon.svg": "b6beb740c0b6ca6c57b5a5e9811e1c2b1f27087abf7bedb7556d22579e273819"},
+      "credentialCards": [
+        {
+          "target": "microsoft-ads", "title": "Microsoft Advertising access token", "label": "Save access token", "category": "Advertising",
+          "intro": "Obtain an OAuth access token outside OM. Microsoft Advertising also requires a developer token; saving this access token alone is insufficient. Saving does not verify access or enable the plugin.",
+          "usedFor": ["Read accounts and campaigns", "Read supported spend reports"],
+          "helpUrl": "https://learn.microsoft.com/en-us/advertising/guides/authentication-oauth-quick-start?view=bingads-13", "helpLabel": "Authentication and setup",
+          "baseUrl": "https://clientcenter.api.bingads.microsoft.com", "additionalHosts": ["https://campaign.api.bingads.microsoft.com", "https://reporting.api.bingads.microsoft.com"],
+          "saveKind": "api-key", "saveTarget": "microsoft-ads", "icon": "io.github.ainsep.openmarketing/assets/icon.svg",
+          "secretFields": [{"name": "token", "label": "OAuth access token", "required": true}]
+        },
+        {
+          "target": "microsoft-ads-developer-token", "title": "Microsoft Advertising developer token", "label": "Save developer token", "category": "Advertising",
+          "intro": "The developer token is saved server-side and is required alongside the OAuth access token.",
+          "usedFor": ["Configure the required Microsoft Advertising developer token"],
+          "helpUrl": "https://learn.microsoft.com/en-us/advertising/guides/authentication-oauth-quick-start?view=bingads-13", "helpLabel": "Authentication and setup",
+          "baseUrl": "https://clientcenter.api.bingads.microsoft.com",
+          "saveKind": "plugin-secret", "saveTarget": "microsoft-ads", "icon": "io.github.ainsep.openmarketing/assets/icon.svg",
+          "secretFields": [{"name": "developerToken", "label": "Developer token", "required": true}]
+        }
+      ],
     "version": 1, "enabled": false, "admitted": false,
     "capabilities": [
-      {"capabilityId": "campaign.read.v1", "version": 1, "pluginId": "microsoft-ads", "schemaFingerprint": "6da851324f9afe45cacfe09f9321476bdc00dc745d927f4f5e95874c5a99c677", "admitted": false, "effects": ["read"]},
-      {"capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "microsoft-ads", "schemaFingerprint": "6f68d9cba0cd95f696a02c715fce132ff48f95db6aec187987551ad2e1e61aa6", "admitted": false, "effects": ["read"]},
+      {"capabilityId": "campaign.read.v1", "version": 1, "pluginId": "microsoft-ads", "schemaFingerprint": "1abd16e62d89486521ea5167c895e71ddcc8b40f35d07d54b788260cbd1e6512", "admitted": false, "effects": ["read"]},
+      {"capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "microsoft-ads", "schemaFingerprint": "e6d41f64eeea8f436cf7218d4e599e94bb99b9154f73a7d5e1c49f668aa73c70", "admitted": false, "effects": ["read"]},
+      {"capabilityId": "report.metrics.v1", "version": 1, "pluginId": "microsoft-ads", "schemaFingerprint": "e6d41f64eeea8f436cf7218d4e599e94bb99b9154f73a7d5e1c49f668aa73c70", "admitted": false, "effects": ["read"]},
       {"capabilityId": "campaign.create-paused.v1", "version": 1, "pluginId": "microsoft-ads", "schemaFingerprint": "ffb393f0127cdb6bd459fde81c366806f9894f9945258bda217566a2e1707fc1", "admitted": false, "effects": ["write"]},
-      {"capabilityId": "conversion.deliver.v1", "version": 1, "pluginId": "microsoft-ads", "schemaFingerprint": "af2b15a29b179bd5fdb5a32261e1af1127362e8f70cccf098c80bf58ad521be8", "admitted": false, "effects": ["conversion"]}
+      {"capabilityId": "conversion.deliver.v1", "version": 1, "pluginId": "microsoft-ads", "schemaFingerprint": "814c9e8550de9e59d2069bcca77ff6393d0114205528fa916a705e5d23bfb6a0", "admitted": false, "effects": ["conversion"]}
     ]
   } }
 }

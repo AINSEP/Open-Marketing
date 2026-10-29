@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "minimumNode": "24.2.0",
+  "defaultAdmission": "disabled",
+  "hostEntry": "./src/index.ts",
+  "stdioDefault": "unavailable; server-owned binding and credential composition required",
+  "fixtureFlag": "--fixture",
+  "apis": ["Business Information v1", "Business Profile Performance v1", "Business Profile API v4 (localPosts.create)"],
+  "auth": "server-owned OAuth authorization code; business.manage",
+  "backendOnly": ["report.metrics.v1"],
+  "writes": "organic.publish.v1 (one STANDARD text Update per owner-approved call)"
+}

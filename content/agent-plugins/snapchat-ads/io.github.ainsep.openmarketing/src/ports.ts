@@ -1,4 +1,4 @@
-import type { CallContext, CallOptions, ClockPort, EffectEnvelope, ObserverPort, Outcome, Scope } from "@open-marketing/contracts";
+import type { PluginCapability, CallContext, CallOptions, ClockPort, EffectEnvelope, ObserverPort, Outcome, Scope } from "@open-marketing/contracts";
 import type { SnapchatCommand } from "./commands.js";
 import type { SnapchatCapiConfiguration, SnapchatCapiRequest, SnapchatCapiPayload, SnapchatConversionOutcome } from "./capi.js";
 
@@ -23,18 +23,18 @@ export interface SnapchatWireRequest { readonly url: string; readonly method: "G
  * Hold the existing fence through execute. Reads do not claim another outbox job or approval.
  * execute's zero-argument callback follows LinkedIn's host ABI and the shared acceptance suite. */
 export interface SnapchatGatewayPort {
-  dispatch(required: { context: CallContext; configuration: SnapchatConfiguration; operation: SnapchatCommand["kind"]; request: SnapchatWireRequest; effect: EffectEnvelope; execute: () => Promise<Outcome<SnapchatResult>> }, optional?: CallOptions): Promise<Outcome<SnapchatResult>>;
+  dispatch(required: { context: Parameters<PluginCapability>[0]["context"]; configuration: SnapchatConfiguration; operation: SnapchatCommand["kind"]; request: SnapchatWireRequest; effect: EffectEnvelope; execute: () => Promise<Outcome<SnapchatResult>> }, optional?: CallOptions): Promise<Outcome<SnapchatResult>>;
 }
 /** Projected provider data; succeeded never asserts a serving state. */
 export interface SnapchatResult { readonly operationId: string; readonly status: "succeeded"; readonly observedState: "unknown"; readonly data: unknown }
 /** Host-owned context/operation identity, separate from assistant command arguments. */
 export interface SnapchatInvocation { readonly context: CallContext; readonly operationId: string; readonly command: SnapchatCommand }
 /** Inert, read-only adapter; campaign reports use an ownership GET before the stats GET. */
-export interface SnapchatAdsAdapter { invoke(required: SnapchatInvocation, optional?: CallOptions): Promise<Outcome<SnapchatResult>> }
+export interface SnapchatAdsAdapter {
+  invoke(required: SnapchatInvocation, optional?: CallOptions): Promise<Outcome<SnapchatResult>> }
 /** No dependencies are constructed here. fetch uses the documented Node/browser callback ABI. */
 export interface SnapchatDependencies {
   readonly configuration: SnapchatConfiguration;
-  readonly admitted: boolean;
   readonly credentials: SnapchatCredentialPort;
   readonly gateway: SnapchatGatewayPort;
   readonly fetch: typeof fetch;
@@ -61,5 +61,5 @@ export interface SnapchatConversionAuthorityPort {
     execute: (fence: { isCurrent: () => boolean }) => Promise<Outcome<SnapchatConversionOutcome>> }, optional?: CallOptions): Promise<Outcome<SnapchatConversionOutcome>>;
 }
 /** Inert server-only backend; suitable Pixel credentials are resolved by the server broker. */
-export type SnapchatCapiDependencies = Pick<SnapchatDependencies, "admitted" | "credentials" | "fetch" | "clock" | "observer"> & {
+export type SnapchatCapiDependencies = Pick<SnapchatDependencies, "credentials" | "fetch" | "clock" | "observer"> & {
   configuration: SnapchatCapiConfiguration; authority: SnapchatConversionAuthorityPort };

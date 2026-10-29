@@ -1,0 +1,15 @@
+{
+  "name": "@open-marketing/plugin-google-business-profile",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": "24.2.0" },
+  "exports": { ".": "./io.github.ainsep.openmarketing/src/index.ts" },
+  "dependencies": { "@jini-ai/mcp": "0.6.15-rc.2", "@modelcontextprotocol/sdk": "1.32.1", "zod": "4.1.13" },
+  "devDependencies": { "@open-marketing/contracts": "workspace:*" },
+  "scripts": {
+    "build": "esbuild io.github.ainsep.openmarketing/src/index.ts --bundle --platform=node --format=esm --outfile=io.github.ainsep.openmarketing/dist/index.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test io.github.ainsep.openmarketing/tests/*.test.ts"
+  }
+}

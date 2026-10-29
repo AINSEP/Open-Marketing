@@ -6,19 +6,23 @@ import { decodeAccount, decodeCampaignPage } from "../src/reporting.js";
 import { account, campaignPage, fixture, invocation, report, retrievedAt } from "./fixtures.js";
 
 describe("VK read dispatch boundary", () => {
-  it("keeps factory and unadmitted calls free of all I/O", async () => {
+  it("uses host effects for admission and still verifies the token account", async () => {
+    const f = fixture();
+    expect(await createVkAdsAdapter({ ...f.dependencies, admitted: false }).invoke(invocation())).toMatchObject({ ok: true });
+    expect(f.fetch.mock.calls.map(call => new URL(String(call[0])).pathname)).toEqual(["/api/v3/user.json", "/api/v2/ad_plans.json"]);
+  });
+  it("keeps construction inert and honors host credential denial", async () => {
     const f = fixture();
     expect(f.fetch).not.toHaveBeenCalled();
-    f.setCredential({ clientId: "fixture-client", clientSecret: "SYNTHETIC_CLIENT", token: null });
     f.state.admitted = false;
-    for (const command of [{ kind: "list_accounts" } as const, { kind: "list_campaigns" } as const, report]) {
+    for (const command of [{ kind: "list_accounts" } as const, { kind: "list_campaigns" } as const]) {
       expect(await f.adapter.invoke(invocation({ command }))).toMatchObject({ ok: false, error: { code: "forbidden", retryable: false } });
     }
-    expect(f.credentials.access).not.toHaveBeenCalled();
+    expect(f.credentials.access).toHaveBeenCalledTimes(2);
     expect(f.fetch).not.toHaveBeenCalled();
     expect(f.clock.now).not.toHaveBeenCalled();
-    expect(f.observer.observe).not.toHaveBeenCalled();
-    expect(f.deadline).not.toHaveBeenCalled();
+    expect(f.observer.observe).toHaveBeenCalledTimes(2);
+    expect(f.deadline).toHaveBeenCalledTimes(2);
     expect(vkAdsTools.map(tool => tool.name)).toEqual(["list_accounts", "list_campaigns"]);
   });
   it("discovers only the token account and verifies identity before one campaign page", async () => {
@@ -101,8 +105,8 @@ describe("VK read dispatch boundary", () => {
     expect(await f.adapter.invoke(invocation())).toMatchObject({ ok: false, error: { code: "unavailable" } });
     expect(f.fetch).not.toHaveBeenCalled();
     const revoked = fixture(); revoked.credentials.access.mockImplementation(async () => { revoked.state.admitted = false; return { ok: true, value: { accessToken: "SYNTHETIC_SECRET" } }; });
-    expect(await revoked.adapter.invoke(invocation())).toMatchObject({ ok: false, error: { code: "forbidden" } });
-    expect(revoked.fetch).not.toHaveBeenCalled();
+    expect(await revoked.adapter.invoke(invocation())).toMatchObject({ ok: false, error: { code: "unavailable" } });
+    expect(revoked.fetch).toHaveBeenCalledTimes(1);
   });
   it("uses stored tokens concurrently and accepts a rotated token without stale Bearers", async () => {
     const f = fixture();

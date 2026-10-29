@@ -49,7 +49,7 @@ export function pendingBody() {
  * Server consumer: apps/server/tests/agent-plugin-backends.test.ts (integrator-owned, pending).
  */
 export function fixture(required: FixtureOptions = {}) {
-  const configuration = { scope: context.scope, connectionId: "connection", accountId: "123" as string | null, admitted: true, ...required.configuration };
+  const configuration = { scope: context.scope, connectionId: "connection", accountId: "123" as string | null, ...required.configuration };
   const calls: { url: string; init: RequestInit }[] = [];
   const credentialCalls: { connectionId: string; accountId: string | null }[] = [];
   const observations: ObserverEvent[] = [];

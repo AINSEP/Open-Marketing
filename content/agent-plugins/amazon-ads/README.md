@@ -1,12 +1,10 @@
 # Amazon Ads — R1/R2
 
-Server-only portable plugin, disabled/unadmitted by default. After the integrator wires it,
-use OM's existing owner connection ingress to paste ONE sealed JSON value:
-`{"clientId":"your-approved-app","accessToken":"your-token","expiresAt":1792886400000,"region":"NA"}`.
-`expiresAt` is epoch milliseconds calculated from the returned OAuth expiry, never a fixed lifetime.
-Choose NA/EU/FE explicitly. Tokens stay on the server. Reconnect on expiry or rejection.
-Amazon app approval and the `advertising::campaign_management` grant are prerequisites.
-Amazon requires HTTPS redirects (binding browser evidence): paste-token only, no OAuth descriptor.
+Server-only portable plugin, disabled/unadmitted by default. Owner connection setup is unavailable.
+NEEDS: server-owned Amazon OAuth/refresh with an HTTPS callback, app approval and the
+`advertising::campaign_management` grant. Calculate token expiry from OAuth responses and keep
+tokens on the server. The manual short-lived token/epoch-expiry card has been withdrawn.
+The legacy sealed credential parser remains for host fixtures; it is not an owner setup flow.
 
 Accounts are Amazon profiles. Only `list_accounts` accepts a null configured profile.
 `list_campaigns` takes `adProduct: "SP" | "SB"`, `maxResults` (1–100), and optional `nextToken`;
@@ -63,3 +61,12 @@ Owner Chrome evidence confirms HTTPS-only redirects and reporting v3 deprecation
 Reporting also requires `Amazon-Ads-AccountId`; its acquisition and host binding remain unresolved
 in R1 and block admission. Do not equate this header with a profile ID or guess a value.
 No server/studio/root files changed; no migration or shared contract changes.
+
+Fix wave 2026-10-26: `createCapabilities({fetch,credentials,clock,observer,wait,configuration})`
+accepts the shared server ABI and returns `{}` without credentials or network work. Canonical
+`report.metrics.v1` and `campaign.status.v1` declarations and stub handlers are removed, so the
+server does not offer reads that always fail. Legacy adapters are unchanged. Completed-report
+selection and effective status evidence remain prerequisites for future canonical implementations.
+OAuth/refresh remains deferred: the manual token/expiry card stays withdrawn. See
+[Amazon authorization](https://advertising.amazon.com/API/docs/en-us/guides/account-management/authorization/authorization-grants)
+and [refresh tokens](https://developer.amazon.com/docs/login-with-amazon/refresh-token.html).

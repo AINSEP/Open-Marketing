@@ -50,5 +50,39 @@
       ],
       "verificationLimits": "Synthetic unavailable-API tests only; no successful creates, uncertain-create retention, checkpoint ordering, matching readback or GET reconciliation proven; no live account calls"
     }
-  }
+  },
+  "metricsStatus": {
+  "checkedAt": "2026-10-26",
+  "status": "documentation and synthetic fixtures only; tests written, not run; not production admission",
+  "sources": [
+    {
+      "url": "https://ads-api.reddit.com/docs/v3/api/get-a-report",
+      "facts": "Rechecked 2026-10-26: reporting defaults to UTC; SPEND is microcurrency; delivery history is 24 months and historical values can change. The extracted official page omits detailed response controls."
+    },
+    {
+      "url": "https://raw.githubusercontent.com/airbytehq/airbyte/master/airbyte-integrations/connectors/source-reddit-ads/manifest.yaml",
+      "facts": "Connector source verifies account/date and campaign/date breakdowns, data.metrics extraction, and truncating the date string to its first ten characters. Used as wire-shape evidence, not vendor acceptance."
+    },
+    {
+      "url": "https://ads-api.reddit.com/docs/v3/api/get-ad-account",
+      "facts": "GET /ad_accounts/{ad_account_id} supplies account identity and currency in data; conflicting report currency/account facts are rejected."
+    },
+    {
+      "url": "https://ads-api.reddit.com/docs/v3/api/get-campaign",
+      "facts": "GET campaigns/{id} returns data with account identity, configured_status and effective_status. REJECTED maps to disapproved; billing/unknown effective states never fall back to configured ACTIVE."
+    }
+  ],
+  "supported": [
+    "UTC account/campaign daily spend, impressions and clicks; exact integer strings, zero and null preserved",
+    "Bounded owned-campaign effective status, at most ten sequential reads"
+  ],
+  "notImplemented": [
+    "Vendor rejection-description field unavailable; descriptions stay empty",
+    "Ad-group/ad daily grains and conversion metrics are not declared"
+  ],
+  "retrievalLimits": "Official reporting prose and Airbyte connector source were readable via web on 2026-10-26. DATE wire decoding is implemented; full vendor schema controls and live account acceptance remain unverified. No live API calls.",
+  "abi": "createCapabilities(PluginCapabilityDependencies) returns catalog-ID handlers; only server invoker owns admission/approval. No plugin authority ports.",
+  "limits": "At most 31 UTC days, 50 report POSTs and 5,000 retained rows, plus one account metadata GET; each request <=15s/1MiB. Validated next_url tokens are followed on reconstructed fixed account URLs with the same POST body. Request/row truncation makes complete:false. Exclusive-end rows are validated then filtered. Unknown processing coverage stays dataThrough:0, stale/provisional; no retries or invented zeros.",
+  "configuration": "Shared pluginConfigurationSchema: {scope,connectionId,accountId,pluginDigest,settings}; settings is install metadata, not account facts. Currency comes from account GET, timezone is explicit report UTC, token from credentials.access."
+}
 }

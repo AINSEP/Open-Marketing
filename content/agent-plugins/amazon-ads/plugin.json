@@ -6,6 +6,7 @@
   "license": "Apache-2.0",
   "extensions": {
     "io.github.ainsep.openmarketing": {
+      "credentialAssets": {"io.github.ainsep.openmarketing/assets/icon.svg": "19cefcdba24b8a405bfe1e5e854bc3b6951dccc6a664778c438e7239a992d908"},
       "version": 1,
       "enabled": false,
       "admitted": false,
@@ -44,7 +45,7 @@
           "capabilityId": "campaign.create-draft.v1",
           "version": 1,
           "pluginId": "amazon-ads",
-          "schemaFingerprint": "5a5e3a10fec103d623fcfc1589bc865740eb65c21a64607a28c64cc4c21622df",
+          "schemaFingerprint": "6edcd35d983f6649c3e41dff1524d8340216f160b36ad46d35ea15aaea50f132",
           "admitted": false,
           "effects": [
             "write"

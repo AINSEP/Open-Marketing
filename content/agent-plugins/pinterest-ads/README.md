@@ -3,7 +3,7 @@
 Server-loaded, inert Agent Plugins 1.1.0 package. Once the integrator registers it, ask OM to list Pinterest accounts/campaigns. Reports return `unavailable` until vendor date semantics are verified. Ships disabled/unadmitted; no services start on import.
 Use the server paste-token connection path with `ads:read`. The broker owns scopes, expiry and refresh; no credentials enter agent config, results or telemetry. OAuth sign-in is unavailable pending O2 callback/host verification. No oauth.json is advertised.
 Public entry: `io.github.ainsep.openmarketing/src/index.ts`. Example: `createPinterestAdsAdapter({configuration, admitted, gateway, credentials, fetch: serverFetch, deadline: ({timeoutMs}) => AbortSignal.timeout(timeoutMs), clock, observer}).invoke({context, operationId, command: {kind: "list_accounts"}})`.
-Configuration: scope, connectionId, accountId/currency (nullable for discovery), apiVersion `v5`, pluginDigest, bindingId. The gateway receives context/configuration/operation/request/effect/execute, rechecks admission and binding after credential lookup, and owns policy, stable operation identity and durable audit. Guarded fetch rechecks current authority at egress. Null account is allowed only for list_accounts.
+Legacy adapter configuration: scope, connectionId, accountId/currency (nullable for discovery), apiVersion `v5`, pluginDigest, bindingId. The gateway receives context/configuration/operation/request/effect/execute, rechecks admission and binding after credential lookup, and owns policy, stable operation identity and durable audit. Guarded fetch rechecks current authority at egress. Null account is allowed only for list_accounts.
 Commands: list_accounts/list_campaigns accept pageSize<=100 and pageToken; return nextPageToken without following it. The reserved report schema accepts level ACCOUNT or CAMPAIGN, startDate/endDate YYYY-MM-DD, and 1–100 unique campaignIds only for CAMPAIGN. **All schema-valid reports within local caps return `unavailable` before credentials, gateway or fetch; end-date inclusivity and exact vendor window boundaries remain unverified.** Dormant decoder fixtures do not establish vendor semantics. Timestamp/non-UTC inputs are invalid.
 OM bounds: 64KiB input, 1MiB streamed response, injected 15s deadline including body, one request, no redirects/retries; local report validation caps candidate UTC dates at 90 and lookback at 90 days without enabling reporting. Schema/precision/foreign/duplicate failures reject the entire page. Read-only capability fingerprints describe source compatibility, never trust restrictions.
 R2 adds `translateCampaign`, `campaignDeploymentPlanSchema`, `deployCampaignPaused` and `readCampaignDeployment`. Translation accepts one traffic creative resolved to an existing Pin, account currency/exponent/timezone and explicit manual CPC `unitCost`. It produces one CONSIDERATION campaign → ad group → REGULAR ad, all explicitly PAUSED, campaign fixed daily micros/finite second-precision schedule, country-only LOCATION arrays, automatic targeting and Performance+ disabled. Unknown/unsupported shapes are typed denials before any network. Exact readback compares each encoded field before creating children; vendor defaults that change consumed configuration are not normalized or inferred.
@@ -16,3 +16,22 @@ Official country encoding evidence: [targeting guide](https://developers.pintere
 
 Deferred: integrator catalog + explicit Pinterest invocation/deployment/readback/conversion branches, null-account discovery, `om:build-plugins`, account-bound conversion selection and real-host suite registration; O2 OAuth; DS2 UI and HTTP/CLI/MCP parity. Production launch remains unavailable until scoped account/timezone/creative/Pin evidence replaces sandbox preparation. No shared files, dependencies or migrations changed. Fixtures prove neither live acceptance nor production readiness. TestRunner owns execution/build/om:check; R2 permits one lane typecheck only. `conversionAuthoritySuite` and the existing `dispatchSuite` must run against the real host with synthetic vendor transport.
 Reuse: existing OM contracts and Zod; LinkedIn supplied the approved adapter/layout pattern. Pinterest REST codecs remain plugin-owned; no sibling source imports, vendor SDK, Jini dependency, registry, outbox or approval flow. License is the repository-standard Apache-2.0 text; no vendor code copied.
+
+Fix wave 2026-10-26: the canonical `createCapabilities` factory accepts the contracts host ABI
+and returns handlers keyed by `report.metrics.v1` and `campaign.status.v1`. The server invoker
+owns admission; injected fetch enforces current authority at every egress. Legacy `invoke` is unchanged.
+Canonical account DAY analytics use default UTC for all account timezones (no reporting_timezone).
+Recent closed UTC windows are bounded to 90-day history; unsupported history/future returns
+`limit_exceeded`. Complete response coverage includes a valid empty response, independently of
+unknown processing freshness (`dataThrough:0`, stale, provisional). Conversion counts use shared
+exact decimal scaling. Unsupported campaign/ad-group/ad grains remain typed `not_implemented`.
+Status requests use `campaign_ids`; optional/null rejection arrays are empty. `summary_status`
+takes precedence: RUNNING active, PAUSED paused, NOT_STARTED/DRAFT pending, COMPLETED/ARCHIVED/
+DELETED_DRAFT ended; disabled/future states unknown. Child ownership/duplicate checks remain.
+Primary evidence: [Pinterest OpenAPI](https://raw.githubusercontent.com/pinterest/api-description/main/v5/openapi.yaml).
+
+Canonical factories parse contracts `pluginConfigurationSchema` with exactly
+`{scope, connectionId, accountId, pluginDigest, settings}`. Settings contain install metadata;
+no configured currency, timezone, API version or binding ID is required for canonical reads.
+The account GET supplies validated account identity/currency; analytics explicitly retain UTC.
+Real-factory and foreign/malformed account regressions are written, not run.

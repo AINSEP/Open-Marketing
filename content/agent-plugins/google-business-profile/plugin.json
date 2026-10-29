@@ -1,0 +1,100 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "google-business-profile",
+  "version": "0.1.0",
+  "description": "Scoped location and daily performance reads, plus owner-approved text Updates. Disabled pending host admission.",
+  "license": "Apache-2.0",
+  "extensions": {
+    "io.github.ainsep.openmarketing": {
+      "version": 1,
+      "enabled": false,
+      "admitted": false,
+      "credentialCards": [
+        {
+          "target": "google-business-profile",
+          "title": "Google Business Profile",
+          "label": "Connect Google Business Profile",
+          "category": "Business",
+          "intro": "Use an approved Google Cloud project and sign in as an owner or manager of the profile.",
+          "usedFor": [
+            "List accessible locations",
+            "Read call-button clicks, website clicks, direction requests and profile impressions",
+            "Publish owner-approved text updates"
+          ],
+          "helpUrl": "https://developers.google.com/my-business/content/prereqs",
+          "helpLabel": "API approval and setup",
+          "baseUrl": "https://mybusinessbusinessinformation.googleapis.com",
+          "additionalHosts": [
+            "https://businessprofileperformance.googleapis.com",
+            "https://mybusiness.googleapis.com"
+          ],
+          "saveKind": "oauth",
+          "saveTarget": "google-business-profile",
+          "permissions": [
+            "Business Profile access (business.manage); native reads and owner-approved text Updates"
+          ]
+        },
+        {
+          "target": "google-business-profile-client",
+          "title": "Google OAuth app",
+          "label": "Save app configuration",
+          "category": "Business",
+          "intro": "Configure the server-owned OAuth client after Google approves the project for GBP API access.",
+          "usedFor": [
+            "Configure Google sign-in"
+          ],
+          "helpUrl": "https://developers.google.com/my-business/content/basic-setup",
+          "helpLabel": "OAuth setup",
+          "baseUrl": "https://mybusinessbusinessinformation.googleapis.com",
+          "saveKind": "oauth-client",
+          "saveTarget": "google-business-profile",
+          "fields": [
+            {
+              "name": "clientId",
+              "label": "Client ID",
+              "required": true
+            }
+          ],
+          "secretFields": [
+            {
+              "name": "clientSecret",
+              "label": "Client secret",
+              "required": true
+            }
+          ]
+        }
+      ],
+      "servers": {
+        "google-business-profile": {
+          "authMode": "host",
+          "defaultTools": {
+            "discover": [
+              "list_locations",
+              "read_performance"
+            ]
+          },
+          "riskHints": {
+            "list_locations": [
+              "read"
+            ],
+            "read_performance": [
+              "read"
+            ]
+          }
+        }
+      },
+      "capabilities": [
+        {
+          "capabilityId": "organic.publish.v1",
+          "version": 1,
+          "pluginId": "google-business-profile",
+          "schemaFingerprint": "f30eb2152e97612246f454e09ca5db58fcb688a115c9c51386447983c67f0432",
+          "admitted": false,
+          "effects": [
+            "write"
+          ]
+        }
+      ]
+    }
+  }
+}

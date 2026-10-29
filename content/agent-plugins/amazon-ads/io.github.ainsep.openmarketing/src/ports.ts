@@ -9,10 +9,9 @@ export interface AmazonCredentialPort {
 }
 /** No policy gateway here: composition supplies fetch guarded by current host authority on EVERY
  * request, including report storage. Report requests must already be claimed in the ONE outbox.
- * admitted is checked before credentials and after awaits; imports/factories perform no I/O.
+ * Imports/factories perform no I/O.
  */
 export interface AmazonDependencies {
-  readonly admitted: boolean;
   readonly configuration: AmazonConfiguration;
   readonly credentials: AmazonCredentialPort;
   readonly fetch: typeof fetch;
@@ -26,7 +25,8 @@ export interface AmazonResult { readonly operationId: string; readonly status: "
 /** Host supplies context and operation identity; credentials and profile are never tool arguments. */
 export interface AmazonInvocation { readonly context: CallContext; readonly operationId: string; readonly command: AmazonCommand }
 /** Sole callable adapter boundary, fixture and production implementations share this shape. */
-export interface AmazonAdsAdapter { invoke(required: AmazonInvocation, optional?: CallOptions): Promise<Outcome<AmazonResult>> }
+export interface AmazonAdsAdapter {
+  invoke(required: AmazonInvocation, optional?: CallOptions): Promise<Outcome<AmazonResult>> }
 /** Internal redacted failures; never include provider bodies, secrets or signed locations. */
 export function failure(required: { code: AppError["code"] }): Outcome<never> {
   return { ok: false, error: { code: required.code, message: "Amazon Ads: " + required.code + (["expired", "unauthenticated"].includes(required.code) ? "; reconnect with current sealed credentials" : ""), retryable: false } };

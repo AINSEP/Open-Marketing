@@ -1,14 +1,17 @@
 import { describe, expect, it } from "vitest";
-import type { LinkedInCapiRequest, LinkedInCapiConfiguration } from "../src/index.js";
+import type { LinkedInCapiRequest } from "../src/index.js";
 import { capiConfiguration, capiFixture, conversionInput, now } from "./fixtures.js";
 import { conversionDispatchSuite } from "./contract/dispatch-suite.js";
 
 conversionDispatchSuite({ name: "Memory host with real LinkedIn plugin transport", makeFixture: () => capiFixture() });
 
 describe("server-only LinkedIn conversion delivery", () => {
-  it("rejects stored 202609 conversion configuration before authority, credentials or network access", async () => {
-    const f = capiFixture({ configuration: { ...capiConfiguration, apiVersion: "202609" } as unknown as LinkedInCapiConfiguration });
-    expect(await f.backend.deliver(conversionInput())).toMatchObject({ ok: false, error: { code: "invalid_input", retryable: false } });
+  it.each([
+    { settings: {}, code: "invalid_input" },
+    { settings: { conversionConfiguration: { ...(capiConfiguration.settings.conversionConfiguration as object), accountId: "999" } }, code: "forbidden" },
+  ])("rejects missing or foreign conversion install settings before any effects", async ({ settings, code }) => {
+    const f = capiFixture({ configuration: { ...capiConfiguration, settings } });
+    expect(await f.backend.deliver(conversionInput())).toMatchObject({ ok: false, error: { code, retryable: false } });
     expect(f.dispatches).toHaveLength(0);
     expect(f.credentialCalls).toHaveLength(0);
     expect(f.calls).toHaveLength(0);
@@ -46,11 +49,6 @@ describe("server-only LinkedIn conversion delivery", () => {
     const f = capiFixture(); const input = conversionInput();
     expect(await f.backend.deliver({ ...input, event: { ...input.event, identifierDigests: { phone: "b".repeat(64) } } } as unknown as LinkedInCapiRequest)).toMatchObject({ ok: false, error: { code: "invalid_input" } });
     expect(f.credentialCalls).toHaveLength(0);
-  });
-  it.each(["local-sandbox", "read-only"] as const)("denies conversions in %s mode before credentials", async mode => {
-    const f = capiFixture({ configuration: { ...capiConfiguration, mode } });
-    expect(await f.backend.deliver(conversionInput())).toMatchObject({ ok: false, error: { code: "forbidden" } });
-    expect(f.credentialCalls).toHaveLength(0); expect(f.calls).toHaveLength(0);
   });
   it.each([now - 90 * 86400000 - 1, now + 1])("rejects old/future event %s before egress", async occurredAt => {
     const f = capiFixture(); const input = conversionInput(); input.event.occurredAt = occurredAt;
@@ -90,13 +88,13 @@ describe("server-only LinkedIn conversion delivery", () => {
     expect(f.credentialCalls).toHaveLength(0);
   });
   it.each([{}, { signup: "urn:li:conversion:789" }])("rejects invalid definition mappings without I/O", async conversionRules => {
-    const f = capiFixture({ configuration: { ...capiConfiguration, conversionRules } as LinkedInCapiConfiguration });
+    const f = capiFixture({ configuration: { ...capiConfiguration, settings: { conversionConfiguration: { ...(capiConfiguration.settings.conversionConfiguration as object), conversionRules } } } });
     expect(await f.backend.deliver(conversionInput())).toMatchObject({ ok: false, error: { code: "invalid_input" } });
     expect(f.credentialCalls).toHaveLength(0);
   });
   it("bounds configured rule mappings and grant definition batches before token lookup", async () => {
     const rules = Object.fromEntries(Array.from({ length: 101 }, (_, index) => ["definition-" + index, "urn:lla:llaPartnerConversion:789"]));
-    const f = capiFixture({ configuration: { ...capiConfiguration, conversionRules: rules } });
+    const f = capiFixture({ configuration: { ...capiConfiguration, settings: { conversionConfiguration: { ...(capiConfiguration.settings.conversionConfiguration as object), conversionRules: rules } } } });
     expect(await f.backend.deliver(conversionInput())).toMatchObject({ ok: false, error: { code: "invalid_input" } });
     const g = capiFixture(); const input = conversionInput();
     input.grant.definitionIds = ["signup", ...Array.from({ length: 16 }, (_, index) => "other-" + index)];

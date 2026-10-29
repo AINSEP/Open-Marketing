@@ -1,26 +1,166 @@
 {
-  "checkedAt": "2026-10-24",
+  "checkedAt": "2026-10-26",
   "sources": [
-    {"id": "account", "url": "https://docs.aws.amazon.com/ses/latest/APIReference-V2/API_GetAccount.html", "fact": "Regional sending access, quotas and pricing attributes.", "status": "verified-documentation"},
-    {"id": "send-quota", "url": "https://docs.aws.amazon.com/ses/latest/APIReference-V2/API_SendQuota.html", "fact": "Max24HourSend -1 means unlimited daily quota; it does not waive the per-second rate limit.", "status": "verified-documentation"},
-    {"id": "identity", "url": "https://docs.aws.amazon.com/ses/latest/APIReference-V2/API_GetEmailIdentity.html", "fact": "Domain verification and DKIM flags/tokens.", "status": "verified-documentation"},
-    {"id": "endpoints", "url": "https://docs.aws.amazon.com/general/latest/gr/ses.html", "fact": "HTTPS email.REGION.amazonaws.com endpoints.", "status": "verified-documentation"},
-    {"id": "sandbox", "url": "https://docs.aws.amazon.com/ses/latest/dg/request-production-access.html", "fact": "Regional sandbox: verified recipients, 200/day, 1/second.", "status": "verified-documentation"},
-    {"id": "send", "url": "https://docs.aws.amazon.com/ses/latest/APIReference-V2/API_SendEmail.html", "fact": "Simple/raw/template SendEmail; no documented idempotency token. Sending deferred.", "status": "verified-documentation"},
-    {"id": "bulk", "url": "https://docs.aws.amazon.com/ses/latest/APIReference-V2/API_SendBulkEmail.html", "fact": "Templated bulk API with entry results; deferred in favor of host per-recipient jobs.", "status": "verified-documentation"},
-    {"id": "events", "url": "https://docs.aws.amazon.com/ses/latest/dg/event-publishing-add-event-destination-sns.html", "fact": "Configuration-set SNS destination uses Standard topics; bounce/complaint/delivery feedback; deferred.", "status": "verified-documentation"},
-    {"id": "suppression", "url": "https://docs.aws.amazon.com/ses/latest/dg/sending-email-suppression-list.html", "fact": "Regional account suppression uses BOUNCE/COMPLAINT, not OM unsubscribe; deferred.", "status": "verified-documentation"},
-    {"id": "unsubscribe", "url": "https://aws.amazon.com/blogs/messaging-and-targeting/using-one-click-unsubscribe-with-amazon-ses/", "fact": "List-Unsubscribe plus List-Unsubscribe-Post and functioning HTTPS endpoint; deferred.", "status": "verified-documentation"},
-    {"id": "pricing", "url": "https://aws.amazon.com/ses/pricing/", "fact": "A-la-carte outbound $0.10/1000; Essentials first 10M/month $0.16/1000, extras apply.", "status": "verified-documentation"},
-    {"id": "resend-send", "url": "https://resend.com/docs/api-reference/emails/send-email", "fact": "POST /emails; deferred shared messaging reference.", "status": "verified-documentation"},
-    {"id": "resend-batch", "url": "https://resend.com/docs/api-reference/emails/send-batch-emails", "fact": "POST /emails/batch up to 100; OM uses recipient jobs.", "status": "verified-documentation"},
-    {"id": "resend-domain", "url": "https://resend.com/docs/api-reference/domains/get-domain", "fact": "Domain readiness and tracking fields.", "status": "verified-documentation"},
-    {"id": "resend-contacts", "url": "https://resend.com/docs/api-reference/contacts/create-contact", "fact": "Global contacts do not replace OM consent.", "status": "verified-documentation"},
-    {"id": "resend-broadcasts", "url": "https://resend.com/docs/api-reference/broadcasts/create-broadcast", "fact": "Broadcast segment_id; vendor lists do not replace OM snapshots.", "status": "verified-documentation"},
-    {"id": "resend-webhooks", "url": "https://resend.com/docs/webhooks/verify-webhooks-requests", "fact": "Verify raw webhook payload with separate signing secret.", "status": "verified-documentation"},
-    {"id": "resend-idempotency", "url": "https://resend.com/docs/dashboard/emails/idempotency-keys", "fact": "Idempotency-Key retained 24h for send and batch; unlike SES.", "status": "verified-documentation"},
-    {"id": "resend-audiences", "url": "https://resend.com/docs/dashboard/contacts/migrating-from-audiences-to-segments", "fact": "Audiences migrated to global contacts and segments.", "status": "verified-documentation"}
+    {
+      "id": "account",
+      "url": "https://docs.aws.amazon.com/ses/latest/APIReference-V2/API_GetAccount.html",
+      "fact": "Regional sending access, quotas and pricing attributes.",
+      "status": "verified-documentation"
+    },
+    {
+      "id": "send-quota",
+      "url": "https://docs.aws.amazon.com/ses/latest/APIReference-V2/API_SendQuota.html",
+      "fact": "Max24HourSend -1 means unlimited daily quota; it does not waive the per-second rate limit.",
+      "status": "verified-documentation"
+    },
+    {
+      "id": "identity",
+      "url": "https://docs.aws.amazon.com/ses/latest/APIReference-V2/API_GetEmailIdentity.html",
+      "fact": "Domain verification and DKIM flags/tokens.",
+      "status": "verified-documentation"
+    },
+    {
+      "id": "endpoints",
+      "url": "https://docs.aws.amazon.com/general/latest/gr/ses.html",
+      "fact": "HTTPS email.REGION.amazonaws.com endpoints.",
+      "status": "verified-documentation"
+    },
+    {
+      "id": "sandbox",
+      "url": "https://docs.aws.amazon.com/ses/latest/dg/request-production-access.html",
+      "fact": "Regional sandbox: verified recipients, 200/day, 1/second.",
+      "status": "verified-documentation"
+    },
+    {
+      "id": "send",
+      "url": "https://docs.aws.amazon.com/ses/latest/APIReference-V2/API_SendEmail.html",
+      "fact": "Simple/raw/template SendEmail; no documented idempotency token. Sending deferred.",
+      "status": "verified-documentation"
+    },
+    {
+      "id": "bulk",
+      "url": "https://docs.aws.amazon.com/ses/latest/APIReference-V2/API_SendBulkEmail.html",
+      "fact": "Templated bulk API with entry results; deferred in favor of host per-recipient jobs.",
+      "status": "verified-documentation"
+    },
+    {
+      "id": "events",
+      "url": "https://docs.aws.amazon.com/ses/latest/dg/event-publishing-add-event-destination-sns.html",
+      "fact": "Configuration-set SNS destination uses Standard topics; bounce/complaint/delivery feedback; deferred.",
+      "status": "verified-documentation"
+    },
+    {
+      "id": "suppression",
+      "url": "https://docs.aws.amazon.com/ses/latest/dg/sending-email-suppression-list.html",
+      "fact": "Regional account suppression uses BOUNCE/COMPLAINT, not OM unsubscribe; deferred.",
+      "status": "verified-documentation"
+    },
+    {
+      "id": "unsubscribe",
+      "url": "https://aws.amazon.com/blogs/messaging-and-targeting/using-one-click-unsubscribe-with-amazon-ses/",
+      "fact": "List-Unsubscribe plus List-Unsubscribe-Post and functioning HTTPS endpoint; deferred.",
+      "status": "verified-documentation"
+    },
+    {
+      "id": "pricing",
+      "url": "https://aws.amazon.com/ses/pricing/",
+      "fact": "A-la-carte outbound $0.10/1000; Essentials first 10M/month $0.16/1000, extras apply.",
+      "status": "verified-documentation"
+    },
+    {
+      "id": "resend-send",
+      "url": "https://resend.com/docs/api-reference/emails/send-email",
+      "fact": "POST /emails; deferred shared messaging reference.",
+      "status": "verified-documentation"
+    },
+    {
+      "id": "resend-batch",
+      "url": "https://resend.com/docs/api-reference/emails/send-batch-emails",
+      "fact": "POST /emails/batch up to 100; OM uses recipient jobs.",
+      "status": "verified-documentation"
+    },
+    {
+      "id": "resend-domain",
+      "url": "https://resend.com/docs/api-reference/domains/get-domain",
+      "fact": "Domain readiness and tracking fields.",
+      "status": "verified-documentation"
+    },
+    {
+      "id": "resend-contacts",
+      "url": "https://resend.com/docs/api-reference/contacts/create-contact",
+      "fact": "Global contacts do not replace OM consent.",
+      "status": "verified-documentation"
+    },
+    {
+      "id": "resend-broadcasts",
+      "url": "https://resend.com/docs/api-reference/broadcasts/create-broadcast",
+      "fact": "Broadcast segment_id; vendor lists do not replace OM snapshots.",
+      "status": "verified-documentation"
+    },
+    {
+      "id": "resend-webhooks",
+      "url": "https://resend.com/docs/webhooks/verify-webhooks-requests",
+      "fact": "Verify raw webhook payload with separate signing secret.",
+      "status": "verified-documentation"
+    },
+    {
+      "id": "resend-idempotency",
+      "url": "https://resend.com/docs/dashboard/emails/idempotency-keys",
+      "fact": "Idempotency-Key retained 24h for send and batch; unlike SES.",
+      "status": "verified-documentation"
+    },
+    {
+      "id": "resend-audiences",
+      "url": "https://resend.com/docs/dashboard/contacts/migrating-from-audiences-to-segments",
+      "fact": "Audiences migrated to global contacts and segments.",
+      "status": "verified-documentation"
+    },
+    {
+      "url": "https://docs.aws.amazon.com/ses/latest/APIReference-V2/API_SendEmail.html",
+      "fact": "POST /v2/email/outbound-emails Simple.Headers carries unsubscribe fields; MessageId is the submission receipt. No send idempotency token is documented.",
+      "status": "verified-documentation"
+    },
+    {
+      "url": "https://docs.aws.amazon.com/sns/latest/dg/sns-verify-signature-of-message-verify-message-signature.html",
+      "fact": "Notification canonical order is Message, MessageId, optional Subject, Timestamp, TopicArn, Type with trailing newline; SignatureVersion 1 uses SHA1, 2 SHA256. Require a trusted SNS certificate and topic.",
+      "status": "verified-documentation"
+    },
+    {
+      "url": "https://docs.aws.amazon.com/ses/latest/dg/notification-contents.html",
+      "fact": "Identity SNS notifications use notificationType and mail.source; configuration-set publishing uses eventType instead. This adapter supports identity notifications only.",
+      "status": "verified-documentation"
+    },
+    {
+      "url": "https://docs.aws.amazon.com/sns/latest/dg/sns-verify-signature-of-message.html",
+      "fact": "AWS requires trusted HTTPS certificate retrieval, certificate trust validation, signature verification and expected TopicArn. OM injects TLS-validating fetch, permits only the configured regional SNS origin and SimpleNotificationService PEM path, rejects redirects, and caches one certificate until expiry or one hour.",
+      "status": "verified-documentation"
+    }
   ],
-  "omBounds": {"responseBytes": 1048576, "timeoutMs": 10000, "retries": 0},
-  "unverified": ["Live AWS IAM principal, permissions, account, DKIM and quotas", "Current npm publication/latest of @jini-ai/platform@0.6.12; installed registry package inspected", "No send, SNS ingress or unsubscribe behavior delivered in R1"]
- }
+  "omBounds": {
+    "responseBytes": 1048576,
+    "timeoutMs": 10000,
+    "retries": 0
+  },
+  "unverified": [
+    "Live AWS IAM/quotas/DKIM, trusted certificate rotation and delivered one-click headers",
+    "Host SNS identity-topic routing, durable feedback and unsubscribe endpoints"
+  ],
+  "liveAccountVerified": false,
+  "r2Bounds": {
+    "requestBytes": 65536,
+    "responseBytes": 1048576,
+    "webhookBytes": 262144,
+    "webhookEvents": 100,
+    "timeoutMs": 10000,
+    "retries": 0,
+    "certificateBytes": 16384,
+    "certificateCacheMs": 3600000
+  },
+  "r2Verification": "Documentation and installed Jini 0.6.12 artifacts inspected; fixture tests written, not run. No live calls, production authority/store integration or admission verified.",
+  "r2Needs": [
+    "Server composition and durable authority/outbox/inbox/suppression with subject-lane serialization",
+    "Real account, credentials, delivered headers/receipts and production concurrency evidence",
+    "Server awaits prepareFeedback before synchronous Jini 0.6.12 ingest; certificate-fetch outages return retryable HTTP failure without ingest"
+  ],
+  "fixWaveVerification": "2026-10-26: official documentation and installed Jini 0.6.12 ABI reviewed; regression tests written, not run. Typechecks are reported in the implementation handoff; no live vendor calls."
+}

@@ -1,0 +1,5 @@
+Open Marketing, AINSEP. Apache-2.0.
+Layout and host-binding conventions follow the OM google-ads Agent Plugin.
+No Google or sibling Jini source copied. Google wire fixtures are handwritten.
+Uses published @jini-ai/mcp 0.6.12, MCP SDK and Zod under their respective licenses.
+Portable Agent Plugins format 1.0.0; OM extension io.github.ainsep.openmarketing.

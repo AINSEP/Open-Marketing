@@ -32,10 +32,9 @@ export interface VkInvocation { readonly context: CallContext; readonly operatio
 /** Read-only invocation; denial precedes credentials and network. */
 export interface VkAdsAdapter { invoke(required: VkInvocation, optional?: CallOptions): Promise<Outcome<VkResult>> }
 /** Server composition seams. Guarded fetch must recheck authority, binding and revision at egress
- * using the foreign fetch ABI; the adapter additionally rechecks its live admitted getter.
+ * using the foreign fetch ABI.
  */
 export interface VkDependencies {
-  readonly admitted: boolean;
   readonly configuration: VkConfiguration;
   readonly credentials: VkCredentials;
   readonly fetch: typeof fetch;

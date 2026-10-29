@@ -41,3 +41,8 @@ export function decodeList(required: { input: unknown; command: Exclude<Microsof
 }
 /** Authenticated user projection, excluding contact details and roles. */
 export const userSchema = z.object({ User: z.object({ Id: providerId }) });
+
+/** Fixed account-scoped capability lookup; never scans unrelated campaigns. */
+export function statusRequest(required: { accountId: string; campaignIds: string[] }): MicrosoftAdsWireRequest {
+  return request({ service: "CampaignManagement", path: "Campaigns/QueryByIds", body: { AccountId: required.accountId, CampaignIds: required.campaignIds } });
+}

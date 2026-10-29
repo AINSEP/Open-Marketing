@@ -1,4 +1,4 @@
-import type { AppError, CallContext, CallOptions, ClockPort, EffectEnvelope, ObserverPort, Outcome, Scope } from "@open-marketing/contracts";
+import type { PluginCapability, AppError, CallContext, CallOptions, ClockPort, EffectEnvelope, ObserverPort, Outcome, Scope } from "@open-marketing/contracts";
 import type { PinterestCommand } from "./commands.js";
 
 /** Server-resolved binding. Null account/currency permits connection-only account discovery. */
@@ -24,13 +24,13 @@ export interface PinterestInvocation { readonly context: CallContext; readonly o
  * fence. Host owns policy, operation identity and durable audit. execute is the host callback ABI.
  */
 export interface PinterestGatewayPort {
-  dispatch(required: { context: CallContext; configuration: PinterestConfiguration; operation: PinterestCommand["kind"]; request: PinterestWireRequest; effect: EffectEnvelope; execute: () => Promise<Outcome<PinterestResult>> }, optional?: CallOptions): Promise<Outcome<PinterestResult>>;
+  dispatch(required: { context: Parameters<PluginCapability>[0]["context"]; configuration: PinterestConfiguration; operation: PinterestCommand["kind"]; request: PinterestWireRequest; effect: EffectEnvelope; execute: () => Promise<Outcome<PinterestResult>> }, optional?: CallOptions): Promise<Outcome<PinterestResult>>;
 }
-export interface PinterestAdsAdapter { invoke(required: PinterestInvocation, optional?: CallOptions): Promise<Outcome<PinterestResult>> }
+export interface PinterestAdsAdapter {
+  invoke(required: PinterestInvocation, optional?: CallOptions): Promise<Outcome<PinterestResult>> }
 /** Server-only dependencies; factories perform no I/O. fetch retains the standard platform ABI. */
 export interface PinterestDependencies {
   readonly configuration: PinterestConfiguration;
-  readonly admitted: boolean;
   readonly gateway: PinterestGatewayPort;
   readonly credentials: PinterestCredentialPort;
   readonly fetch: typeof fetch;

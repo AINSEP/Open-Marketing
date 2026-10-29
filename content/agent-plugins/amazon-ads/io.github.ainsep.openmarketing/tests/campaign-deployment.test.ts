@@ -52,12 +52,7 @@ describe("Amazon R2 paused hierarchy", () => {
     expect(JSON.stringify({ result, points: f.points, observations: f.observations })).not.toContain(credential.accessToken);
     expect(f.observations.every(event => event.traceId === context.traceId && event.runId === context.runId && event.correlationId === context.correlationId)).toBe(true);
   });
-  it("denies unadmitted deployment and reconciliation before all effects", async () => {
-    const f = make(); f.state.admitted = false;
-    expect(await deployCampaignPaused(f.input)).toMatchObject({ ok: false, error: { code: "forbidden" } });
-    expect(await readCampaignDeployment({ ...f.input, references: { campaign: "456" } })).toMatchObject({ ok: false, error: { code: "forbidden" } });
-    expect(f.state.credentialCalls).toBe(0); expect(f.points).toEqual([]); expect(f.calls).toEqual([]);
-  });
+
   it.each(["foreign-scope", "foreign-profile", "active", "SB", "fractional-bid", "bad-date", "bad-zone", "too-large"])("rejects %s before egress", async variation => {
     const f = make();
     if (variation === "foreign-scope") f.input.context = { ...context, scope: { ...context.scope, ownerId: "other" } };
@@ -117,12 +112,7 @@ describe("Amazon R2 paused hierarchy", () => {
     expect(await deployCampaignPaused(f.input)).toMatchObject({ ok: true, value: { status: "acknowledged" } });
     expect(JSON.parse(String(f.calls[1]!.init.body)).campaigns[0].budget.budget).toBe(10.29);
   });
-  it("rechecks admission after credential lookup and before creation", async () => {
-    const f = make(); const access = f.dependencies.credentials.access;
-    f.dependencies.credentials.access = async input => { const result = await access(input); if (f.state.credentialCalls === 2) f.state.admitted = false; return result; };
-    expect(await deployCampaignPaused(f.input)).toMatchObject({ ok: true, value: { status: "unknown", references: {} } });
-    expect(f.calls).toHaveLength(1);
-  });
+
   it("retains the ID when an acknowledgement checkpoint throws", async () => {
     const f = make({ checkpoint: point => { if (point.phase === "acknowledged") throw new Error("fixture journal unavailable"); return true; } });
     expect(await deployCampaignPaused(f.input)).toMatchObject({ ok: true, value: { status: "unknown", references: { campaign: "456" } } });
@@ -221,10 +211,5 @@ describe("Amazon saved-reference reconciliation", () => {
     expect(await readCampaignDeployment({ ...f.input, references })).toMatchObject({ ok: false, error: { code: "forbidden" } });
     expect(f.state.credentialCalls).toBe(0); expect(f.calls).toEqual([]); expect(f.points).toEqual([]);
   });
-  it("retains saved IDs if admission is revoked during credential lookup", async () => {
-    const f = make({ response: ({ index }) => Response.json(reads[index - 1]) }); const access = f.dependencies.credentials.access;
-    f.dependencies.credentials.access = async input => { const result = await access(input); if (f.state.credentialCalls === 2) f.state.admitted = false; return result; };
-    expect(await readCampaignDeployment({ ...f.input, references })).toMatchObject({ ok: true, value: { status: "unknown", references, hierarchy: [] } });
-    expect(f.calls).toHaveLength(1); expect(f.points).toEqual([]);
-  });
+
 });

@@ -24,14 +24,14 @@ export function fixture(required: { response?: (required: RequestInit) => Respon
   const deadlines: { milliseconds: number; controller: AbortController }[] = [];
   const dependencies: YandexDirectDependencies = {
     configuration: required.configuration ?? configuration, admitted: () => state.admitted,
-    credentials: { async access(input) { credentialCalls.push(input); required.credentialHook?.(); return { ok: true, value: (required.credential ?? { accessToken: "synthetic-secret", expiresAt: now + 60000 }) as { accessToken: string } }; } },
+    credentials: { async access(input) { if (!state.admitted || !state.authorized) return denied(); credentialCalls.push(input); required.credentialHook?.(); return { ok: true, value: (required.credential ?? { accessToken: JSON.stringify({ accessToken: "synthetic-secret", clientLogin: "fixture-login" }), expiresAt: now + 60000 }) as { accessToken: string } }; } },
     gateway: { async dispatch(input) {
       effects.push(input.effect);
       if (!state.authorized || !state.admitted) return denied();
       const first = await input.execute();
       return required.repeatExecute ? input.execute() : first;
     } },
-    fetch: async (url, init) => { calls.push({ url: String(url), init: init ?? {} }); return required.response ? required.response(init ?? {}) : Response.json({ result: { Campaigns: [campaign] } }); },
+    fetch: async (url, init) => { if (!state.admitted || !state.authorized) throw new Error("Host denied"); calls.push({ url: String(url), init: init ?? {} }); return required.response ? required.response(init ?? {}) : Response.json({ result: { Campaigns: [campaign] } }); },
     createDeadline(input) { const controller = new AbortController(); deadlines.push({ ...input, controller }); return controller.signal; },
     clock: { now: () => state.time }, observer: { observe(event) { if (required.observerThrows) throw new Error("fixture telemetry"); observations.push(event); } },
   };

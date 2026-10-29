@@ -3,6 +3,12 @@ import { accountAnalyticsPage, accountPage, accountReport, analyticsPage, campai
 
 dispatchSuite({ name: "X fixture gateway / real plugin transport", makeFixture: () => fixture() });
 describe("X read boundary", () => {
+  it.each(["-1", "1.0"])("accepts safe provider numeric token %s before projecting extras away", async token => {
+    const text = JSON.stringify(accountPage).slice(0, -1) + ',"provider_extra":' + token + '}';
+    const f = fixture({ response: () => new Response(text) });
+    expect(await f.invoke()).toMatchObject({ ok: true, value: { status: "succeeded" } });
+    expect(f.calls).toHaveLength(1);
+  });
   it.each(["not-json", JSON.stringify({ ...pasted, accessTokenSecret: undefined }), JSON.stringify({ ...pasted, extra: "x" }), JSON.stringify({ ...pasted, consumerKey: "\n" }), "x".repeat(65537)])("rejects invalid pasted credentials without egress", async credential => {
     const f = fixture({ credential }); expect(await f.invoke()).toMatchObject({ ok: false, error: { code: "unauthenticated" } }); expect(f.calls).toEqual([]);
   });

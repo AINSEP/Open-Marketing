@@ -17,7 +17,7 @@ export function dispatchSuite(required: { name: string; makeFixture: () => Fixtu
       expect(f.calls[0].init.redirect).toBe("error");
       expect(f.calls[0].init.signal).toBeInstanceOf(AbortSignal);
     });
-    it("unadmitted discovery, listing and reporting access neither credentials nor network", async () => {
+    it("host broker rejects denied discovery, listing and reporting before egress", async () => {
       const f = required.makeFixture(); f.state.admitted = false;
       for (const command of [{ kind: "list_accounts", view: "agency" }, { kind: "list_accounts", view: "connected" }, { kind: "list_campaigns" }, { kind: "report", view: "account", dateFrom: "2026-10-01", dateTo: "2026-10-01" }] as const) {
         expect(await f.adapter.invoke(invocation({ command }))).toMatchObject({ ok: false, error: { code: "forbidden" } });

@@ -28,11 +28,11 @@ function rows(): Record<string, Record<string, unknown>> {
 function setup() {
   const f = fixture();
   const vendor = rows();
-  const fetch = vi.fn(async (url: Parameters<typeof globalThis.fetch>[0], init?: RequestInit) => {
+  const fetch = vi.fn<typeof globalThis.fetch>(async (url, init) => {
     f.calls.push({ url: String(url), init: init ?? {} });
     return Response.json(vendor[new URL(String(url)).pathname.split("/").at(-1)!]);
   });
-  const dependencies = { ...f.dependencies, fetch };
+  const dependencies = { ...f.dependencies, configuration: f.configuration, fetch };
   const input = { context, operationId: "operation", plan: plan(), dependencies, references: { ...references } };
   return { ...f, dependencies, vendor, fetch, input };
 }

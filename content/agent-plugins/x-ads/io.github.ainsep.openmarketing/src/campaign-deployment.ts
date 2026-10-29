@@ -5,7 +5,7 @@ import { callContextSchema, idSchema } from "@open-marketing/contracts";
 import type { CallContext, CallOptions, Outcome } from "@open-marketing/contracts";
 import { vendorId } from "./commands.js";
 import { boundedJson, configurationSchema, failure, requestXAds, resolveCredential } from "./transport.js";
-import type { WireRequest, XDependencies } from "./transport.js";
+import type { WireRequest, XConfiguration, XDependencies } from "./transport.js";
 
 const micros = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const name = z.string().min(1).max(255);
@@ -33,7 +33,7 @@ const resources = { campaign: "campaigns", lineItem: "line_items", targeting: "t
 /** Host fetch MUST recheck frozen plan/digest, current binding/admission, halt and owning grouped
  * exact authority after each credential lookup. No nested gateway claim or second outbox.
  */
-export type XDeploymentDependencies = Omit<XDependencies, "gateway">;
+export type XDeploymentDependencies = Omit<XDependencies, "gateway" | "configuration"> & { configuration: XConfiguration };
 type Checkpoint = (input: { step: string; phase: "dispatch" | "acknowledged"; references: XDeploymentReferences }) => Promise<Outcome<void>>;
 interface Input { context: CallContext; operationId: string; plan: unknown; dependencies: XDeploymentDependencies }
 const inputSchema = z.strictObject({ context: callContextSchema, operationId: idSchema, plan: campaignDeploymentPlanSchema, configuration: configurationSchema });

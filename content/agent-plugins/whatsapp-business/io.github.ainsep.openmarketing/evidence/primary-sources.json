@@ -1,18 +1,155 @@
 {
-  "checkedAt": "2026-10-24", "apiVersion": "v26.0", "currentVersionVerified": false,
+  "checkedAt": "2026-10-29",
+  "apiVersion": "v26.0",
+  "currentVersionVerified": false,
   "sources": [
-    { "url": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json", "finding": "Portable manifest supports reverse-domain extensions." },
-    { "url": "https://raw.githubusercontent.com/facebook/openapi/main/business-messaging-api_v23.0.yaml", "finding": "Meta v23 reference documents WABA status, phone_numbers and message_templates reads and status fields. v26 compatibility is unverified." },
-    { "url": "https://www.postman.com/meta/whatsapp-business-platform/collection/wlk6lh4/whatsapp-cloud-api", "finding": "Meta Cloud API uses business portfolio, WABA and phone assets; user/system-user tokens, WhatsApp management/messaging permissions. Reuse existing OM Meta connection when granted assets/scopes suffice." },
-    { "url": "https://developers.facebook.com/docs/graph-api/changelog/", "finding": "Fetch returned 429; latest version unverified. v26.0 pin follows plan and O2; verify before admission." },
-    { "url": "https://developers.facebook.com/documentation/mcp/whatsapp-business-tools-mcp", "finding": "Official Meta page located but inaccessible; auth, transport and tools unverified. Not declared." },
-    { "url": "https://raw.githubusercontent.com/twilio-labs/mcp/main/packages/mcp/package.json", "finding": "Source package @twilio-alpha/mcp version 0.7.0, MIT. Latest npm version unverified; not installed or declared." },
-    { "url": "https://raw.githubusercontent.com/twilio-labs/mcp/main/packages/mcp/src/main.ts", "finding": "stdio transport; Account SID, API key and secret. This is a Twilio account surface, not direct Meta Cloud API." },
-    { "url": "https://raw.githubusercontent.com/twilio-labs/mcp/main/README.md", "finding": "OpenAPI-derived tools, service/tag filtering and Account SID/API-key/secret credentials; includes mutations, no universal fixed tool catalog." },
-    { "url": "https://www.twilio.com/docs/ai/mcp", "finding": "Hosted HTTPS documentation-only twilio__search and twilio__retrieve; no authentication or account API execution. Omitted." },
-    { "url": "https://whatsappbusiness.com/policy/", "finding": "Opt-in and opt-out rules; approved templates outside the 24-hour service window. OM additionally requires explicit WhatsApp consent and current marketing_sms consent." },
-    { "url": "https://whatsappbusiness.com/products/platform-pricing/", "finding": "Delivered-message pricing depends on market/category: marketing, utility, authentication and service. Rate amounts unverified; estimator deferred." }
+    {
+      "url": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+      "finding": "Portable manifest supports reverse-domain extensions."
+    },
+    {
+      "url": "https://raw.githubusercontent.com/facebook/openapi/main/business-messaging-api_v23.0.yaml",
+      "finding": "Meta v23 reference documents WABA status, phone_numbers and message_templates reads and status fields. v26 compatibility is unverified."
+    },
+    {
+      "url": "https://www.postman.com/meta/whatsapp-business-platform/collection/wlk6lh4/whatsapp-cloud-api",
+      "finding": "Meta Cloud API uses business portfolio, WABA and phone assets; user/system-user tokens, WhatsApp management/messaging permissions. Reuse existing OM Meta connection when granted assets/scopes suffice."
+    },
+    {
+      "url": "https://developers.facebook.com/docs/graph-api/changelog/",
+      "finding": "Fetch returned 429; latest version unverified. v26.0 pin follows plan and O2; verify before admission."
+    },
+    {
+      "url": "https://developers.facebook.com/documentation/mcp/whatsapp-business-tools-mcp",
+      "finding": "Official Meta page located but inaccessible; auth, transport and tools unverified. Not declared."
+    },
+    {
+      "url": "https://raw.githubusercontent.com/twilio-labs/mcp/main/packages/mcp/package.json",
+      "finding": "Source package @twilio-alpha/mcp version 0.7.0, MIT. Latest npm version unverified; not installed or declared."
+    },
+    {
+      "url": "https://raw.githubusercontent.com/twilio-labs/mcp/main/packages/mcp/src/main.ts",
+      "finding": "stdio transport; Account SID, API key and secret. This is a Twilio account surface, not direct Meta Cloud API."
+    },
+    {
+      "url": "https://raw.githubusercontent.com/twilio-labs/mcp/main/README.md",
+      "finding": "OpenAPI-derived tools, service/tag filtering and Account SID/API-key/secret credentials; includes mutations, no universal fixed tool catalog."
+    },
+    {
+      "url": "https://www.twilio.com/docs/ai/mcp",
+      "finding": "Hosted HTTPS documentation-only twilio__search and twilio__retrieve; no authentication or account API execution. Omitted."
+    },
+    {
+      "url": "https://whatsappbusiness.com/policy/",
+      "finding": "Opt-in and opt-out rules; approved templates outside the 24-hour service window. OM additionally requires explicit WhatsApp consent and current marketing_sms consent."
+    },
+    {
+      "url": "https://whatsappbusiness.com/products/platform-pricing/",
+      "finding": "Delivered-message pricing depends on market/category: marketing, utility, authentication and service. Rate amounts unverified; estimator deferred."
+    },
+    {
+      "url": "https://github.com/facebook/openapi/blob/main/business-messaging-api_v23.0.yaml",
+      "fact": "Official v23 reference describes template POST /messages and contacts/messages receipts. It does not verify the configured v26 compatibility.",
+      "status": "verified-documentation"
+    },
+    {
+      "url": "https://whatsappbusiness.com/policy/",
+      "fact": "Contacting recipients requires permission; opt-out requests must be respected.",
+      "status": "verified-documentation"
+    },
+    {
+      "url": "https://github.com/fbsamples/whatsapp-api-examples/blob/main/signature-validation-with-webhooks-payloads/app.py",
+      "fact": "Meta sample validates X-Hub-Signature-256 using HMAC-SHA256 over raw request bytes. Current Graph documentation endpoints could not be retrieved during this run; v26 admission remains blocked.",
+      "status": "verified-official-sample-with-limits"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/WhatsApp/WhatsApp-Nodejs-SDK/main/src/types/webhooks.ts",
+      "fact": "Official Meta SDK types define template quick-reply button.text and button.payload. OM recognizes whole normalized STOP/STOPALL/UNSUBSCRIBE/CANCEL/END/QUIT/REVOKE/OPTOUT/Stop promotions values; this bounded vocabulary is OM behavior, not a documented universal Meta keyword catalogue.",
+      "status": "verified-official-sample-with-limits"
+    },
+    {
+      "url": "https://whatsappbusiness.com/wp-content/uploads/2026/04/Best-Practices-for-Marketing-Messages-on-WhatsApp-.pdf",
+      "fact": "Meta marketing guidance calls for clear opt-in and opt-out mechanisms and respecting user preferences; it does not define a universal keyword set.",
+      "status": "verified-documentation"
+    },
+    {
+      "url": "https://developers.facebook.com/docs/whatsapp/cloud-api/webhooks/user_preferences",
+      "finding": "2026-10-26 B1: attempted direct reference and primary-domain searches; page inaccessible through web tools. Preference projection follows the binding re-review: value.user_preferences entries with wa_id, category marketing_messages, value stop and Unix timestamp. Exact current variants remain unverified.",
+      "status": "verification-unavailable"
+    },
+    {
+      "url": "https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/reference/user_preferences",
+      "finding": "2026-10-26 B1: current reference returned HTTP 429; locale variant also inaccessible. Preserve raw wa_id, never guess an E.164 phone or provider message ID. Server apply resolves identity under its scoped subject lane.",
+      "status": "verification-unavailable"
+    },
+    {
+      "url": "https://developers.facebook.com/docs/whatsapp/business-management-api/message-templates/buttons/marketing-opt-out/",
+      "finding": "2026-10-26 B1: reference inaccessible; primary-domain searches for localized buttons returned no results. Added the binding review case Detener promociones to the existing whole-value vocabulary. Complete documented localized labels/payloads remain deferred; no invented translations.",
+      "status": "verification-unavailable"
+    },
+    {
+      "url": "https://whatsappbusiness.com/products/platform-pricing/",
+      "checkedAt": "2026-10-29",
+      "status": "verified-documentation-with-limits",
+      "finding": "Public primary page confirms per-delivered-message prices by market and category and lower volume-tier pricing. Interactive rate selector exposes no numeric USD rows in retrieved content. Rate-card and pricing-region links point to developers.facebook.com/docs/whatsapp/pricing, which returned HTTP 429. No USD list-rates CSV href was exposed."
+    },
+    {
+      "url": "https://developers.facebook.com/documentation/business-messaging/whatsapp/pricing.md",
+      "checkedAt": "2026-10-29",
+      "status": "verification-unavailable-in-build",
+      "finding": "Web retrieval inaccessible; pricing/ HTML variant returned HTTP 429; shell HTTP retrieval unavailable (DNS). Binding review records primary-page calling-code mapping: North America +1 and Dominican Republic area-code exceptions 809/829/849. Only these reviewed prefix examples are transcribed. Remaining mapping, including all NANP exceptions and +7 markets, must be verified/completed before production rate rows are added. No numeric rates verified; production usdRates remains empty."
+    },
+    {
+      "url": "https://developers.facebook.com/documentation/business-messaging/whatsapp/pricing",
+      "checkedAt": "2026-10-29",
+      "effectiveDateRequested": "2026-10-01",
+      "status": "rate-card-unavailable",
+      "finding": "USD list rates (CSV) link could not be obtained from the primary pages. No third-party rates substituted. Every production send refuses not_implemented before authority/reservation. The requested edition date comes from the approved review and is not represented as a verified numeric rate card."
+    },
+    {
+      "url": "https://raw.githubusercontent.com/facebook/facebook-python-business-sdk/26.0.2/facebook_business/adobjects/whatsappbusinessaccount.py",
+      "checkedAt": "2026-10-29",
+      "status": "verified-official-sdk-with-limits",
+      "finding": "Official SDK documents WABA currency, message_templates GET with name filtering, category MARKETING/UTILITY/AUTHENTICATION and APPROVED status. No live-account, permission, template-content or POST compatibility validation performed."
+    }
   ],
-  "unresolved": ["Current Graph field compatibility", "Account-specific permissions/assets and phone/WABA binding", "Current rate cards", "Reliable contact-block notification", "Meta MCP endpoint/auth/catalog"],
-  "admission": "Disabled/unadmitted until host integration and vendor compatibility verification. No live account requests made."
+  "unresolved": [
+    "Current Graph field compatibility",
+    "Account-specific permissions/assets and phone/WABA binding",
+    "Current rate cards",
+    "Reliable contact-block notification",
+    "Meta MCP endpoint/auth/catalog",
+    "Current webhook/error-code reference pages inaccessible (429); v26 button/contacts.input and throughput-code compatibility require confirmation before admission",
+    "Complete Meta-localized opt-out button label/payload catalogue and current user_preferences timestamp/identity variants: primary references inaccessible/429 in this run",
+    "Primary Meta USD list-rates CSV effective 2026-10-01; no production numeric rate rows verified",
+    "Complete primary calling-code-to-market mapping, including remaining NANP exceptions and +7 markets, before populating rates.ts"
+  ],
+  "admission": "Disabled/unadmitted until host integration and vendor compatibility verification. No live account requests made.",
+  "liveAccountVerified": false,
+  "r2Bounds": {
+    "requestBytes": 65536,
+    "responseBytes": 1048576,
+    "webhookBytes": 262144,
+    "webhookEvents": 100,
+    "timeoutMs": 10000,
+    "retries": 0
+  },
+  "r2Verification": "Documentation and installed Jini 0.6.12 artifacts inspected; fixture tests written, not run. No live calls, production authority/store integration or admission verified.",
+  "r2Needs": [
+    "Server composition and durable authority/outbox/inbox/suppression with subject-lane serialization",
+    "Real account, credentials, delivered headers/receipts and production concurrency evidence",
+    "Current v26 compatibility and paid-template pricing remain unverified; deny admission until verified",
+    "Server apply must resolve stop-event waId within scope/WABA/phone before atomically recording withdrawals; unknown identities return a typed failure before any batch mutation"
+  ],
+  "fixWaveVerification": "2026-10-26: official documentation and installed Jini 0.6.12 ABI reviewed; regression tests written, not run. Typechecks are reported in the implementation handoff; no live vendor calls.",
+  "w22SendVerification": {
+    "api": "sendMessage + messageChannel whatsapp through existing om_message_send",
+    "productionRates": "empty; not_implemented before authority/reservation",
+    "rateEffectiveDateRequested": "2026-10-01",
+    "templateReads": "USD WABA currency and exactly one exact name/language APPROVED template with known category; incomplete paging refused",
+    "quote": "Exact decimalToMicros reject rounding, ceiling USD cents; authentication includes international maximum; no free-window or tier discounts",
+    "tests": "Synthetic rates and fetch only; written, not run",
+    "integration": "Host code unchanged; production remains read_only; bundle/digest rebuild belongs to Coordinator",
+    "intentGap": "DEFERRED: host does not pass intent into plugin; category-versus-intent enforcement needs coordinated host/Twilio schema change"
+  }
 }

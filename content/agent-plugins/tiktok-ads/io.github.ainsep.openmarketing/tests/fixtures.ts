@@ -1,8 +1,8 @@
 import { z } from "zod";
-import { parseBoundary } from "@open-marketing/contracts";
-import type { AppError, CallContext, ClockPort, EffectEnvelope, HaltStopPermit, MeasurementGrant, ObserverEvent, Outcome, ServiceContext } from "@open-marketing/contracts";
-import { createTikTokAdsAdapter, createTikTokEventsBackend, createTikTokFetchEgress, decodeTikTokRead } from "../src/index.js";
-import type { TikTokAccountMetadata, TikTokAdsAdapter, TikTokBinding, TikTokCall, TikTokCredentialPort, TikTokEgressPort, TikTokEgressRequest, TikTokEventsConfiguration, TikTokEventsPayload, TikTokEventsRequest, TikTokInvocation, TikTokReadCommand, TikTokReportQuery } from "../src/index.js";
+import { parseBoundary, pluginConfigurationSchema } from "@open-marketing/contracts";
+import type { AppError, CallContext, ClockPort, EffectEnvelope, HaltStopPermit, MeasurementGrant, ObserverEvent, Outcome, PluginCapabilityDependencies, ServiceContext } from "@open-marketing/contracts";
+import { createTikTokAdsAdapter, createConversionDelivery, createTikTokFetchEgress, decodeTikTokRead } from "../src/index.js";
+import type { TikTokAccountMetadata, TikTokAdsAdapter, TikTokBinding, TikTokCall, TikTokCredentialPort, TikTokEgressPort, TikTokEgressRequest, TikTokEventsPayload, TikTokEventsRequest, TikTokInvocation, TikTokReadCommand, TikTokReportQuery } from "../src/index.js";
 import type { TikTokEgressCommand, TikTokGatewayPort } from "../src/ports.js";
 import { decodeTikTokAcknowledgement, digestTikTokArguments, failure } from "../src/commands.js";
 import { encodeTikTokEgress } from "../src/transport.js";
@@ -22,6 +22,8 @@ export const reportResponse = { code: 0, data: { list: [{ dimensions: { advertis
 
 export interface EgressFixture {
   egress: TikTokEgressPort;
+  fetch: typeof fetch;
+  credentials: TikTokCredentialPort;
   state: { current: boolean; token: string; body: unknown; onAccess?: () => void; credentialError?: AppError };
   credentialCalls: { context: CallContext | ServiceContext; connectionId: string; accountId: string }[];
   sent: string[];
@@ -82,7 +84,7 @@ export function fixture(required: { kind: "memory" | "fetch"; body?: unknown; fe
     if (required.fetch) return required.fetch(input, init);
     return Response.json(required.responseFor ? required.responseFor({ path: new URL(String(input)).pathname.replace("/open_api/v1.3/", ""), body: init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : undefined }) : state.body);
   };
-  const shared = { state, credentialCalls, sent, fetchCalls, observations };
+  const shared = { state, credentialCalls, sent, fetchCalls, observations, fetch: fetchPort, credentials };
   const egress = required.kind === "memory" ? createMemoryEgress({ fixture: shared, credentials, responseFor: required.responseFor }) : createTikTokFetchEgress({ fetch: fetchPort, credentials, observer: { observe: input => { observations.push(input); } } });
   return { ...shared, egress };
 }
@@ -114,7 +116,7 @@ export function vendorResponse(required: { path: string }): unknown {
 }
 export interface GatewayFixture {
   adapter: TikTokAdsAdapter; egress: EgressFixture;
-  state: { admitted: boolean; current: boolean; haltCurrent: boolean; exactApprovals: Set<string>; responseFor: ResponseFor; gatewayError?: AppError; throwGateway?: boolean };
+  state: { admitted: boolean; current: boolean; exactApprovals: Set<string>; responseFor: ResponseFor; gatewayError?: AppError; throwGateway?: boolean };
   calls: { context: CallContext; call: TikTokCall; effect: EffectEnvelope }[];
   claims: Map<string, string>; observations: ObserverEvent[];
 }
@@ -122,7 +124,7 @@ export interface GatewayFixture {
  * run the same tests; the exported gateway suite must also run against the addons host adapter.
  */
 export function gatewayFixture(required: { kind: "memory" | "fetch" }): GatewayFixture {
-  const state: GatewayFixture["state"] = { admitted: true, current: true, haltCurrent: true, exactApprovals: new Set(), responseFor: vendorResponse };
+  const state: GatewayFixture["state"] = { admitted: true, current: true, exactApprovals: new Set(), responseFor: vendorResponse };
   const calls: GatewayFixture["calls"] = [];
   const claims = new Map<string, string>();
   const observations: ObserverEvent[] = [];
@@ -137,7 +139,7 @@ export function gatewayFixture(required: { kind: "memory" | "fetch" }): GatewayF
       if (claims.has(input.call.operationId)) return failure({ code: "conflict", message: "Fixture outbox claim already consumed" });
       claims.set(input.call.operationId, input.call.argumentsDigest);
     }
-    return egress.egress.send({ context: input.context, connectionId: input.call.connectionId, accountId: input.call.accountId, operationId: input.call.operationId, request: input.call.request, isCurrent: () => state.current && state.admitted && (input.effect.effects[0] !== "halt_stop" || state.haltCurrent) }, options);
+    return egress.egress.send({ context: input.context, connectionId: input.call.connectionId, accountId: input.call.accountId, operationId: input.call.operationId, request: input.call.request, isCurrent: () => state.current && state.admitted }, options);
   } };
   const adapter = createTikTokAdsAdapter({ binding, gateway, clock, observer: { observe: event => { observations.push(event); } } });
   return { adapter, state, calls, claims, egress, observations };
@@ -148,25 +150,24 @@ function fixtureAuthority(required: { state: GatewayFixture["state"]; input: Gat
   const { state, input } = required;
   if (!state.admitted || !state.current) return failure({ code: "forbidden", message: "Fixture host admission/authority denied" });
   if (input.effect.effects.includes("ad_spend") && !state.exactApprovals.delete(input.call.operationId)) return failure({ code: "forbidden", message: "Fixture exact spend card missing" });
-  if (input.effect.effects.includes("halt_stop") && (!state.haltCurrent || !input.call.haltStopPermit)) return failure({ code: "forbidden", message: "Fixture current halt permit missing" });
   return { ok: true, value: undefined };
 }
 
 export const serviceContext: ServiceContext = { scope: context.scope, serviceId: "measurement-service", correlationId: "correlation", traceId: "trace" };
-export const eventsConfiguration: TikTokEventsConfiguration = { connectionId: "connection", accountId: "123", pixelId: "fixture-pixel", pluginDigest: binding.pluginDigest, destination: "tiktok", purpose: "measurement", payloadSchema: "tiktok-ads.events.v1", mode: "production-server" };
-export const grant: MeasurementGrant = { kind: "measurement", grantId: "grant", scope: context.scope, connectionId: "connection", accountId: "123", eventTypes: ["signup", "trial"], destination: "tiktok", purpose: "measurement", payloadSchema: "tiktok-ads.events.v1", payloadVersion: 1, expiresAt: now + 60000, revoked: false };
-export const conversion: TikTokEventsRequest = { context: serviceContext, deliveryId: "delivery", grant, event: { eventId: "shared-event", eventType: "signup", subjectId: "subject", occurredAt: now - 1234, destination: "tiktok", purpose: "measurement", identifiers: { email: "b".repeat(64), phone: "c".repeat(64), external_id: "d".repeat(64), event_source_url: "https://example.com/signup" } } };
+export const eventsConfiguration = pluginConfigurationSchema.parse({ scope: context.scope, connectionId: "connection", accountId: "123", pluginDigest: binding.pluginDigest, settings: { conversionConfiguration: { pixelId: "fixture-pixel" } } });
+export const grant: MeasurementGrant = { kind: "measurement", grantId: "grant", scope: context.scope, connectionId: "connection", accountId: "123", definitionIds: ["signup"], destination: "tiktok-ads", purpose: "measurement", payloadSchema: "tiktok-ads.events.v1", payloadVersion: 1, expiresAt: now + 60000, revoked: false };
+export const conversion: TikTokEventsRequest = { context: serviceContext, deliveryId: "delivery", grant, event: { eventId: "shared-event", definitionId: "signup", subjectId: "subject", occurredAt: now - 1234, destination: "tiktok-ads", purpose: "measurement", identifiers: { email: "b".repeat(64), phone: "c".repeat(64), external_id: "d".repeat(64), event_source_url: "https://example.com/signup" }, identifierDigests: { email: "e".repeat(64), phone: "f".repeat(64), external_id: "0".repeat(64), event_source_url: "1".repeat(64) } } };
 /** Durable claim/current consent are host doubles; plugin has no persistence or consent cache. */
-export function eventsFixture(required: { kind: "memory" | "fetch"; configuration?: TikTokEventsConfiguration }): {
-  backend: ReturnType<typeof createTikTokEventsBackend>; egress: EgressFixture; payloads: TikTokEventsPayload[];
+export function eventsFixture(required: { configuration?: PluginCapabilityDependencies["configuration"] } = {}): {
+  backend: ReturnType<typeof createConversionDelivery>; egress: EgressFixture; payloads: TikTokEventsPayload[];
   state: { consent: boolean; current: boolean; throwAfterSend: boolean; throwBeforeSend: boolean }; claims: Set<string>; observations: ObserverEvent[];
 } {
   const state = { consent: true, current: true, throwAfterSend: false, throwBeforeSend: false };
-  const egress = fixture({ kind: required.kind, body: { code: 0, data: {} } });
+  const egress = fixture({ kind: "fetch", body: { code: 0, data: {} } });
   const payloads: TikTokEventsPayload[] = [];
   const claims = new Set<string>();
   const observations: ObserverEvent[] = [];
-  const backend = createTikTokEventsBackend({ configuration: required.configuration ?? eventsConfiguration, clock, egress: egress.egress, observer: { observe: event => { observations.push(event); } }, authority: { dispatch: async input => {
+  const backend = createConversionDelivery({ configuration: required.configuration ?? eventsConfiguration, clock, fetch: egress.fetch, credentials: { access: (input, options) => egress.credentials.access({ ...input, context: serviceContext }, options) }, observer: { observe: event => { observations.push(event); } }, wait: async () => ({ ok: true, value: undefined }), authority: { dispatch: async input => {
     if (state.throwBeforeSend) throw new Error("fixture-token authority unavailable");
     if (!state.consent || !state.current) return failure({ code: "forbidden", message: "Fixture consent withdrawn" });
     if (claims.has(input.deliveryId) || claims.has(input.event.eventId)) return failure({ code: "conflict", message: "Fixture duplicate delivery/event claim" });

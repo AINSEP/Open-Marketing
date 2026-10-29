@@ -60,9 +60,7 @@ describe("Kakao reads", () => {
   it.each([ { accessToken: "bad\r\nheader" }, { accessToken: "synthetic-secret", expiresAt: now } ])("denies malformed/expired credentials", async credential => {
     const f = fixture({ credential }); expect((await f.adapter.invoke(invocation())).ok).toBe(false); expect(f.calls).toHaveLength(0);
   });
-  it("rechecks admission and host egress after credential resolution", async () => {
-    const f = fixture({ credentialHook: () => { f.configuration.admitted = false; } });
-    expect((await f.adapter.invoke(invocation())).ok).toBe(false); expect(f.calls).toHaveLength(0);
+  it("uses the host egress fence after credential resolution", async () => {
     const host = fixture({ credentialHook: () => { host.state.egressAllowed = false; } });
     expect(await host.adapter.invoke(invocation())).toMatchObject({ ok: false, error: { code: "unavailable" } }); expect(host.calls).toHaveLength(0);
   });

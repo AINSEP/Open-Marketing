@@ -506,5 +506,69 @@
     "maxEventAgeMs": 7776000000,
     "maxLeadOffset": 1000000,
     "conversionEventsPerCall": 1
+  },
+  "canonicalReadReview": {
+    "checkedAt": "2026-10-26",
+    "liveVendorCalls": false,
+    "verified": [
+      {
+        "url": "https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads-reporting/ads-reporting?view=li-lms-2026-10",
+        "fact": "202610 DAILY analytics is requested with a single account filter. Analytics has no pagination; empty results may indicate either no activity or no read access."
+      },
+      {
+        "url": "https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads-reporting/ads-reporting-schema?view=li-lms-2026-10",
+        "fact": "dateRange is inclusive UTC. costInLocalCurrency and conversionValueInLocalCurrency are major account currency units. clicks counts chargeable clicks, not only landing-page clicks. impressions means impressions or Sponsored Messaging sends. externalWebsiteConversions includes advertiser-defined post-click/post-view website actions and vendor estimates; categories are not added together."
+      },
+      {
+        "url": "https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads-reporting/conversion-tracking?view=li-lms-2026-09",
+        "fact": "Conversion attribution windows are configurable per advertiser rule. The mapping describes configured click/view windows and makes no fixed-window assumption."
+      },
+      {
+        "url": "https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads/account-structure/create-and-manage-campaigns?view=li-lms-2026-10",
+        "fact": "GET /rest/adAccounts/{adAccountId}/adCampaigns/{campaignID} scopes campaign reads to the account. status is user-managed; servingStatuses is vendor-controlled. Only ACTIVE with sole RUNNABLE is mapped active."
+      },
+      {
+        "url": "https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads/account-structure/create-and-manage-campaigns?view=li-lms-2026-10#batch-get-campaigns",
+        "fact": "Account-scoped batch GET uses ids=List(...); the documented response separates results and errors keyed by campaign ID."
+      }
+    ],
+    "implemented": [
+      "report.metrics.v1: account/campaign daily UTC rows, five base metrics, shared decimalToMicros and exact-integer JSON parsing.",
+      "campaign.status.v1: one account-scoped batch GET for all <=100 requested IDs; requested order preserved, missing/error IDs unknown.",
+      "complete means the requested non-paginated analytics was drained, including an empty response; 5,000 rows signals possible truncation. dataThrough is min(window end in UTC, retrieval time) when drained, otherwise 0 (unknown). Vendor finality remains provisional."
+    ],
+    "unverified": [
+      "No canonical ad_group/ad representation without a real ad-group parent; unsupported before I/O.",
+      "No creative rejection roll-up or invented rejection descriptions.",
+      "Empty analytics can also reflect lack of access; complete describes response coverage, not proof of activity or entitlement. No vendor finality/watermark claim.",
+      "JSON source-context-free runtimes reject numeric money/selected numeric fields rather than manufacture rounded decimals."
+    ],
+    "bounds": {
+      "requestedDays": 366,
+      "rows": 5000,
+      "responseBytes": 1048576,
+      "vendorReads": 1,
+      "retries": 0,
+      "deadline": "caller CallOptions.signal; 15s per HTTP read"
+    },
+    "abi": "createCapabilities(PluginCapabilityDependencies) returns handlers keyed by callable catalog ID; host guarded fetch alone enforces current admission/authority. CallOptions supplies the invocation deadline."
+  }
+,
+  "round2B1": {
+    "checkedAt": "2026-10-26",
+    "liveVendorCalls": false,
+    "configuration": "pluginConfigurationSchema: exactly scope, connectionId, accountId, pluginDigest, settings. Account facts are not install options; credentials own connection identity. Server owns admission.",
+    "verification": "Regression tests written, not run; package typechecks reported in the handoff.",
+    "implemented": [
+      "Authenticated GET /rest/adAccounts/{accountId} supplies currency and verifies account ID before analytics; output timezone remains vendor-report UTC.",
+      "Current UTC-day reports remain stale; historical drained data retains prior coverage behavior."
+    ],
+    "deferred": [
+      {
+        "item": "Large analytics responses still fail at existing byte/row bounds; no cap increase or speculative partitioning.",
+        "source": "https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads-reporting/ads-reporting?view=li-lms-2026-10",
+        "reason": "Vendor analytics has no pagination and a 15,000-element ceiling. Bounded partition/recovery is explicitly outside approved B1 scope."
+      }
+    ]
   }
 }

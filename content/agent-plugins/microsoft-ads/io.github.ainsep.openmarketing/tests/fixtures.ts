@@ -1,5 +1,6 @@
 import type { CallContext, ObserverEvent } from "@open-marketing/contracts";
-import { createMicrosoftAdsAdapter, createMicrosoftAdsConversionBackend, translateCampaign } from "../src/index.js";
+import { pluginConfigurationSchema } from "@open-marketing/contracts";
+import { createMicrosoftAdsAdapter, createConversionDelivery, translateCampaign } from "../src/index.js";
 import type { CampaignTranslationInput, DeploymentInput, MicrosoftAdsConversionDependencies, MicrosoftAdsConversionRequest, MicrosoftAdsDependencies, MicrosoftAdsInvocation, MicrosoftAdsWireRequest } from "../src/index.js";
 
 export const now = Date.UTC(2026, 9, 12);
@@ -27,7 +28,7 @@ export function fixture() {
   const dependencies: MicrosoftAdsDependencies = {
     configuration: { scope: context.scope, admitted: true, connectionId: "connection", accountId: "123", customerId: "234", currency: "USD", pluginDigest: "a".repeat(64), bindingId: "binding" },
     gateway: { async dispatch(input) { dispatches.push(input); state.gatewayHook(input); if (!state.admitted || !state.bound) return denied; return input.execute(); } },
-    credentials: { async access(input) { if (!state.admitted || !state.bound) return denied; credentials.push(input.connectionId); state.hook(input); if (!state.admitted || !state.bound) return denied; return { ok: true, value: { accessToken: "synthetic-secret", expiresAt: now + 60000 } }; } },
+    credentials: { async access(input) { if (!state.admitted || !state.bound) return denied; credentials.push(input.connectionId); state.hook(input); if (!state.admitted || !state.bound) return denied; return { ok: true, value: { accessToken: "synthetic-secret", expiresAt: now + 60000, secrets: { developerToken: "synthetic-secret" } } }; } },
     fetch: async (url, init) => { if (!state.admitted || !state.bound) throw new Error("Denied"); calls.push({ url: String(url), init: init! }); state.fetchHook(); init?.signal?.throwIfAborted(); return new Response(JSON.stringify(state.responses.shift()), { status: 200 }); },
     clock: { now: () => state.time }, observer: { observe: event => { observations.push(event); } },
     timeoutSignal: input => { const controller = new AbortController(); timeouts.push({ ...input, deadline: state.time + input.milliseconds, controller }); return controller.signal; },
@@ -69,7 +70,7 @@ export function deploymentFixture() {
     }
     state.writes++;
     if (state.writes === state.failWrite) throw new Error("synthetic-secret ambiguous");
-    const created = body[definition.collection].map((row: Record<string, unknown>, index: number) => ({ ...row, ...(collection === "CampaignCriterions" ? { Status: "Active" } : {}), Id: state.writes * 1000 + index + 1 }));
+    const created = (body[definition.collection] as Record<string, unknown>[]).map((row, index) => ({ ...row, ...(collection === "CampaignCriterions" ? { Status: "Active" } : {}), Id: state.writes * 1000 + index + 1 }));
     rows.set(collection, created);
     return Response.json({ [definition.ids]: created.map((row: { Id: number }) => row.Id), PartialErrors: state.writes === state.partialWrite ? [{ Code: 1, Message: "synthetic-secret" }] : null });
   } }, checkpoint: async event => {
@@ -85,15 +86,17 @@ export type DeploymentFixture = ReturnType<typeof deploymentFixture>;
 
 /** Existing measure service request with one synthetic authorized email digest. */
 export function conversionInput(): MicrosoftAdsConversionRequest {
-  return { context: { scope: context.scope, serviceId: "measure", correlationId: "correlation", traceId: "trace" }, deliveryId: "delivery", event: { eventId: "event", definitionId: "purchase", subjectId: "subject", occurredAt: now, destination: "microsoft", purpose: "measurement", identifiers: { email: "a".repeat(64) }, identifierDigests: { email: "b".repeat(64) } },
-    grant: { kind: "measurement", grantId: "grant", scope: context.scope, connectionId: "connection", accountId: "123", definitionIds: ["purchase"], destination: "microsoft", purpose: "measurement", payloadSchema: "email-v1", payloadVersion: 1, expiresAt: now + 60000, revoked: false } };
+  return { context: { scope: context.scope, serviceId: "measure", correlationId: "correlation", traceId: "trace" }, deliveryId: "delivery", event: { eventId: "event", definitionId: "purchase", subjectId: "subject", occurredAt: now, destination: "microsoft-ads", purpose: "measurement", identifiers: { email: "a".repeat(64) }, identifierDigests: { email: "b".repeat(64) } },
+    grant: { kind: "measurement", grantId: "grant", scope: context.scope, connectionId: "connection", accountId: "123", definitionIds: ["purchase"], destination: "microsoft-ads", purpose: "measurement", payloadSchema: "email-v1", payloadVersion: 1, expiresAt: now + 60000, revoked: false } };
 }
 /** Host authority double retains a dispatched claim after uncertainty; real host runs the same suite. */
 export function conversionFixture() {
   const f = fixture(), claims = new Set<string>(), dispatches: unknown[] = [];
   const state = { consent: true, halted: false, doubleExecute: false, authorityHook: () => {} };
   f.state.responses = [{ PartialErrors: null }];
-  const dependencies: MicrosoftAdsConversionDependencies = { ...f.dependencies, configuration: { ...f.dependencies.configuration, mode: "production-server", destination: "microsoft", purpose: "measurement", payloadSchema: "email-v1", conversionGoals: { purchase: { name: "Existing purchase goal", createdAt: now - 7200000, enhancedConversionsEnabled: true } } },
+  const conversionConfiguration = { accountId: "123", customerId: "234", purpose: "measurement", payloadSchema: "email-v1", conversionGoals: { purchase: { name: "Existing purchase goal", createdAt: now - 7200000, enhancedConversionsEnabled: true } } };
+  const dependencies: MicrosoftAdsConversionDependencies = { configuration: pluginConfigurationSchema.parse({ scope: context.scope, connectionId: "connection", accountId: "123", pluginDigest: "a".repeat(64), settings: { conversionConfiguration } }),
+    credentials: f.dependencies.credentials, fetch: f.dependencies.fetch, clock: f.dependencies.clock, observer: f.dependencies.observer, wait: async () => ({ ok: true, value: undefined }),
     authority: { async dispatch(input, options) {
       dispatches.push(input); if (claims.has(input.deliveryId)) return { ok: true, value: { status: "unknown" } };
       if (!state.consent || state.halted) return { ok: false, error: { code: "forbidden", message: "Denied", retryable: false } };
@@ -102,6 +105,29 @@ export function conversionFixture() {
       const result = await input.execute(current);
       return state.doubleExecute ? input.execute(current) : result;
     } } };
-  return { ...f, conversionState: state, conversionDependencies: dependencies, conversionDispatches: dispatches, backend: createMicrosoftAdsConversionBackend(dependencies) };
+  return { ...f, conversionState: state, conversionConfiguration, conversionDependencies: dependencies, conversionDispatches: dispatches, backend: createConversionDelivery(dependencies) };
 }
 export type ConversionFixture = ReturnType<typeof conversionFixture>;
+
+/** Independent canonical report fixture; columns do not come from the encoder under test. */
+export function metricsFixture(required: { grain: "account" | "campaign" | "ad_group" | "ad"; currency?: string }) {
+  const f = reportFixture();
+  const headers = { account: "AccountId", campaign: "AccountId\tCampaignId", ad_group: "AccountId\tCampaignId\tAdGroupId", ad: "AccountId\tCampaignId\tAdGroupId\tAdId" };
+  const ids = { account: "123", campaign: "123\t456", ad_group: "123\t456\t789", ad: "123\t456\t789\t1011" };
+  const currency = required.currency ?? "USD";
+  const dependencies = { ...f.dependencies, configuration: { ...f.dependencies.configuration, currency } };
+  f.state.text = headers[required.grain] + "\tTimePeriod\tCurrencyCode\tSpend\tImpressions\tClicks\tConversionsQualified\tRevenue\n" + ids[required.grain] + "\t2026-10-12\t" + currency + "\t9007199254740993.000001\t0\t\t0.500000\t2.50\n";
+  return { ...f, dependencies };
+}
+/** Exact requested campaign plus its scoped Search ad/keyword editorial evidence. */
+export function statusFixture() {
+  const f = fixture();
+  f.state.responses = [
+    { Campaigns: [{ Id: "456", CampaignType: "Search", Status: "Active" }], PartialErrors: [null] },
+    { AdGroups: [{ Id: "789" }] },
+    { Ads: [{ Id: "1011", EditorialStatus: "Disapproved" }] },
+    { EditorialReasons: [{ AdGroupId: "789", AdOrKeywordId: "1011", Reasons: [{ ReasonCode: 12, Location: "Title" }] }], PartialErrors: [] },
+    { Keywords: [{ Id: "1213", EditorialStatus: "Active" }] },
+  ];
+  return f;
+}

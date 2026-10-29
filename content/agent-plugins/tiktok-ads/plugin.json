@@ -6,8 +6,11 @@
   "license": "Apache-2.0",
   "extensions": {
     "io.github.ainsep.openmarketing": {
+      "conversionSettings": {
+        "fields": [{ "name": "pixelId", "label": "Pixel or event-source code", "hint": "Pixel or event-source code for conversion events", "kind": "string", "format": "code" }]
+      },
       "credentialCards": [
-        {"target": "tiktok-ads", "title": "TikTok Ads", "label": "Save access token", "category": "Advertising", "intro": "Paste a Marketing API advertiser access token from your approved TikTok for Business app. Consumer Login Kit tokens are not suitable. Saving does not verify the token.", "usedFor": ["Read advertiser accounts, campaigns and performance", "Create paused campaigns, ad groups and ads", "Manage exact approved activation and consented server Events delivery"], "helpUrl": "https://business-api.tiktok.com/gateway/docs/index?doc_id=1738373141733378", "helpLabel": "Authentication and setup", "baseUrl": "https://business-api.tiktok.com", "saveKind": "api-key", "saveTarget": "tiktok-ads", "icon": "io.github.ainsep.openmarketing/assets/icon.svg", "keyHint": "Long-term advertiser tokens do not expire by default; optional short-term tokens last 24 hours. Reauthorize expired tokens.", "secretFields": [{"name": "token", "label": "Advertiser access token", "required": true}], "permissions": ["Approved Marketing API permission IDs and advertiser account roles; no consumer Login Kit scopes"]}
+        {"target": "tiktok-ads", "title": "TikTok Ads", "label": "Save access token", "category": "Advertising", "intro": "Paste a Marketing API advertiser access token from your approved TikTok for Business app. Consumer Login Kit tokens are not suitable. Saving does not verify the token.", "usedFor": ["Read advertiser accounts, campaigns and performance", "Create paused campaigns, ad groups and ads", "Manage exact approved activation and consented server Events delivery"], "helpUrl": "https://business-api.tiktok.com/gateway/docs/index?doc_id=1738373141733378", "helpLabel": "Authentication and setup", "baseUrl": "https://business-api.tiktok.com", "saveKind": "api-key", "saveTarget": "tiktok-ads", "icon": "io.github.ainsep.openmarketing/assets/icon.svg", "keyHint": "Long-term advertiser tokens do not expire by default; optional short-term tokens last 24 hours. Reauthorize expired tokens. Paste above or run `om integrations connect --plugin tiktok-ads --token-stdin`.", "secretFields": [{"name": "token", "label": "Advertiser access token", "required": true}], "permissions": ["Approved Marketing API permission IDs and advertiser account roles; no consumer Login Kit scopes"]}
       ],
       "credentialAssets": {
         "io.github.ainsep.openmarketing/assets/icon.svg": "ed2fef6f362da71cb47fb51b41962c643635c192fb87831524e90f6e088e0630",
@@ -62,7 +65,7 @@
           "capabilityId": "report.account-spend.v1",
           "version": 1,
           "pluginId": "tiktok-ads",
-          "schemaFingerprint": "28a8a8a35a4966272cea9a6a5afdd47807d0ff91972219f944331e7221c090bd",
+          "schemaFingerprint": "11e78c5fc5eea9ad62ed485d28401c668e897727695469fbb671458c882c3602",
           "admitted": false,
           "effects": [
             "read"
@@ -147,8 +150,10 @@
           "effects": [
             "write"
           ]
-        }
-      ]
+        },
+    {"capabilityId": "report.metrics.v1", "version": 1, "pluginId": "tiktok-ads", "schemaFingerprint": "bde82db7773c22b3a105834083ecb5389070889f2640c3032cef8130b268be0b", "admitted": false, "effects": ["read"]},
+    {"capabilityId": "campaign.status.v1", "version": 1, "pluginId": "tiktok-ads", "schemaFingerprint": "bde82db7773c22b3a105834083ecb5389070889f2640c3032cef8130b268be0b", "admitted": false, "effects": ["read"]}
+  ]
     }
   }
 }

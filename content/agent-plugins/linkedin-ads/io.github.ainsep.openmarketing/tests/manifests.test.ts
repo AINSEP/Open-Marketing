@@ -1,9 +1,10 @@
+import { readFile as readCapabilityFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { describe, expect, it } from "vitest";
-import { capabilityEnvelopeSchema } from "@open-marketing/contracts";
-import { linkedinAdsTools } from "../src/index.js";
+import { capabilityEnvelopeSchema, pluginConfigurationSchema } from "@open-marketing/contracts";
+import { createCapabilities, tools } from "../src/index.js";
 
 const root = new URL("../../", import.meta.url);
 /** Fixture reader consumes the files the plugin host actually installs. */
@@ -12,6 +13,7 @@ const capability = capabilityEnvelopeSchema.omit({ pluginDigest: true });
 const manifestSchema = z.object({ $schema: z.literal("https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"), name: z.literal("linkedin-ads"), version: z.literal("0.1.0"), license: z.literal("Apache-2.0"), extensions: z.strictObject({ "io.github.ainsep.openmarketing": z.strictObject({ version: z.literal(1), enabled: z.literal(false), admitted: z.literal(false), capabilities: z.array(capability), credentialCards: z.array(z.record(z.string(), z.unknown())).max(32), credentialAssets: z.record(z.string(), z.string().regex(/^[a-f0-9]{64}$/)) }) }) });
 /** Source file whose bytes back a capability's schema fingerprint. */
 function fingerprintSource(required: { effect: string | undefined; capabilityId: string }): string {
+  if (["report.metrics.v1", "campaign.status.v1"].includes(required.capabilityId)) return "capabilities.ts";
   if (required.capabilityId === "campaign.create-draft.v1") return "campaign-deployment.ts";
   if (required.effect === "halt_stop") return "transport.ts";
   if (required.effect === "conversion") return "capi.ts";
@@ -22,15 +24,15 @@ describe("LinkedIn portable package", () => {
     const manifest = manifestSchema.parse(readJson({ path: "plugin.json" }));
     expect(readJson({ path: "mcp.json" })).toEqual({ $schema: "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json", mcpServers: {} });
     const capabilities = manifest.extensions["io.github.ainsep.openmarketing"].capabilities;
-    expect(capabilities).toHaveLength(11);
+    expect(capabilities).toHaveLength(13);
     expect(capabilities.every(value => !value.admitted && value.pluginId === "linkedin-ads")).toBe(true);
-    expect(new Set(capabilities.map(value => value.capabilityId)).size).toBe(11);
+    expect(new Set(capabilities.map(value => value.capabilityId)).size).toBe(13);
   });
   it("declares effects consistently with actual tool schemas, excluding backend stop from agent tools", () => {
     const manifest = manifestSchema.parse(readJson({ path: "plugin.json" }));
     const declaration = z.object({ admitted: z.literal(false), capabilities: z.array(capability), tools: z.array(z.strictObject({ name: z.string(), effects: z.array(z.string()), capabilityId: z.string() })), backendStop: z.strictObject({ capabilityId: z.literal("campaign.stop-only.v1"), effects: z.tuple([z.literal("halt_stop")]), agentTool: z.literal(false) }), backendConversion: z.strictObject({ capabilityId: z.literal("conversion.deliver.v1"), effects: z.tuple([z.literal("conversion")]), agentTool: z.literal(false) }) }).parse(readJson({ path: "io.github.ainsep.openmarketing/capabilities.json" }));
     expect(declaration.capabilities).toEqual(manifest.extensions["io.github.ainsep.openmarketing"].capabilities);
-    expect(declaration.tools.map(tool => [tool.name, tool.effects])).toEqual(linkedinAdsTools.map(tool => [tool.name, [tool.effect]]));
+    expect(declaration.tools.map(tool => [tool.name, tool.effects])).toEqual(tools.map(tool => [tool.name, tool.effects]));
     expect(declaration.tools.every(tool => declaration.capabilities.some(cap => cap.capabilityId === tool.capabilityId && JSON.stringify(cap.effects) === JSON.stringify(tool.effects)))).toBe(true);
     expect(declaration.tools.map(tool => tool.name)).not.toContain("stop");
     expect(declaration.tools.map(tool => tool.name)).not.toContain("deliver");
@@ -63,4 +65,22 @@ describe("LinkedIn portable package", () => {
     }
     expect(evidence.sources.filter(source => source.apiVersion === "202610").map(source => source.id)).toEqual(["version-202610", "creative-content-202610"]);
   });
+});
+
+it("declares canonical read capabilities without admitting or changing credentials", async () => {
+  const root = new URL("../../", import.meta.url);
+  const manifest = JSON.parse(await readCapabilityFile(new URL("plugin.json", root), "utf8"));
+  const declaration = JSON.parse(await readCapabilityFile(new URL("io.github.ainsep.openmarketing/capabilities.json", root), "utf8"));
+  const fingerprint = createHash("sha256").update(await readCapabilityFile(new URL("io.github.ainsep.openmarketing/src/capabilities.ts", root))).digest("hex");
+  const unused = () => { throw new Error("Factory must perform no I/O"); };
+  const handlers = createCapabilities({ configuration: pluginConfigurationSchema.parse({ scope: { ownerId: "owner", workspaceId: "workspace" }, connectionId: "connection", accountId: "123", pluginDigest: "a".repeat(64), settings: {} }), fetch: unused, credentials: { access: unused }, clock: { now: unused }, observer: { observe: unused }, wait: unused });
+  const capabilities = declaration.capabilities.filter((value: { capabilityId: string }) => ["report.metrics.v1", "campaign.status.v1"].includes(value.capabilityId));
+  expect(capabilities.map((value: { capabilityId: string }) => value.capabilityId)).toEqual(["report.metrics.v1", "campaign.status.v1"]);
+  for (const entry of capabilities) {
+    expect(handlers[entry.capabilityId as keyof typeof handlers]).toBeTypeOf("function");
+    expect(entry).toMatchObject({ pluginId: "linkedin-ads", admitted: false, effects: ["read"], schemaFingerprint: fingerprint });
+  }
+  expect(manifest.extensions["io.github.ainsep.openmarketing"].capabilities).toEqual(declaration.capabilities);
+  const evidence = JSON.parse(await readCapabilityFile(new URL("io.github.ainsep.openmarketing/evidence/primary-sources.json", root), "utf8"));
+  expect(evidence.canonicalReadReview).toMatchObject({ checkedAt: "2026-10-26", liveVendorCalls: false });
 });

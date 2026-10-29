@@ -3,7 +3,6 @@ export { invokeAppleSearchAds } from "./transport.js";
 export { appleSearchAdsTools, commandSchema } from "./commands.js";
 export type { AppleSearchAdsCommand } from "./commands.js";
 export type { AppleSearchAdsConfiguration, AppleSearchAdsDependencies, AppleSearchAdsPage, AppleSearchAdsResult } from "./transport.js";
-export type { AppleSearchAdsReport } from "./reporting.js";
 export { translateCampaign, campaignDeploymentPlanSchema } from "./campaign-translation.js";
 export type { AppleSearchAdsPlan, AppleSearchAdsTranslationInput } from "./campaign-translation.js";
 export { deployCampaignPaused, readCampaignDeployment } from "./campaign-deployment.js";

@@ -1,3 +1,4 @@
+import type { PluginCapabilitiesFactory } from "@open-marketing/contracts";
 import { z } from "zod";
 import { scopeSchema, idSchema } from "@open-marketing/contracts";
 import type { CallOptions, Outcome } from "@open-marketing/contracts";
@@ -18,16 +19,16 @@ const campaign = z.object({ campaignId: providerIdSchema, name: z.string().max(1
 /** Inert server-only adapter. Host guards fetch with live admission, account/connection authority,
  * halt, policy and outbox checks. Report downloads make two guarded reads, with no Ads headers on
  * storage. @param required - Injected host dependencies. @returns Typed invoke boundary; no retries.
- * @example createAmazonAdsAdapter({ admitted, configuration, credentials, fetch, createDeadlineSignal, clock, observer })
+ * @example createAmazonAdsAdapter({ configuration, credentials, fetch, createDeadlineSignal, clock, observer })
  * @complexity O(b+n), <=1MiB ordinary response, <=8MiB decoded report and <=10,000 rows.
  */
 export function createAmazonAdsAdapter(required: AmazonDependencies): AmazonAdsAdapter {
-  return { async invoke(input, options) {
-    if (!required.admitted) return failure({ code: "forbidden" });
+  return {
+    async invoke(input, options) {
     const parsed = prepare({ dependencies: required, input });
     if (!parsed.ok) return parsed;
     const invocation = parsed.value;
-    const dependencies = { ...required, get admitted() { return required.admitted; }, configuration: structuredClone(required.configuration) };
+    const dependencies = { ...required, configuration: structuredClone(required.configuration) };
     const result = await invoke({ dependencies, input: invocation }, options);
     const { correlationId, traceId, runId } = invocation.context;
     try { required.observer.observe({ operation: "amazon-ads." + invocation.command.kind, outcome: result.ok ? result.value.status : result.error.code, correlationId, traceId, runId }); }
@@ -107,9 +108,8 @@ function responseFailure(required: { input: AmazonInvocation; status: number; re
   return required.result;
 }
 
-/** Recheck admission, cancellation and epoch-ms expiry immediately before each fetch. @complexity O(1). */
+/** Recheck cancellation and epoch-ms expiry immediately before each fetch. @complexity O(1). */
 function beforeEgress(required: { dependencies: AmazonDependencies; credential: Credential }, optional?: CallOptions): Outcome<void> {
-  if (!required.dependencies.admitted) return failure({ code: "forbidden" });
   if (optional?.signal?.aborted) return failure({ code: "cancelled" });
   const now = required.dependencies.clock.now({});
   if (!Number.isSafeInteger(now) || now < 0) return failure({ code: "invalid_input" });
@@ -191,7 +191,6 @@ function unknown(required: { input: AmazonInvocation }): Outcome<AmazonResult> {
  */
 export async function requestDeployment(required: { dependencies: AmazonDependencies; context: AmazonInvocation["context"]; resource: "campaigns" | "adGroups" | "productAds"; read: boolean; body: Record<string, unknown> }, optional?: CallOptions): Promise<Outcome<{ status: number; body: unknown }>> {
   const { dependencies, resource } = required;
-  if (!dependencies.admitted) return failure({ code: "forbidden" });
   if (optional?.signal?.aborted) return failure({ code: "cancelled" });
   try {
     const body = JSON.stringify(required.body);
@@ -215,3 +214,8 @@ export async function requestDeployment(required: { dependencies: AmazonDependen
     catch { /* Host durable egress audit owns the authoritative outcome. */ }
   }
 }
+
+/** No canonical reads are implemented yet; construction performs no I/O.
+ * @example createCapabilities({ fetch, credentials, clock, observer, wait, configuration }) // {}
+ * @complexity O(1) time/space. OAuth and completed-report binding remain prerequisites. */
+export const createCapabilities: PluginCapabilitiesFactory = () => ({});

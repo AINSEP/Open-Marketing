@@ -6,6 +6,18 @@
   "license": "Apache-2.0",
   "extensions": {
     "io.github.ainsep.openmarketing": {
+      "credentialAssets": {"io.github.ainsep.openmarketing/assets/icon.svg": "28c46e2cbb4882133e3eca537ec4b5c92f35a2c3a936947242ee045e46549abb"},
+      "credentialCards": [
+        {
+          "target": "reddit-ads", "title": "Reddit Ads", "label": "Save access token", "category": "Advertising",
+          "intro": "Obtain an Ads OAuth access token for an authorized Reddit developer app outside OM. Account and campaign listing remain unavailable. Saving does not verify access or enable the plugin.",
+          "usedFor": ["List businesses", "Read supported spend reports"],
+          "helpUrl": "https://ads-api.reddit.com/docs/v3/authenticate-your-developer-application", "helpLabel": "Authentication and setup",
+          "baseUrl": "https://ads-api.reddit.com",
+          "saveKind": "api-key", "saveTarget": "reddit-ads", "icon": "io.github.ainsep.openmarketing/assets/icon.svg",
+          "secretFields": [{"name": "token", "label": "Ads OAuth access token", "required": true}]
+        }
+      ],
       "version": 1,
       "enabled": false,
       "admitted": false,
@@ -24,13 +36,13 @@
           "capabilityId": "report.account-spend.v1",
           "version": 1,
           "pluginId": "reddit-ads",
-          "schemaFingerprint": "ccebdd63aa7d9d2ff2f92abae6f07058344739ddc8b70556c502e49acc6fad83",
+          "schemaFingerprint": "9417cb7aa3f7e04d9600113ae6c1882f66e17e2fa683d402f9050c8e4e397e28",
           "admitted": false,
           "effects": [
             "read"
           ]
         }
-      ]
+      , {"capabilityId":"report.metrics.v1","version":1,"pluginId":"reddit-ads","schemaFingerprint":"7b3e2322598e56a395adb9da10494c98a7bb80888c81b0a330a6cc4de1fafb5b","admitted":false,"effects":["read"]}, {"capabilityId":"campaign.status.v1","version":1,"pluginId":"reddit-ads","schemaFingerprint":"7b3e2322598e56a395adb9da10494c98a7bb80888c81b0a330a6cc4de1fafb5b","admitted":false,"effects":["read"]}]
     }
   }
 }

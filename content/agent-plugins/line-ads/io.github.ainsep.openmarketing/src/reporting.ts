@@ -1,5 +1,7 @@
 import { z } from "zod";
-import type { Outcome } from "@open-marketing/contracts";
+import { parse } from "csv-parse/sync";
+import { campaignStatusOutputSchema, metricBatchSchema } from "@open-marketing/contracts";
+import type { CampaignStatusOutput, MetricBatch, MetricGrain, Outcome, ReportMetricsInput } from "@open-marketing/contracts";
 import { vendorIdSchema } from "./commands.js";
 import type { ParsedCommand } from "./commands.js";
 import type { LineAdsConfiguration } from "./ports.js";
@@ -65,3 +67,97 @@ function pageMetadata(required: { paging: z.infer<typeof paging> }) {
   return { paging: p, nextPage: p.page * p.size < p.totalElements && p.page < 10000 ? p.page + 1 : null, pageLimitReached: p.page === 10000 && p.page * p.size < p.totalElements };
 }
 function invalid(): Outcome<never> { return { ok: false, error: { code: "protocol_mismatch", message: "LINE response invalid", retryable: false } }; }
+
+const statusCampaign = z.object({ id: providerId, configuredStatus: state.optional(),
+  deliveryStatus: z.string().min(1).max(100).optional(),
+  deliveryStatusReasons: z.array(z.object({ code: z.string().min(1).max(100).optional() })).max(100).optional() });
+const statusPage = z.object({ datas: z.array(statusCampaign).max(100), paging });
+const rejectionReasons: Readonly<Record<string, string>> = {
+  CREATIVE_REVIEW_NOT_APPROVED: "Ad not approved", ADGROUP_APP_REVIEW_NOT_APPROVED: "App not approved",
+  BILLING_REVIEW_NOT_APPROVED: "Billing not approved", ADACCOUNT_REVIEW_NOT_APPROVED: "Ad account not approved",
+  LINE_ACCOUNT_LINK_NOT_APPROVED: "LINE account link not approved",
+};
+const pendingReasons = ["CAMPAIGN_SCHEDULED", "CREATIVE_REVIEW_IN_REVIEW", "ADGROUP_APP_REVIEW_IN_REVIEW", "BILLING_REVIEW_IN_REVIEW", "ADACCOUNT_REVIEW_IN_REVIEW"];
+/** Decode one account-scoped, IDs-filtered page. Missing campaigns stay unknown; unsolicited or
+ * duplicate IDs reject atomically. O(n) time/space, at most 100 campaigns and 100 reasons each.
+ */
+export function decodeCampaignStatus(required: { input: unknown; ids: string[]; observedAt: number }): Outcome<CampaignStatusOutput> {
+  const parsed = statusPage.safeParse(required.input);
+  if (!parsed.success) return invalid();
+  const page = parsed.data;
+  if (page.paging.page !== 1 || page.paging.size !== 100 || page.paging.totalElements !== page.datas.length) return invalid();
+  const ids = page.datas.map(row => row.id);
+  if (new Set(ids).size !== ids.length || ids.some(id => !required.ids.includes(id))) return invalid();
+  const found = new Map(page.datas.map(row => [row.id, row]));
+  const campaigns = required.ids.map(vendorCampaignId => projectCampaign({ vendorCampaignId, row: found.get(vendorCampaignId) }));
+  const output = campaignStatusOutputSchema.safeParse({ observedAt: required.observedAt, complete: campaigns.every(row => row.status !== "unknown"), campaigns });
+  return output.success ? { ok: true, value: output.data } : invalid();
+}
+function projectCampaign(required: { vendorCampaignId: string; row?: z.infer<typeof statusCampaign> }): CampaignStatusOutput["campaigns"][number] {
+  const reasons = required.row?.deliveryStatusReasons ?? [];
+  const descriptions = reasons.flatMap(reason => reason.code && rejectionReasons[reason.code] ? [reason.code + ": " + rejectionReasons[reason.code]] : []);
+  return { vendorCampaignId: required.vendorCampaignId, status: campaignState({ row: required.row }), disapprovalDescriptions: [...new Set(descriptions)].slice(0, 20) };
+}
+/** Delivery evidence outranks configured intent. Unrecognized reason/state combinations stay unknown. */
+function campaignState({ row }: { row?: z.infer<typeof statusCampaign> }): CampaignStatusOutput["campaigns"][number]["status"] {
+  if (!row) return "unknown";
+  if (row.configuredStatus === "REMOVED" || row.deliveryStatus === "REMOVED") return "ended";
+  const codes = (row.deliveryStatusReasons ?? []).map(reason => reason.code);
+  if (codes.some(code => code !== undefined && rejectionReasons[code] !== undefined)) return "disapproved";
+  if (codes.includes("CAMPAIGN_ENDED")) return "ended";
+  if (codes.some(code => pendingReasons.includes(code ?? ""))) return "pending";
+  if (row.deliveryStatus === "PAUSED") return "paused";
+  if (row.deliveryStatus === "ACTIVE" && codes.every(code => code === "ACTIVE")) return "active";
+  return "unknown";
+}
+
+// Display names from the reporting field table; exact downloaded headers await live acceptance.
+const csvHeaders = { day: "Day", impressions: "Impressions", clicks: "Clicks", ids: {
+  account: [], campaign: ["Campaign ID"], ad_group: ["Campaign ID", "Ad group ID"], ad: ["Campaign ID", "Ad group ID", "Ad ID"],
+} } as const;
+const csvCount = z.union([z.literal("").transform(() => null), z.string().regex(/^\d+$/)]);
+const csvRows = z.array(z.record(z.string(), z.string()));
+
+/** Decode bounded UTF-8 CSV atomically; counts stay exact and undocumented spend stays null.
+ * @param required CSV from the capped reader plus validated call/account facts.
+ * @returns Validated batch or redacted protocol_mismatch. No effects; O(b+n) time/space,
+ * b<=1MiB before parsing, n<=5,000 in the final schema. No inferred freshness/calendar coverage.
+ * @example decodeMetricsCsv({ text, input, connection, currency: "TWD", timezone: "Asia/Taipei", retrievedAt })
+ */
+export function decodeMetricsCsv(required: { text: unknown; input: ReportMetricsInput; connection: { connectionId: string; accountId: string }; currency: string; timezone: string; retrievedAt: number }): Outcome<MetricBatch> {
+  if (typeof required.text !== "string" || Buffer.byteLength(required.text) > 1048576) return invalid();
+  const { grain, days } = required.input;
+  const headers = [csvHeaders.day, csvHeaders.impressions, csvHeaders.clicks, ...csvHeaders.ids[grain]];
+  let sawHeader = false;
+  try {
+    // csv-parse's header callback keeps columns header-derived and validates even an empty report.
+    const records = csvRows.parse(parse(required.text, { bom: true, columns: (columns: string[]) => {
+      if (headers.some(header => !columns.includes(header))) throw new Error("Missing LINE report header");
+      sawHeader = true;
+      return columns;
+    }, skip_empty_lines: true }));
+    if (!sawHeader) return invalid();
+    const rows = records.map(row => ({ day: z.iso.date().parse(row[csvHeaders.day]), entity: metricEntity({ grain, row }),
+      metrics: { impressions: csvCount.parse(row[csvHeaders.impressions]), clicks: csvCount.parse(row[csvHeaders.clicks]), spend: null } }));
+    const output = metricBatchSchema.safeParse({ schema: "report.metrics.v1", pluginId: "line-ads", ...required.connection, currency: required.currency,
+      timezone: required.timezone, grain, days, retrievedAt: required.retrievedAt, dataThrough: 0, complete: true, freshness: "stale", finality: "provisional", restated: false,
+      mapping: { pluginId: "line-ads", version: "1", grains: { [grain]: {
+        impressions: { vendorField: csvHeaders.impressions, meaning: "LINE reported daily impressions" },
+        clicks: { vendorField: csvHeaders.clicks, meaning: "LINE reported daily clicks" },
+        spend: { vendorField: "Cost", meaning: "Cost unit is undocumented; spend is unavailable (null)" },
+      } } }, rows });
+    return output.success ? { ok: true, value: output.data } : invalid();
+  } catch { return invalid(); }
+}
+/** Require the lineage for the requested grain; malformed/missing IDs throw into the CSV boundary.
+ * Pure constant work per row; provider IDs are never synthesized from names or row positions.
+ */
+function metricEntity({ grain, row }: { grain: MetricGrain; row: Record<string, string> }): MetricBatch["rows"][number]["entity"] {
+  const ids = csvHeaders.ids[grain].map(header => vendorIdSchema.parse(row[header]));
+  switch (grain) {
+    case "account": return { grain };
+    case "campaign": return { grain, vendorCampaignId: ids[0] };
+    case "ad_group": return { grain, vendorCampaignId: ids[0], vendorAdGroupId: ids[1] };
+    case "ad": return { grain, vendorCampaignId: ids[0], vendorAdGroupId: ids[1], vendorAdId: ids[2] };
+  }
+}

@@ -1,6 +1,6 @@
 # Apple Search Ads — Apple Ads Platform API v1
 
-Run A migrates the existing disabled plugin to v1: ad-account discovery, bounded campaign queries, App Store/Search Match/manual-CPT translation, PAUSED deployment/readback and GET-only recovery. This is fixture-based implementation awaiting execution and host integration; it is not a server/studio launch integration. Reporting returns typed `not_implemented` before credential access or network activity. `AppleSearchAdsReport` remains exported as `never`; no `report.metrics.v1` success is advertised.
+Run A migrates the existing disabled plugin to v1: ad-account discovery, bounded campaign queries, App Store/Search Match/manual-CPT translation, PAUSED deployment/readback and GET-only recovery. This is fixture-based implementation awaiting execution and host integration; it is not a server/studio launch integration. No report command or canonical reporting capability is available.
 
 Apple confirms [v5 sunset on 2027-01-26, with errors afterwards](https://ads.apple.com/adsdam/app-store/us/en_us/documents/api-preview-guide.pdf#page=4). Owner merge target: 2026-12-15. There is no v5 fallback.
 
@@ -33,7 +33,7 @@ The server owns the exact approval card and single jobs outbox. Creative preflig
 
 ## Deferred integration and verification
 
-Integrator owns `plugin.json` and `capabilities.json` fingerprint refresh; integrity assertions remain deliberately strict and will fail until refreshed. Keep disabled/unadmitted metadata, remove successful reporting declarations, and use canonical `["write","ad_spend"]` effects for any later `campaign.deploy` admission. Server origin/account binding, capability wiring, host dispatch-suite binding, packaging, production metadata and launch-objective compatibility remain NEEDS. No shared contract, manifest, lockfile, server or migration changes belong to AP1.
+Keep disabled/unadmitted metadata, declare no reporting capability until supported, and use canonical `["write","ad_spend"]` effects for any later `campaign.deploy` admission. Server origin/account binding, capability wiring, host dispatch-suite binding, packaging, production metadata and launch-objective compatibility remain NEEDS. No shared contract, manifest, lockfile, server or migration changes belong to AP1.
 
 Reporting date boundaries, watermarks/freshness/finality and restatement semantics are unresolved; no successful batch or account metadata lookup is implemented. Future reporting must satisfy the existing integer-micros metrics contract. Create idempotency remains unverified; no retry guarantee is invented. Apple Maps, keywords, creative creation, conversions and browser OAuth stay unsupported.
 

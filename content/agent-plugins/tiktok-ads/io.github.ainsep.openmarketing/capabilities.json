@@ -46,7 +46,7 @@
       "capabilityId": "report.account-spend.v1",
       "version": 1,
       "pluginId": "tiktok-ads",
-      "schemaFingerprint": "28a8a8a35a4966272cea9a6a5afdd47807d0ff91972219f944331e7221c090bd",
+      "schemaFingerprint": "11e78c5fc5eea9ad62ed485d28401c668e897727695469fbb671458c882c3602",
       "admitted": false,
       "effects": [
         "read"
@@ -131,6 +131,8 @@
       "effects": [
         "write"
       ]
-    }
+    },
+    {"capabilityId": "report.metrics.v1", "version": 1, "pluginId": "tiktok-ads", "schemaFingerprint": "bde82db7773c22b3a105834083ecb5389070889f2640c3032cef8130b268be0b", "admitted": false, "effects": ["read"]},
+    {"capabilityId": "campaign.status.v1", "version": 1, "pluginId": "tiktok-ads", "schemaFingerprint": "bde82db7773c22b3a105834083ecb5389070889f2640c3032cef8130b268be0b", "admitted": false, "effects": ["read"]}
   ]
 }

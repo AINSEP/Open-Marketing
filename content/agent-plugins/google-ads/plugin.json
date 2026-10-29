@@ -6,10 +6,89 @@
   "license": "Apache-2.0",
   "extensions": {
     "io.github.ainsep.openmarketing": {
+      "conversionSettings": {
+        "fields": [{ "name": "actionIds", "label": "Conversion action IDs", "hint": "One OM conversion definition = numeric action ID per line", "kind": "string-map", "format": "decimal-id" }]
+      },
       "credentialCards": [
-        {"target": "google-ads", "title": "Google Ads", "label": "Connect Google Ads", "category": "Advertising", "intro": "Sign in using your configured Google Cloud app. Enable the Google Ads API in that project; no developer token is needed.", "usedFor": ["Read accounts, budgets and campaign performance", "Create paused Search campaigns and manage approved campaigns", "Deliver consented conversions through server measurement jobs"], "helpUrl": "https://developers.google.com/google-ads/api/docs/oauth/overview", "helpLabel": "Authentication and setup", "baseUrl": "https://googleads.googleapis.com", "saveKind": "oauth", "saveTarget": "google-ads", "icon": "io.github.ainsep.openmarketing/assets/icon.svg", "permissions": ["Google Ads access (adwords)", "Data Manager conversion access (datamanager)"], "additionalHosts": ["https://datamanager.googleapis.com"]},
-        {"target": "google-ads-client", "title": "Google OAuth app", "label": "Save app configuration", "category": "Advertising", "intro": "Configure the Google Cloud OAuth app before signing in. Client configuration alone does not connect an ad account.", "usedFor": ["Configure the server-owned Google sign-in flow"], "helpUrl": "https://developers.google.com/google-ads/api/docs/oauth/overview", "helpLabel": "Authentication and setup", "baseUrl": "https://googleads.googleapis.com", "saveKind": "oauth-client", "saveTarget": "google-ads", "icon": "io.github.ainsep.openmarketing/assets/icon.svg", "fields": [{"name": "clientId", "label": "Client ID", "required": true}], "secretFields": [{"name": "clientSecret", "label": "Client secret", "required": true}]},
-        {"target": "google-ads-developer-token", "title": "Legacy Google developer token (optional)", "label": "Save optional token", "category": "Advertising", "intro": "Compatibility only: developer tokens were sunset September 9, 2026. The API ignores this optional header; it is never a sign-in prerequisite.", "usedFor": ["Retain optional legacy transport configuration"], "helpUrl": "https://developers.google.com/google-ads/api/docs/api-policy/developer-token", "helpLabel": "Authentication and setup", "baseUrl": "https://googleads.googleapis.com", "saveKind": "developer-token", "saveTarget": "google-ads", "icon": "io.github.ainsep.openmarketing/assets/icon.svg", "secretFields": [{"name": "token", "label": "Legacy developer token", "required": true, "hint": "22 alphanumeric characters; optional compatibility configuration."}]}
+        {
+          "target": "google-ads",
+          "title": "Google Ads",
+          "label": "Connect Google Ads",
+          "category": "Advertising",
+          "intro": "Sign in using your configured Google Cloud app. Enable the Google Ads API in that project; no developer token is needed.",
+          "usedFor": [
+            "Read accounts, budgets and campaign performance",
+            "Create paused Search campaigns and manage approved campaigns",
+            "Deliver consented conversions through server measurement jobs"
+          ],
+          "helpUrl": "https://developers.google.com/google-ads/api/docs/oauth/overview",
+          "helpLabel": "Authentication and setup",
+          "baseUrl": "https://googleads.googleapis.com",
+          "saveKind": "oauth",
+          "saveTarget": "google-ads",
+          "icon": "io.github.ainsep.openmarketing/assets/icon.svg",
+          "permissions": [
+            "Google Ads access (adwords)",
+            "Data Manager conversion access (datamanager)"
+          ],
+          "additionalHosts": [
+            "https://datamanager.googleapis.com"
+          ]
+        },
+        {
+          "target": "google-ads-client",
+          "title": "Google OAuth app",
+          "label": "Save app configuration",
+          "category": "Advertising",
+          "intro": "Configure the Google Cloud OAuth app before signing in. Client configuration alone does not connect an ad account.",
+          "usedFor": [
+            "Configure the server-owned Google sign-in flow"
+          ],
+          "helpUrl": "https://developers.google.com/google-ads/api/docs/oauth/overview",
+          "helpLabel": "Authentication and setup",
+          "baseUrl": "https://googleads.googleapis.com",
+          "saveKind": "oauth-client",
+          "saveTarget": "google-ads",
+          "icon": "io.github.ainsep.openmarketing/assets/icon.svg",
+          "fields": [
+            {
+              "name": "clientId",
+              "label": "Client ID",
+              "required": true
+            }
+          ],
+          "secretFields": [
+            {
+              "name": "clientSecret",
+              "label": "Client secret",
+              "required": true
+            }
+          ]
+        },
+        {
+          "target": "google-ads-developer-token",
+          "title": "Legacy Google developer token (optional)",
+          "label": "Save optional token",
+          "category": "Advertising",
+          "intro": "Compatibility only: developer tokens were sunset September 9, 2026. The API ignores this optional header; it is never a sign-in prerequisite.",
+          "usedFor": [
+            "Retain optional legacy transport configuration"
+          ],
+          "helpUrl": "https://developers.google.com/google-ads/api/docs/api-policy/developer-token",
+          "helpLabel": "Authentication and setup",
+          "baseUrl": "https://googleads.googleapis.com",
+          "saveKind": "plugin-secret",
+          "saveTarget": "google-ads",
+          "icon": "io.github.ainsep.openmarketing/assets/icon.svg",
+          "secretFields": [
+            {
+              "name": "developerToken",
+              "label": "Legacy developer token",
+              "required": true,
+              "hint": "22 alphanumeric characters; optional compatibility configuration."
+            }
+          ]
+        }
       ],
       "credentialAssets": {
         "io.github.ainsep.openmarketing/assets/icon.svg": "eb41c88fcedcc3ff7d616cd5695f4c656e8f7b10b64b9dfcb34d10c5fce47c41",
@@ -48,24 +127,89 @@
           }
         }
       },
-      "capabilities": {
-        "google-ads.search.v1": {
-          "server": "google-ads",
-          "binding": "./io.github.ainsep.openmarketing/bindings/search.v1.json"
+      "capabilities": [
+        {
+          "capabilityId": "google-ads.search.v1",
+          "version": 1,
+          "pluginId": "google-ads",
+          "schemaFingerprint": "cd0de4d65255610ec743c1eb46720b5289d8ce27b0702b3f329feff80962167d",
+          "admitted": false,
+          "effects": [
+            "write",
+            "ad_spend"
+          ]
         },
-        "google-ads.reporting.v1": {
-          "server": "google-ads",
-          "binding": "./io.github.ainsep.openmarketing/bindings/reporting.v1.json"
+        {
+          "capabilityId": "google-ads.reporting.v1",
+          "version": 1,
+          "pluginId": "google-ads",
+          "schemaFingerprint": "cd0de4d65255610ec743c1eb46720b5289d8ce27b0702b3f329feff80962167d",
+          "admitted": false,
+          "effects": [
+            "read"
+          ]
         },
-        "google-ads.stop.v1": {
-          "server": "google-ads",
-          "binding": "./io.github.ainsep.openmarketing/bindings/stop.v1.json"
+        {
+          "capabilityId": "google-ads.stop.v1",
+          "version": 1,
+          "pluginId": "google-ads",
+          "schemaFingerprint": "cd0de4d65255610ec743c1eb46720b5289d8ce27b0702b3f329feff80962167d",
+          "admitted": false,
+          "effects": [
+            "halt_stop"
+          ]
         },
-        "google-ads.conversions.v1": {
-          "server": "google-ads",
-          "binding": "./io.github.ainsep.openmarketing/bindings/conversions.v1.json"
+        {
+          "capabilityId": "google-ads.conversions.v1",
+          "version": 1,
+          "pluginId": "google-ads",
+          "schemaFingerprint": "cd0de4d65255610ec743c1eb46720b5289d8ce27b0702b3f329feff80962167d",
+          "admitted": false,
+          "effects": [
+            "conversion"
+          ]
+        },
+        {
+          "capabilityId": "campaign.validate.v1",
+          "version": 1,
+          "pluginId": "google-ads",
+          "schemaFingerprint": "7d1b394997c3b26199a0fbf27b31faefe62d25b1371e224d50d159ed06ab4cee",
+          "admitted": false,
+          "effects": [
+            "read"
+          ]
+        },
+        {
+          "capabilityId": "report.metrics.v1",
+          "version": 1,
+          "pluginId": "google-ads",
+          "schemaFingerprint": "7d1b394997c3b26199a0fbf27b31faefe62d25b1371e224d50d159ed06ab4cee",
+          "admitted": false,
+          "effects": [
+            "read"
+          ]
+        },
+        {
+          "capabilityId": "campaign.status.v1",
+          "version": 1,
+          "pluginId": "google-ads",
+          "schemaFingerprint": "7d1b394997c3b26199a0fbf27b31faefe62d25b1371e224d50d159ed06ab4cee",
+          "admitted": false,
+          "effects": [
+            "read"
+          ]
+        },
+        {
+          "capabilityId": "tracking.tag.v1",
+          "version": 1,
+          "pluginId": "google-ads",
+          "schemaFingerprint": "7d1b394997c3b26199a0fbf27b31faefe62d25b1371e224d50d159ed06ab4cee",
+          "admitted": false,
+          "effects": [
+            "read"
+          ]
         }
-      }
+      ]
     }
   }
 }

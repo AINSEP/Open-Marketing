@@ -22,10 +22,8 @@ describe("Amazon R1", () => {
     expect(capabilities.tools.map((tool: { name: string; effects: string[] }) => [tool.name, tool.effects[0]])).toEqual(amazonAdsTools.map(tool => [tool.name, tool.effect]));
     expect(commandSchema.safeParse({ kind: "activate", campaignId: "456" }).success).toBe(false);
   });
-  it("denies before credentials and network, including cancellation and foreign scope", async () => {
-    const f = fixture(); f.state.admitted = false;
-    expect(await f.adapter.invoke(invocation())).toMatchObject({ ok: false, error: { code: "forbidden" } });
-    f.state.admitted = true;
+  it("denies cancellation and foreign scope before credentials and network", async () => {
+    const f = fixture();
     const abort = new AbortController(); abort.abort();
     expect(await f.adapter.invoke(invocation(), { signal: abort.signal })).toMatchObject({ ok: false, error: { code: "cancelled" } });
     expect(await f.adapter.invoke({ ...invocation(), context: { ...invocation().context, scope: { ownerId: "other", workspaceId: "workspace" } } })).toMatchObject({ ok: false, error: { code: "forbidden" } });
@@ -61,9 +59,7 @@ describe("Amazon R1", () => {
     const f = fixture({ credential: input });
     expect((await f.adapter.invoke(invocation())).ok).toBe(false); expect(f.calls).toHaveLength(0);
   });
-  it("rechecks admission and host authority after awaited credential access", async () => {
-    const f = fixture({ credentialHook: () => { f.state.admitted = false; } });
-    expect(await f.adapter.invoke(invocation())).toMatchObject({ ok: false, error: { code: "forbidden" } }); expect(f.calls).toHaveLength(0);
+  it("rechecks host authority after awaited credential access", async () => {
     const g = fixture({ credentialHook: () => { g.state.authority = false; } });
     expect(await g.adapter.invoke(invocation())).toMatchObject({ ok: false, error: { code: "unavailable" } }); expect(g.calls).toHaveLength(0);
   });
@@ -149,16 +145,20 @@ describe("Amazon R1", () => {
     expect(await f.adapter.invoke(invocation({ command: { kind: "download_report", reportId } }))).toMatchObject({ ok: false, error: { code: "unavailable" } });
     expect(f.calls).toHaveLength(2);
   });
-  it("refuses unsupported lifecycle states and admission revoked after status", async () => {
+  it("refuses unsupported lifecycle states", async () => {
     const f = fixture({ response: () => Response.json({ ...report, status: "PROCESSING" }) });
     expect(await f.adapter.invoke(invocation({ command: { kind: "get_report", reportId } }))).toMatchObject({ ok: false, error: { code: "protocol_mismatch" } });
-    const g = fixture({ response: () => { g.state.admitted = false; return Response.json(completedReport); } });
-    expect(await g.adapter.invoke(invocation({ command: { kind: "download_report", reportId } }))).toMatchObject({ ok: false, error: { code: "forbidden" } });
-    expect(g.calls).toHaveLength(1);
   });
   it.each([{ kind: "list_campaigns", adProduct: "SP", maxResults: 101 }, { ...requestReport, startDate: "2026-02-30" }, { ...requestReport, endDate: "2026-11-01" }, { kind: "download_report", reportId, url: "https://example.com" }])("rejects out-of-bound commands before credentials", async command => {
     const f = fixture(); expect(commandSchema.safeParse(command).success).toBe(false);
     expect(await f.adapter.invoke(invocation({ command: command as never }))).toMatchObject({ ok: false, error: { code: "invalid_input" } });
     expect(f.state.credentialCalls).toBe(0);
   });
+});
+
+it("withdraws the manual token-expiry card until OAuth setup is available", () => {
+  const manifest = JSON.parse(readFileSync(new URL("../../plugin.json", import.meta.url), "utf8"));
+  expect(manifest.extensions["io.github.ainsep.openmarketing"].credentialCards ?? []).toEqual([]);
+  const runtime = JSON.parse(readFileSync(new URL("../runtime.json", import.meta.url), "utf8"));
+  expect(runtime.auth).toContain("OAuth/refresh");
 });

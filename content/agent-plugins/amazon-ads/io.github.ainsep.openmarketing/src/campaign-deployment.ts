@@ -69,7 +69,6 @@ export async function readCampaignDeployment(required: Omit<Input, "checkpoint">
 /** Bound and snapshot the entire plan/configuration before credentials or checkpoints. O(b), <=64KiB. */
 function checkInput(required: { input: Omit<Input, "checkpoint"> }): Outcome<Checked> {
   const input = required.input;
-  if (!input.dependencies.admitted) return failure({ code: "forbidden" });
   try {
     const json = JSON.stringify({ context: input.context, operationId: input.operationId, plan: input.plan, configuration: input.dependencies.configuration });
     if (Buffer.byteLength(json) > 65536) return failure({ code: "limit_exceeded" });
@@ -77,7 +76,7 @@ function checkInput(required: { input: Omit<Input, "checkpoint"> }): Outcome<Che
     if (!parsed.success) return failure({ code: "not_implemented" });
     const { context, configuration, plan } = parsed.data;
     if (!isDeepStrictEqual(context.scope, configuration.scope) || plan.profile.accountId !== configuration.accountId) return failure({ code: "forbidden" });
-    const dependencies = { ...input.dependencies, get admitted() { return input.dependencies.admitted; }, configuration };
+    const dependencies = { ...input.dependencies, configuration };
     return { ok: true, value: { ...parsed.data, dependencies } };
   } catch { return failure({ code: "invalid_input" }); }
 }
@@ -100,7 +99,7 @@ async function verifyProfile(required: { input: Checked }, optional?: CallOption
  */
 async function createStep(required: { input: Checked & Pick<Input, "checkpoint">; step: Step; references: References }, optional?: CallOptions): Promise<boolean> {
   const { input, step, references } = required;
-  if (!input.dependencies.admitted || optional?.signal?.aborted) return false;
+  if (optional?.signal?.aborted) return false;
   if (!await checkpoint({ ...required, phase: "dispatch" })) return false;
   const response = await requestDeployment({ dependencies: input.dependencies, context: input.context, resource: resources[step], read: false, body: { [resources[step]]: [payload(required)] } }, optional);
   if (!response.ok || response.value.status !== 207) return false;
@@ -144,7 +143,6 @@ function payload(required: { input: Checked; step: Step; references: References 
 }
 /** Host callback faults stop the sequence; a copy prevents mutation of retained references. O(1). */
 async function checkpoint(required: { input: Checked & Pick<Input, "checkpoint">; step: Step; phase: "dispatch" | "acknowledged"; references: References }): Promise<boolean> {
-  if (!required.input.dependencies.admitted) return false;
   try { return (await required.input.checkpoint({ step: required.step, phase: required.phase, references: { ...required.references } })).ok; }
   catch { return false; }
 }

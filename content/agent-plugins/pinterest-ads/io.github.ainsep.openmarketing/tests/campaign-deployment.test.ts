@@ -45,10 +45,10 @@ it("creates singleton PAUSED arrays with readback before every child, preserving
   expect(f.observations).toHaveLength(6); expect(f.observations[0]).toMatchObject({ correlationId: "correlation", traceId: "trace", runId: "run" });
   expect(f.journal).toHaveLength(6); expect(f.journal[1]).toEqual({ step: "campaign", phase: "acknowledged", references: { campaign: "456" } });
 });
-it("rejects admission, scope, account, currency or unsupported plans before credential/checkpoint I/O", async () => {
-  const cases = [ { admitted: false, plan: pausedPlan }, { plan: { ...pausedPlan, accountId: "999" } }, { plan: { ...pausedPlan, currency: "USD" } }, { plan: { ...pausedPlan, campaign: { ...pausedPlan.campaign, status: "ACTIVE" } } }, { plan: { ...pausedPlan, adGroup: { ...pausedPlan.adGroup, auto_targeting_enabled: true } } } ];
+it("rejects scope, account, currency or unsupported plans before credential/checkpoint I/O", async () => {
+  const cases = [ { plan: { ...pausedPlan, accountId: "999" } }, { plan: { ...pausedPlan, currency: "USD" } }, { plan: { ...pausedPlan, campaign: { ...pausedPlan.campaign, status: "ACTIVE" } } }, { plan: { ...pausedPlan, adGroup: { ...pausedPlan.adGroup, auto_targeting_enabled: true } } } ];
   for (const input of cases) {
-    const f = deploymentFixture(input);
+    const f = deploymentFixture();
     expect((await deployCampaignPaused({ context, operationId: "launch", ...f, plan: input.plan })).ok).toBe(false);
     expect(f.state.credentials).toBe(0); expect(f.calls).toHaveLength(0); expect(f.journal).toHaveLength(0);
   }

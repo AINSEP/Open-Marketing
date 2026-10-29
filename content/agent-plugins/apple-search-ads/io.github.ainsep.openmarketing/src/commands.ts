@@ -8,28 +8,24 @@ export const countSchema = z.number().int().nonnegative().max(Number.MAX_SAFE_IN
 export const moneySchema = z.object({ amount: z.string().max(64).regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/), currency: z.string().regex(/^[A-Z]{3}$/) });
 export const paginationSchema = z.object({ totalCount: countSchema, offset: countSchema, pageSize: countSchema.max(100) });
 const page = { offset: z.number().int().min(0).max(1000000).default(0), limit: z.number().int().min(1).max(100).default(100) };
-export const dayMs = 86400000;
-const report = z.strictObject({ kind: z.literal("report"), startDate: z.iso.date(), endDate: z.iso.date(), ...page })
-  .refine(value => value.endDate >= value.startDate && Date.parse(value.endDate) - Date.parse(value.startDate) <= 90 * dayMs);
 /** Closed commands: no caller-supplied host, headers, account, status or arbitrary fields. */
-export const commandSchema = z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("list_accounts") }), z.strictObject({ kind: z.literal("list_campaigns"), ...page }), report]);
+export const commandSchema = z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("list_accounts") }), z.strictObject({ kind: z.literal("list_campaigns"), ...page })]);
 export type AppleSearchAdsCommand = z.input<typeof commandSchema>;
 export type ParsedCommand = z.output<typeof commandSchema>;
 /** Host catalog data only; imports register nothing and start no I/O. */
 export const appleSearchAdsTools = commandSchema.options.map(schema => ({ name: schema.shape.kind.value, inputSchema: schema, effect: "read" as const }));
 export interface AppleRequest { readonly url: string; readonly method: "GET" | "POST"; readonly body?: string }
 
-/** Encode one fixed v1 read; unsupported reporting has no request. No loops or retries.
- * @param required - Parsed closed command. @returns Request bytes without credentials, or undefined for disabled reporting.
+/** Encode one fixed v1 read. No loops or retries.
+ * @param required - Parsed closed command. @returns Request bytes without credentials.
  * @complexity O(1), request size bounded by the fixed schema.
  */
-export function encodeCommand(required: { command: ParsedCommand }): AppleRequest | undefined {
+export function encodeCommand(required: { command: ParsedCommand }): AppleRequest {
   const command = required.command;
   const base = "https://api.ads.apple.com/v1";
   switch (command.kind) {
     case "list_accounts": return { url: base + "/acls", method: "GET" };
     case "list_campaigns": return { url: base + "/campaigns/query", method: "POST", body: JSON.stringify({ sorting: [{ field: "id", order: "ASC" }], pagination: { offset: command.offset, pageSize: command.limit, fetchTotalCount: true } }) };
-    case "report": return undefined;
     default: { const exhaustive: never = command; throw new Error(String(exhaustive)); }
   }
 }

@@ -129,10 +129,10 @@ export function gatewaySuite(required: { kind: "double" | "hosted" }): void {
 
 describe("unavailable default and configuration", () => {
   it("has no admitted capability merely because the plugin is enabled", async () => {
-    const f = fixture({ kind: "double" });
-    const adapter = createMetaAdsAdapter({ evidence: createUnavailableMetaEvidence({}), gateway: { invoke: async () => { throw new Error("Must not dispatch"); } }, schemas, clock, observer, pluginDigest });
+    let calls = 0;
+    const adapter = createMetaAdsAdapter({ evidence: createUnavailableMetaEvidence({}), gateway: { invoke: async () => { calls += 1; return failure({ code: "unavailable", message: "Must not dispatch" }); } }, schemas, clock, observer, pluginDigest });
     expect(await adapter.invoke(request())).toMatchObject({ ok: false, error: { code: "unavailable" } });
-    expect(f.calls).toHaveLength(0);
+    expect(calls).toBe(0);
   });
   it("requires the same bounded timeout as the hosted federation", async () => {
     const gateway = createHostedMetaGateway({ host: { invoke: async () => { throw new Error("Must not dispatch"); } }, timeoutMs: 10000 });

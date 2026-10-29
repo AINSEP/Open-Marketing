@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { epochSchema, idSchema, parseBoundary } from "@open-marketing/contracts";
-import type { Money, Outcome } from "@open-marketing/contracts";
+import { epochSchema, idSchema, parseBoundary, decimalToMicros, metricMappingSchema } from "@open-marketing/contracts";
+import type { Money, Outcome, MetricBatch, ReportMetricsInput } from "@open-marketing/contracts";
 import { decodeTikTokRead, failure, tiktokCommandSchema, tiktokPageSchema, tiktokReportDataSchema, tiktokSpendSchema, vendorIdSchema } from "./commands.js";
 import type { TikTokReportQuery } from "./commands.js";
 
@@ -79,4 +79,88 @@ function buildReport(required: { accountMetadata: TikTokAccountMetadata; snapsho
   }
   const spend = complete ? rows[0].spend : null;
   return { ok: true, value: { snapshotId: required.snapshotId, accountId: account.accountId, currency: account.currency, timezone: account.timezone, startDate: query.startDate, endDate: query.endDate, retrievedAt: required.retrievedAt, pageInfo: { ...data.page_info }, complete, rows, spend } };
+}
+
+export const dailyPageSize = 1000;
+const dailyInteger = z.string().regex(/^(0|[1-9]\d{0,37})$/);
+const dailyDecimal = z.string().max(80).regex(/^(0|[1-9]\d{0,37})(\.\d{1,32})?$/);
+const dailyRow = z.object({
+  dimensions: z.object({ advertiser_id: vendorIdSchema.optional(), campaign_id: vendorIdSchema.optional(), adgroup_id: vendorIdSchema.optional(), ad_id: vendorIdSchema.optional(), stat_time_day: z.string().regex(/^\d{4}-\d{2}-\d{2}( 00:00:00)?$/) }),
+  metrics: z.object({ spend: dailyDecimal.nullish(), impressions: dailyInteger.nullish(), clicks: dailyInteger.nullish(), campaign_id: vendorIdSchema.optional(), adgroup_id: vendorIdSchema.optional() }),
+});
+const dailyResponse = z.object({ code: z.literal(0), data: z.object({ list: z.array(dailyRow).max(dailyPageSize), page_info: tiktokPageSchema }) });
+/** Only documented additive metrics; parent attributes supply lineage at child grains. */
+const dailyMetrics = {
+  spend: { vendorField: "spend", meaning: "Advertiser spend in account currency, exactly converted from decimal major units to integer micros." },
+  impressions: { vendorField: "impressions", meaning: "Ad impressions reported by TikTok for the account-local day." },
+  clicks: { vendorField: "clicks", meaning: "Destination clicks reported by TikTok; excludes social interactions, not unique visitors." },
+};
+export const dailyMetricMapping = metricMappingSchema.parse({ pluginId: "tiktok-ads", version: "v1.3-daily-2", grains: { account: dailyMetrics, campaign: dailyMetrics, ad_group: dailyMetrics, ad: dailyMetrics } });
+/** Decode one bounded daily page; foreign accounts, impossible days and inconsistent totals fail closed.
+ * Pure O(n) time/space for <=1,000 rows. Null/missing supported values remain null; observed zero stays zero.
+ * @example decodeTikTokDailyPage({ input: response, accountId: "123", start: "2026-03-01", end: "2026-03-02", page: 1 })
+ */
+export function decodeTikTokDailyPage(required: { input: unknown; accountId: string; start: string; end: string; page: number; grain?: ReportMetricsInput["grain"] }): Outcome<{ rows: MetricBatch["rows"]; totalPages: number; totalRows: number }> {
+  const parsed = dailyResponse.safeParse(required.input);
+  if (!parsed.success) return failure({ code: "protocol_mismatch", message: "Invalid TikTok daily report" });
+  const { list, page_info: info } = parsed.data.data;
+  if (info.page !== required.page || info.page_size !== dailyPageSize || info.total_page !== Math.ceil(info.total_number / dailyPageSize)) return failure({ code: "protocol_mismatch", message: "Invalid TikTok daily pagination" });
+  const expected = Math.min(dailyPageSize, Math.max(0, info.total_number - (info.page - 1) * dailyPageSize));
+  if (info.page > Math.max(1, info.total_page) || list.length !== expected) return failure({ code: "protocol_mismatch", message: "Incomplete TikTok daily page" });
+  const rows: MetricBatch["rows"] = [];
+  for (const item of list) {
+    const row = dailyMetricRow({ item, ...required });
+    if (!row.ok) return row;
+    rows.push(row.value);
+  }
+  if (new Set(rows.map(row => JSON.stringify([row.day, row.entity]))).size !== rows.length) return failure({ code: "protocol_mismatch", message: "Duplicate TikTok daily rows" });
+  return { ok: true, value: { rows, totalPages: info.total_page, totalRows: info.total_number } };
+}
+/** Exact decimal arithmetic reuses contracts; never routes canonical money through minor-unit numbers. */
+function dailyMetricRow(required: { item: z.infer<typeof dailyRow>; accountId: string; start: string; end: string; grain?: ReportMetricsInput["grain"] }): Outcome<MetricBatch["rows"][number]> {
+  const { item } = required;
+  if (item.dimensions.advertiser_id !== undefined && item.dimensions.advertiser_id !== required.accountId) return failure({ code: "forbidden", message: "TikTok daily advertiser mismatch" });
+  const day = item.dimensions.stat_time_day.slice(0, 10);
+  if (!z.iso.date().safeParse(day).success || day < required.start || day >= required.end) return failure({ code: "protocol_mismatch", message: "TikTok daily date outside request" });
+  const spend = item.metrics.spend == null ? { ok: true as const, value: null } : decimalToMicros({ value: item.metrics.spend, rounding: "reject" });
+  if (!spend.ok) return failure({ code: "protocol_mismatch", message: "TikTok daily spend loses precision" });
+  const entity = dailyEntity({ item, grain: required.grain ?? "account", accountId: required.accountId });
+  if (!entity.ok) return entity;
+  return { ok: true, value: { day, entity: entity.value, metrics: { spend: spend.value, impressions: item.metrics.impressions ?? null, clicks: item.metrics.clicks ?? null } } };
+}
+/** Require the requested dimension and documented parent attributes; never synthesize lineage.
+ * O(1), pure. Account ownership is bound by the authenticated advertiser-filtered request. */
+function dailyEntity(required: { item: z.infer<typeof dailyRow>; grain: ReportMetricsInput["grain"]; accountId: string }): Outcome<MetricBatch["rows"][number]["entity"]> {
+  const { dimensions, metrics } = required.item;
+  switch (required.grain) {
+    case "account": return dimensions.advertiser_id === required.accountId ? { ok: true, value: { grain: "account" } } : failure({ code: "protocol_mismatch", message: "Missing advertiser dimension" });
+    case "campaign": if (dimensions.campaign_id) return { ok: true, value: { grain: "campaign", vendorCampaignId: dimensions.campaign_id } }; break;
+    case "ad_group":
+      if (!dimensions.adgroup_id || !metrics.campaign_id) break;
+      return { ok: true, value: { grain: "ad_group", vendorCampaignId: metrics.campaign_id, vendorAdGroupId: dimensions.adgroup_id } };
+    case "ad":
+      if (!dimensions.ad_id || !metrics.campaign_id || !metrics.adgroup_id) break;
+      return { ok: true, value: { grain: "ad", vendorCampaignId: metrics.campaign_id, vendorAdGroupId: metrics.adgroup_id, vendorAdId: dimensions.ad_id } };
+    default: { const exhaustive: never = required.grain; return exhaustive; }
+  }
+  return failure({ code: "protocol_mismatch", message: "Missing TikTok entity lineage" });
+}
+/** Resolve account-local midnight with Intl offsets, round-tripping across DST changes.
+ * Pure constant work (at most four offset corrections); nonexistent/ambiguous unresolved boundaries fail.
+ * @example accountDayBoundary({ day: "2026-03-09", timezone: "America/Los_Angeles" })
+ */
+export function accountDayBoundary(required: { day: string; timezone: string }): Outcome<number> {
+  try {
+    const format = new Intl.DateTimeFormat("en-CA", { timeZone: required.timezone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
+    const target = Date.parse(required.day + "T00:00:00Z");
+    let instant = target;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const parts = Object.fromEntries(format.formatToParts(instant).map(part => [part.type, part.value]));
+      const local = `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}Z`;
+      const correction = target - Date.parse(local);
+      if (correction === 0) return { ok: true, value: instant };
+      instant += correction;
+    }
+  } catch { /* Invalid IANA zone/date is a typed boundary failure below. */ }
+  return failure({ code: "protocol_mismatch", message: "TikTok local day boundary unavailable" });
 }

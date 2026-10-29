@@ -15,10 +15,12 @@ it("declares three read tools and internal paused/conversion capabilities, disab
   expect(declarations.capabilities).toEqual(manifest.extensions["io.github.ainsep.openmarketing"].capabilities);
   expect(declarations.tools.map(tool => tool.name)).toEqual(["list_accounts", "list_campaigns", "report"]);
   expect(pinterestAdsTools.map(tool => [tool.name, tool.effect])).toEqual(declarations.tools.map(tool => [tool.name, tool.effects[0]]));
-  const sources: Record<string, { file: string; effect: string }> = { "campaign.read.v1": { file: "commands.ts", effect: "read" }, "report.account-spend.v1": { file: "reporting.ts", effect: "read" }, "campaign.create-paused.v1": { file: "campaign-translation.ts", effect: "write" }, "conversion.deliver.v1": { file: "capi.ts", effect: "conversion" } };
+  const sources: Record<string, { file: string; effect: string }> = { "campaign.read.v1": { file: "commands.ts", effect: "read" }, "report.account-spend.v1": { file: "reporting.ts", effect: "read" }, "campaign.create-paused.v1": { file: "campaign-translation.ts", effect: "write" }, "conversion.deliver.v1": { file: "capi.ts", effect: "conversion" }, "report.metrics.v1": { file: "metrics-status.ts", effect: "read" }, "campaign.status.v1": { file: "metrics-status.ts", effect: "read" } };
   for (const cap of declarations.capabilities) {
     expect(cap).toMatchObject({ admitted: false, pluginId: "pinterest-ads", effects: [sources[cap.capabilityId].effect] });
-    expect(cap.schemaFingerprint).toBe(createHash("sha256").update(readFileSync(new URL("io.github.ainsep.openmarketing/src/" + sources[cap.capabilityId].file, root))).digest("hex"));
+    const hash = createHash("sha256").update(readFileSync(new URL("io.github.ainsep.openmarketing/src/" + sources[cap.capabilityId].file, root)));
+    if (["report.metrics.v1", "campaign.status.v1"].includes(cap.capabilityId)) hash.update(readFileSync(new URL("io.github.ainsep.openmarketing/src/transport.ts", root)));
+    expect(cap.schemaFingerprint).toBe(hash.digest("hex"));
   }
   expect(Object.keys(sources)).toEqual(declarations.capabilities.map(cap => cap.capabilityId));
   expect(json({ path: "io.github.ainsep.openmarketing/capabilities.json" })).toMatchObject({ deployment: { capabilityId: "campaign.create-paused.v1", admitted: false }, backendConversion: { agentTool: false, effects: ["conversion"] } });
@@ -30,5 +32,8 @@ it("keeps required dependencies and records official evidence plus unavailable a
   const evidence = z.object({ checkedAt: z.literal("2026-10-24"), sources: z.array(z.object({ url: z.url(), quote: z.string().min(1) })), unverified: z.object({ oauth: z.string(), endDateInclusivity: z.string() }) }).parse(json({ path: "io.github.ainsep.openmarketing/evidence/primary-sources.json" }));
   expect(evidence.sources.map(source => new URL(source.url).hostname)).toEqual(["raw.githubusercontent.com", ...Array<string>(5).fill("developers.pinterest.com")]);
   expect(evidence.unverified.endDateInclusivity).toContain("Reports unavailable before credential/gateway/network I/O");
+  const updated = json({ path: "io.github.ainsep.openmarketing/evidence/primary-sources.json" }) as { metricsStatus: { supported: string[]; limits: string } };
+  expect(updated.metricsStatus.supported.join(" ")).toContain("UTC");
+  expect(updated.metricsStatus.limits).toContain("limit_exceeded");
   expect(readFileSync(new URL("LICENSE", root), "utf8")).toContain("Apache License");
 });

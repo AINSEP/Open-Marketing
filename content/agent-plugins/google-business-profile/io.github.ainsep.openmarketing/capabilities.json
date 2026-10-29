@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "pluginId": "google-business-profile",
+  "admitted": false,
+  "capabilities": [
+    {
+      "capabilityId": "organic.publish.v1",
+      "version": 1,
+      "pluginId": "google-business-profile",
+      "schemaFingerprint": "f30eb2152e97612246f454e09ca5db58fcb688a115c9c51386447983c67f0432",
+      "admitted": false,
+      "effects": [
+        "write"
+      ]
+    }
+  ],
+  "reporting": {
+    "entry": "createGoogleBusinessProfilePlugin().reportMetrics / mapPerformanceToReport",
+    "grains": [
+      "account"
+    ],
+    "accountId": "host-bound locations/{locationId}",
+    "maxDays": 366,
+    "metrics": {
+      "clicks": "WEBSITE_CLICKS",
+      "impressions": "sum of four BUSINESS_IMPRESSIONS device/surface series"
+    },
+    "requires": [
+      "verified timezone"
+    ],
+    "finality": "provisional",
+    "currency": "XXX",
+    "dataThrough": 0,
+    "freshness": "stale",
+    "complete": false
+  }
+}

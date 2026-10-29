@@ -6,3 +6,4 @@ export type { VkAccount, VkAdsAdapter, VkConfiguration, VkCredential, VkCredenti
 export { translateCampaign } from "./campaign-translation.js";
 export type { CampaignTranslationInput } from "./campaign-translation.js";
 export { campaignDeploymentPlanSchema, deployCampaignPaused, readCampaignDeployment } from "./campaign-deployment.js";
+

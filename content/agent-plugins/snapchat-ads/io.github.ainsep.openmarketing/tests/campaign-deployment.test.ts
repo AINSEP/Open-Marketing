@@ -35,12 +35,12 @@ function faultResponse(required: FaultInput): Response {
   return Response.json(body);
 }
 /** Guarded memory host + synthetic provider. The same owning-job checkpoint rejects replay. */
-function fixture(required: { admitted?: boolean; response?: (input: { body: Record<string, unknown>; method: string; path: string }) => Response;
+function fixture(required: { response?: (input: { body: Record<string, unknown>; method: string; path: string }) => Response;
   checkpoint?: SnapchatDeploymentInput["checkpoint"]; credentialHook?: (input: { state: { current: boolean }; count: number }) => void } = {}) {
   const calls: { path: string; method: string; body: unknown; init: RequestInit }[] = [], journal: unknown[] = [], rows = new Map<string, unknown>(), observations: unknown[] = [];
   const state = { current: true }, claimed = new Set<string>(); let credentialCount = 0;
   const dependencies: SnapchatDeploymentDependencies = {
-    admitted: required.admitted ?? true, configuration: { scope: context.scope, connectionId: "connection", accountId: account, currency: "USD", timezone: "UTC", apiVersion: "v1", pluginDigest: "b".repeat(64) },
+    configuration: { scope: context.scope, connectionId: "connection", accountId: account, currency: "USD", timezone: "UTC", apiVersion: "v1", pluginDigest: "b".repeat(64) },
     credentials: { async access() { credentialCount++; required.credentialHook?.({ state, count: credentialCount }); return { ok: true, value: { accessToken: "synthetic-secret", expiresAt: 2000000000000 } }; } },
     clock: { now: () => 1790810000000 }, observer: { observe(event) { observations.push(event); } },
     fetch: async (url, init = {}) => {
@@ -126,9 +126,7 @@ describe("Snapchat owning-job paused deployment", () => {
     for (const call of f.calls.filter(call => call.method === "POST")) { expect(JSON.stringify(call.body)).toContain('"status":"PAUSED"'); expect(call.init.redirect).toBe("error"); expect(call.init.signal).toBeDefined(); expect(call.init.headers).not.toHaveProperty("Idempotency-Key"); }
     expect(JSON.stringify(result)).not.toContain("synthetic-secret"); expect(JSON.stringify(f.observations)).not.toContain("synthetic-secret");
   });
-  it("denies admission and unsupported plans before credentials or checkpoints", async () => {
-    const f = fixture({ admitted: false }); expect((await deployCampaignPaused(f.input)).ok).toBe(false);
-    expect((await readCampaignDeployment({ ...f.input, references: ids })).ok).toBe(false); expect(f.credentialCount()).toBe(0); expect(f.journal).toHaveLength(0);
+  it("denies unsupported plans before credentials or checkpoints", async () => {
     const invalid = fixture(); invalid.input.plan = { ...plan(), ad: { ...plan().ad, status: "ACTIVE" } };
     expect((await deployCampaignPaused(invalid.input)).ok).toBe(false); expect(invalid.credentialCount()).toBe(0);
   });

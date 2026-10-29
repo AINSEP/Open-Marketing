@@ -8,3 +8,6 @@ export { translateCampaign, campaignDeploymentPlanSchema } from "./campaign-tran
 export type { CampaignTranslationInput, YandexDraftPlan } from "./campaign-translation.js";
 export { deployCampaignPaused, readCampaignDeployment } from "./campaign-deployment.js";
 export type { YandexDeploymentInput, YandexDeploymentReadInput, YandexDeploymentResult } from "./campaign-deployment.js";
+
+export { createCapabilities, metricMapping } from "./capabilities.js";
+export type { YandexCapabilityDependencies } from "./capabilities.js";

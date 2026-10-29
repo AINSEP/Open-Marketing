@@ -26,7 +26,8 @@ function deploymentFixture(required: { response?: (input: { service: string; bod
   const calls: { service: string; body: Wire; init: RequestInit }[] = [];
   const checkpoints: Parameters<YandexDeploymentInput["checkpoint"]>[0][] = [];
   const intents = new Set<string>();
-  const dependencies: YandexDeploymentInput["dependencies"] = { ...base.dependencies, fetch: async (url, init) => {
+  const { clientLogin: _login, ...deploymentConfiguration } = base.dependencies.configuration;
+  const dependencies: YandexDeploymentInput["dependencies"] = { ...base.dependencies, configuration: deploymentConfiguration, fetch: async (url, init) => {
     // Model the server's final guarded-fetch authority fence after credentials.
     if (!base.state.authorized || !base.state.admitted) throw new Error("fixture revoked");
     const service = String(url).split("/").at(-1)!;
@@ -85,6 +86,25 @@ describe("Yandex exact weekly translation", () => {
   });
 });
 describe("Yandex grouped DRAFT deployment", () => {
+  it("decodes the saved credential bundle into token and Client-Login headers", async () => {
+    const f = deploymentFixture();
+    expect(receipt({ result: await deployCampaignPaused(f.input) }).status).toBe("acknowledged");
+    expect(f.calls.every(call => new Headers(call.init.headers).get("Authorization") === "Bearer synthetic-secret")).toBe(true);
+    expect(f.calls.every(call => new Headers(call.init.headers).get("Client-Login") === plan.clientLogin)).toBe(true);
+  });
+  it("rejects a credential login different from the frozen plan before fetch", async () => {
+    const f = deploymentFixture();
+    f.input.dependencies.credentials.access = async () => ({ ok: true, value: { accessToken: JSON.stringify({ accessToken: "synthetic-secret", clientLogin: "foreign-login" }) } });
+    expect(await deployCampaignPaused(f.input)).toMatchObject({ ok: false, error: { code: "forbidden" } });
+    expect(f.calls).toHaveLength(0); expect(f.checkpoints).toHaveLength(0);
+  });
+  it("redacts malformed credential bundles and returns unauthenticated without egress", async () => {
+    const f = deploymentFixture();
+    f.input.dependencies.credentials.access = async () => ({ ok: true, value: { accessToken: JSON.stringify({ accessToken: "synthetic-secret" }) } });
+    const result = await deployCampaignPaused(f.input);
+    expect(result).toMatchObject({ ok: false, error: { code: "unauthenticated" } });
+    expect(JSON.stringify(result)).not.toContain("synthetic-secret"); expect(f.calls).toHaveLength(0);
+  });
   it("checkpoints three exact creates, verifies parents first and acknowledges DRAFT/OFF content", async () => {
     const f = deploymentFixture();
     const result = receipt({ result: await deployCampaignPaused(f.input) });
@@ -128,8 +148,11 @@ describe("Yandex grouped DRAFT deployment", () => {
   });
   it.each(["admission", "authority", "expiry"])("rechecks %s after credential resolution", async change => {
     const f = deploymentFixture();
-    f.input.dependencies.credentials.access = async () => { if (change === "admission") f.state.admitted = false; if (change === "authority") f.state.authorized = false; return { ok: true, value: { accessToken: "fixture", expiresAt: change === "expiry" ? now : now + 1000 } }; };
-    expect(receipt({ result: await deployCampaignPaused(f.input) }).status).toBe("unknown"); expect(f.calls).toEqual([]);
+    f.input.dependencies.credentials.access = async () => { if (change === "admission") f.state.admitted = false; if (change === "authority") f.state.authorized = false; return { ok: true, value: { accessToken: JSON.stringify({ accessToken: "fixture", clientLogin: plan.clientLogin }), expiresAt: change === "expiry" ? now : now + 1000 } }; };
+    const result = await deployCampaignPaused(f.input);
+    if (change === "admission") expect(result).toMatchObject({ ok: false, error: { code: "forbidden" } });
+    else expect(receipt({ result }).status).toBe("unknown");
+    expect(f.calls).toEqual([]);
   });
   it.each(["campaign", "group", "ad"])("stops on an uncertain %s create, retaining earlier refs, with no resend", async step => {
     const service = services[step]!;
@@ -183,7 +206,7 @@ describe("Yandex grouped DRAFT deployment", () => {
   });
   it("takes a plan snapshot before credential lookup; cancellation prevents all egress", async () => {
     const f = deploymentFixture();
-    f.input.dependencies.credentials.access = async () => { (f.input.plan as YandexDraftPlan).campaign.Name = "Changed"; return { ok: true, value: { accessToken: "fixture" } }; };
+    f.input.dependencies.credentials.access = async () => { (f.input.plan as YandexDraftPlan).campaign.Name = "Changed"; return { ok: true, value: { accessToken: JSON.stringify({ accessToken: "fixture", clientLogin: plan.clientLogin }) } }; };
     expect(receipt({ result: await deployCampaignPaused(f.input) }).status).toBe("acknowledged");
     expect(f.calls[1]!.body.params).toEqual({ Campaigns: [campaign] });
     const cancelled = deploymentFixture(); const controller = new AbortController(); controller.abort();
@@ -205,7 +228,7 @@ describe("Yandex grouped DRAFT deployment", () => {
   });
   it("rechecks cancellation after credential lookup before invoking fetch", async () => {
     const f = deploymentFixture(); const controller = new AbortController();
-    f.input.dependencies.credentials.access = async () => { controller.abort(); return { ok: true, value: { accessToken: "fixture" } }; };
+    f.input.dependencies.credentials.access = async () => { controller.abort(); return { ok: true, value: { accessToken: JSON.stringify({ accessToken: "fixture", clientLogin: plan.clientLogin }) } }; };
     expect(receipt({ result: await deployCampaignPaused(f.input, { signal: controller.signal }) }).status).toBe("unknown"); expect(f.calls).toEqual([]);
   });
 });

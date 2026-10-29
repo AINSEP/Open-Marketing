@@ -13,11 +13,11 @@ const entity = { id: campaignId, name: "Fixture campaign", status: "PAUSED", ad_
 const page = { request_status: "SUCCESS", campaigns: [{ sub_request_status: "SUCCESS", campaign: { ...entity, unused_secret: "synthetic-secret" } }] };
 const report: SnapchatInvocation["command"] = { kind: "report", window: { start: "2026-10-01T00:00:00-07:00", end: "2026-10-02T00:00:00-07:00" } };
 /** Synthetic responses only. The memory gateway models current policy; never a production registry. */
-function fixture(required: { admitted?: boolean; response?: (input: { url: string }) => Response; credentialHook?: (input: { state: ReadFixture["state"] }) => void;
+function fixture(required: { response?: (input: { url: string }) => Response; credentialHook?: (input: { state: ReadFixture["state"] }) => void;
   expiresAt?: number; configuration?: SnapchatConfiguration; gateway?: SnapchatDependencies["gateway"] } = {}): ReadFixture {
   const calls: ReadFixture["calls"] = [], credentialCalls: unknown[] = [], effects: ReadFixture["effects"] = [], observations: ReadFixture["observations"] = [];
   const state = { admitted: true };
-  const dependencies: SnapchatDependencies = { configuration: required.configuration ?? configuration, admitted: required.admitted ?? true,
+  const dependencies: SnapchatDependencies = { configuration: required.configuration ?? configuration,
     credentials: { async access(binding) { credentialCalls.push(binding); required.credentialHook?.({ state }); return { ok: true, value: { accessToken: "synthetic-secret", expiresAt: required.expiresAt ?? 2000000000000 } }; } },
     gateway: required.gateway ?? { async dispatch(call) { effects.push(call.effect); return state.admitted ? call.execute() : { ok: false, error: { code: "forbidden", message: "Fixture denial", retryable: false } }; } },
     fetch: async (url, init) => { calls.push({ url: String(url), init: init ?? {} }); return required.response?.({ url: String(url) }) ?? Response.json(page); },
@@ -31,11 +31,7 @@ function stats(required: { campaign?: boolean; metrics?: unknown; rows?: number 
 }
 dispatchSuite({ name: "memory host + injected-fetch adapter", makeFixture: () => fixture() });
 describe("Snapchat read boundaries", () => {
-  it("is inert and denies unadmitted calls before credentials or fetch", async () => {
-    const f = fixture({ admitted: false }); expect(f.calls).toHaveLength(0);
-    expect(await f.adapter.invoke(input)).toMatchObject({ ok: false, error: { code: "forbidden" } });
-    expect(f.credentialCalls).toHaveLength(0); expect(f.calls).toHaveLength(0);
-  });
+
   it("checks current authority after credential resolution and rejects expired tokens", async () => {
     const revoked = fixture({ credentialHook: ({ state }) => { state.admitted = false; } });
     expect(await revoked.adapter.invoke(input)).toMatchObject({ ok: false, error: { code: "forbidden" } }); expect(revoked.calls).toHaveLength(0);
@@ -162,8 +158,12 @@ describe("Snapchat portable metadata", () => {
     const caps = JSON.parse(readFileSync(new URL("io.github.ainsep.openmarketing/capabilities.json", root), "utf8"));
     expect(manifest.extensions["io.github.ainsep.openmarketing"]).toMatchObject({ enabled: false, admitted: false, capabilities: caps.capabilities });
     expect(caps.tools.map((value: { name: string; effects: string[] }) => [value.name, value.effects])).toEqual(snapchatAdsTools.map(value => [value.name, [value.effect]]));
-    const source: Record<string, string> = { "report.account-spend.v1": "reporting.ts", "campaign.create-paused.v1": "campaign-translation.ts", "conversion.deliver.v1": "capi.ts" };
-    for (const cap of caps.capabilities) expect(cap.schemaFingerprint).toBe(createHash("sha256").update(readFileSync(new URL("io.github.ainsep.openmarketing/src/" + (source[cap.capabilityId] ?? "commands.ts"), root))).digest("hex"));
+    const source: Record<string, string> = { "report.account-spend.v1": "reporting.ts", "campaign.create-paused.v1": "campaign-translation.ts", "conversion.deliver.v1": "capi.ts", "report.metrics.v1": "metrics-status.ts", "campaign.status.v1": "metrics-status.ts" };
+    for (const cap of caps.capabilities) {
+      const hash = createHash("sha256").update(readFileSync(new URL("io.github.ainsep.openmarketing/src/" + (source[cap.capabilityId] ?? "commands.ts"), root)));
+      if (["report.metrics.v1", "campaign.status.v1"].includes(cap.capabilityId)) hash.update(readFileSync(new URL("io.github.ainsep.openmarketing/src/transport.ts", root)));
+      expect(cap.schemaFingerprint).toBe(hash.digest("hex"));
+    }
     const pkg = JSON.parse(readFileSync(new URL("package.json", root), "utf8")); expect(Object.keys(pkg.exports)).toEqual(["."]); expect(pkg.sideEffects).toBe(false); expect(pkg.dependencies).toEqual({ "@open-marketing/contracts": "workspace:*", zod: "4.1.13" });
   });
 });

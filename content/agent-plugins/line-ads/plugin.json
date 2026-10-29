@@ -5,11 +5,26 @@
   "description": "LINE Ads reads and a PAUSED deployment contribution; disabled pending server integration and regional evidence.",
   "license": "Apache-2.0",
   "extensions": {"io.github.ainsep.openmarketing": {
+      "credentialAssets": {"io.github.ainsep.openmarketing/assets/icon.svg": "4bde9cebd0406900c50934548717b267f28de8fc032941a79e7211dd92e0d16d"},
+      "credentialCards": [
+        {
+          "target": "line-ads", "title": "LINE Ads", "label": "Save credentials", "category": "Advertising",
+          "intro": "Obtain group access and secret keys from LINE Ads. The server signs requests with these keys; this is not LINE Login. Status reads support Taiwan and Thailand connections. Saving does not verify access or enable the plugin.",
+          "usedFor": ["Read group ad accounts and campaigns", "Read supported campaign reports"],
+          "helpUrl": "https://ads.line.me/public-docs/pages/v3/3.12.0.1/reporting-general-partner/", "helpLabel": "Authentication and setup",
+          "baseUrl": "https://ads.line.me",
+          "saveKind": "app-credentials", "saveTarget": "line-ads", "icon": "io.github.ainsep.openmarketing/assets/icon.svg",
+          "fields": [{"name": "groupId", "label": "Group ID", "required": true, "type": "string"}],
+          "secretFields": [{"name": "accessKey", "label": "Access key", "required": true}, {"name": "secretKey", "label": "Secret key", "required": true}]
+        }
+      ],
     "version": 1, "enabled": false, "admitted": false,
     "capabilities": [
       {"capabilityId":"campaign.read.v1","version":1,"pluginId":"line-ads","schemaFingerprint":"78d71319e114851defdd113d59f92b476407011e3e1dc43da8c0f3b24ebdecfd","admitted":false,"effects":["read"]},
       {"capabilityId":"report.account-spend.v1","version":1,"pluginId":"line-ads","schemaFingerprint":"78d71319e114851defdd113d59f92b476407011e3e1dc43da8c0f3b24ebdecfd","admitted":false,"effects":["read"]},
-      {"capabilityId":"campaign.create-paused.v1","version":1,"pluginId":"line-ads","schemaFingerprint":"7f4740b68cf52c72f957089a365adab2497c9d294c34e8ee450bdc36284c69e1","admitted":false,"effects":["write"]}
+      {"capabilityId":"campaign.create-paused.v1","version":1,"pluginId":"line-ads","schemaFingerprint":"a7fb611a78e09b9a05ae97536ba11a10500268b890a56c548873dddf9e43dd5c","admitted":false,"effects":["write"]},
+      {"capabilityId":"campaign.status.v1","version":1,"pluginId":"line-ads","schemaFingerprint":"9a160eb55986cf4e3321e7d39e04673174e5b273292134a2aed7c51a9e63f8fc","admitted":false,"effects":["read"]},
+      {"capabilityId":"report.metrics.v1","version":1,"pluginId":"line-ads","schemaFingerprint":"9a160eb55986cf4e3321e7d39e04673174e5b273292134a2aed7c51a9e63f8fc","admitted":false,"effects":["read"]}
     ]
   }}
 }

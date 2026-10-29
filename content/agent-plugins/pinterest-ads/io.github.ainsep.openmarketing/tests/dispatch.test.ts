@@ -3,11 +3,7 @@ import { configuration, fixture, invocation, now } from "./fixtures.js";
 import { dispatchSuite } from "./contract/dispatch-suite.js";
 
 dispatchSuite({ name: "memory gateway / real plugin transport", makeFixture: () => fixture() });
-it("admitted false performs zero credential and network I/O", async () => {
-  const f = fixture({ admitted: false });
-  expect(await f.adapter.invoke(invocation())).toMatchObject({ ok: false, error: { code: "forbidden" } });
-  expect(f.credentialCalls).toHaveLength(0); expect(f.calls).toHaveLength(0);
-});
+
 it("rechecks withdrawal after credential lookup", async () => {
   const f = fixture({ credentialHook: () => { f.state.current = false; } });
   expect(await f.adapter.invoke(invocation())).toMatchObject({ ok: false, error: { code: "forbidden" } }); expect(f.calls).toHaveLength(0);

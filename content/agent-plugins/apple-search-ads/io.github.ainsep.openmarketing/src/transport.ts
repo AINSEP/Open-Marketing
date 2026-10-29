@@ -3,7 +3,6 @@ import { appErrorSchema, callContextSchema, epochSchema, idSchema, scopeSchema }
 import type { CallContext, CallOptions, ClockPort, ObserverPort, Outcome } from "@open-marketing/contracts";
 import { commandSchema, decodePagination, encodeCommand, failure, moneySchema, paginationSchema, responseIdSchema, vendorIdSchema } from "./commands.js";
 import type { AppleRequest, ParsedCommand } from "./commands.js";
-import type { AppleSearchAdsReport } from "./reporting.js";
 
 /** Internal boundary: accountId is an explicitly selected v1 ad-account ID, never a legacy org ID. */
 export const configurationSchema = z.strictObject({ scope: scopeSchema, connectionId: idSchema, accountId: vendorIdSchema.nullable(), currency: z.string().regex(/^[A-Z]{3}$/).nullable() });
@@ -37,7 +36,7 @@ export interface AppleSearchAdsPage {
   readonly pagination: (z.infer<typeof paginationSchema> & { returned: number; requestedLimit: number; coverage: "page" }) | null;
   readonly items: readonly z.infer<typeof account>[] | readonly z.infer<typeof campaign>[];
 }
-export interface AppleSearchAdsResult { readonly operationId: string; readonly status: "succeeded"; readonly data: AppleSearchAdsPage | AppleSearchAdsReport }
+export interface AppleSearchAdsResult { readonly operationId: string; readonly status: "succeeded"; readonly data: AppleSearchAdsPage }
 
 /** One read through server-supplied credentials and guarded fetch. admitted:false does no credential
  * lookup or network. No auth exchange, registry, retries or automatic pagination occurs here.
@@ -59,7 +58,7 @@ export async function invokeAppleSearchAds(required: { context: CallContext; ope
 }
 
 /** Snapshot bounded input before the first await; reject cross-scope or unbound account operations.
- * @complexity O(b), b<=64KiB; no I/O. Unknown fields and invalid dates fail closed.
+ * @complexity O(b), b<=64KiB; no I/O. Unknown fields fail closed.
  */
 function prepare(required: { context: CallContext; operationId: string; command: unknown; dependencies: AppleSearchAdsDependencies }): Outcome<Prepared> {
   try {
@@ -70,7 +69,6 @@ function prepare(required: { context: CallContext; operationId: string; command:
     if (!input.success || !configuration.success) return failure({ code: "invalid_input" });
     const scope = input.data.context.scope;
     if (scope.ownerId !== configuration.data.scope.ownerId || scope.workspaceId !== configuration.data.scope.workspaceId) return failure({ code: "forbidden" });
-    if (input.data.command.kind === "report") return failure({ code: "not_implemented" });
     if (input.data.command.kind !== "list_accounts" && configuration.data.accountId === null) return failure({ code: "forbidden" });
     return { ok: true, value: { input: input.data, configuration: configuration.data } };
   } catch { return failure({ code: "invalid_input" }); }
@@ -82,7 +80,6 @@ function prepare(required: { context: CallContext; operationId: string; command:
 async function dispatch(required: { prepared: Prepared; dependencies: AppleSearchAdsDependencies }, optional?: CallOptions): Promise<Outcome<AppleSearchAdsResult>> {
   const { prepared, dependencies } = required;
   const request = encodeCommand({ command: prepared.input.command });
-  if (!request) return failure({ code: "not_implemented" });
   const preflight = checkTime({ dependencies });
   if (!preflight.ok) return preflight;
   const credential = await resolveCredential({ dependencies, configuration: prepared.configuration }, optional);
@@ -185,17 +182,16 @@ function decodeJson(required: { chunks: Uint8Array[] }): Outcome<unknown> {
 }
 
 /** Route validated responses without passing unconsumed provider fields to the agent. @complexity O(b), b<=1MiB. */
-function decode(required: { prepared: Prepared; input: unknown; retrievedAt: number }): Outcome<AppleSearchAdsPage | AppleSearchAdsReport> {
+function decode(required: { prepared: Prepared; input: unknown; retrievedAt: number }): Outcome<AppleSearchAdsPage> {
   const { prepared, input, retrievedAt } = required;
   const command = prepared.input.command;
-  if (command.kind === "report") return failure({ code: "not_implemented" });
   return decodeList({ input, command, configuration: prepared.configuration, retrievedAt });
 }
 
 /** Reject mixed-validity and duplicate lists atomically; ACLs contain ad-account identity and roles only.
  * @complexity O(n) time/space, n<=100; never follows provider links.
  */
-function decodeList(required: { input: unknown; command: Exclude<ParsedCommand, { kind: "report" }>; configuration: AppleSearchAdsConfiguration; retrievedAt: number }): Outcome<AppleSearchAdsPage> {
+function decodeList(required: { input: unknown; command: ParsedCommand; configuration: AppleSearchAdsConfiguration; retrievedAt: number }): Outcome<AppleSearchAdsPage> {
   const parsed = required.command.kind === "list_accounts" ? accountsSchema.safeParse(required.input) : campaignsSchema.safeParse(required.input);
   if (!parsed.success) return failure({ code: "protocol_mismatch" });
   const items = parsed.data.result;

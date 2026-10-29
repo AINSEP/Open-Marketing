@@ -1,5 +1,9 @@
+import { createHash } from "node:crypto";
+import { canonicalizeArguments } from "@open-marketing/contracts";
+import type { HaltStopRequest } from "@open-marketing/contracts";
+import { stopArgumentsDigest } from "../src/commands.js";
 import { describe, expect, it } from "vitest";
-import { encodeLinkedInCommand, linkedinAdsTools } from "../src/index.js";
+import { encodeLinkedInCommand, tools } from "../src/index.js";
 import { campaign, conversionRule, draft, now, reportCommand } from "./fixtures.js";
 
 function encode(required: { input: unknown }) { return encodeLinkedInCommand({ input: required.input, accountId: "123", currency: "USD" }); }
@@ -44,7 +48,7 @@ describe("closed LinkedIn R1 codecs", () => {
     expect(encode({ input: { kind: "search_targeting", facet: "locations", query: "San & Francisco" } })).toEqual({ ok: true, value: { effect: "read", request: { method: "GET", restliMethod: "FINDER", url: "https://api.linkedin.com/rest/adTargetingEntities?q=typeahead&facet=urn%3Ali%3AadTargetingFacet%3Alocations&query=San%20%26%20Francisco&queryVersion=QUERY_USES_URNS" } } });
   });
   it("offers the approved sixteen tools, excluding backend delivery, destructive operations and standalone reads", () => {
-    expect(linkedinAdsTools.map(tool => tool.name)).toEqual(["list_accounts", "list_campaign_groups", "list_campaigns", "list_creatives", "search_targeting", "create_campaign_group_draft", "create_campaign_paused", "create_creative_paused", "activate", "set_budget", "pause", "report", "list_conversion_rules", "create_conversion_rule", "associate_conversion_rule", "list_lead_forms"]);
+    expect(tools.map(tool => tool.name)).toEqual(["list_accounts", "list_campaign_groups", "list_campaigns", "list_creatives", "search_targeting", "create_campaign_group_draft", "create_campaign_paused", "create_creative_paused", "activate", "set_budget", "pause", "report", "list_conversion_rules", "create_conversion_rule", "associate_conversion_rule", "list_lead_forms"]);
   });
 });
 
@@ -86,4 +90,14 @@ describe("LinkedIn R2 fixed request codecs", () => {
   ])("rejects unsupported or unbounded report/setup inputs before I/O", input => {
     expect(encode({ input })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
   });
+});
+
+it("matches independent sorted halt bytes and safety's canonical argument digest", () => {
+  const request: HaltStopRequest = { adAccountId: "123", entityIds: ["567"], action: "stop", operationId: "halt-stop", scope: { ownerId: "owner", workspaceId: "workspace" }, connectionId: "connection", haltId: "halt", haltEpoch: 1, pluginDigest: "a".repeat(64), bindingId: "linkedin-ads.stop.v1", argumentsDigest: "b".repeat(64) };
+  const literal = createHash("sha256").update('{"action":"stop","adAccountId":"123","entityIds":["567"]}').digest("hex");
+  const canonical = canonicalizeArguments({ arguments: { adAccountId: request.adAccountId, entityIds: request.entityIds, action: request.action } });
+  if (!canonical.ok) throw new Error("Expected canonical fixture arguments");
+  const result = stopArgumentsDigest(request);
+  expect(result).toEqual({ ok: true, value: literal });
+  expect(result).toEqual({ ok: true, value: createHash("sha256").update(canonical.value).digest("hex") });
 });

@@ -1,16 +1,71 @@
-import { createHash } from "node:crypto";
 import { z } from "zod";
-import { epochSchema, parseBoundary } from "@open-marketing/contracts";
-import type { AppError, CallOptions, EffectEnvelope, Outcome } from "@open-marketing/contracts";
-import { configurationSchema, decodeTwilioRead, encodeTwilioRead, invocationSchema } from "./commands.js";
-import type { TwilioConfiguration, TwilioDependencies, TwilioInvocation, TwilioResult, TwilioSmsAdapter } from "./ports.js";
+import { definePluginTools, epochSchema, parseBoundary } from "@open-marketing/contracts";
+import type { AppError, CallOptions, Outcome, PluginCapabilityDependencies, PluginToolsFactory } from "@open-marketing/contracts";
+import { configurationSchema, decodeTwilioRead, encodeTwilioRead, invocationSchema, twilioSmsTools } from "./commands.js";
+import type { TwilioCommand, TwilioConfiguration, TwilioDependencies, TwilioInvocation, TwilioResult, TwilioSmsAdapter } from "./ports.js";
 
-const credentialSchema = z.strictObject({ accountSid: configurationSchema.shape.accountSid, apiKeySid: z.string().regex(/^SK[0-9a-fA-F]{32}$/), apiKeySecret: z.string().min(1).max(4096).regex(/^[\x21-\x7e]+$/), expiresAt: epochSchema.optional() });
-interface Prepared { configuration: TwilioConfiguration; invocation: TwilioInvocation; url: string; effect: EffectEnvelope }
+/** Pure discovery and parsing over the existing read schemas; declarations grant no authority. */
+export const { tools, parseTool } = definePluginTools({ tools: twilioSmsTools.map(tool => ({
+  name: tool.name, description: "Twilio SMS " + tool.name, effects: ["read"], inputSchema: tool.inputSchema,
+})) });
 
-/** Inert factory using server broker/gateway and injected fetch, deadline, clock and observer.
+/** Bind standard host invocations to the existing read adapter, with call-local wait cleanup.
+ * @returns An inert invoker; invalid configuration/input or a foreign connection fails before I/O.
+ * @example createTools({ configuration, credentials, fetch, clock, observer, wait })
+ * @complexity O(1) construction; each invoke retains one deadline and one bounded GET.
+ */
+export function createTools(required: PluginCapabilityDependencies): ReturnType<PluginToolsFactory> {
+  return { async invoke(invocation, options) {
+    const configuration = configurationSchema.safeParse(required.configuration);
+    if (!configuration.success) return failure({ code: "invalid_input" });
+    const connection = invocation.connection;
+    if (connection.accountId === null || connection.connectionId !== configuration.data.connectionId || connection.accountId !== configuration.data.accountId) return failure({ code: "forbidden" });
+    const command = parseTool({ name: invocation.name, input: invocation.input });
+    if (!command.ok) return command;
+    const timers: AbortController[] = [];
+    const dependencies: TwilioDependencies = { configuration: configuration.data,
+      credentials: required.credentials, fetch: required.fetch, clock: required.clock, observer: required.observer,
+      deadlineSignal: ({ timeoutMs }) => {
+        const timer = new AbortController(), deadline = new AbortController();
+        timers.push(timer);
+        void required.wait({ milliseconds: timeoutMs }, { signal: timer.signal }).then(() => { if (!timer.signal.aborted) deadline.abort(); }, () => { if (!timer.signal.aborted) deadline.abort(); });
+        return deadline.signal;
+      },
+    };
+    try {
+      return await createTwilioSmsAdapter(dependencies).invoke({ context: invocation.context, operationId: invocation.operationId, command: command.value as TwilioCommand }, options);
+    } finally { timers.forEach(timer => timer.abort()); }
+  } };
+}
+
+const account = z.string().regex(/^AC[0-9a-fA-F]{32}$/);
+const credentialSchema = z.strictObject({ accountSid: account, apiKeySid: z.string().regex(/^SK[0-9a-fA-F]{32}$/),
+  apiKeySecret: z.string().min(1).max(4096).regex(/^[\x21-\x7e]+$/),
+  authToken: z.string().min(1).max(4096).regex(/^[\x21-\x7e]+$/).optional().or(z.literal("")).transform(value => value || undefined),
+  webhookUrl: z.string().max(2048).optional().or(z.literal("")).transform(value => value || undefined),
+  messagingServiceSid: z.string().regex(/^MG[0-9a-fA-F]{32}$/).optional().or(z.literal("")).transform(value => value || undefined),
+  phoneNumberSid: z.string().regex(/^PN[0-9a-fA-F]{32}$/).optional().or(z.literal("")).transform(value => value || undefined),
+  brandSid: z.string().regex(/^BN[0-9a-fA-F]{32}$/).optional().or(z.literal("")).transform(value => value || undefined),
+  campaignSid: z.string().regex(/^QE[0-9a-fA-F]{32}$/).optional().or(z.literal("")).transform(value => value || undefined),
+  tollfreeVerificationSid: z.string().regex(/^HH[0-9a-fA-F]{32}$/).optional().or(z.literal("")).transform(value => value || undefined),
+});
+export type Credential = z.infer<typeof credentialSchema> & { expiresAt?: number };
+
+/** Decode the broker's JSON card for this call only; malformed cards return a fixed, secret-free failure.
+ * @complexity O(b) time/space, card JSON capped at 16KiB; no I/O. */
+export function parseCredential(required: { envelope: { accessToken: string; expiresAt?: number } }): Outcome<Credential> {
+  try {
+    if (required.envelope.accessToken.length > 16384) return failure({ code: "unauthenticated" });
+    const card = credentialSchema.safeParse(JSON.parse(required.envelope.accessToken) as unknown);
+    if (!card.success) return failure({ code: "unauthenticated" });
+    return { ok: true, value: { ...card.data, expiresAt: required.envelope.expiresAt } };
+  } catch { return failure({ code: "unauthenticated" }); }
+}
+interface Prepared { configuration: TwilioConfiguration; invocation: TwilioInvocation }
+
+/** Inert factory using server broker and injected guarded fetch, deadline, clock and observer.
  * @returns Typed read results/errors; no services, retries, sends or secret persistence.
- * @example createTwilioSmsAdapter({ configuration, credentials, gateway, fetch, deadlineSignal, clock, observer })
+ * @example createTwilioSmsAdapter({ configuration, credentials, fetch, deadlineSignal, clock, observer })
  * @complexity O(b) per invoke, b<=64KiB, one GET with a 15s deadline.
  */
 export function createTwilioSmsAdapter(required: TwilioDependencies): TwilioSmsAdapter {
@@ -24,57 +79,45 @@ export function createTwilioSmsAdapter(required: TwilioDependencies): TwilioSmsA
   } };
 }
 
-/** Admission and all identifiers validate before broker or gateway access. @complexity O(1). */
+/** Configuration and all identifiers validate before broker access. @complexity O(1). */
 function prepare(required: { dependencies: TwilioDependencies; input: TwilioInvocation }, optional?: CallOptions): Outcome<Prepared> {
   if (optional?.signal?.aborted) return failure({ code: "cancelled" });
   const config = parseBoundary({ schema: configurationSchema, input: required.dependencies.configuration });
   if (!config.ok) return config;
-  if (!config.value.admitted) return failure({ code: "forbidden" });
   const input = parseBoundary({ schema: invocationSchema, input: required.input });
   if (!input.ok) return input;
   const c = config.value;
   const scope = input.value.context.scope;
-  if (scope.ownerId !== c.scope.ownerId || scope.workspaceId !== c.scope.workspaceId || input.value.command.connectionId !== c.connectionId) return failure({ code: "forbidden" });
-  const url = encodeTwilioRead({ configuration: c, command: input.value.command });
-  if (url === null) return failure({ code: "unavailable" });
-  const argumentsDigest = createHash("sha256").update(JSON.stringify({ pluginDigest: c.pluginDigest, command: input.value.command, url })).digest("hex");
-  const effect: EffectEnvelope = { operationId: input.value.operationId, connectionId: c.connectionId, accountId: c.accountSid, effects: ["read"], argumentsDigest, moneyExposure: null, requiredLimit: null };
-  return { ok: true, value: { configuration: c, invocation: input.value, url, effect } };
+  if (scope.ownerId !== c.scope.ownerId || scope.workspaceId !== c.scope.workspaceId) return failure({ code: "forbidden" });
+  return { ok: true, value: { configuration: c, invocation: input.value } };
 }
 
-/** Broker/gateway failures retain only their code, never text or retry authority.
- * Host authority remains current at execute. No retries. @complexity O(1) time/space.
+/** Broker failures retain only their code, never text or retry authority.
+ * Host guarded fetch retains current authority through egress. No retries. @complexity O(1) time/space.
  */
 async function dispatch(required: { dependencies: TwilioDependencies; prepared: Prepared }, optional?: CallOptions): Promise<Outcome<TwilioResult>> {
   const { dependencies, prepared } = required;
   const c = prepared.configuration;
   try {
-    const credential = await dependencies.credentials.access({ context: structuredClone(prepared.invocation.context), connectionId: c.connectionId, accountSid: c.accountSid }, optional);
+    const credential = await dependencies.credentials.access({ connectionId: c.connectionId, accountId: c.accountId }, optional);
     if (!credential.ok) return failure({ code: credential.error.code });
-    const parsed = credentialSchema.safeParse(credential.value);
-    if (!parsed.success) return failure({ code: "unauthenticated" });
-    if (parsed.data.accountSid !== c.accountSid) return failure({ code: "forbidden" });
-    let executed = false;
-    const result = await dependencies.gateway.dispatch({
-      context: structuredClone(prepared.invocation.context), configuration: structuredClone(c), command: structuredClone(prepared.invocation.command), effect: structuredClone(prepared.effect),
-      execute: async () => {
-        if (executed) return failure({ code: "conflict" });
-        executed = true;
-        if (optional?.signal?.aborted) return failure({ code: "cancelled" });
-        const now = dependencies.clock.now({});
-        if (!epochSchema.safeParse(now).success) return failure({ code: "invalid_input" });
-        if (parsed.data.expiresAt !== undefined && now >= parsed.data.expiresAt) return failure({ code: "expired" });
-        return request({ dependencies, prepared, credential: parsed.data }, optional);
-      },
-    }, optional);
-    return result.ok ? result : failure({ code: result.error.code });
+    const parsed = parseCredential({ envelope: credential.value });
+    if (!parsed.ok) return parsed;
+    if (parsed.value.accountSid !== c.accountId) return failure({ code: "forbidden" });
+    const url = encodeTwilioRead({ credential: parsed.value, command: prepared.invocation.command });
+    if (url === null) return failure({ code: "unavailable" });
+    if (optional?.signal?.aborted) return failure({ code: "cancelled" });
+    const now = dependencies.clock.now({});
+    if (!epochSchema.safeParse(now).success) return failure({ code: "invalid_input" });
+    if (parsed.value.expiresAt !== undefined && now >= parsed.value.expiresAt) return failure({ code: "expired" });
+    return request({ dependencies, prepared: { ...prepared, url }, credential: parsed.value }, optional);
   } catch { return failure({ code: "unavailable" }); }
 }
 
 /** Only Basic API-key auth, fixed HTTPS origins and no redirects. Never return provider errors.
  * @complexity O(b) time/space, b<=64KiB; one 15s fetch including stream consumption.
  */
-async function request(required: { dependencies: TwilioDependencies; prepared: Prepared; credential: z.infer<typeof credentialSchema> }, optional?: CallOptions): Promise<Outcome<TwilioResult>> {
+async function request(required: { dependencies: TwilioDependencies; prepared: Prepared & { url: string }; credential: Credential }, optional?: CallOptions): Promise<Outcome<TwilioResult>> {
   const { dependencies, prepared, credential } = required;
   try {
     const deadline = dependencies.deadlineSignal({ timeoutMs: 15000 });
@@ -89,7 +132,7 @@ async function request(required: { dependencies: TwilioDependencies; prepared: P
     const body = await readBody({ response });
     signal.throwIfAborted();
     if (!body.ok) return body;
-    const data = decodeTwilioRead({ configuration: prepared.configuration, command: prepared.invocation.command, input: body.value });
+    const data = decodeTwilioRead({ credential, command: prepared.invocation.command, input: body.value });
     if (!data.ok) return data;
     return { ok: true, value: { operationId: prepared.invocation.operationId, status: "succeeded", sendReadiness: "unknown", data: data.value } };
   } catch { return failure({ code: optional?.signal?.aborted ? "cancelled" : "unavailable" }); }
@@ -105,7 +148,7 @@ function httpFailure(required: { status: number; invocation: TwilioInvocation })
 }
 
 /** Enforce bytes before JSON parsing, independent of Content-Length. @complexity O(b), b<=64KiB. */
-async function readBody(required: { response: Response }): Promise<Outcome<unknown>> {
+export async function readBody(required: { response: Response }): Promise<Outcome<unknown>> {
   if (!required.response.body) return failure({ code: "protocol_mismatch" });
   const reader = required.response.body.getReader();
   const chunks: Uint8Array[] = [];

@@ -1,10 +1,12 @@
 {
   "version": 1, "admitted": false,
   "capabilities": [
-    { "capabilityId": "campaign.create-paused.v1", "version": 1, "pluginId": "x-ads", "schemaFingerprint": "471646a29e755da3e4e83d9c64d6d8a90161d30717e3c4c64df5f646c6a40344", "admitted": false, "effects": ["write"] },
+    { "capabilityId": "campaign.create-paused.v1", "version": 1, "pluginId": "x-ads", "schemaFingerprint": "791ad0638f6308cfa8e90f2e72cd79a27125a70a592805a3dc5dd44f90898e43", "admitted": false, "effects": ["write"] },
     { "capabilityId": "conversion.deliver.v1", "version": 1, "pluginId": "x-ads", "schemaFingerprint": "d42b051aaa02d1f5b286831a87bc4bc0bbc343e6f2eccad2c011133672a8cfc1", "admitted": false, "effects": ["conversion"] },
-    { "capabilityId": "campaign.read.v1", "version": 1, "pluginId": "x-ads", "schemaFingerprint": "f34816fb9d3b38f06283d4a174d5cbfb953959c6e5b5bf91686355c924a00942", "admitted": false, "effects": ["read"] },
-    { "capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "x-ads", "schemaFingerprint": "08d1b5acc188196fbf7714b75b7a9124ba4c1d0fc0174d1131768a2629568a04", "admitted": false, "effects": ["read"] }
+    { "capabilityId": "campaign.read.v1", "version": 1, "pluginId": "x-ads", "schemaFingerprint": "29aa91195c060b35a44bf169646cdef54bd8272aa1b0ff75f00d3c5efac62b0d", "admitted": false, "effects": ["read"] },
+    { "capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "x-ads", "schemaFingerprint": "8d5aac045d2e0d57f0c6ee0c708d3fd111047504ef1403b68eae355f069f9800", "admitted": false, "effects": ["read"] },
+    {"capabilityId": "report.metrics.v1", "version": 1, "pluginId": "x-ads", "schemaFingerprint": "8d5aac045d2e0d57f0c6ee0c708d3fd111047504ef1403b68eae355f069f9800", "admitted": false, "effects": ["read"]},
+    {"capabilityId": "campaign.status.v1", "version": 1, "pluginId": "x-ads", "schemaFingerprint": "8d5aac045d2e0d57f0c6ee0c708d3fd111047504ef1403b68eae355f069f9800", "admitted": false, "effects": ["read"]}
   ],
   "tools": [
     { "name": "list_accounts", "effects": ["read"], "capabilityId": "campaign.read.v1" },
@@ -13,5 +15,5 @@
   ],
   "deployment": { "capabilityId": "campaign.create-paused.v1", "create": "deployCampaignPaused", "read": "readCampaignDeployment", "planSchema": "campaignDeploymentPlanSchema", "admitted": false },
   "backendConversion": { "capabilityId": "conversion.deliver.v1", "effects": ["conversion"], "agentTool": false },
-  "fingerprintBasis": "SHA-256 of src/commands.ts for campaign.read.v1 and src/reporting.ts for report.account-spend.v1. Paused deployment uses src/campaign-deployment.ts; conversion uses src/capi.ts. Compatibility metadata only, never a trust allowlist."
+  "fingerprintBasis": "SHA-256 of src/commands.ts for campaign.read.v1 and src/reporting.ts for report.account-spend.v1. Paused deployment uses src/campaign-deployment.ts; conversion uses src/capi.ts. Compatibility metadata only, never a trust allowlist. Canonical report.metrics.v1 and campaign.status.v1 use SHA-256 of src/reporting.ts; canonical factory binds server-supplied configuration and guarded I/O without construction-time effects."
 }

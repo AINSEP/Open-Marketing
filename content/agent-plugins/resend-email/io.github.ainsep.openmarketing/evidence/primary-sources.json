@@ -1,5 +1,5 @@
 {
-  "checkedAt": "2026-10-24",
+  "checkedAt": "2026-10-26",
   "liveAccountVerified": false,
   "sources": [
     {
@@ -12,8 +12,43 @@
     },
     {
       "url": "https://resend.com/docs/api-reference/api-keys/create-api-key",
-      "fact": "Full access required for resource reads; Sending access only sends."
+      "fact": "One Full access key permits domain reads and sending; Sending access is restricted to sending. The app-credentials card accepts token and optional webhookSecret; no second sending-key connection is required."
+    },
+    {
+      "url": "https://resend.com/docs/api-reference/emails/send-email",
+      "fact": "POST /emails accepts one-recipient payload and custom headers; the response carries an id.",
+      "status": "verified-documentation"
+    },
+    {
+      "url": "https://resend.com/docs/dashboard/emails/idempotency-keys",
+      "fact": "Idempotency-Key has a 256-character bound and a 24-hour retention window; durable OM dedup must outlive it.",
+      "status": "verified-documentation"
+    },
+    {
+      "url": "https://resend.com/docs/webhooks/verify-webhooks-requests",
+      "fact": "Verify exact raw payload and Svix headers with a distinct signing secret before applying feedback.",
+      "status": "verified-documentation"
+    },
+    {
+      "url": "https://docs.svix.com/receiving/verifying-payloads/how-manual",
+      "fact": "Signed content is id.timestamp.rawBody; HMAC-SHA256 uses the base64 key after whsec_. Reject timestamps beyond the configured five-minute tolerance.",
+      "status": "verified-documentation"
     }
   ],
-  "verification": "R1F rechecked primary documentation for read endpoints, domain response fields and Full-access permission. No live account or host admission was verified. Sending and all unverified vendor behavior remain unavailable."
+  "verification": "R2 provider adapts published Jini mail ABI. Existing read-only tools unchanged; sending remains unadvertised pending host integration.",
+  "r2Bounds": {
+    "requestBytes": 65536,
+    "responseBytes": 1048576,
+    "webhookBytes": 262144,
+    "webhookEvents": 100,
+    "timeoutMs": 10000,
+    "retries": 0
+  },
+  "r2Verification": "Documentation and installed Jini 0.6.12 artifacts inspected; fixture tests written, not run. No live calls, production authority/store integration or admission verified.",
+  "r2Needs": [
+    "Server composition and durable authority/outbox/inbox/suppression with subject-lane serialization",
+    "Real account, credentials, delivered headers/receipts and production concurrency evidence",
+    "Integrator adds @jini-ai/platform@0.6.12 dependency and lock/link resolution; functioning HTTPS unsubscribe endpoint"
+  ],
+  "fixWaveVerification": "2026-10-26: official documentation and installed Jini 0.6.12 ABI reviewed; regression tests written, not run. Typechecks are reported in the implementation handoff; no live vendor calls."
 }

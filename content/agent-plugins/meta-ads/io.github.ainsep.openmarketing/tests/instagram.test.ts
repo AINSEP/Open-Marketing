@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { invokeMetaInstagram, metaInstagramTools } from "../src/index.js";
+import { invokeMetaInstagram, tools } from "../src/index.js";
 import type { MetaInstagramDispatch, MetaInstagramPost } from "../src/index.js";
 import { failure } from "../src/boundary.js";
 import { context, now } from "./fixtures.js";
@@ -168,6 +168,7 @@ describe("organic Instagram tools", () => {
     expect(fixture.calls).toHaveLength(callsBefore);
   });
   it("exports exactly four definitions with one ordinary write tool", () => {
-    expect(metaInstagramTools.map(tool => [tool.name, tool.effects])).toEqual([["instagram_accounts", ["read"]], ["instagram_publish_post", ["write"]], ["instagram_post_status", ["read"]], ["instagram_media_insights", ["read"]]]);
+    expect(tools.map(tool => [tool.name, tool.effects])).toEqual([["instagram_accounts", ["read"]], ["instagram_publish_post", ["write"]], ["instagram_post_status", ["read"]], ["instagram_media_insights", ["read"]]]);
+    expect(tools.find(tool => tool.name === "instagram_accounts")).toHaveProperty("connectionOnly", true);
   });
 });

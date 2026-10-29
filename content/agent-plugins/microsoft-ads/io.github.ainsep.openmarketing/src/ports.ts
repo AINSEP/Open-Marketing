@@ -16,9 +16,9 @@ export type MicrosoftAdsWireRequest =
   | { readonly url: string; readonly method: "POST"; readonly body: string }
   | { readonly url: string; readonly method: "GET"; readonly body?: never };
 /** Host rechecks current workspace/plugin/connection binding before AND after each lookup.
- * Developer token uses fixed connection developer-token.microsoft-ads, never tool arguments. */
+ * Developer token arrives in the bound credential's declared plugin secrets, never tool arguments. */
 export interface MicrosoftAdsCredentialPort {
-  access(required: { connectionId: string; accountId: string | null }, optional?: CallOptions): Promise<Outcome<{ accessToken: string; expiresAt?: number }>>;
+  access(required: { connectionId: string; accountId: string | null }, optional?: CallOptions): Promise<Outcome<{ accessToken: string; expiresAt?: number; secrets?: Readonly<Record<string, string>> }>>;
 }
 /** Existing server policy fences EACH RPC/download; guarded fetch/download recheck after awaits.
  * The zero-argument execute callback follows OM's existing host ABI. No policy lives here. */

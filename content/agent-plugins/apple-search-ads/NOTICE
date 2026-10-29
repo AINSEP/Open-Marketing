@@ -3,3 +3,4 @@ Copyright Open Marketing contributors. Apache-2.0.
 Portable package and transport style adapted from OM LinkedIn Ads; vendor mappings use Apple documentation.
 Apple and App Store are trademarks of Apple Inc. This project is independent of Apple.
 No Apple SDK or sibling Jini/Tovu source is distributed.
+Includes MIT-licensed material adapted from AgriciDaniel/claude-ads; see skills/apple-search-ads/PROVENANCE.md.

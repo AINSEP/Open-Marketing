@@ -2,12 +2,15 @@
   "version": 1,
   "admitted": false,
   "capabilities": [
-    {"capabilityId": "campaign.read.v1", "version": 1, "pluginId": "naver-ads", "schemaFingerprint": "fcdac11b32ecd8a7e0fa4d4bfef88308cc271a6506e4d79217084f6766868e85", "admitted": false, "effects": ["read"]},
-    {"capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "naver-ads", "schemaFingerprint": "b67af8350290a5d7f048e75d5342d9f86277c0726f0f18a5b4e6833b8ee704c0", "admitted": false, "effects": ["read"]}
+    {"capabilityId":"campaign.read.v1","version":1,"pluginId":"naver-ads","schemaFingerprint":"fcdac11b32ecd8a7e0fa4d4bfef88308cc271a6506e4d79217084f6766868e85","admitted":false,"effects":["read"]},
+    {"capabilityId":"report.account-spend.v1","version":1,"pluginId":"naver-ads","schemaFingerprint":"36bd294ea1a26d89a754cbbd2c148021d2db4a65eee6e4119d3d21b4eba11a2d","admitted":false,"effects":["read"]},
+    {"capabilityId":"report.metrics.v1","version":1,"pluginId":"naver-ads","schemaFingerprint":"6a94ca7f4b9eca3de22e10a88cbb503e033ce754b664eb7d24da011db1f3abf2","admitted":false,"effects":["read"]},
+    {"capabilityId":"campaign.status.v1","version":1,"pluginId":"naver-ads","schemaFingerprint":"6a94ca7f4b9eca3de22e10a88cbb503e033ce754b664eb7d24da011db1f3abf2","admitted":false,"effects":["read"]}
   ],
   "tools": [
     {"name": "list_accounts", "effects": ["read"], "capabilityId": "campaign.read.v1"},
     {"name": "list_campaigns", "effects": ["read"], "capabilityId": "campaign.read.v1"},
     {"name": "report", "effects": ["read"], "capabilityId": "report.account-spend.v1"}
-  ]
+  ],
+  "fingerprintBasis": "Legacy reads: commands.ts; legacy summary: reporting.ts. Canonical reads: SHA-256 of src/transport.ts then src/reporting.ts concatenated. No bindings or authority delegation."
 }

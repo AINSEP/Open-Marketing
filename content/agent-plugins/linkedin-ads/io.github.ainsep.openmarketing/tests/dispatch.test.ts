@@ -1,16 +1,11 @@
+import { createLinkedInAdsAdapter } from "../src/transport.js";
 import { describe, expect, it, vi } from "vitest";
-import type { HaltStopRequest } from "@open-marketing/contracts";
-import { createLinkedInAdsAdapter, linkedInDigest } from "../src/index.js";
-import type { LinkedInInvocation } from "../src/index.js";
-import { analyticsPage, approve, campaign, campaignPage, configuration, context, conversionPage, conversionRule, creativePage, fixture, groupPage, invocation, leadPage, now, reportCommand } from "./fixtures.js";
+import type { LinkedInInvocation } from "../src/ports.js";
+import { analyticsPage, approve, campaign, campaignPage, configuration, conversionPage, conversionRule, creativePage, fixture, groupPage, invocation, leadPage, now, reportCommand } from "./fixtures.js";
 import { dispatchSuite } from "./contract/dispatch-suite.js";
 
 dispatchSuite({ name: "Memory host with real plugin fetch adapter", makeFixture: () => fixture() });
 
-function stopInput(required: { changes?: Partial<HaltStopRequest>; expiresAt?: number } = {}) {
-  const request: HaltStopRequest = { operationId: "halt-pause", scope: context.scope, connectionId: "connection", adAccountId: "123", entityIds: ["567"], action: "pause", haltId: "halt", haltEpoch: 1, pluginDigest: configuration.pluginDigest, bindingId: "binding", argumentsDigest: linkedInDigest({ value: { adAccountId: "123", entityIds: ["567"], action: "pause" } }), ...required.changes };
-  return { context, request, permit: { kind: "halt-stop" as const, request, expiresAt: required.expiresAt ?? now + 60000 } };
-}
 describe("fenced LinkedIn transport", () => {
   it("rechecks host authority after credential resolution and prevents egress on revocation", async () => {
     const f = fixture({ credentialHook: () => { f.state.writeAllowed = false; } });
@@ -43,33 +38,6 @@ describe("fenced LinkedIn transport", () => {
     const f = fixture({ credentialHook: () => { Object.assign(request.command, { name: "Changed while pending" }); } });
     expect(await f.adapter.invoke(request)).toMatchObject({ ok: true, value: { status: "unknown" } });
     expect(JSON.parse(String(f.calls[0].init.body)).name).toBe("Fixture group");
-  });
-  it("allows halt stop to emit only a single campaign PAUSED patch", async () => {
-    const f = fixture({ response: () => new Response(null, { status: 204 }) });
-    f.state.halted = true;
-    expect(await f.adapter.stop(stopInput())).toMatchObject({ ok: true, value: { operationId: "halt-pause", status: "acknowledged" } });
-    expect(f.calls).toHaveLength(1);
-    expect(f.calls[0].url).toBe("https://api.linkedin.com/rest/adAccounts/123/adCampaigns/567");
-    expect(f.calls[0].init.body).toBe('{"patch":{"$set":{"status":"PAUSED"}}}');
-    expect(f.effects[0]).toMatchObject({ effects: ["halt_stop"], moneyExposure: null, requiredLimit: null });
-  });
-  it.each([
-    { entityIds: ["567", "678"] }, { pluginDigest: "b".repeat(64) }, { bindingId: "foreign" },
-    { adAccountId: "456" }, { scope: { ownerId: "foreign", workspaceId: "workspace" } }, { connectionId: "foreign" },
-    { argumentsDigest: "c".repeat(64) },
-  ])("rejects malformed or mismatched stop permits without egress", async changes => {
-    const f = fixture();
-    expect((await f.adapter.stop(stopInput({ changes }))).ok).toBe(false);
-    expect(f.calls).toHaveLength(0);
-  });
-  it("rejects inflated and expired stop envelopes, including expiry during token lookup", async () => {
-    const f = fixture();
-    const input = stopInput();
-    expect((await f.adapter.stop({ ...input, request: { ...input.request, status: "ACTIVE" } } as ReturnType<typeof stopInput>)).ok).toBe(false);
-    expect(await f.adapter.stop(stopInput({ expiresAt: now }))).toMatchObject({ ok: false, error: { code: "expired" } });
-    const delayed = fixture({ credentialHook: () => { delayed.state.time = now + 60000; } });
-    expect(await delayed.adapter.stop(input)).toMatchObject({ ok: false, error: { code: "expired" } });
-    expect(f.calls).toHaveLength(0); expect(delayed.calls).toHaveLength(0);
   });
   it.each([null, { accessToken: "secret\r\nInjected: true" }, { accessToken: "secret", expiresAt: now }, { accessToken: "secret", expiresAt: -1 }, { accessToken: "secret", extra: true }])("rejects malformed or expired token data", async credential => {
     const f = fixture({ credential });
@@ -152,12 +120,6 @@ describe("fenced LinkedIn transport", () => {
     const input = invocation(); Object.assign(input, { cycle: input });
     expect(await f.adapter.invoke(input)).toMatchObject({ ok: false, error: { code: "invalid_input" } });
     expect(f.credentialCalls).toHaveLength(0); expect(f.calls).toHaveLength(0);
-  });
-  it("checks permit/request equality instead of trusting two independently valid envelopes", async () => {
-    const f = fixture();
-    const input = stopInput();
-    expect(await f.adapter.stop({ ...input, permit: { ...input.permit, request: { ...input.request, haltId: "changed-halt" } } })).toMatchObject({ ok: false, error: { code: "conflict" } });
-    expect(f.credentialCalls).toHaveLength(0);
   });
   it("preserves caller cancellation during a write as unknown once fetch starts", async () => {
     const controller = new AbortController();

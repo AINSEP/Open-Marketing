@@ -1,8 +1,36 @@
 /** Plugin-owned Graph encoding. The host wraps this dispatch with admission, halt and outbox checks. */
 import { z } from 'zod';
-import type { CallContext, CallOptions, Outcome } from '@open-marketing/contracts';
+import { parseBoundary, pluginConfigurationSchema } from '@open-marketing/contracts';
+import type { PluginCapabilityDependencies, PluginConfiguration, PluginConnectionConfiguration, CallContext, CallOptions, Outcome } from '@open-marketing/contracts';
 import type { MetaInstagramDispatch } from './instagram.js';
 import { failure } from './boundary.js';
+
+/** One version for Ads reads, deployment encoding/digests and destination validation. */
+export const adsGraphVersion = 'v26.0';
+export const organicGraphVersion = 'v25.0';
+
+/** Parse canonical configuration and project fresh credentials for all Graph callers.
+ * No token survives a call; failures pass through to the redacting transport. O(1) setup.
+ * @example createConfiguredDispatch(dependencies)
+ */
+export function createConfiguredDispatch(required: PluginCapabilityDependencies): Outcome<{ configuration: PluginConfiguration; dispatch: MetaInstagramDispatch }> {
+  const configuration = parseBoundary({ schema: pluginConfigurationSchema, input: required.configuration });
+  if (!configuration.ok) return configuration;
+  const dispatch = bindDispatch({ dependencies: required, accountId: configuration.value.accountId });
+  return { ok: true, value: { configuration: configuration.value, dispatch } };
+}
+
+/** Project fresh credentials for a validated account or connection-only binding.
+ * Returns an inert dispatch; credential failures reach the redacting transport. O(1) time/space setup.
+ */
+export function bindDispatch(required: { dependencies: Pick<PluginCapabilityDependencies<PluginConfiguration | PluginConnectionConfiguration>, 'fetch' | 'credentials'>; accountId: string | null }): MetaInstagramDispatch {
+  return createMetaInstagramFetchDispatch({ fetch: required.dependencies.fetch, credentials: {
+    async access(input, options) {
+      const access = await required.dependencies.credentials.access({ connectionId: input.connectionId, accountId: required.accountId }, options);
+      return access.ok ? { ok: true, value: { accessToken: access.value.accessToken } } : access;
+    },
+  } });
+}
 
 /** Fresh per-call credential resolver; no credential is retained in the dispatch closure. */
 export interface MetaInstagramFetchCredentials {
@@ -40,9 +68,16 @@ export function createMetaInstagramFetchDispatch(required: { fetch: typeof fetch
 /** Keep endpoint/parameter encoding inside the plugin. Credentials cannot be supplied in a URL. */
 function encodeRequest(required: { input: Parameters<MetaInstagramDispatch>[0] }): Outcome<{ url: string; body?: string }> {
   const { input } = required;
-  const advertisingPath = /^https:\/\/graph\.facebook\.com\/v25\.0\/act_([1-9][0-9]{0,31})\/(campaigns|adsets|ads)$/.exec(input.request.endpoint);
+  const adsOrigin = `https://graph.facebook.com/${adsGraphVersion}`;
+  const adsPath = input.request.endpoint.startsWith(adsOrigin) ? input.request.endpoint.slice(adsOrigin.length) : '';
+  const advertisingPath = /^\/act_([1-9][0-9]{0,31})\/(campaigns|adsets|ads)$/.exec(adsPath);
   const advertising = input.request.method === 'POST' && advertisingPath !== null && advertisingPath[1] === input.effect.accountId;
-  if (!advertising && !/^https:\/\/graph\.facebook\.com\/v[1-9][0-9]{0,2}\.[0-9]{1,2}\/(?:me\/accounts|[1-9][0-9]*(?:\/(?:media|media_publish|content_publishing_limit|insights))?)$/.test(input.request.endpoint))
+  const reportingPath = /^\/act_([1-9][0-9]{0,31})(?:\/(?:insights|campaigns|ads|adsets|adspixels))?$/.exec(adsPath);
+  const reporting = input.request.method === 'GET' && reportingPath !== null && reportingPath[1] === input.effect.accountId && input.effect.effects.length === 1 && input.effect.effects[0] === 'read';
+  const targetingSearch = input.request.method === 'GET' && adsPath === '/search' && input.effect.effects.length === 1 && input.effect.effects[0] === 'read';
+  const audience = input.request.method === 'POST' && /^\/[1-9][0-9]{0,31}\/users$/.test(adsPath) && input.effect.effects.length === 1 && input.effect.effects[0] === 'write';
+  const conversion = input.request.method === 'POST' && /^\/[1-9][0-9]{0,31}\/events$/.test(adsPath) && input.effect.effects.length === 1 && input.effect.effects[0] === 'conversion';
+  if (!advertising && !reporting && !targetingSearch && !audience && !conversion && !/^https:\/\/graph\.facebook\.com\/v[1-9][0-9]{0,2}\.[0-9]{1,2}\/(?:me\/accounts|[1-9][0-9]*(?:\/(?:media|media_publish|content_publishing_limit|insights))?)$/.test(input.request.endpoint))
     return failure({ code: 'forbidden', message: 'Instagram destination outside plugin scope' });
   const parameters = new URLSearchParams(Object.entries(input.request.parameters).map(([key, value]) => [key, String(value)]));
   if (parameters.has('access_token') || parameters.toString().length > 65536) return failure({ code: 'invalid_input', message: 'Instagram parameters invalid or oversized' });

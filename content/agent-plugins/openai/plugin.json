@@ -1,0 +1,53 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "openai",
+  "version": "0.1.0",
+  "description": "OpenAI model choices, effort settings, pricing and API-key connection form.",
+  "license": "Apache-2.0",
+  "extensions": {
+    "io.github.ainsep.openmarketing": {
+      "version": 1,
+      "provides": ["model"],
+      "enabled": true,
+      "admitted": true,
+      "capabilities": {},
+      "credentialCards": [{
+        "target": "openai",
+        "title": "Connect OpenAI",
+        "label": "OpenAI API key",
+        "category": "AI models",
+        "intro": "Connect your OpenAI account to use OpenAI models.",
+        "usedFor": ["Assistant model requests"],
+        "helpUrl": "https://developers.openai.com/api/docs/quickstart",
+        "helpLabel": "OpenAI API documentation",
+        "baseUrl": "https://api.openai.com",
+        "secretFields": [{ "name": "token", "label": "API key", "required": true }],
+        "saveKind": "api-key",
+        "saveTarget": "openai"
+      }],
+      "modelProvider": {
+        "protocol": "openai",
+        "endpoint": "https://api.openai.com",
+        "label": "OpenAI",
+        "models": [
+          {
+            "id": "gpt-5.2",
+            "label": "GPT-5.2",
+            "efforts": [
+              { "id": "default", "label": "Default", "request": {} },
+              { "id": "none", "label": "None", "request": { "reasoning_effort": "none" } },
+              { "id": "low", "label": "Low", "request": { "reasoning_effort": "low" } },
+              { "id": "medium", "label": "Medium", "request": { "reasoning_effort": "medium" } },
+              { "id": "high", "label": "High", "request": { "reasoning_effort": "high" } },
+              { "id": "xhigh", "label": "Extra high", "request": { "reasoning_effort": "xhigh" } }
+            ],
+            "pricing": {
+              "inputUsdPerMTok": "1.75", "outputUsdPerMTok": "14", "cachedInputUsdPerMTok": "0.175",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5.2", "observedOn": "2026-10-28"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

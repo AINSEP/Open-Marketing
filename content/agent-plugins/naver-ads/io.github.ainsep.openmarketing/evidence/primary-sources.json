@@ -1,5 +1,5 @@
 {
-  "checkedAt": "2026-10-24",
+  "checkedAt": "2026-10-26",
   "verification": "documentation only; synthetic fixtures, no live API calls",
   "sources": [
     {"id": "signature", "url": "https://raw.githubusercontent.com/naver/searchad-apidoc/master/python-sample/examples/signaturehelper.py", "quote": "\"{}.{}.{}\"", "fact": "UTF-8 secret HMAC-SHA256 over timestamp.method.path, Base64 digest; no query in signed URI."},
@@ -13,12 +13,15 @@
     {"id": "fixed-cpc-mode", "url": "https://raw.githubusercontent.com/naver/searchad-apidoc/gh-pages/assets/json/ncc-heroes-ncc.json", "quote": "The type of adgroup system bidding.", "fact": "Adgroup and AdgroupRequest define systemBiddingType with enum NONE/ML separately from bidAmt. Freeze NONE for fixed-CPC verification and compare it on readback; missing or ML mode remains unknown even when bidAmt matches. Documentation rechecked 2026-10-24; no live API calls."},
     {"id": "inclusive-vendor-end", "url": "https://github.com/naver/searchad-apidoc/wiki/FAQ", "quote": "오늘 날짜 > 설정 종료일", "fact": "CAMPAIGN_ENDED applies when today exceeds the end date, supporting an inclusive vendor calendar end. Exact mapping from OM TimeWindow remains unresolved; no writes."},
     {"id": "paused-ad-create-gap", "url": "https://raw.githubusercontent.com/naver/searchad-apidoc/gh-pages/assets/json/ncc-heroes-ncc.json", "quote": "#optional-update", "fact": "AdRequest.userLock is documented for update, without explicit create support. Treat disabled TEXT_45 creation as UNVERIFIED; do not create enabled then pause."},
-    {"id": "text45-content", "url": "https://github.com/naver/searchad-apidoc/wiki/FAQ", "quote": "TEXT_45", "fact": "The ad content example has headline/description and pc/mobile final/display links."}
+    {"id": "text45-content", "url": "https://github.com/naver/searchad-apidoc/wiki/FAQ", "quote": "TEXT_45", "fact": "The ad content example has headline/description and pc/mobile final/display links."},
+    {"id":"canonical-daily","url":"https://raw.githubusercontent.com/naver/searchad-apidoc/gh-pages/assets/json/ncc-report.json","quote":"timeIncrement","fact":"Single id supports daily timeIncrement=1, while bulk ids only supports allDays. The selected DailyStatResponse contains data, summary and optional cycleBaseTm; per-row dateStart/dateEnd are KST labels. salesAmt is VAT-inclusive integer KRW; impCnt/clkCnt/ccnt are integer counts. Canonical micros preserve exact JSON tokens. Purchase-only value is not a proxy for all conversions. cycleBaseTm timezone/cutoff semantics are unverified, so dataThrough=0, freshness=stale, finality=provisional."},
+    {"id":"canonical-hierarchy-status","url":"https://raw.githubusercontent.com/naver/searchad-apidoc/gh-pages/assets/json/ncc-heroes-ncc.json","quote":"inspectStatus","fact":"Campaigns and campaign-filtered groups support NEXT/baseSearchId/recordSize pagination. Ads by nccAdgroupId are a non-paginated array. Customer and parent IDs must match. Status reads named campaigns and scoped group/ad evidence; DENIED and documented statusReason rejection codes retain child IDs. Campaign ELIGIBLE alone does not establish review approval. Missing campaigns or request exhaustion remain incomplete, retaining completed observations."}
   ],
   "unverified": [
     {"fact": "OAuth scopes, expiry, refresh, loopback and app approval; credential lifetime", "behavior": "Paste license/secret only; no OAuth descriptor or invented expiry."},
     {"fact": "Runtime version/sunset guarantee; native write idempotency; OM-to-Naver end-date mapping; paused TEXT_45 create; server conversion API", "behavior": "No version prefix or CAPI; translation and deployment return not_implemented with zero credential/network/checkpoint I/O. Saved-reference recovery is GET-only."},
-    {"fact": "Live response envelope, pagination and delegated-account access", "behavior": "Return protocol_mismatch for undocumented shapes; integrator must verify a real server binding before enablement."}
+    {"fact": "Live response envelope, pagination and delegated-account access", "behavior": "Return protocol_mismatch for undocumented shapes; integrator must verify a real server binding before enablement."},
+    {"fact":"Daily conversion attribution window/cross-device semantics, matching total conversion value, and cycleBaseTm timezone/exclusive cutoff","behavior":"Declare only ccnt count semantics; omit conversion value, retain unknown coverage as stale. No account-grain sums or real-account acceptance."}
   ],
   "blockedPages": [
     "https://naver.github.io/searchad-apidoc/ (empty renderer)",
@@ -26,5 +29,22 @@
     "https://naver.github.io/searchad-apidoc/pages/release/ (inaccessible)",
     "Shell raw-GitHub fetch: DNS/network restricted; web reader succeeded."
   ],
-  "omBounds": {"requestBytes": 65536, "responseBytes": 1048576, "timeoutMs": 15000, "maxPageSize": 100, "maxReportDays": 31, "retries": 0}
+  "omBounds": {"requestBytes":65536,"responseBytes":1048576,"timeoutMs":15000,"maxPageSize":100,"maxReportDays":31,"retries":0,"canonicalMaxRequests":100,"canonicalMaxMetricRows":5000}
+,
+  "round2B1": {
+    "checkedAt": "2026-10-26",
+    "liveVendorCalls": false,
+    "configuration": "pluginConfigurationSchema: exactly scope, connectionId, accountId, pluginDigest, settings. Account facts are not install options; credentials own connection identity. Server owns admission.",
+    "verification": "Regression tests written, not run; package typechecks reported in the handoff.",
+    "sources": [
+      "https://raw.githubusercontent.com/naver/searchad-apidoc/gh-pages/assets/json/ncc-report.json",
+      "https://raw.githubusercontent.com/naver/searchad-apidoc/gh-pages/assets/json/atower.json"
+    ],
+    "implemented": [
+      "Credential customerId signs key-owner account discovery; selected accountId remains the delegated SA customer and is matched to adAccount.masterCustomerId, never adAccountNo.",
+      "Currency comes from authenticated account discovery; daily calendar remains Asia/Seoul as specified by the stats API.",
+      "Each entity has contiguous half-open chunks of at most 92 inclusive vendor days. Every response summary/row is checked against its own chunk. Shared 100-request/5,000-row budget preserves completed chunks when exhausted. No canonical inner 15-second race."
+    ],
+    "limitEvidence": "Official stats schema documents KST dates but does not expose a numeric 92-day maximum. 92 days is the binding conservative bound from the review, not claimed as newly verified vendor documentation."
+  }
 }

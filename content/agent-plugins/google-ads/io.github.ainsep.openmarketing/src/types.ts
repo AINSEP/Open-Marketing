@@ -1,3 +1,5 @@
+import type { z } from "zod";
+import type { campaignDeploymentPlanSchema } from "./schemas.ts";
 import type { CallContext, ClockPort, EffectEnvelope, Outcome, Scope } from "@open-marketing/contracts";
 
 /** Server-resolved account binding. Never accepted in agent tool arguments. */
@@ -6,13 +8,7 @@ export interface AccountBinding {
   mode: "sandbox" | "read_only" | "production"; pluginDigest: string; schemaFingerprint: string;
 }
 /** Search-only RSA plan. Child serving state is controlled alongside the campaign. */
-export interface SearchPlan {
-  name: string; currency: string; averageDailyBudgetMicros: string; cpcBidMicros: string;
-  startsAt: number; endsAt: number; geoTargetIds: string[];
-  keywords: { text: string; matchType: "EXACT" | "PHRASE" }[];
-  headlines: string[]; descriptions: string[]; finalUrl: string;
-  euPoliticalAdvertising: "CONTAINS_EU_POLITICAL_ADVERTISING" | "DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING";
-}
+export type SearchPlan = z.infer<typeof campaignDeploymentPlanSchema>;
 /** Narrow operations: no user-supplied GAQL, URL, mutation operation or update mask. */
 export type ToolArguments =
   | { operationId: string; plan: SearchPlan }
@@ -93,5 +89,5 @@ export interface HttpPort {
 export interface CredentialPort {
   /** Host resolves per-advertiser OAuth by binding, verifies granted scope and the
    * owning OAuth Cloud project, and keeps refresh tokens encrypted outside the agent. */
-  access(required: { binding: AccountBinding; requiredScope?: string; cloudProjectId?: string }): Promise<Outcome<{ accessToken: string; loginCustomerId?: string; developerToken?: string; scopes?: string[]; cloudProjectId?: string }>>;
+  access(required: { binding: Pick<AccountBinding, "scope" | "connectionId" | "customerId">; requiredScope?: string; cloudProjectId?: string }): Promise<Outcome<{ accessToken: string; loginCustomerId?: string; developerToken?: string; scopes?: string[]; cloudProjectId?: string }>>;
 }

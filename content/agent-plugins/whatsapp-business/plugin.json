@@ -1,17 +1,36 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "whatsapp-business", "version": "0.1.0",
-  "description": "WhatsApp Cloud API account, sender and template status reads; disabled until host admission.",
+  "description": "WhatsApp status reads, gated template delivery and signed STOP/status webhooks; disabled until host integration.",
   "license": "Apache-2.0",
   "extensions": {
     "io.github.ainsep.openmarketing": {
+      "credentialAssets": {"io.github.ainsep.openmarketing/assets/icon.svg": "c2730e1df6c596773f457cf0a75d1ac41b88f6d588c8a275943bff7302eb4687"},
       "version": 1, "enabled": false, "admitted": false,
       "capabilities": [
         {"capabilityId": "whatsapp.read.v1", "version": 1, "pluginId": "whatsapp-business", "schemaFingerprint": "ef54963c2f44f17b0056d6d4e0f8689068afef112e00e9e880db8584c3d619ea", "admitted": false, "effects": ["read"]}
       ],
       "credentialCards": [
-        {"target": "whatsapp-business-meta", "title": "WhatsApp via Meta", "label": "Reuse Meta sign-in", "intro": "Host integration required: reuse an existing Meta connection with verified WhatsApp permissions and assets.", "saveKind": "oauth", "category": "Messaging", "usedFor": ["Read WhatsApp account, sender and template status"], "helpUrl": "https://developers.facebook.com/docs/whatsapp/cloud-api/", "helpLabel": "WhatsApp Cloud API setup", "baseUrl": "https://graph.facebook.com", "saveTarget": "whatsapp-business", "permissions": ["whatsapp_business_management"]},
-        {"target": "whatsapp-business-token", "title": "WhatsApp system-user token", "label": "Save WhatsApp credentials", "intro": "Store credentials on the server. Saving does not verify access or enable this plugin.", "saveKind": "app-credentials", "fields": [{"name": "wabaId", "label": "WhatsApp Business Account ID", "required": true}, {"name": "phoneNumberId", "label": "Phone number ID", "required": true}], "secretFields": [{"name": "accessToken", "label": "System-user access token", "required": true}], "category": "Messaging", "usedFor": ["Read WhatsApp account, sender and template status"], "helpUrl": "https://developers.facebook.com/docs/whatsapp/cloud-api/", "helpLabel": "WhatsApp Cloud API setup", "baseUrl": "https://graph.facebook.com", "saveTarget": "whatsapp-business", "permissions": ["whatsapp_business_management"]}
+        {
+          "target": "whatsapp-business-meta", "title": "WhatsApp via Meta", "label": "Reuse Meta sign-in", "category": "Messaging",
+          "intro": "Host integration required: reuse an existing Meta connection with verified WhatsApp permissions and assets.",
+          "usedFor": ["Read WhatsApp account, sender and template status"],
+          "helpUrl": "https://developers.facebook.com/docs/whatsapp/cloud-api/", "helpLabel": "WhatsApp Cloud API setup",
+          "baseUrl": "https://graph.facebook.com",
+          "saveKind": "oauth", "saveTarget": "whatsapp-business", "icon": "io.github.ainsep.openmarketing/assets/icon.svg",
+          "permissions": ["whatsapp_business_management", "whatsapp_business_messaging"]
+        },
+        {
+          "target": "whatsapp-business-token", "title": "WhatsApp system-user token", "label": "Save WhatsApp credentials", "category": "Messaging",
+          "intro": "Store credentials on the server. Sending requires whatsapp_business_messaging and verified WABA/phone ownership. The optional appSecret signs raw webhooks; it is separate from the access token and any webhook verify token. Saving does not verify access or enable delivery.",
+          "usedFor": ["Read WhatsApp account, sender and template status"],
+          "helpUrl": "https://developers.facebook.com/docs/whatsapp/cloud-api/", "helpLabel": "WhatsApp Cloud API setup",
+          "baseUrl": "https://graph.facebook.com",
+          "saveKind": "app-credentials", "saveTarget": "whatsapp-business", "icon": "io.github.ainsep.openmarketing/assets/icon.svg",
+          "fields": [{"name": "wabaId", "label": "WhatsApp Business Account ID", "required": true, "type": "string"}, {"name": "phoneNumberId", "label": "Phone number ID", "required": true, "type": "string"}],
+          "secretFields": [{"name": "accessToken", "label": "System-user access token", "required": true}, {"name": "appSecret", "label": "Meta app secret (webhook signing)", "required": false}],
+          "permissions": ["whatsapp_business_management", "whatsapp_business_messaging"]
+        }
       ]
     }
   }

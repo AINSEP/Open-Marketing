@@ -5,7 +5,9 @@ import { createGooglePlugin } from "../src/plugin.ts";
 import { createStopBinding } from "../src/stop.ts";
 import { createFixtureDependencies, createFixtureTransport, fixtureBinding, fixtureContext, fixtureTime } from "../src/fixture.ts";
 import { plan, value } from "./helpers.ts";
+import { capabilityCatalog, pluginConfigurationSchema } from "@open-marketing/contracts";
 import type { HaltStopRequest } from "@open-marketing/contracts";
+import { createCapabilities } from "../src/index.ts";
 import type { Receipt, BillingEvidence, Hierarchy } from "../src/types.ts";
 
 async function hierarchy(): Promise<Hierarchy> {
@@ -52,4 +54,22 @@ test("stop rejects activation/budget/duplicate/foreign-account payloads before a
     assert.equal((await stop.stop({ context: fixtureContext, request: request as HaltStopRequest })).ok, false);
   }
   assert.equal(dispatches, 0);
+});
+
+test("canonical halt handler acknowledges PAUSED/status-only mutations without account facts", async () => {
+  const requests: { url: string; body: Record<string, unknown> }[] = [];
+  const connection = { connectionId: fixtureBinding.connectionId, accountId: fixtureBinding.customerId };
+  const capabilities = createCapabilities({ configuration: pluginConfigurationSchema.parse({ scope: fixtureBinding.scope, ...connection, pluginDigest: fixtureBinding.pluginDigest, settings: {} }),
+    clock: { now: () => fixtureTime }, observer: { observe() {} }, wait: async () => ({ ok: true, value: undefined }),
+    credentials: { access: async input => { assert.deepEqual(input, connection); return { ok: true, value: { accessToken: "fixture", secrets: { developerToken: "a".repeat(22) } } }; } },
+    fetch: async (url, init) => {
+      requests.push({ url: String(url), body: JSON.parse(String(init?.body)) });
+      return Response.json(String(url).endsWith("googleAds:mutate") ? { mutateOperationResponses: [{}] } : { results: [{ campaign: { id: "201", status: "PAUSED" } }] });
+    } });
+  const result = await capabilities["campaign.halt-stop.v1"]({ context: fixtureContext, connection, input: stopRequest });
+  assert.deepEqual(result, { ok: true, value: { status: "acknowledged", entityIds: ["201"] } });
+  assert.equal(capabilityCatalog["campaign.halt-stop.v1"].output.safeParse(value({ outcome: result })).success, true);
+  assert.equal(requests.length, 2);
+  assert.deepEqual(requests[0].body, { mutateOperations: [{ campaignOperation: { update: { resourceName: "customers/1234567890/campaigns/201", status: "PAUSED" }, updateMask: "status" } }], partialFailure: false, validateOnly: false });
+  assert.equal(String(requests[1].body.query).includes("currency_code"), false);
 });

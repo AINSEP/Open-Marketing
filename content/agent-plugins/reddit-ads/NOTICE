@@ -2,3 +2,4 @@ Open Marketing — Reddit Ads agent plugin. Copyright Open Marketing contributor
 Apache-2.0; package and adapter patterns follow OM LinkedIn Ads.
 Independent of Reddit, Inc.; Reddit trademarks belong to their owners.
 No vendor SDK or sibling Jini/Tovu source is distributed.
+Includes MIT-licensed material adapted from AgriciDaniel/claude-ads; see skills/reddit-ads/PROVENANCE.md.

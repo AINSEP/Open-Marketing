@@ -6,13 +6,27 @@
   "license": "Apache-2.0",
   "extensions": {
     "io.github.ainsep.openmarketing": {
+      "credentialAssets": {"io.github.ainsep.openmarketing/assets/icon.svg": "53cf7bfaf130f697d0c5fbe081d13c9ac62928941c8667e897d7ea9e36ae815e"},
+      "credentialCards": [
+        {
+          "target": "x-ads", "title": "X Ads", "label": "Save credentials", "category": "Advertising",
+          "intro": "Use credentials from an Ads-approved app with account access. The server signs requests with OAuth 1.0a; an OAuth 2 bearer token alone is insufficient. Saving does not verify access or enable the plugin.",
+          "usedFor": ["Read ad accounts and campaigns", "Read supported spend reports"],
+          "helpUrl": "https://docs.x.com/x-ads-api/fundamentals/making-authenticated-requests", "helpLabel": "Authentication and setup",
+          "baseUrl": "https://ads-api.x.com",
+          "saveKind": "app-credentials", "saveTarget": "x-ads", "icon": "io.github.ainsep.openmarketing/assets/icon.svg",
+          "secretFields": [{"name": "consumerKey", "label": "Consumer key", "required": true}, {"name": "consumerSecret", "label": "Consumer secret", "required": true}, {"name": "accessToken", "label": "User access token", "required": true}, {"name": "accessTokenSecret", "label": "User access token secret", "required": true}]
+        }
+      ],
       "version": 1, "enabled": false, "admitted": false,
       "capabilities": [
-        { "capabilityId": "campaign.create-paused.v1", "version": 1, "pluginId": "x-ads", "schemaFingerprint": "471646a29e755da3e4e83d9c64d6d8a90161d30717e3c4c64df5f646c6a40344", "admitted": false, "effects": ["write"] },
-        { "capabilityId": "conversion.deliver.v1", "version": 1, "pluginId": "x-ads", "schemaFingerprint": "d42b051aaa02d1f5b286831a87bc4bc0bbc343e6f2eccad2c011133672a8cfc1", "admitted": false, "effects": ["conversion"] },
-        { "capabilityId": "campaign.read.v1", "version": 1, "pluginId": "x-ads", "schemaFingerprint": "f34816fb9d3b38f06283d4a174d5cbfb953959c6e5b5bf91686355c924a00942", "admitted": false, "effects": ["read"] },
-        { "capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "x-ads", "schemaFingerprint": "08d1b5acc188196fbf7714b75b7a9124ba4c1d0fc0174d1131768a2629568a04", "admitted": false, "effects": ["read"] }
-      ]
+      {"capabilityId": "campaign.create-paused.v1", "version": 1, "pluginId": "x-ads", "schemaFingerprint": "791ad0638f6308cfa8e90f2e72cd79a27125a70a592805a3dc5dd44f90898e43", "admitted": false, "effects": ["write"]},
+      {"capabilityId": "conversion.deliver.v1", "version": 1, "pluginId": "x-ads", "schemaFingerprint": "d42b051aaa02d1f5b286831a87bc4bc0bbc343e6f2eccad2c011133672a8cfc1", "admitted": false, "effects": ["conversion"]},
+      {"capabilityId": "campaign.read.v1", "version": 1, "pluginId": "x-ads", "schemaFingerprint": "29aa91195c060b35a44bf169646cdef54bd8272aa1b0ff75f00d3c5efac62b0d", "admitted": false, "effects": ["read"]},
+      {"capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "x-ads", "schemaFingerprint": "8d5aac045d2e0d57f0c6ee0c708d3fd111047504ef1403b68eae355f069f9800", "admitted": false, "effects": ["read"]},
+      {"capabilityId": "report.metrics.v1", "version": 1, "pluginId": "x-ads", "schemaFingerprint": "8d5aac045d2e0d57f0c6ee0c708d3fd111047504ef1403b68eae355f069f9800", "admitted": false, "effects": ["read"]},
+      {"capabilityId": "campaign.status.v1", "version": 1, "pluginId": "x-ads", "schemaFingerprint": "8d5aac045d2e0d57f0c6ee0c708d3fd111047504ef1403b68eae355f069f9800", "admitted": false, "effects": ["read"]}
+    ]
     }
   }
 }

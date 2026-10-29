@@ -41,16 +41,15 @@ describe("Naver read transport", () => {
     expect(result).toMatchObject({ ok: false, error: { code: "unauthenticated" } }); expect(f.calls).toHaveLength(0);
     expect(JSON.stringify({ result, observations: f.observations })).not.toMatch(/fixture-secret|fixture-license/);
   });
-  it("forbids a valid credential belonging to a different customer", async () => {
-    const f = fixture({ credential: JSON.stringify({ apiKey: "fixture-license", secretKey: "fixture-secret", customerId: "333" }) });
-    const result = await f.adapter.invoke(invocation());
-    expect(result).toMatchObject({ ok: false, error: { code: "forbidden" } }); expect(f.calls).toHaveLength(0);
-    expect(JSON.stringify({ result, observations: f.observations })).not.toMatch(/fixture-secret|fixture-license/);
+  it("takes the key-owner identity from custody without comparing a configuration copy", async () => {
+    const f = fixture({ credential: JSON.stringify({ apiKey: "fixture-license", secretKey: "fixture-secret", customerId: "333" }), response: () => Response.json(accountPage) });
+    expect(await f.adapter.invoke(invocation({ command: { kind: "list_accounts" } }))).toMatchObject({ ok: true });
+    expect(new Headers(f.calls[0].init.headers).get("X-Customer")).toBe("333");
   });
-  it("rechecks admission after credential resolution", async () => {
+  it("relies on host guarded fetch after admission withdrawal during custody", async () => {
     const f = fixture({ credentialHook: () => { f.configuration.admitted = false; } });
-    expect(await f.adapter.invoke(invocation())).toMatchObject({ ok: false, error: { code: "forbidden" } });
-    expect(f.calls).toHaveLength(0);
+    expect(await f.adapter.invoke(invocation())).toMatchObject({ ok: false, error: { code: "unavailable" } });
+    expect(f.credentialCalls).toHaveLength(1); expect(f.calls).toHaveLength(0);
   });
   it.each([{ body: [campaign, { ...campaign, customerId: 333 }] }, { body: [campaign, campaign] }, { body: [{ ...campaign, customerId: 9007199254740992 }] }, { body: [{ ...campaign, status: "UNKNOWN" }] }, { body: { elements: [campaign] } }])("rejects the entire foreign, duplicate or malformed page", async ({ body }) => {
     const f = fixture({ response: () => Response.json(body) });
@@ -113,4 +112,10 @@ describe("Naver read transport", () => {
     expect(await adapter.invoke(invocation(), { signal: caller.signal })).toMatchObject({ ok: false, error: { code: "cancelled" } });
     expect(captured.signal?.aborted).toBe(true); expect(deadline.signal.aborted).toBe(false);
   });
+});
+
+it("reads using configuration without obsolete credential identity or admission fields", async () => {
+  const f = fixture();
+  expect(Object.keys(f.dependencies.configuration).sort()).toEqual(["accountId", "connectionId", "scope"]);
+  expect(await f.adapter.invoke(invocation())).toMatchObject({ ok: true });
 });

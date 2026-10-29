@@ -6,7 +6,12 @@ import { dispatchSuite } from "./contract/dispatch-suite.js";
 
 dispatchSuite({ name: "fixture", makeFixture: fixture });
 describe("Yandex read boundaries", () => {
-  it("factory is inert; accountless connected/agency discovery never sends Client-Login", async () => {
+  it("uses the host fence and credential login rather than local admission or configured login", async () => {
+    const f = fixture({ configuration: { ...configuration, clientLogin: "ignored" } });
+    expect(await createYandexDirectAdapter({ ...f.dependencies, admitted: () => false }).invoke(invocation())).toMatchObject({ ok: true });
+    expect(new Headers(f.calls[0].init.headers).get("Client-Login")).toBe("fixture-login");
+  });
+  it("factory is inert; accountless connected/agency discovery uses credential Client-Login", async () => {
     const { accountId, clientLogin, currency, ...discovery } = configuration;
     const f = fixture({ configuration: discovery, response: () => Response.json({ result: { Clients: [{ ...account, Type: "AGENCY", Currency: undefined, token: "synthetic-secret" }] } }) });
     expect(f.calls).toHaveLength(0); expect(f.credentialCalls).toHaveLength(0);
@@ -16,7 +21,7 @@ describe("Yandex read boundaries", () => {
       expect(JSON.stringify(result)).not.toContain("synthetic-secret");
       const call = f.calls.at(-1)!;
       expect(call.url).toBe("https://api.direct.yandex.com/json/v501/" + (view === "agency" ? "agencyclients" : "clients"));
-      expect(new Headers(call.init.headers).has("Client-Login")).toBe(false);
+      expect(new Headers(call.init.headers).get("Client-Login")).toBe("fixture-login");
       expect(JSON.parse(String(call.init.body))).toEqual({ method: "get", params: { FieldNames: ["ClientId", "Login", "Currency", "Type"], ...(view === "agency" ? { SelectionCriteria: {}, Page: { Limit: 1, Offset: 0 } } : {}) } });
     }
     expect(await f.adapter.invoke(invocation())).toMatchObject({ ok: false, error: { code: "invalid_input" } });
@@ -30,7 +35,7 @@ describe("Yandex read boundaries", () => {
   it("rechecks admission inside execute and rejects a second callback send", async () => {
     const f = fixture();
     const gateway = { async dispatch(input: Parameters<typeof f.dependencies.gateway.dispatch>[0]) { f.state.admitted = false; return input.execute(); } };
-    expect(await createYandexDirectAdapter({ ...f.dependencies, gateway }).invoke(invocation())).toMatchObject({ ok: false, error: { code: "forbidden" } });
+    expect(await createYandexDirectAdapter({ ...f.dependencies, gateway }).invoke(invocation())).toMatchObject({ ok: false, error: { code: "unavailable" } });
     expect(f.calls).toHaveLength(0);
     const twice = fixture({ repeatExecute: true });
     expect(await twice.adapter.invoke(invocation())).toMatchObject({ ok: false, error: { code: "conflict" } });

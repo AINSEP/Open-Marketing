@@ -1,7 +1,10 @@
+import { createLinkedInAdsAdapter } from "../src/transport.js";
 import type { CallContext, EffectEnvelope, ObserverEvent, Outcome } from "@open-marketing/contracts";
-import { createLinkedInAdsAdapter, createLinkedInCapiBackend, linkedInDigest } from "../src/index.js";
-import type { LinkedInConfiguration, LinkedInDependencies, LinkedInGatewayPort, LinkedInInvocation, LinkedInResult } from "../src/index.js";
-import type { LinkedInCapiConfiguration, LinkedInCapiRequest, LinkedInConversionAuthorityPort, LinkedInConversionOutcome } from "../src/index.js";
+import { pluginConfigurationSchema } from "@open-marketing/contracts";
+import type { PluginConfiguration } from "@open-marketing/contracts";
+import { createConversionDelivery, linkedInDigest } from "../src/index.js";
+import type { LinkedInConfiguration, LinkedInDependencies, LinkedInGatewayPort, LinkedInInvocation, LinkedInResult } from "../src/ports.js";
+import type { LinkedInCapiRequest, LinkedInConversionAuthorityPort, LinkedInConversionOutcome } from "../src/index.js";
 
 /** Entirely synthetic fixtures, including credentials, cards and account IDs. */
 export const now = 1791849600000;
@@ -88,19 +91,19 @@ export const analyticsPage = { elements: [{ dateRange: { start: { year: 2026, mo
 export const conversionRule = { kind: "create_conversion_rule" as const, name: "Fixture signup", type: "SIGN_UP" as const, postClickAttributionWindowSize: 30 as const, viewThroughAttributionWindowSize: 7 as const, attributionType: "LAST_TOUCH_BY_CAMPAIGN" as const };
 export const conversionPage = { elements: [{ id: 789, account: "urn:li:sponsoredAccount:123", name: "Fixture signup", type: "SIGN_UP", conversionMethod: "CONVERSIONS_API", enabled: true, ownershipType: "OWNED" }] };
 export const leadPage = { elements: [{ id: "6755260984438374400", owner: { sponsoredAccount: "urn:li:sponsoredAccount:123" }, name: "Fixture form", state: "PUBLISHED", versionId: 1 }], paging: { start: 0, count: 1, links: [{ href: "https://untrusted.example/next" }] } };
-export const capiConfiguration: LinkedInCapiConfiguration = { ...configuration, destination: "linkedin", purpose: "measurement", payloadSchema: "om.conversion.v1", mode: "production-server", conversionRules: { signup: "urn:lla:llaPartnerConversion:789" } };
+export const capiConfiguration = pluginConfigurationSchema.parse({ scope: context.scope, connectionId: "connection", accountId: "123", pluginDigest: configuration.pluginDigest, settings: { conversionConfiguration: { accountId: "123", purpose: "measurement", payloadSchema: "om.conversion.v1", conversionRules: { signup: "urn:lla:llaPartnerConversion:789" } } } });
 export function conversionInput(): LinkedInCapiRequest {
-  return { context: { scope: context.scope, serviceId: "measure-worker", correlationId: "correlation", traceId: "trace" }, deliveryId: "delivery", event: { eventId: "om-event", definitionId: "signup", subjectId: "subject", occurredAt: now, destination: "linkedin", purpose: "measurement", identifiers: { email: "a".repeat(64) }, identifierDigests: { email: "b".repeat(64) } }, grant: { kind: "measurement", grantId: "grant", scope: context.scope, connectionId: "connection", accountId: "123", definitionIds: ["signup"], destination: "linkedin", purpose: "measurement", payloadSchema: "om.conversion.v1", payloadVersion: 1, expiresAt: now + 60000, revoked: false } };
+  return { context: { scope: context.scope, serviceId: "measure-worker", correlationId: "correlation", traceId: "trace" }, deliveryId: "delivery", event: { eventId: "om-event", definitionId: "signup", subjectId: "subject", occurredAt: now, destination: "linkedin-ads", purpose: "measurement", identifiers: { email: "a".repeat(64) }, identifierDigests: { email: "b".repeat(64) } }, grant: { kind: "measurement", grantId: "grant", scope: context.scope, connectionId: "connection", accountId: "123", definitionIds: ["signup"], destination: "linkedin-ads", purpose: "measurement", payloadSchema: "om.conversion.v1", payloadVersion: 1, expiresAt: now + 60000, revoked: false } };
 }
 export interface CapiFixture extends Fixture {
-  backend: ReturnType<typeof createLinkedInCapiBackend>;
+  backend: ReturnType<typeof createConversionDelivery>;
   capiState: { consent: boolean; grant: boolean; connection: boolean; production: boolean; admitted: boolean };
   dispatches: Parameters<LinkedInConversionAuthorityPort["dispatch"]>[0][];
 }
 /** Per-test memory host models live consent and durable pre-send claims. Addons runs the same
  * acceptance suite with its production authority; no store is added to the plugin itself.
  */
-export function capiFixture(required: Parameters<typeof fixture>[0] & { authority?: LinkedInConversionAuthorityPort; authorityHook?: () => void; configuration?: LinkedInCapiConfiguration } = {}): CapiFixture {
+export function capiFixture(required: Parameters<typeof fixture>[0] & { authority?: LinkedInConversionAuthorityPort; authorityHook?: () => void; configuration?: PluginConfiguration } = {}): CapiFixture {
   const f = fixture(required);
   const capiState = { consent: true, grant: true, connection: true, production: true, admitted: true };
   const dispatches: CapiFixture["dispatches"] = [];
@@ -108,7 +111,7 @@ export function capiFixture(required: Parameters<typeof fixture>[0] & { authorit
   const authority: LinkedInConversionAuthorityPort = required.authority ?? { async dispatch(input) {
     dispatches.push(input);
     if (!current()) return rejection();
-    const digest = linkedInDigest({ value: { event: input.event, payload: input.payload, apiVersion: input.configuration.apiVersion } });
+    const digest = linkedInDigest({ value: { event: input.event, payload: input.payload } });
     const previous = claims.get(input.deliveryId);
     if (previous && previous.digest !== digest) return rejection({ code: "conflict" });
     if (previous) return previous.result;
@@ -119,6 +122,6 @@ export function capiFixture(required: Parameters<typeof fixture>[0] & { authorit
     return claim.result;
   } };
   function current(): boolean { return capiState.consent && capiState.grant && capiState.connection && capiState.production && capiState.admitted; }
-  const backend = createLinkedInCapiBackend({ ...f.dependencies, configuration: required.configuration ?? capiConfiguration, authority });
+  const backend = createConversionDelivery({ ...f.dependencies, wait: async () => ({ ok: true, value: undefined }), configuration: required.configuration ?? capiConfiguration, authority });
   return { ...f, backend, capiState, dispatches };
 }

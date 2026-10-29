@@ -5,12 +5,12 @@ import type { fixture } from "../fixtures.js";
 /** Integrator must run this same suite with the server's bound credential/guarded-fetch adapter. */
 export function dispatchSuite(required: { name: string; makeFixture: () => ReturnType<typeof fixture> }): void {
   describe(required.name + " Naver dispatch contract", () => {
-    it("keeps factories inert and unadmitted calls free of credential/network I/O", async () => {
+    it("keeps factories inert and relies on host guarded fetch for admission", async () => {
       const f = required.makeFixture();
       expect(f.calls).toHaveLength(0); expect(f.credentialCalls).toHaveLength(0);
       f.configuration.admitted = false;
-      expect(await f.adapter.invoke(invocation())).toMatchObject({ ok: false, error: { code: "forbidden" } });
-      expect(f.calls).toHaveLength(0); expect(f.credentialCalls).toHaveLength(0);
+      expect(await f.adapter.invoke(invocation())).toMatchObject({ ok: false, error: { code: "unavailable" } });
+      expect(f.calls).toHaveLength(0); expect(f.credentialCalls).toHaveLength(1);
     });
     it("rejects foreign scope and inflated command fields before credentials", async () => {
       const f = required.makeFixture();

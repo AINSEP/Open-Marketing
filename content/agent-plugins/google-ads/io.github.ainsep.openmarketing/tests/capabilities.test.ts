@@ -2,11 +2,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createGooglePlugin } from "../src/plugin.ts";
 import { createFixtureDependencies, createFixtureTransport, fixtureContext } from "../src/fixture.ts";
-import { memoryHarness, plan, restHarness, stdioHarness, value } from "./helpers.ts";
+import { memoryHarness, plan, restHarness, value } from "./helpers.ts";
 import type { Harness } from "./helpers.ts";
 import type { Hierarchy, Receipt } from "../src/types.ts";
 
-/** ONE shared capability suite across the double, real REST codec and real local MCP. */
+/** ONE shared capability suite across the double and real REST codec. */
 function capabilitySuite(required: { label: string; create: () => Promise<Harness> }): void {
   test(required.label + " shared lifecycle/scoping suite", { timeout: 15000 }, async () => {
     const harness = await required.create();
@@ -44,7 +44,6 @@ function capabilitySuite(required: { label: string; create: () => Promise<Harnes
 }
 capabilitySuite({ label: "memory", create: memoryHarness });
 capabilitySuite({ label: "real REST adapter/local fixtures", create: restHarness });
-capabilitySuite({ label: "real stdio/local MCP adapter", create: stdioHarness });
 
 for (const fault of ["timeout_before", "timeout_after", "partial"] as const) {
   test("stable operation reconciliation: " + fault, async () => {

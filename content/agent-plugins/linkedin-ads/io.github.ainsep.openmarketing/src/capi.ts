@@ -1,8 +1,9 @@
 /** Server-only single-event conversion backend; contacts and the host retain identity/authority ownership. */
 import { z } from "zod";
-import { epochSchema, idSchema, parseBoundary, scopeSchema } from "@open-marketing/contracts";
-import type { CallOptions, Outcome, ServiceContext } from "@open-marketing/contracts";
-import { boundInput, configurationSchema, failure, requestLinkedIn, resolveCredential } from "./transport.js";
+import { epochSchema, idSchema, parseBoundary, pluginConfigurationSchema, scopeSchema } from "@open-marketing/contracts";
+import type { CallOptions, Outcome, PluginCapabilityDependencies, ServiceContext } from "@open-marketing/contracts";
+import { boundInput, configurationSchema, failure, linkedInApiVersion, requestLinkedIn, resolveCredential } from "./transport.js";
+import { vendorIdSchema } from "./commands.js";
 import type { LinkedInDependencies, LinkedInWireRequest } from "./ports.js";
 
 const conversionUrn = z.string().regex(/^urn:lla:llaPartnerConversion:[1-9][0-9]{0,18}$/);
@@ -20,7 +21,9 @@ const grantSchema = z.strictObject({
   payloadVersion: z.literal(1), expiresAt: epochSchema, revoked: z.boolean(),
 });
 const requestSchema = z.strictObject({ context: z.strictObject({ scope: scopeSchema, serviceId: idSchema, correlationId: idSchema, traceId: idSchema }), event: eventSchema, grant: grantSchema, deliveryId: idSchema });
-const capiConfigurationSchema = configurationSchema.extend({ destination: idSchema, purpose: idSchema, payloadSchema: idSchema, mode: z.enum(["production-server", "local-sandbox", "read-only"]), conversionRules: z.record(idSchema, conversionUrn).refine(value => Object.keys(value).length > 0 && Object.keys(value).length <= 100) });
+const conversionRules = z.record(idSchema, conversionUrn).refine(value => Object.keys(value).length > 0 && Object.keys(value).length <= 100);
+const capiConfigurationSchema = configurationSchema.pick({ scope: true, connectionId: true, accountId: true, pluginDigest: true }).extend({ destination: idSchema, purpose: idSchema, payloadSchema: idSchema, conversionRules });
+const conversionSettingsSchema = z.object({ conversionConfiguration: z.strictObject({ accountId: vendorIdSchema, purpose: idSchema, payloadSchema: idSchema, conversionRules }) });
 /** Server maps open OM definitions to account-owned, enabled CONVERSIONS_API rules. */
 export type LinkedInCapiConfiguration = z.infer<typeof capiConfigurationSchema>;
 /** Transient contacts email hash plus its committed internal digest. No hashing or raw PII here. */
@@ -56,13 +59,32 @@ interface Prepared { request: LinkedInCapiRequest; configuration: LinkedInCapiCo
  * validates input and reports unknown without credentials or vendor I/O.
  * @param required - Server-resolved rule mappings, current authority, token broker and injected I/O.
  * @returns Inert deliver/reconcile methods; typed preflight/vendor denials or accepted/unknown status.
- * @example createLinkedInCapiBackend({ configuration, authority, credentials, fetch: serverFetch, clock, observer })
+ * @example createConversionDelivery({ configuration, authority, credentials, fetch: serverFetch, clock, observer, wait })
  * @complexity O(b) time/space for <=64KiB input, <=100 mappings; one bounded 15s POST, zero retries.
  */
-export function createLinkedInCapiBackend(required: LinkedInCapiDependencies): LinkedInCapiBackend {
-  const dependencies = { ...required, configuration: structuredClone(required.configuration) };
+export function createConversionDelivery(required: PluginCapabilityDependencies & { authority: LinkedInConversionAuthorityPort }): LinkedInCapiBackend {
+  return createBackend({ ...required, configuration: parseConversionConfiguration(required.configuration) });
+}
+
+/** Parse plugin-owned install settings, bind their account, and keep vendor constants private.
+ * O(k), k<=100 rule mappings; no credentials, authority or fetch on malformed settings. */
+function parseConversionConfiguration(required: PluginCapabilityDependencies["configuration"]): Outcome<LinkedInCapiConfiguration> {
+  const configuration = pluginConfigurationSchema.extend({ accountId: vendorIdSchema }).safeParse(required);
+  if (!configuration.success) return failure({ code: "invalid_input" });
+  const settings = conversionSettingsSchema.safeParse(configuration.data.settings);
+  if (!settings.success) return failure({ code: "invalid_input" });
+  const mapping = settings.data.conversionConfiguration;
+  if (mapping.accountId !== configuration.data.accountId) return failure({ code: "forbidden" });
+  const { scope, connectionId, pluginDigest } = configuration.data;
+  return { ok: true, value: { scope, connectionId, pluginDigest, ...mapping, destination: "linkedin-ads" } };
+}
+
+/** Shared backend returns invalid configuration as a typed value, before any effect. O(b<=64KiB). */
+function createBackend(required: Omit<LinkedInCapiDependencies, "configuration"> & { configuration: Outcome<LinkedInCapiConfiguration> }): LinkedInCapiBackend {
   return {
     async deliver(input, options) {
+      if (!required.configuration.ok) return required.configuration;
+      const dependencies = { ...required, configuration: required.configuration.value };
       const prepared = prepare({ dependencies, input }, options);
       if (!prepared.ok) return prepared;
       const result = await dispatch({ dependencies, prepared: prepared.value }, options);
@@ -70,6 +92,8 @@ export function createLinkedInCapiBackend(required: LinkedInCapiDependencies): L
       return result;
     },
     async reconcile(input, options) {
+      if (!required.configuration.ok) return required.configuration;
+      const dependencies = { ...required, configuration: required.configuration.value };
       const prepared = prepare({ dependencies, input }, options);
       return prepared.ok ? unknown() : prepared;
     },
@@ -99,7 +123,7 @@ function prepare(required: { dependencies: LinkedInCapiDependencies; input: Link
 /** Local constraints never establish live consent; the server fence is authoritative. @complexity O(k), k<=16 grant definitions. */
 function checkAuthority(required: { request: LinkedInCapiRequest; configuration: LinkedInCapiConfiguration; now: number }): Outcome<void> {
   const { request, configuration, now } = required;
-  if (configuration.mode !== "production-server" || !grantMatches({ request, configuration })) return failure({ code: "forbidden" });
+  if (!grantMatches({ request, configuration })) return failure({ code: "forbidden" });
   if (request.grant.revoked || now >= request.grant.expiresAt) return failure({ code: "forbidden" });
   if (!Number.isSafeInteger(now) || now < request.event.occurredAt || now - request.event.occurredAt > 90 * 86400000) return failure({ code: "expired" });
   return { ok: true, value: undefined };
@@ -138,7 +162,7 @@ async function dispatch(required: { dependencies: LinkedInCapiDependencies; prep
       if (credential.value.expiresAt !== undefined && now >= credential.value.expiresAt) return failure({ code: "expired" });
       if (!fence.isCurrent()) return failure({ code: "forbidden" });
       sent = true;
-      const response = await requestLinkedIn({ fetch: dependencies.fetch, request: prepared.wire, credential: credential.value, apiVersion: prepared.configuration.apiVersion }, optional);
+      const response = await requestLinkedIn({ fetch: dependencies.fetch, request: prepared.wire, credential: credential.value, apiVersion: linkedInApiVersion }, optional);
       if (!response.ok) return response.error.code === "unavailable" ? unknown() : response;
       return { ok: true, value: { status: response.value.response.status === 201 ? "delivered" : "unknown" } };
     } }, optional);

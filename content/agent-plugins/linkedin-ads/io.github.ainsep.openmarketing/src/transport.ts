@@ -1,16 +1,17 @@
 import { z } from "zod";
-import { callContextSchema, digestSchema, effectEnvelopeSchema, epochSchema, haltStopRequestSchema, idSchema, parseBoundary, scopeSchema } from "@open-marketing/contracts";
-import type { AppError, CallOptions, EffectEnvelope, HaltStopPermit, Outcome } from "@open-marketing/contracts";
-import { encodeLinkedInCommand, invocationSchema, linkedInDigest, vendorIdSchema } from "./commands.js";
+import { callContextSchema, digestSchema, effectEnvelopeSchema, epochSchema, idSchema, parseBoundary, parseExactIntegerJson, pluginConfigurationSchema, scopeSchema } from "@open-marketing/contracts";
+import type { AppError, CallOptions, EffectEnvelope, Outcome, PluginCapabilityDependencies, PluginToolsFactory } from "@open-marketing/contracts";
+import { encodeLinkedInCommand, invocationSchema, linkedInDigest, parseTool, vendorIdSchema } from "./commands.js";
 import type { LinkedInCommand } from "./commands.js";
-import type { LinkedInAdsAdapter, LinkedInConfiguration, LinkedInDependencies, LinkedInInvocation, LinkedInResult, LinkedInStopInput, LinkedInWireRequest } from "./ports.js";
+import type { LinkedInAdsAdapter, LinkedInConfiguration, LinkedInDependencies, LinkedInInvocation, LinkedInResult, LinkedInWireRequest } from "./ports.js";
 import { decodeLinkedInReport } from "./reporting.js";
+
+/** Version owned by the plugin. */
+export const linkedInApiVersion = "202610" as const;
 
 /** Internal binding parser shared by interactive calls and the backend conversion consumer. */
 export const configurationSchema = z.strictObject({ scope: scopeSchema, connectionId: idSchema, accountId: vendorIdSchema, currency: z.string().regex(/^[A-Z]{3}$/), apiVersion: z.literal("202610"), pluginDigest: digestSchema, bindingId: idSchema });
 const credentialSchema = z.strictObject({ accessToken: z.string().min(1).max(4096).regex(/^[\x21-\x7e]+$/), expiresAt: epochSchema.optional() });
-const permitSchema = z.strictObject({ kind: z.literal("halt-stop"), request: haltStopRequestSchema, expiresAt: epochSchema });
-const stopSchema = z.strictObject({ context: callContextSchema, request: haltStopRequestSchema, permit: permitSchema });
 const providerId = z.union([vendorIdSchema, z.number().int().positive().max(Number.MAX_SAFE_INTEGER).transform(String)]);
 const state = z.enum(["ACTIVE", "PAUSED", "DRAFT", "ARCHIVED", "CANCELED", "CANCELLED", "COMPLETED", "PENDING_DELETION", "REMOVED"]);
 const urn = z.string().regex(/^urn:li:[A-Za-z][A-Za-z0-9]*:[A-Za-z0-9_-]{1,128}$/);
@@ -52,12 +53,12 @@ const pagination = z.object({ nextPageToken: z.string().min(1).max(2048).regex(/
 const conversionItem = z.object({ id: providerId, account: accountUrn, name: text, type: text, conversionMethod: text, enabled: z.boolean(), ownershipType: z.enum(["OWNED", "SHARED"]).optional() });
 const leadItem = z.object({ id: providerId, owner: z.object({ sponsoredAccount: accountUrn }), name: text, state: z.enum(["DRAFT", "PUBLISHED", "ARCHIVED"]), versionId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER) });
 const offsetPaging = z.object({ start: z.number().int().min(0).max(1000000), count: z.number().int().min(1).max(100) });
-interface Prepared { configuration: LinkedInConfiguration; invocation: LinkedInInvocation; request: LinkedInWireRequest; effect: EffectEnvelope; permit?: HaltStopPermit }
+interface Prepared { configuration: LinkedInConfiguration; invocation: LinkedInInvocation; request: LinkedInWireRequest; effect: EffectEnvelope }
 type Credential = z.infer<typeof credentialSchema>;
 
 /** Inert adapter sharing bounded transport with the server-only conversion backend.
  * @param required - Server binding, policy/outbox gateway, token broker and injected fetch/clock/observer.
- * @returns Invoke and campaign-only halt stop; typed denials, ACKs or unknown writes; no retries.
+ * @returns Invoke; typed denials, ACKs or unknown writes; no retries.
  * @example createLinkedInAdsAdapter({ configuration, gateway, credentials, fetch: hostFetch, clock, observer })
  * @complexity O(b) time/space, 64KiB input, 1MiB response, at most one 15s vendor call per invocation.
  */
@@ -66,11 +67,6 @@ export function createLinkedInAdsAdapter(required: LinkedInDependencies): Linked
   return {
     async invoke(input, options) {
       const prepared = prepareInvocation({ dependencies, input }, options);
-      if (!prepared.ok) return prepared;
-      return dispatch({ dependencies, prepared: prepared.value }, options);
-    },
-    async stop(input, options) {
-      const prepared = prepareStop({ dependencies, input }, options);
       if (!prepared.ok) return prepared;
       return dispatch({ dependencies, prepared: prepared.value }, options);
     },
@@ -109,33 +105,8 @@ function checkSpendMetadata(required: { effect: EffectEnvelope; currency: string
   return { ok: true, value: undefined };
 }
 
-/** One safety-issued campaign stop, never a loop or generic updater. Request digest uses safety's
- * {adAccountId,entityIds,action} format; the gateway also sees the exact encoded vendor request.
- * @complexity O(b) bounded envelope validation; no effects.
- */
-function prepareStop(required: { dependencies: LinkedInDependencies; input: LinkedInStopInput }, optional?: CallOptions): Outcome<Prepared> {
-  const bounded = boundInput({ input: required.input });
-  if (!bounded.ok) return bounded;
-  const parsed = parseBoundary({ schema: stopSchema, input: bounded.value });
-  if (!parsed.ok) return parsed;
-  const { request, permit } = parsed.value;
-  if (request.entityIds.length !== 1 || !vendorIdSchema.safeParse(request.entityIds[0]).success) return failure({ code: "invalid_input" });
-  if (linkedInDigest({ value: request }) !== linkedInDigest({ value: permit.request })) return failure({ code: "conflict" });
-  if (request.argumentsDigest !== linkedInDigest({ value: { adAccountId: request.adAccountId, entityIds: request.entityIds, action: request.action } })) return failure({ code: "conflict" });
-  const prepared = prepareInvocation({ dependencies: required.dependencies, input: { context: parsed.value.context, operationId: request.operationId, command: { kind: "pause", campaignId: request.entityIds[0] }, moneyExposure: null, requiredLimit: null } }, optional);
-  if (!prepared.ok) return prepared;
-  if (!stopBindingMatches({ prepared: prepared.value, input: parsed.value })) return failure({ code: "forbidden" });
-  if (!permitCurrent({ permit, now: required.dependencies.clock.now({}) })) return failure({ code: "expired" });
-  return { ok: true, value: { ...prepared.value, permit, effect: { ...prepared.value.effect, effects: ["halt_stop"], argumentsDigest: request.argumentsDigest } } };
-}
-
-function stopBindingMatches(required: { prepared: Prepared; input: LinkedInStopInput }): boolean {
-  const configuration = required.prepared.configuration;
-  const request = required.input.request;
-  return sameScope({ first: request.scope, second: configuration.scope }) && request.adAccountId === configuration.accountId && request.connectionId === configuration.connectionId && request.pluginDigest === configuration.pluginDigest && request.bindingId === configuration.bindingId;
-}
 function sameScope(required: { first: LinkedInConfiguration["scope"]; second: LinkedInConfiguration["scope"] }): boolean { return required.first.ownerId === required.second.ownerId && required.first.workspaceId === required.second.workspaceId; }
-function permitCurrent(required: { permit: HaltStopPermit; now: number }): boolean { return Number.isSafeInteger(required.now) && required.now >= 0 && required.now < required.permit.expiresAt; }
+
 
 /** Catch tainted JSON at the boundary, including cycles, before reaching schemas. @complexity O(b), <=64KiB. */
 export function boundInput(required: { input: unknown }): Outcome<unknown> {
@@ -159,7 +130,7 @@ async function dispatch(required: { dependencies: LinkedInDependencies; prepared
     if (!credential.ok) result = credential;
     else result = await dependencies.gateway.dispatch({
       context: prepared.invocation.context, configuration: prepared.configuration, operation: prepared.invocation.command.kind,
-      request: Object.freeze({ ...prepared.request }), effect: structuredClone(prepared.effect), permit: prepared.permit,
+      request: Object.freeze({ ...prepared.request }), effect: structuredClone(prepared.effect),
       execute: async () => {
         if (sent) return failure({ code: "conflict" });
         const checked = checkBeforeEgress({ dependencies, prepared, credential: credential.value }, optional);
@@ -181,13 +152,12 @@ export async function resolveCredential(required: { credentials: LinkedInDepende
   return parseBoundary({ schema: credentialSchema, input: result.value });
 }
 
-/** Recheck cancellation, token expiry and stop expiry at the actual fetch boundary. @complexity O(1). */
+/** Recheck cancellation and token expiry at the actual fetch boundary. @complexity O(1). */
 function checkBeforeEgress(required: { dependencies: LinkedInDependencies; prepared: Prepared; credential: Credential }, optional?: CallOptions): Outcome<void> {
   if (optional?.signal?.aborted) return failure({ code: "cancelled" });
   const now = required.dependencies.clock.now({});
   if (!Number.isSafeInteger(now) || now < 0) return failure({ code: "invalid_input" });
   if (required.credential.expiresAt !== undefined && now >= required.credential.expiresAt) return failure({ code: "expired" });
-  if (required.prepared.permit && !permitCurrent({ permit: required.prepared.permit, now })) return failure({ code: "expired" });
   return { ok: true, value: undefined };
 }
 
@@ -202,29 +172,37 @@ async function sendRequest(required: { dependencies: LinkedInDependencies; prepa
   return decodeResponse({ prepared, response: response.value.response, body: response.value.body, retrievedAt: dependencies.clock.now({}) });
 }
 
+/** Byte overflow identity for canonical date splitting; legacy callers still see unavailable. */
+export const oversizedBody = Object.freeze(failure({ code: "unavailable" }));
+
 /** Internal shared fetch edge for interactive calls and CAPI. Bounded streams and headers remain
  * vendor-owned; callers check current authority immediately before entering this synchronous preflight.
  * @complexity O(b) time/space, b<=1MiB; one request, no redirect or retry.
  */
-export async function requestLinkedIn(required: { fetch: typeof fetch; request: LinkedInWireRequest; credential: Credential; apiVersion: "202610" }, optional?: CallOptions): Promise<Outcome<{ response: Response; body: unknown }>> {
+export async function requestLinkedIn(required: { fetch: typeof fetch; request: LinkedInWireRequest; credential: Credential; apiVersion: "202610"; numericText?: true; missingAsNull?: boolean }, optional?: CallOptions): Promise<Outcome<{ response: Response; body: unknown }>> {
   if (optional?.signal?.aborted) return failure({ code: "cancelled" });
   if (Buffer.byteLength(required.request.body ?? "") > 65536) return failure({ code: "limit_exceeded" });
   const deadline = AbortSignal.timeout(15000);
-  const signal = optional?.signal ? AbortSignal.any([deadline, optional.signal]) : deadline;
+  const signal = AbortSignal.any([deadline, optional?.signal ?? deadline]);
   try {
     const response = await required.fetch(required.request.url, {
       method: required.request.method, body: required.request.body, redirect: "error", signal,
       headers: { Authorization: "Bearer " + required.credential.accessToken, "LinkedIn-Version": required.apiVersion,
         "X-Restli-Protocol-Version": "2.0.0", "Content-Type": "application/json",
-        ...(required.request.method === "GET" && !required.request.url.includes("?") ? {} : { "X-RestLi-Method": required.request.restliMethod }) },
+        ...(required.request.method !== "GET" || required.request.url.includes("?") ? { "X-RestLi-Method": required.request.restliMethod } : {}) },
     });
+    // Canonical status reads distinguish an absent requested entity from a bad request.
+    if (required.missingAsNull === true && response.status === 404) {
+      await response.body?.cancel();
+      return { ok: true, value: { response, body: null } };
+    }
     if (response.status >= 400 && response.status < 500) {
       await response.body?.cancel();
       return vendorRejection({ status: response.status });
     }
-    const body = await readBody({ response });
-    if (!body.ok) return failure({ code: "unavailable" });
-    return { ok: true, value: { response, body: body.value } };
+    const body = await readBody({ response, numericText: required.numericText });
+    if (body.ok) return { ok: true, value: { response, body: body.value } };
+    return body.error.code === "limit_exceeded" ? oversizedBody : failure({ code: "unavailable" });
   } catch { return failure({ code: "unavailable" }); }
 }
 
@@ -240,7 +218,7 @@ function vendorRejection(required: { status: number }): Outcome<never> {
 }
 
 /** Consume bytes before parsing; never trust Content-Length or provider links. @complexity O(b), b<=1MiB. */
-async function readBody(required: { response: Response }): Promise<Outcome<unknown>> {
+async function readBody(required: { response: Response; numericText?: true }): Promise<Outcome<unknown>> {
   if (!required.response.body) return { ok: true, value: null };
   const reader = required.response.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -254,7 +232,8 @@ async function readBody(required: { response: Response }): Promise<Outcome<unkno
       chunks.push(chunk.value);
     }
     if (bytes === 0) return { ok: true, value: null };
-    return { ok: true, value: JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown };
+    const text = Buffer.concat(chunks).toString("utf8");
+    return required.numericText ? parseExactIntegerJson({ text }, { numericTextKeys: ["id", "costInLocalCurrency", "conversionValueInLocalCurrency", "externalWebsiteConversions", "impressions", "clicks"] }) : { ok: true, value: JSON.parse(text) as unknown };
   } finally { reader.releaseLock(); }
 }
 
@@ -355,4 +334,41 @@ function observe(required: { dependencies: LinkedInDependencies; prepared: Prepa
       outcome: required.result.ok ? required.result.value.status : required.result.error.code,
       correlationId: context.correlationId, traceId: context.traceId, runId: context.runId });
   } catch { /* Telemetry failure cannot rewrite a vendor receipt; host audit is authoritative. */ }
+}
+
+/** Read authenticated account currency; one bounded GET, no cache/retries, O(b<=1MiB).
+ * Foreign IDs and malformed metadata fail closed; credential failures remain static.
+ * @example readAccountCurrency({ credentials, fetch, clock, connectionId: "c1", accountId: "123" }) */
+export async function readAccountCurrency(required: Pick<LinkedInDependencies, "credentials" | "fetch" | "clock"> & { connectionId: string; accountId: string }, optional?: CallOptions): Promise<Outcome<string>> {
+  const credential = await resolveCredential({ credentials: required.credentials, configuration: required }, optional);
+  if (!credential.ok) return credential;
+  const now = required.clock.now({});
+  if (!epochSchema.safeParse(now).success) return failure({ code: "invalid_input" });
+  if (credential.value.expiresAt !== undefined && credential.value.expiresAt <= now) return failure({ code: "expired" });
+  const response = await requestLinkedIn({ fetch: required.fetch, request: { url: `https://api.linkedin.com/rest/adAccounts/${required.accountId}`, method: "GET", restliMethod: "FINDER" }, credential: credential.value, apiVersion: linkedInApiVersion, numericText: true }, optional);
+  if (!response.ok) return response;
+  const metadata = z.object({ id: vendorIdSchema, currency: z.string().regex(/^[A-Z]{3}$/) }).safeParse(response.value.body);
+  if (!metadata.success) return failure({ code: "protocol_mismatch" });
+  if (metadata.data.id !== required.accountId) return failure({ code: "forbidden" });
+  return { ok: true, value: metadata.data.currency };
+}
+
+/** Inert fixed tool ABI; the host owns approval and guarded fetch. Each call resolves currency
+ * and credentials afresh. O(b<=1MiB), one metadata GET plus one bounded vendor call, no retries.
+ * @example createTools({ configuration, credentials, fetch, clock, observer, wait }).invoke(call) */
+export function createTools(required: PluginCapabilityDependencies): ReturnType<PluginToolsFactory> {
+  return { async invoke(call, optional) {
+    try {
+      const command = parseTool({ name: call.name, input: call.input });
+      if (!command.ok) return command;
+      const configuration = pluginConfigurationSchema.extend({ accountId: vendorIdSchema }).safeParse(required.configuration);
+      const context = callContextSchema.safeParse(call.context);
+      if (!configuration.success || !context.success) return failure({ code: "invalid_input" });
+      const binding = configuration.data;
+      if (call.connection.accountId !== binding.accountId || call.connection.connectionId !== binding.connectionId || !sameScope({ first: context.data.scope, second: binding.scope })) return failure({ code: "forbidden" });
+      const currency = await readAccountCurrency({ ...required, connectionId: binding.connectionId, accountId: binding.accountId }, optional);
+      if (!currency.ok) return currency;
+      return createLinkedInAdsAdapter({ ...required, configuration: { scope: binding.scope, connectionId: binding.connectionId, accountId: binding.accountId, pluginDigest: binding.pluginDigest, currency: currency.value, apiVersion: linkedInApiVersion, bindingId: "linkedin-ads.stop.v1" }, gateway: { dispatch: call => call.execute() } }).invoke({ context: context.data, operationId: call.operationId, command: command.value as LinkedInCommand, moneyExposure: call.moneyExposure, requiredLimit: call.requiredLimit }, optional);
+    } catch { return failure({ code: optional?.signal?.aborted ? "cancelled" : "unavailable" }); }
+  } };
 }

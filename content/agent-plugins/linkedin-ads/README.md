@@ -9,25 +9,25 @@ The package contains sixteen tools, a typed campaign halt-stop backend, and a se
 The sole public entry is `io.github.ainsep.openmarketing/src/index.ts`. Factories and imports are inert. The distribution entry is declared; no distribution was generated in either run.
 
 ```ts
-const adapter = createLinkedInAdsAdapter({
-  configuration, gateway, credentials, fetch: serverFetch, clock, observer,
+const adapter = createTools({
+  configuration, credentials, fetch: serverFetch, clock, observer, wait,
 });
 const result = await adapter.invoke({
-  context, operationId: "durable-server-operation",
-  command: { kind: "list_campaigns", ids: ["567"] },
+  context, connection, name: "list_campaigns", operationId: "durable-server-operation",
+  input: { kind: "list_campaigns", ids: ["567"] },
   moneyExposure: null, requiredLimit: null,
 }, { signal });
 ```
 
-`configuration` is a server-resolved scope, connection/account binding, currency, `apiVersion: "202610"`, installed plugin digest and stop binding ID. Tokens are requested at call time through `credentials.access({connectionId, accountId})`, returning `{accessToken, expiresAt?}`. The server checks scopes/roles, resolves refresh and keeps secrets out of the agent. Expiry is epoch milliseconds when supplied.
+`configuration` is exactly `{ scope, connectionId, accountId, pluginDigest, settings }`; account currency is read from authenticated metadata and API version 202610 stays plugin-owned. Tokens are requested at call time through `credentials.access({connectionId, accountId})`, returning `{accessToken, expiresAt?}`. The server checks scopes/roles, resolves refresh and keeps secrets out of the agent. Expiry is epoch milliseconds when supplied.
 
-`gateway.dispatch` is the existing server policy/outbox handoff with `context`, `configuration`, `operation`, the exact serialized `request`, canonical `EffectEnvelope`, optional typed stop permit and `execute`. Resolve credentials first, then recheck current admission, connection, account/parent ownership, mode, halt and approvals at this gateway. Hold the server fence through `execute`, with no await gap after the final check. Every activation and budget call requires its own exact spend card. The server supplies `moneyExposure` and `requiredLimit` from the reviewed request; the plugin adds no evidence gate. Currency amounts are decimal strings with no invented minor-unit conversion or guaranteed hard-cap claim.
+The internal `gateway.dispatch` carries `context`, `configuration`, `operation`, the exact serialized `request`, canonical `EffectEnvelope` and `execute`; the public fixed tools use host-guarded fetch. Resolve credentials first, then recheck current admission, connection, account/parent ownership, mode, halt and approvals at this gateway. Hold the server fence through `execute`, with no await gap after the final check. Every activation and budget call requires its own exact spend card. The server supplies `moneyExposure` and `requiredLimit` from the reviewed request; the plugin adds no evidence gate. Currency amounts are decimal strings with no invented minor-unit conversion or guaranteed hard-cap claim.
 
-The host owns the ONE durable jobs outbox. Bind `operationId` to `argumentsDigest`, atomically claim before dispatch, reject changed arguments and never send an existing dispatched claim again. Append audit with operation/run/correlation/trace IDs. The digest covers the version and exact URL/method/body. Halt-stop retains safety's `{adAccountId, entityIds, action}` digest, and the gateway also sees the exact mapped PAUSED request. No invented vendor idempotency header or reconciliation endpoint is used.
+The host owns the ONE durable jobs outbox. Bind `operationId` to `argumentsDigest`, atomically claim before dispatch, reject changed arguments and never send an existing dispatched claim again. Append audit with operation/run/correlation/trace IDs. The digest covers the version and exact URL/method/body. The canonical halt capability retains safety's `{adAccountId, entityIds, action}` digest and emits only the mapped PAUSED request. No invented vendor idempotency header or reconciliation endpoint is used.
 
-`stop({context, request, permit})` accepts one campaign ID per canonical `HaltStopRequest`/`HaltStopPermit`. Both `pause` and `stop` map only to a PAUSED campaign patch. Check scope, connection/account, plugin/binding, digest and expiry locally and recheck the live halt permit in the host. It is not an agent tool, and a permit cannot inflate a budget or activate an entity.
+`createCapabilities(dependencies)["campaign.halt-stop.v1"]({ context, connection, input: permit.request })` accepts one campaign ID per canonical `HaltStopRequest`. Both `pause` and `stop` map only to a PAUSED campaign patch. The plugin checks scope, connection/account, plugin/binding and digest; the host checks permit expiry and live halt authority. It is not an assistant tool.
 
-Tool descriptors export their full strict Zod command schema, including the literal `kind`; the host can use existing Zod JSON-schema support when projecting to HTTP/CLI/MCP. The adapter always executes refinements, including group end dates with total budgets. List commands accept optional unique `ids`, `pageSize` (default/max 100) and opaque `pageToken`. Every invocation makes at most one 15s vendor call: 64KiB input/request, 1MiB streamed response, zero retries and no redirects. URLs are fixed in the codec; provider links are discarded. Caller cancellation reaches fetch.
+`tools` exports JSON Schema descriptors including the literal `kind`; `parseTool` retains the strict Zod command validation. The adapter always executes refinements, including group end dates with total budgets. List commands accept optional unique `ids`, `pageSize` (default/max 100) and opaque `pageToken`. Every invocation makes at most one 15s vendor call: 64KiB input/request, 1MiB streamed response, zero retries and no redirects. URLs are fixed in the codec; provider links are discarded. Caller cancellation reaches fetch.
 
 A 201 + validated ID acknowledges campaign/creative creation; 204 acknowledges a patch. Neither implies observed serving state. Lists expose validated provider fields with source account checks; they never assert a complete paused hierarchy. Group create ACK syntax is UNVERIFIED in the inspected group documentation: the DRAFT request is sent, its receipt stays unknown, and a separate list readback must resolve it. Never resend an unknown write.
 
@@ -46,14 +46,15 @@ LinkedIn analytics has no pagination. The plugin rejects over 100 rows and dupli
 ## Server-job conversion backend
 
 ```ts
-const backend = createLinkedInCapiBackend({
-  configuration: {
-    ...configuration,
-    destination: "linkedin", purpose: "measurement",
-    payloadSchema: "om.conversion.v1", mode: "production-server",
-    conversionRules: { signup: "urn:lla:llaPartnerConversion:789" },
-  },
-  authority: conversionAuthority, credentials, fetch: serverFetch, clock, observer,
+const backend = createConversionDelivery({
+  configuration: pluginConfigurationSchema.parse({
+    scope, connectionId, accountId: "123", pluginDigest,
+    settings: { conversionConfiguration: {
+      accountId: "123", purpose: "measurement", payloadSchema: "om.conversion.v1",
+      conversionRules: { signup: "urn:lla:llaPartnerConversion:789" },
+    } },
+  }),
+  authority: conversionAuthority, credentials, fetch: serverFetch, clock, observer, wait,
 });
 const receipt = await backend.deliver({ context: serviceContext, event, grant, deliveryId });
 ```
@@ -123,7 +124,7 @@ Reuse: interactive and CAPI now call the same lane-owned token parser and bounde
 | reportCommandSchema, encodeLinkedInReport, decodeLinkedInReport | INCONCLUSIVE | Runtime/lint unavailable; decimal/date/pivot/aggregate tests written; expanded periods reject |
 | resolveCredential, requestLinkedIn, readBody | INCONCLUSIVE | Runtime/lint unavailable; shared existing tested seam used for both consumers |
 | decodeResponse, decodeReportResponse, decodeWriteResponse, decodeLeadForms, listSchema | INCONCLUSIVE | Split analytics/entity/write parsing to keep decision paths small; metadata/paging/ACK tests written |
-| createLinkedInCapiBackend, prepare, checkAuthority, grantMatches | INCONCLUSIVE | Runtime/lint unavailable; strict digest-only model and narrow open-definition grant tests written |
+| createConversionDelivery, prepare, checkAuthority, grantMatches | INCONCLUSIVE | Runtime/lint unavailable; strict digest-only model and narrow open-definition grant tests written |
 | CAPI dispatch, observe, reconcile | INCONCLUSIVE | Runtime/lint unavailable; post-token live fence, duplicate/unknown/redaction/no-I/O cases written |
 
 Manual second pass checked variable names, byte/date/page bounds, current-authority ordering, stable wire bytes, exact identifiers and uncertainty. No unresolved Critical/High semantic finding identified; mechanical checks and executed tests are still required. Public and meaningful boundary functions document their behavior and costs; private leaf formatters inherit parent documentation. Function shapes use object parameters; library/host callbacks retain their documented ABIs. Coverage cannot be measured because suites are prohibited. Runtime self-validation was not run for the same reason.

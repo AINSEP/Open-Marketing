@@ -16,10 +16,10 @@ export function dispatchSuite(required: { name: string; makeFixture: () => Fixtu
       expect(f.credentialCalls).toEqual([{ connectionId: "connection", accountId: "123" }]);
       expect(f.observations).toEqual([{ operation: "line-ads.list_campaigns", outcome: "succeeded", correlationId: "correlation", traceId: "trace", runId: "run" }]);
     });
-    it("denies admission before credential access and egress", async () => {
+    it("leaves admission to host guarded fetch", async () => {
       const f = required.makeFixture(); f.state.admitted = false;
-      expect(await f.adapter.invoke(invocation())).toMatchObject({ ok: false, error: { code: "forbidden" } });
-      expect(f.calls).toEqual([]); expect(f.credentialCalls).toEqual([]);
+      expect(await f.adapter.invoke(invocation())).toMatchObject({ ok: false, error: { code: "unavailable" } });
+      expect(f.calls).toEqual([]); expect(f.credentialCalls).toHaveLength(1);
     });
     it("rejects foreign scope and cancellation before credentials", async () => {
       const f = required.makeFixture(), input = invocation();

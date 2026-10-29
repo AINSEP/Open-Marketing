@@ -1,42 +1,407 @@
 {
-  "version": 1, "checkedAt": "2026-10-24", "scope": "R1 reads and R2 draft documentation evidence; synthetic fixtures only, no live acceptance",
+  "version": 1,
+  "checkedAt": "2026-10-24",
+  "scope": "R1 reads and R2 draft documentation evidence; synthetic fixtures only, no live acceptance",
   "sources": [
-    { "fact": "API version 5 JSON services use fixed lowercase v501 URLs and POST", "url": "https://yandex.com/dev/direct/doc/en/format", "quote": "For JSON requests", "consumed": ["https://api.direct.yandex.com/json/v501/{service}", "POST", "lowercase service names", "Authorization: Bearer"], "status": "verified-documentation" },
-    { "fact": "Access needs approved application, Direct account, API agreement and user authorization", "url": "https://yandex.com/dev/direct/doc/en/concepts/access", "quote": "request for access was approved", "status": "verified-documentation" },
-    { "fact": "App permissions and approval", "url": "https://yandex.com/dev/direct/doc/en/concepts/register", "quote": "Using the Yandex Direct API (direct:api)", "consumed": ["direct:api", "passport:business for organization authorization", "review up to seven days"], "status": "verified-documentation" },
-    { "fact": "Code/PKCE and registered redirect matching documented; loopback acceptance not established", "url": "https://yandex.com/dev/id/doc/en/codes/code-url", "quote": "S256 (preferred)", "consumed": ["no OAuth descriptor in R1", "paste-token only"], "status": "loopback-UNVERIFIED" },
-    { "fact": "Token lifetime varies with permissions; no fixed lifetime assumed", "url": "https://yandex.com/dev/id/doc/en/concepts/ya-oauth-intro", "quote": "maximum lifetime depends on the rights", "consumed": ["host-supplied expiresAt", "reconnect on expiry/revocation"], "status": "verified-documentation" },
-    { "fact": "Refresh exchange is documented; not implemented in this paste-token plugin", "url": "https://www.yandex.com/dev/id/doc/en/tokens/refresh-client", "quote": "new refresh token", "consumed": ["server credential broker owns any future refresh"], "status": "verified-documentation" },
-    { "fact": "Connected identity and representative/account separation", "url": "https://yandex.com/dev/direct/doc/en/clients/get", "quote": "returns agency parameters and user settings", "consumed": ["method:get", "FieldNames", "result.Clients", "ClientId", "Login", "Currency (omitted for agency)", "Type"], "status": "verified-documentation; official indexed response recovered after repeat-open timeouts" },
-    { "fact": "Agency discovery has no Client-Login header; returns agency client identities", "url": "https://yandex.com/dev/direct/doc/en/agencyclients/get", "quote": "Don't specify the Client-Login header", "consumed": ["SelectionCriteria:{}", "Page.Limit/Offset", "result.Clients", "LimitedBy", "ClientId", "Login", "Currency", "Type:SUBCLIENT"], "status": "verified-documentation; official indexed response recovered after repeat-open timeouts" },
-    { "fact": "Client ID and representative login identify different objects", "url": "https://yandex.com/dev/direct/doc/en/objects/client", "quote": "The advertiser's ID is ClientId", "consumed": ["host-bound accountId and clientLogin, never derived from one another"], "status": "verified-documentation" },
-    { "fact": "Campaign listing supports fixed fields, ID filters, bounded paging and continuation", "url": "https://yandex.com/dev/direct/doc/en/campaigns/get", "quote": "parameters of campaigns", "consumed": ["method:get", "SelectionCriteria.Ids", "Page.Limit/Offset", "result.Campaigns", "LimitedBy", "Id", "Name", "Type", "State", "Status"], "status": "verified-documentation" },
-    { "fact": "State and moderation Status are distinct; OFF is insufficient draft evidence", "url": "https://yandex.com/dev/direct/doc/en/objects/campaign", "quote": "current state of displays", "consumed": ["State:CONVERTED,ARCHIVED,SUSPENDED,ENDED,ON,OFF,UNKNOWN", "Status:DRAFT,MODERATION,ACCEPTED,REJECTED,UNKNOWN"], "status": "verified-documentation" },
-    { "fact": "Account-bound agency requests require the advertiser representative login", "url": "https://yandex.com/dev/direct/doc/en/concepts/headers", "quote": "required if the request is made on behalf of an agency", "consumed": ["Client-Login", "Authorization", "Accept-Language"], "status": "verified-documentation" },
-    { "fact": "Two fixed daily reporting views and explicit column sets are supported", "url": "https://yandex.com/dev/direct/doc/en/fields-list", "quote": "Fields to output in the report (columns)", "consumed": ["ACCOUNT_PERFORMANCE_REPORT", "CAMPAIGN_PERFORMANCE_REPORT", "Date", "CampaignId in campaign view only", "Impressions", "Clicks", "Cost"], "status": "verified-documentation" },
-    { "fact": "Reports support TSV, custom date range, IN campaign filters, VAT and page limit/offset", "url": "https://yandex.com/dev/direct/doc/en/spec", "quote": "Number of rows to skip", "consumed": ["params.SelectionCriteria.DateFrom/DateTo/Filter", "FieldNames", "Page", "OrderBy", "ReportName", "ReportType", "DateRangeType:CUSTOM_DATE", "Format:TSV", "IncludeVAT:NO"], "status": "verified-documentation" },
-    { "fact": "Reports default monetary amounts to integer micros; title/summary may be omitted", "url": "https://yandex.com/dev/direct/doc/en/headers", "quote": "multiplied by 1,000,000", "consumed": ["omit returnMoneyInMicros:false", "skipReportHeader:true", "skipReportSummary:true", "keep and validate column header"], "status": "verified-documentation" },
-    { "fact": "Online reports return a synchronous report or error; no offline polling in R1", "url": "https://yandex.com/dev/direct/doc/en/mode", "quote": "an error is returned", "consumed": ["processingMode:online", "only HTTP 200 accepted"], "status": "verified-documentation" },
-    { "fact": "Five concurrent calls per advertiser and individual point quotas", "url": "https://yandex.com/dev/direct/doc/en/concepts/units", "quote": "five simultaneous API requests", "consumed": ["host rate limiter prerequisite; no plugin scheduler or retry"], "status": "verified-documentation" },
-    { "fact": "Reports quota is per user", "url": "https://yandex.com/dev/direct/doc/en/restrictions", "quote": "20 requests in 10 seconds", "consumed": ["host rate limiter prerequisite", "no offline queue used"], "status": "verified-documentation" },
-    { "fact": "Fixed sunset/notice guarantee not established", "url": "https://yandex.com/dev/direct/doc/en/changelog", "quote": "API version 5. History", "consumed": ["pin v501; no fallback"], "status": "sunset-policy-UNVERIFIED" },
-    { "fact": "Metrica conversion upload is documented, but excluded from R1 and manifest", "url": "https://yandex.com/dev/metrika/en/management/offline-conv", "quote": "Prepare special IDs", "consumed": ["deferred pending owner ratification and counter/goal/attribution identity binding"], "status": "verified-documentation; scope-deferred" },
-    {"fact": "Unified weekly search strategy; Network required and explicitly disabled", "url": "https://yandex.com/dev/direct/doc/en/campaigns/add-unified-campaign", "quote": "The weekly budget", "consumed": ["Search.WbMaximumClicks.WeeklySpendLimit integer currency micros", "Search.BiddingStrategyType:WB_MAXIMUM_CLICKS", "Network.BiddingStrategyType:SERVING_OFF"], "status": "verified-documentation; fixture-only"},
-    {"fact": "Campaign add dates are UTC+3 midnight API bounds; no writable Status", "url": "https://yandex.com/dev/direct/doc/en/campaigns/add", "quote": "Ad impressions end at 00:00 (UTC+3)", "consumed": ["Name,StartDate,EndDate,TimeZone,UnifiedCampaign", "Only exact Moscow-midnight intervals supported; end date equals neutral exclusive end"], "status": "verified-documentation; fixture-only"},
-    {"fact": "UI help describes a different end-of-day convention; production schedule acceptance remains blocked", "url": "https://yandex.com/support/direct/en/campaigns/campaign-dates", "quote": "stops serving ads at 23:59 Moscow Time", "consumed": ["UNVERIFIED cross-surface end-date equivalence; no production exposure"], "status": "verified-documentation; fixture-only"},
-    {"fact": "Regional unified group fields", "url": "https://yandex.com/dev/direct/doc/en/adgroups/add", "quote": "Array of IDs of regions", "consumed": ["CampaignId,Name,RegionIds,UnifiedAdGroup.OfferRetargeting:NO"], "status": "verified-documentation; fixture-only"},
-    {"fact": "Responsive creation replaces unified Text & Image creation", "url": "https://yandex.com/dev/direct/doc/en/ads/add", "quote": "Combinatorial ad parameters.", "consumed": ["AdGroupId,ResponsiveAd.Titles/Texts/Href", "one title <=56/word<=22; one text conservatively <=81/word<=23; URL<=1024"], "status": "verified-documentation; fixture-only"},
-    {"fact": "Responsive readback uses title/text objects", "url": "https://yandex.com/dev/direct/doc/en/ads/get", "quote": "array of TitleGetItem", "consumed": ["Titles[].Title,Texts[].Text,Href; exact parents and DRAFT/OFF"], "status": "verified-documentation; fixture-only"},
-    {"fact": "Draft ads are created but unreviewed; OFF alone is insufficient", "url": "https://yandex.com/dev/direct/doc/en/objects/ad", "quote": "has not yet been submitted for review.", "consumed": ["require Status:DRAFT and State:OFF; never moderate/resume"], "status": "verified-documentation; fixture-only"},
-    {"fact": "Draft campaign is created but unreviewed", "url": "https://yandex.com/dev/direct/doc/en/objects/campaign", "quote": "has not yet been submitted for review.", "consumed": ["require Status:DRAFT and State:OFF; browser evidence-chrome.md is binding"], "status": "verified-documentation; fixture-only"},
-    {"fact": "Scoped group readback supports unified retargeting fields", "url": "https://yandex.com/dev/direct/doc/en/adgroups/get", "quote": "Parameters of a unified performance group", "consumed": ["SelectionCriteria.Ids,FieldNames,UnifiedAdGroupFieldNames:OfferRetargeting"], "status": "verified-documentation; fixture-only"},
-    {"fact": "Unified campaign readback supports bidding strategy fields", "url": "https://yandex.com/dev/direct/doc/en/campaigns/get", "quote": "Names of parameters to get", "consumed": ["SelectionCriteria.Ids,FieldNames,UnifiedCampaignFieldNames:BiddingStrategy"], "status": "verified-documentation; fixture-only"}
+    {
+      "fact": "API version 5 JSON services use fixed lowercase v501 URLs and POST",
+      "url": "https://yandex.com/dev/direct/doc/en/format",
+      "quote": "For JSON requests",
+      "consumed": [
+        "https://api.direct.yandex.com/json/v501/{service}",
+        "POST",
+        "lowercase service names",
+        "Authorization: Bearer"
+      ],
+      "status": "verified-documentation"
+    },
+    {
+      "fact": "Access needs approved application, Direct account, API agreement and user authorization",
+      "url": "https://yandex.com/dev/direct/doc/en/concepts/access",
+      "quote": "request for access was approved",
+      "status": "verified-documentation"
+    },
+    {
+      "fact": "App permissions and approval",
+      "url": "https://yandex.com/dev/direct/doc/en/concepts/register",
+      "quote": "Using the Yandex Direct API (direct:api)",
+      "consumed": [
+        "direct:api",
+        "passport:business for organization authorization",
+        "review up to seven days"
+      ],
+      "status": "verified-documentation"
+    },
+    {
+      "fact": "Code/PKCE and registered redirect matching documented; loopback acceptance not established",
+      "url": "https://yandex.com/dev/id/doc/en/codes/code-url",
+      "quote": "S256 (preferred)",
+      "consumed": [
+        "no OAuth descriptor in R1",
+        "paste-token only"
+      ],
+      "status": "loopback-UNVERIFIED"
+    },
+    {
+      "fact": "Token lifetime varies with permissions; no fixed lifetime assumed",
+      "url": "https://yandex.com/dev/id/doc/en/concepts/ya-oauth-intro",
+      "quote": "maximum lifetime depends on the rights",
+      "consumed": [
+        "host-supplied expiresAt",
+        "reconnect on expiry/revocation"
+      ],
+      "status": "verified-documentation"
+    },
+    {
+      "fact": "Refresh exchange is documented; not implemented in this paste-token plugin",
+      "url": "https://www.yandex.com/dev/id/doc/en/tokens/refresh-client",
+      "quote": "new refresh token",
+      "consumed": [
+        "server credential broker owns any future refresh"
+      ],
+      "status": "verified-documentation"
+    },
+    {
+      "fact": "Connected identity and representative/account separation",
+      "url": "https://yandex.com/dev/direct/doc/en/clients/get",
+      "quote": "returns agency parameters and user settings",
+      "consumed": [
+        "method:get",
+        "FieldNames",
+        "result.Clients",
+        "ClientId",
+        "Login",
+        "Currency (omitted for agency)",
+        "Type"
+      ],
+      "status": "verified-documentation; official indexed response recovered after repeat-open timeouts"
+    },
+    {
+      "fact": "Agency discovery has no Client-Login header; returns agency client identities",
+      "url": "https://yandex.com/dev/direct/doc/en/agencyclients/get",
+      "quote": "Don't specify the Client-Login header",
+      "consumed": [
+        "SelectionCriteria:{}",
+        "Page.Limit/Offset",
+        "result.Clients",
+        "LimitedBy",
+        "ClientId",
+        "Login",
+        "Currency",
+        "Type:SUBCLIENT"
+      ],
+      "status": "verified-documentation; official indexed response recovered after repeat-open timeouts"
+    },
+    {
+      "fact": "Client ID and representative login identify different objects",
+      "url": "https://yandex.com/dev/direct/doc/en/objects/client",
+      "quote": "The advertiser's ID is ClientId",
+      "consumed": [
+        "host-bound accountId and clientLogin, never derived from one another"
+      ],
+      "status": "verified-documentation"
+    },
+    {
+      "fact": "Campaign listing supports fixed fields, ID filters, bounded paging and continuation",
+      "url": "https://yandex.com/dev/direct/doc/en/campaigns/get",
+      "quote": "parameters of campaigns",
+      "consumed": [
+        "method:get",
+        "SelectionCriteria.Ids",
+        "Page.Limit/Offset",
+        "result.Campaigns",
+        "LimitedBy",
+        "Id",
+        "Name",
+        "Type",
+        "State",
+        "Status"
+      ],
+      "status": "verified-documentation"
+    },
+    {
+      "fact": "State and moderation Status are distinct; OFF is insufficient draft evidence",
+      "url": "https://yandex.com/dev/direct/doc/en/objects/campaign",
+      "quote": "current state of displays",
+      "consumed": [
+        "State:CONVERTED,ARCHIVED,SUSPENDED,ENDED,ON,OFF,UNKNOWN",
+        "Status:DRAFT,MODERATION,ACCEPTED,REJECTED,UNKNOWN"
+      ],
+      "status": "verified-documentation"
+    },
+    {
+      "fact": "Account-bound agency requests require the advertiser representative login",
+      "url": "https://yandex.com/dev/direct/doc/en/concepts/headers",
+      "quote": "required if the request is made on behalf of an agency",
+      "consumed": [
+        "Client-Login",
+        "Authorization",
+        "Accept-Language"
+      ],
+      "status": "verified-documentation"
+    },
+    {
+      "fact": "Two fixed daily reporting views and explicit column sets are supported",
+      "url": "https://yandex.com/dev/direct/doc/en/fields-list",
+      "quote": "Fields to output in the report (columns)",
+      "consumed": [
+        "ACCOUNT_PERFORMANCE_REPORT",
+        "CAMPAIGN_PERFORMANCE_REPORT",
+        "Date",
+        "CampaignId in campaign view only",
+        "Impressions",
+        "Clicks",
+        "Cost"
+      ],
+      "status": "verified-documentation"
+    },
+    {
+      "fact": "Reports support TSV, custom date range, IN campaign filters, VAT and page limit/offset",
+      "url": "https://yandex.com/dev/direct/doc/en/spec",
+      "quote": "Number of rows to skip",
+      "consumed": [
+        "params.SelectionCriteria.DateFrom/DateTo/Filter",
+        "FieldNames",
+        "Page",
+        "OrderBy",
+        "ReportName",
+        "ReportType",
+        "DateRangeType:CUSTOM_DATE",
+        "Format:TSV",
+        "IncludeVAT:NO"
+      ],
+      "status": "verified-documentation"
+    },
+    {
+      "fact": "Reports default monetary amounts to integer micros; title/summary may be omitted",
+      "url": "https://yandex.com/dev/direct/doc/en/headers",
+      "quote": "multiplied by 1,000,000",
+      "consumed": [
+        "omit returnMoneyInMicros:false",
+        "skipReportHeader:true",
+        "skipReportSummary:true",
+        "keep and validate column header"
+      ],
+      "status": "verified-documentation"
+    },
+    {
+      "fact": "Online reports return a synchronous report or error; no offline polling in R1",
+      "url": "https://yandex.com/dev/direct/doc/en/mode",
+      "quote": "an error is returned",
+      "consumed": [
+        "processingMode:online",
+        "only HTTP 200 accepted"
+      ],
+      "status": "verified-documentation"
+    },
+    {
+      "fact": "Five concurrent calls per advertiser and individual point quotas",
+      "url": "https://yandex.com/dev/direct/doc/en/concepts/units",
+      "quote": "five simultaneous API requests",
+      "consumed": [
+        "host rate limiter prerequisite; no plugin scheduler or retry"
+      ],
+      "status": "verified-documentation"
+    },
+    {
+      "fact": "Reports quota is per user",
+      "url": "https://yandex.com/dev/direct/doc/en/restrictions",
+      "quote": "20 requests in 10 seconds",
+      "consumed": [
+        "host rate limiter prerequisite",
+        "no offline queue used"
+      ],
+      "status": "verified-documentation"
+    },
+    {
+      "fact": "Fixed sunset/notice guarantee not established",
+      "url": "https://yandex.com/dev/direct/doc/en/changelog",
+      "quote": "API version 5. History",
+      "consumed": [
+        "pin v501; no fallback"
+      ],
+      "status": "sunset-policy-UNVERIFIED"
+    },
+    {
+      "fact": "Metrica conversion upload is documented, but excluded from R1 and manifest",
+      "url": "https://yandex.com/dev/metrika/en/management/offline-conv",
+      "quote": "Prepare special IDs",
+      "consumed": [
+        "deferred pending owner ratification and counter/goal/attribution identity binding"
+      ],
+      "status": "verified-documentation; scope-deferred"
+    },
+    {
+      "fact": "Unified weekly search strategy; Network required and explicitly disabled",
+      "url": "https://yandex.com/dev/direct/doc/en/campaigns/add-unified-campaign",
+      "quote": "The weekly budget",
+      "consumed": [
+        "Search.WbMaximumClicks.WeeklySpendLimit integer currency micros",
+        "Search.BiddingStrategyType:WB_MAXIMUM_CLICKS",
+        "Network.BiddingStrategyType:SERVING_OFF"
+      ],
+      "status": "verified-documentation; fixture-only"
+    },
+    {
+      "fact": "Campaign add dates are UTC+3 midnight API bounds; no writable Status",
+      "url": "https://yandex.com/dev/direct/doc/en/campaigns/add",
+      "quote": "Ad impressions end at 00:00 (UTC+3)",
+      "consumed": [
+        "Name,StartDate,EndDate,TimeZone,UnifiedCampaign",
+        "Only exact Moscow-midnight intervals supported; end date equals neutral exclusive end"
+      ],
+      "status": "verified-documentation; fixture-only"
+    },
+    {
+      "fact": "UI help describes a different end-of-day convention; production schedule acceptance remains blocked",
+      "url": "https://yandex.com/support/direct/en/campaigns/campaign-dates",
+      "quote": "stops serving ads at 23:59 Moscow Time",
+      "consumed": [
+        "UNVERIFIED cross-surface end-date equivalence; no production exposure"
+      ],
+      "status": "verified-documentation; fixture-only"
+    },
+    {
+      "fact": "Regional unified group fields",
+      "url": "https://yandex.com/dev/direct/doc/en/adgroups/add",
+      "quote": "Array of IDs of regions",
+      "consumed": [
+        "CampaignId,Name,RegionIds,UnifiedAdGroup.OfferRetargeting:NO"
+      ],
+      "status": "verified-documentation; fixture-only"
+    },
+    {
+      "fact": "Responsive creation replaces unified Text & Image creation",
+      "url": "https://yandex.com/dev/direct/doc/en/ads/add",
+      "quote": "Combinatorial ad parameters.",
+      "consumed": [
+        "AdGroupId,ResponsiveAd.Titles/Texts/Href",
+        "one title <=56/word<=22; one text conservatively <=81/word<=23; URL<=1024"
+      ],
+      "status": "verified-documentation; fixture-only"
+    },
+    {
+      "fact": "Responsive readback uses title/text objects",
+      "url": "https://yandex.com/dev/direct/doc/en/ads/get",
+      "quote": "array of TitleGetItem",
+      "consumed": [
+        "Titles[].Title,Texts[].Text,Href; exact parents and DRAFT/OFF"
+      ],
+      "status": "verified-documentation; fixture-only"
+    },
+    {
+      "fact": "Draft ads are created but unreviewed; OFF alone is insufficient",
+      "url": "https://yandex.com/dev/direct/doc/en/objects/ad",
+      "quote": "has not yet been submitted for review.",
+      "consumed": [
+        "require Status:DRAFT and State:OFF; never moderate/resume"
+      ],
+      "status": "verified-documentation; fixture-only"
+    },
+    {
+      "fact": "Draft campaign is created but unreviewed",
+      "url": "https://yandex.com/dev/direct/doc/en/objects/campaign",
+      "quote": "has not yet been submitted for review.",
+      "consumed": [
+        "require Status:DRAFT and State:OFF; browser evidence-chrome.md is binding"
+      ],
+      "status": "verified-documentation; fixture-only"
+    },
+    {
+      "fact": "Scoped group readback supports unified retargeting fields",
+      "url": "https://yandex.com/dev/direct/doc/en/adgroups/get",
+      "quote": "Parameters of a unified performance group",
+      "consumed": [
+        "SelectionCriteria.Ids,FieldNames,UnifiedAdGroupFieldNames:OfferRetargeting"
+      ],
+      "status": "verified-documentation; fixture-only"
+    },
+    {
+      "fact": "Unified campaign readback supports bidding strategy fields",
+      "url": "https://yandex.com/dev/direct/doc/en/campaigns/get",
+      "quote": "Names of parameters to get",
+      "consumed": [
+        "SelectionCriteria.Ids,FieldNames,UnifiedCampaignFieldNames:BiddingStrategy"
+      ],
+      "status": "verified-documentation; fixture-only"
+    }
   ],
-  "unverified": ["Loopback HTTP and dynamic-port redirect acceptance: browser OAuth disabled", "Fixed API sunset/notice policy: version fallback disabled", "Vendor create-idempotency: no create resend; default DRAFT mechanism browser-verified, live payload acceptance pending", "Report timezone normalization: retain provider calendar, exclude normalized cross-platform totals", "Production token/product/account eligibility and scoped login/currency binding: host acceptance required"],
+  "unverified": [
+    "Loopback HTTP and dynamic-port redirect acceptance: browser OAuth disabled",
+    "Fixed API sunset/notice policy: version fallback disabled",
+    "Vendor create-idempotency: no create resend; default DRAFT mechanism browser-verified, live payload acceptance pending",
+    "Report timezone normalization: retain provider calendar, exclude normalized cross-platform totals",
+    "Production token/product/account eligibility and scoped login/currency binding: host acceptance required"
+  ],
   "blockedPages": [
-    { "url": "https://api.direct.yandex.com/v501/campaigns?wsdl", "reason": "Web tool inaccessible; no official spec retrieved" },
-    { "url": "https://api.direct.yandex.com/v501/reports.xsd", "reason": "Web tool inaccessible; official report specification used instead" },
-    { "url": "https://yandex.com/dev/direct/doc/en/clients/get", "reason": "Initial open succeeded; repeat opens timed out. Official indexed schema recovered via search" },
-    { "url": "https://yandex.com/dev/direct/doc/en/agencyclients/get", "reason": "Initial open succeeded; repeat opens timed out. Official indexed schema recovered via search" }
-  ]
+    {
+      "url": "https://api.direct.yandex.com/v501/campaigns?wsdl",
+      "reason": "Web tool inaccessible; no official spec retrieved"
+    },
+    {
+      "url": "https://api.direct.yandex.com/v501/reports.xsd",
+      "reason": "Web tool inaccessible; official report specification used instead"
+    },
+    {
+      "url": "https://yandex.com/dev/direct/doc/en/clients/get",
+      "reason": "Initial open succeeded; repeat opens timed out. Official indexed schema recovered via search"
+    },
+    {
+      "url": "https://yandex.com/dev/direct/doc/en/agencyclients/get",
+      "reason": "Initial open succeeded; repeat opens timed out. Official indexed schema recovered via search"
+    }
+  ],
+  "canonicalReadReview": {
+    "checkedAt": "2026-10-26",
+    "liveVendorCalls": false,
+    "verified": [
+      {
+        "url": "https://yandex.com/dev/direct/doc/en/fields-list",
+        "fact": "v501 Date plus CampaignId/AdGroupId/AdId are available at the four selected report grains. Missing required parent IDs are rejected, never synthesized."
+      },
+      {
+        "url": "https://yandex.com/dev/direct/doc/en/money",
+        "fact": "Cost is in the user currency. returnMoneyInMicros true preserves integer currency*1,000,000 text. Vendor rounds to 10,000 micros; VAT and discounts are excluded by this query."
+      },
+      {
+        "url": "https://yandex.com/dev/direct/doc/en/report-format",
+        "fact": "Clicks is vendor click count; Cost is cost of clicks. Conversions depends on goal/attribution configuration and overlapping goals must not be summed."
+      },
+      {
+        "url": "https://yandex.com/support/direct/en/efficiency/timetargeting",
+        "fact": "Report statistics use Moscow time, regardless of campaign targeting timezone."
+      },
+      {
+        "url": "https://yandex.com/dev/direct/doc/en/campaigns/get",
+        "fact": "Campaign reads expose Status, State, StatusPayment, Currency and StatusClarification. Rejection explanations are copied only when Status=REJECTED."
+      },
+      {
+        "url": "https://yandex.com/dev/direct/doc/en/spec",
+        "fact": "One CUSTOM_DATE range with stable Date/parent-ID ordering, 1,000-row offset pages and offset-specific ReportName. Stop at 5,000 rows with complete=false; valid exhausted empty results are complete. Coverage cutoff is the exclusive Moscow-midnight end capped at retrieval time; partial results keep 0."
+      },
+      {
+        "url": "https://yandex.com/dev/direct/doc/en/clients/get",
+        "fact": "Client-Login selects the advertiser representative. clients.get returns ClientId, Login and Currency. Canonical reads validate identity and use that currency; token/login are stored together with the existing app-credentials flow, never plugin settings."
+      }
+    ],
+    "implemented": [
+      "report.metrics.v1: account, campaign, ad_group, ad; spend, impressions, clicks",
+      "campaign.status.v1: requested IDs with missing/unknown rows incomplete"
+    ],
+    "unverified": [
+      "Conversion goals and attribution are not selected by this binding; conversion count/value are unsupported, absent from mapping and rows.",
+      "Existing binding and campaign JSON reads accept only safely representable numeric Yandex IDs.",
+      "No verified vendor processing/finality watermark. dataThrough records retrieved coverage only; freshness stays stale and finality stays provisional."
+    ],
+    "bounds": {
+      "requestedDays": 366,
+      "rows": 5000,
+      "responseBytes": 1048576,
+      "vendorReads": 6,
+      "retries": 0,
+      "deadline": "Server-supplied CallOptions.signal is required; the canonical factory has no private deadline/admission/authority ports."
+    },
+    "configuration": "pluginConfigurationSchema; account identity and currency are checked with clients.get; credential bundle is {accessToken, clientLogin}.",
+    "deferred": "Draft deployment retains its separate plain-token credential parser and needs adoption of the token/login bundle in a separately authorized deployment run."
+  }
 }

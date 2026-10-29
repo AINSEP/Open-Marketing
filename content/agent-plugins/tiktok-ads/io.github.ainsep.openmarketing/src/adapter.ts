@@ -1,15 +1,16 @@
+import { isDeepStrictEqual } from "node:util";
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { callContextSchema, dailyLimitRequirementSchema, digestSchema, effectEnvelopeSchema, epochSchema, haltStopRequestSchema, idSchema, moneyExposureSchema, parseBoundary, scopeSchema } from "@open-marketing/contracts";
-import type { CallContext, CallOptions, ClockPort, DailyLimitRequirement, EffectEnvelope, HaltStopPermit, MoneyExposure, ObserverPort, Outcome } from "@open-marketing/contracts";
-import { boundTikTokJson, decodeTikTokAcknowledgement, decodeTikTokRead, digestTikTokArguments, encodeTikTokCommand, failure, isTikTokRead, tiktokCommandSchema, tiktokHaltCommandSchema, tiktokStatus, tiktokTools, vendorIdSchema } from "./commands.js";
+import { callContextSchema, dailyLimitRequirementSchema, digestSchema, effectEnvelopeSchema, idSchema, moneyExposureSchema, parseBoundary, pluginConfigurationSchema, scopeSchema } from "@open-marketing/contracts";
+import type { CallContext, CallOptions, ClockPort, DailyLimitRequirement, EffectEnvelope, HaltStopRequest, MoneyExposure, ObserverPort, Outcome, PluginToolsFactory } from "@open-marketing/contracts";
+import { boundTikTokJson, decodeTikTokAcknowledgement, decodeTikTokRead, digestTikTokArguments, encodeTikTokCommand, failure, isTikTokRead, parseTool, tiktokCommandSchema, tiktokHaltCommandSchema, tiktokStatus, tiktokSchemaFingerprints, tools, vendorIdSchema } from "./commands.js";
 import type { TikTokCommand, TikTokDispatchCommand, TikTokEncoded, TikTokReadCommand } from "./commands.js";
+import { createTikTokCredentials, createTikTokFetchEgress } from "./transport.js";
 import { uncertainFailure } from "./events.js";
 import type { TikTokCall, TikTokGatewayPort } from "./ports.js";
 
 const bindingSchema = z.strictObject({ scope: scopeSchema, connectionId: idSchema, accountId: vendorIdSchema, pluginDigest: digestSchema });
 const invocationSchema = z.strictObject({ context: callContextSchema, operationId: idSchema, command: tiktokCommandSchema, moneyExposure: moneyExposureSchema.nullable(), requiredLimit: dailyLimitRequirementSchema.nullable() });
-const stopSchema = z.strictObject({ context: callContextSchema, permit: z.strictObject({ kind: z.literal("halt-stop"), request: haltStopRequestSchema, expiresAt: epochSchema }) });
 /** Backend fingerprint describes the closed campaign-stop mapping, never an agent tool. */
 export const tiktokStopSchemaFingerprint = createHash("sha256").update(JSON.stringify(z.toJSONSchema(tiktokHaltCommandSchema))).digest("hex");
 export type TikTokBinding = z.infer<typeof bindingSchema>;
@@ -18,14 +19,13 @@ export interface TikTokInvocation { readonly context: CallContext; readonly oper
 export interface TikTokResult { readonly operationId: string; readonly status: "succeeded" | "unknown"; readonly observedState: "disabled" | "enabled" | "unknown"; readonly observedAt: number | null; readonly entityIds: readonly string[]; readonly data: unknown }
 export interface TikTokAdsAdapter {
   invoke(required: TikTokInvocation, optional?: CallOptions): Promise<Outcome<TikTokResult>>;
-  stop(required: { context: CallContext; permit: HaltStopPermit }, optional?: CallOptions): Promise<Outcome<TikTokResult>>;
 }
 type Dependencies = { binding: TikTokBinding; gateway: TikTokGatewayPort; clock: ClockPort; observer: ObserverPort };
 type Prepared = { context: CallContext; call: TikTokCall; effect: EffectEnvelope };
 
 /** Inert codec around the ONE server dispatcher. It cannot admit itself or authorize spend.
  * @param required - Account/scope binding, server gateway, injected clock and observer.
- * @returns Bound invoke/stop. Each write sends once plus one readback; exceptions stay unknown.
+ * @returns Bound invoke. Each write sends once plus one readback; exceptions stay unknown.
  * @example createTikTokAdsAdapter({ binding, gateway, clock, observer })
  * @complexity O(b log k) bounded validation/digests; <=100 IDs, <=1MiB response; no retries.
  */
@@ -35,12 +35,29 @@ export function createTikTokAdsAdapter(required: Dependencies): TikTokAdsAdapter
     const prepared = prepare({ dependencies, input }, options);
     if (!prepared.ok) return prepared;
     return dispatch({ dependencies, prepared: prepared.value }, options);
-  }, async stop(input, options) {
-    const prepared = prepareStop({ dependencies, input }, options);
-    if (!prepared.ok) return prepared;
-    return dispatch({ dependencies, prepared: prepared.value }, options);
   } };
 }
+
+/** Canonical tools reuse the adapter and strict egress, picking only transport fields.
+ * Binding failures precede all I/O; host guarded fetch owns authority. O(b), no retries.
+ * @example createTools(dependencies).invoke(invocation)
+ */
+export const createTools: PluginToolsFactory = dependencies => ({ async invoke(input, options) {
+  const command = parseTool({ name: input.name, input: input.input });
+  if (!command.ok) return command;
+  const configuration = pluginConfigurationSchema.safeParse(dependencies.configuration);
+  const context = callContextSchema.safeParse(input.context);
+  if (!configuration.success || !context.success) return failure({ code: "invalid_input", message: "Invalid TikTok tool binding" });
+  const { scope, connectionId, accountId, pluginDigest } = configuration.data;
+  if (!isDeepStrictEqual({ ...input.connection, scope: context.data.scope }, { connectionId, accountId, scope })) return failure({ code: "forbidden", message: "TikTok tool binding mismatch" });
+  const egress = createTikTokFetchEgress({ fetch: dependencies.fetch, credentials: createTikTokCredentials(dependencies), observer: dependencies.observer });
+  const adapter = createTikTokAdsAdapter({ binding: { scope, connectionId, accountId, pluginDigest }, clock: dependencies.clock, observer: dependencies.observer,
+    gateway: { invoke: ({ context, call }, optional) => egress.send({ context, connectionId: call.connectionId, accountId: call.accountId, operationId: call.operationId, request: call.request, isCurrent: () => !optional?.signal?.aborted }, optional) },
+  });
+  const parsed = parseBoundary({ schema: tiktokCommandSchema, input: command.value });
+  if (!parsed.ok) return parsed;
+  return adapter.invoke({ context: context.data, operationId: input.operationId, command: parsed.value, moneyExposure: input.moneyExposure, requiredLimit: input.requiredLimit }, options);
+} });
 
 /** Validate before gateway I/O; money fields are forwarded only for activation. O(b), pure. */
 function prepare(required: { dependencies: Dependencies; input: TikTokInvocation }, optional?: CallOptions): Outcome<Prepared> {
@@ -65,9 +82,9 @@ function prepareCall(required: { request: z.infer<typeof invocationSchema>; bind
   const limit = request.requiredLimit;
   if (command.kind === "activate-entity" && (!exposure || !limit)) return failure({ code: "invalid_input", message: "TikTok activation requires the existing exposure/limit fields for its exact card" });
   const argumentsDigest = digestTikTokArguments({ arguments: encoded.method === "GET" ? encoded.parameters : encoded.body });
-  const tool = tiktokTools.find(value => (value.inputSchema.properties?.kind as { const?: string } | undefined)?.const === command.kind);
+  const tool = tools.find(tool => (tool.inputSchema.properties as { kind?: { const?: string } } | undefined)?.kind?.const === command.kind);
   if (!tool) return failure({ code: "protocol_mismatch", message: "TikTok command has no descriptor" });
-  const call: TikTokCall = { connectionId: binding.connectionId, accountId: binding.accountId, pluginDigest: binding.pluginDigest, operationId: request.operationId, request: command, argumentsDigest, schemaFingerprint: tool.schemaFingerprint };
+  const call: TikTokCall = { connectionId: binding.connectionId, accountId: binding.accountId, pluginDigest: binding.pluginDigest, operationId: request.operationId, request: command, argumentsDigest, schemaFingerprint: tiktokSchemaFingerprints[command.kind] };
   const effect = parseBoundary({ schema: effectEnvelopeSchema, input: { operationId: call.operationId, connectionId: call.connectionId, accountId: call.accountId, argumentsDigest, effects: tool.effects, moneyExposure: command.kind === "activate-entity" ? exposure : null, requiredLimit: command.kind === "activate-entity" ? limit : null } });
   if (!effect.ok) return effect;
   return { ok: true, value: { context: request.context, call, effect: effect.value } };
@@ -81,32 +98,21 @@ function validateBinding(required: { dependencies: Dependencies; context: CallCo
   return parsed;
 }
 
-/** Backend-only permit maps to campaign DISABLE; no activation/budget/creation fields. O(n), <=100 IDs. */
-function prepareStop(required: { dependencies: Dependencies; input: { context: CallContext; permit: HaltStopPermit } }, optional?: CallOptions): Outcome<Prepared> {
-  if (optional?.signal?.aborted) return failure({ code: "cancelled", message: "TikTok stop cancelled before dispatch" });
-  const parsed = parseBoundary({ schema: stopSchema, input: required.input });
-  if (!parsed.ok) return parsed;
-  const binding = validateBinding({ dependencies: required.dependencies, context: parsed.value.context });
-  if (!binding.ok) return binding;
-  const { permit } = parsed.value;
-  const request = permit.request;
-  let now: number;
-  try { now = required.dependencies.clock.now({}); }
-  catch { return failure({ code: "unavailable", message: "TikTok halt clock unavailable" }); }
-  if (!Number.isSafeInteger(now) || now < 0 || now >= permit.expiresAt) return failure({ code: "expired", message: "TikTok halt permit expired" });
-  if (!stopMatches({ binding: binding.value, permit })) return failure({ code: "forbidden", message: "TikTok halt binding mismatch" });
-  const command = parseBoundary({ schema: tiktokHaltCommandSchema, input: { kind: "halt-stop", campaignIds: request.entityIds } });
+/** Shared backend stop binding/argument check; adds no authority or expiry.
+ * Returns a closed DISABLE command or typed mismatch. O(n), <=100 numeric unique IDs.
+ * @example checkTikTokHalt({ binding, request })
+ */
+export function checkTikTokHalt(required: { binding: TikTokBinding; request: HaltStopRequest }): Outcome<z.infer<typeof tiktokHaltCommandSchema>> {
+  if (!stopMatches(required)) return failure({ code: "forbidden", message: "TikTok halt binding mismatch" });
+  const command = parseBoundary({ schema: tiktokHaltCommandSchema, input: { kind: "halt-stop", campaignIds: required.request.entityIds } });
   if (!command.ok) return command;
-  const digest = digestTikTokArguments({ arguments: { adAccountId: request.adAccountId, entityIds: request.entityIds, action: request.action } });
-  if (digest !== request.argumentsDigest) return failure({ code: "conflict", message: "TikTok halt arguments changed" });
-  const call: TikTokCall = { operationId: request.operationId, connectionId: request.connectionId, accountId: request.adAccountId, request: command.value, argumentsDigest: digest, pluginDigest: request.pluginDigest, schemaFingerprint: tiktokStopSchemaFingerprint, haltStopPermit: permit };
-  const effect: EffectEnvelope = { operationId: call.operationId, connectionId: call.connectionId, accountId: call.accountId, argumentsDigest: digest, effects: ["halt_stop"], moneyExposure: null, requiredLimit: null };
-  return { ok: true, value: { context: parsed.value.context, call, effect } };
+  const { adAccountId, entityIds, action, argumentsDigest } = required.request;
+  if (digestTikTokArguments({ arguments: { adAccountId, entityIds, action } }) !== argumentsDigest) return failure({ code: "conflict", message: "TikTok halt arguments changed" });
+  return command;
 }
 /** Scope/account/plugin/binding pins all agree before halt dispatch. O(1). */
-function stopMatches(required: { binding: TikTokBinding; permit: HaltStopPermit }): boolean {
-  const { binding, permit } = required;
-  const request = permit.request;
+function stopMatches(required: { binding: TikTokBinding; request: HaltStopRequest }): boolean {
+  const { binding, request } = required;
   return request.scope.ownerId === binding.scope.ownerId && request.scope.workspaceId === binding.scope.workspaceId && request.connectionId === binding.connectionId && request.adAccountId === binding.accountId && request.pluginDigest === binding.pluginDigest && request.bindingId === "tiktok-ads.stop.v1";
 }
 
@@ -162,7 +168,7 @@ async function readback(required: { dependencies: Dependencies; prepared: Prepar
   const command = readbackCommand({ command: prepared.call.request, entityIds });
   const encoded = encodeTikTokCommand({ input: command, accountId: prepared.call.accountId });
   if (!encoded.ok || encoded.value.method !== "GET") return uncertain({ prepared });
-  const call: TikTokCall = { connectionId: prepared.call.connectionId, accountId: prepared.call.accountId, pluginDigest: prepared.call.pluginDigest, operationId: prepared.call.operationId.slice(0, 247) + ":readback", request: command, argumentsDigest: digestTikTokArguments({ arguments: encoded.value.parameters }), schemaFingerprint: tiktokTools.find(tool => (tool.inputSchema.properties?.kind as { const?: string } | undefined)?.const === command.kind)!.schemaFingerprint };
+  const call: TikTokCall = { connectionId: prepared.call.connectionId, accountId: prepared.call.accountId, pluginDigest: prepared.call.pluginDigest, operationId: prepared.call.operationId.slice(0, 247) + ":readback", request: command, argumentsDigest: digestTikTokArguments({ arguments: encoded.value.parameters }), schemaFingerprint: tiktokSchemaFingerprints[command.kind] };
   const effect: EffectEnvelope = { operationId: call.operationId, connectionId: call.connectionId, accountId: call.accountId, argumentsDigest: call.argumentsDigest, effects: ["read"], moneyExposure: null, requiredLimit: null };
   let response: Outcome<unknown>;
   try { response = await dependencies.gateway.invoke({ context: prepared.context, call, effect }, optional); }

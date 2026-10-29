@@ -1,9 +1,9 @@
 import type { CallContext, EffectEnvelope, Outcome } from "@open-marketing/contracts";
 import { failure, parse, protect, success } from "./schema.ts";
 import { bindingSchema, contextSchema, toolSchemas } from "./schemas.ts";
-import { digest, effectFor, operationIdentity, validateHierarchy, validatePlan } from "./rules.ts";
+import { digest, effectFor, objectiveGoal, operationIdentity, validateHierarchy, validatePlan } from "./rules.ts";
 import { budgetOperations, createOperations, statusOperations } from "./mapping.ts";
-import { asRecord, planDigest, readAccount, readHierarchy, search } from "./readback.ts";
+import { asRecord, planDigest, readAccount, readConversionGoals, readHierarchy, search } from "./readback.ts";
 import type { AccountBinding, GooglePluginDependencies, Hierarchy, OperationRecord, Receipt, ToolArguments, ToolCall, ToolName } from "./types.ts";
 
 export interface GooglePlugin {
@@ -78,7 +78,9 @@ async function prepare(required: { dependencies: GooglePluginDependencies; conte
   }
   return prepareSpend({ ...required, hierarchy: hierarchy.value });
 }
-async function prepareCreation(required: { dependencies: GooglePluginDependencies; context: CallContext; call: ToolCall }): Promise<Outcome<Prepared>> {
+/** Prepare one paused atomic request; optimized plans require complete selected account-goal evidence.
+ * @complexity One account read, plus one <=200-row goal read for optimized plans; no writes here. */
+export async function prepareCreation(required: { dependencies: GooglePluginDependencies; context: CallContext; call: ToolCall }): Promise<Outcome<Prepared>> {
   if (!("plan" in required.call.arguments)) return failure({ code: "invalid_input", message: "Search plan is required" });
   const { dependencies, call } = required;
   const plan = validatePlan({ plan: required.call.arguments.plan, binding: dependencies.binding });
@@ -86,10 +88,14 @@ async function prepareCreation(required: { dependencies: GooglePluginDependencie
   const account = await readAccount({ ...required, operationId: call.arguments.operationId });
   if (!account.ok) return account;
   if (dependencies.binding.mode === "sandbox" && !account.value.testAccount) return failure({ code: "forbidden", message: "Sandbox creation requires a verified Google test account" });
+  const objective = plan.value.objective;
+  const goals = objective ? await readConversionGoals({ ...required, operationId: call.arguments.operationId }) : success({ value: [] });
+  if (!goals.ok) return goals;
+  if (objective && !goals.value.some(goal => goal.category === objectiveGoal[objective].category && goal.origin === objectiveGoal[objective].origin)) return failure({ code: "unavailable", message: `Account has no ${objectiveGoal[objective].category}/WEBSITE conversion goal` });
   const effect = effectFor({ binding: dependencies.binding, call, now: dependencies.clock.now({}) });
   if (!effect.ok) return effect;
   const identity = operationIdentity({ binding: dependencies.binding, operationId: call.arguments.operationId });
-  return success({ value: { effect: effect.value, operations: createOperations({ customerId: dependencies.binding.customerId, plan: plan.value, marker: identity.marker, timezone: dependencies.binding.timezone }) } });
+  return success({ value: { effect: effect.value, operations: createOperations({ customerId: dependencies.binding.customerId, plan: plan.value, marker: identity.marker, timezone: dependencies.binding.timezone, conversionGoals: goals.value }) } });
 }
 async function prepareSpend(required: { dependencies: GooglePluginDependencies; context: CallContext; call: ToolCall; hierarchy: Hierarchy }): Promise<Outcome<Prepared>> {
   const { dependencies, call, hierarchy } = required;
@@ -154,9 +160,9 @@ async function sendMutation(required: { dependencies: GooglePluginDependencies; 
   return success({ value: { ...receipt, status: "acknowledged", campaignId: hierarchy.value.campaignId, hierarchy: hierarchy.value } });
 }
 /** Adopt only scoped, unique mutation resource names before any readback can fail.
- * @complexity O(n) time/space, n<=256; malformed entries never become parent IDs. */
+ * @complexity O(n) time/space, n<=500 responses, at most 256 references; malformed entries never become parent IDs. */
 function mutationReferences(required: { input: unknown; customerId: string }): string[] {
-  if (!Array.isArray(required.input) || required.input.length > 256) return [];
+  if (!Array.isArray(required.input) || required.input.length > 500) return [];
   const kinds = ["campaignBudgetResult", "campaignResult", "adGroupResult", "campaignCriterionResult", "adGroupCriterionResult", "adGroupAdResult"];
   const names = required.input.flatMap(item => Object.entries(asRecord({ value: item })).filter(([key]) => kinds.includes(key)).map(([, result]) => asRecord({ value: result }).resourceName));
   const pattern = /^customers\/[0-9]{10}\/(campaignBudgets|campaigns|adGroups|campaignCriteria|adGroupCriteria|adGroupAds)\/[1-9][0-9]*(~[1-9][0-9]*)?$/;

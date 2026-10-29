@@ -26,3 +26,47 @@ Any public HTTPS media URL is allowed. For an OM asset, obtain the server's publ
 `instagram_publish_post` creates children/parent or a single/Reel container, polls within five minutes, checks returned publishing quota and publishes only a ready container. `published` is success; the media ID can be absent after read-only reconciliation. `processing` names the parent container: an explicit follow-up `resume` with that ID uses a new reviewed operation, never creates again, and cannot alter the existing caption/media. If `unknown`, use only `instagram_post_status` (containerId + igUserId) and report uncertainty; do not automatically retry/recreate or issue a new operation ID to bypass the outbox. A pending child/unknown creation returns no resumable parent ID; do not publish a child directly. ERROR/EXPIRED/quota exhaustion requires an explicit useful explanation, never a blind retry.
 
 `instagram_post_status` reads status and returned quota; `instagram_media_insights` reads reach, views and total interactions for a mediaId. Preserve unavailable metrics as absent rather than zero. Do not request deprecated impressions. Account discovery is bounded to the first 100 Pages and signals `hasMore`; continuation is deferred. See the plugin README and `evidence/primary-sources.json` for official Graph references, configured version, permissions and known verification limits.
+
+## Marketing guidance
+
+This guidance is advisory; use only tools listed in the OM catalog; any launch, budget or spend change goes through OM's server approval.
+
+### Structure
+
+- Review whether the campaign objective, ad-set outcome and selected event
+  describe the same business result. A traffic plan does not establish a sales signal.
+- Ask what each ad set contributes before recommending consolidation;
+  account history and usable conversion evidence may differ between campaigns.
+
+### Targeting
+
+- Review intended audiences and possible overlap between ad sets as questions
+  for account evidence, without assuming overlap proves wasted spend.
+- Keep audience planning separate from fields available in the OM catalog;
+  check current Meta docs for targeting options and account eligibility.
+
+### Creative
+
+- Review how the creative renders in each selected placement in Meta's own
+  previews; OM does not render vendor previews.
+- Keep the offer recognisable from the ad to its destination; check current
+  Meta docs for placement formats and media specifications.
+
+### Budget/bidding
+
+- Identify which campaign or ad-set setting owns the proposed allocation
+  before assessing whether the budget can support the intended outcome.
+- Check current Meta docs for bidding options. Ground budget advice in this
+  account's outcome evidence; do not invent a universal threshold or bid rule.
+
+### Measurement pitfalls
+
+- Assess account delivery history, pixel/event-source history and conversion
+  history separately. A new account does not establish a new event source,
+  and valid raw events do not establish usable conversion history.
+- Missing history leaves maturity unknown; it does not diagnose poor creative.
+  Explain platform-attributed versus OM-attributed outcomes before judging sales.
+
+Use om-playbook's strategy-and-brief for briefs, ad-copy-variants for copy field limits, creative-test-plan and creative-fatigue-review for creative methods, analytics-attribution-basics for attribution, and landing-page-cro for destination/message consistency.
+
+[Provenance](PROVENANCE.md)

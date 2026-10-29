@@ -1,28 +1,71 @@
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
-import { createTwilioSmsAdapter, twilioSmsTools } from "../src/index.js";
+import { pluginConfigurationSchema } from "@open-marketing/contracts";
+import type { PluginCapabilityDependencies } from "@open-marketing/contracts";
+import { createTools, twilioSmsTools, tools } from "../src/index.js";
 import type { TwilioCommand } from "../src/index.js";
-import { accountBody, accountDeniedBody, binding, denied, fixture, invocation } from "./fixtures.js";
+import { accountBody, accountDeniedBody, binding, credential, resourceBinding, fixture, invocation } from "./fixtures.js";
 
 describe("Twilio reads/auth boundary (fixture fetch only)", () => {
+  it("runs the real standard factory with bound credentials and cleans up its wait", async () => {
+    const card = { ...credential, authToken: "factory-auth-token" };
+    const f = fixture({ credential: card });
+    const wait = vi.fn<PluginCapabilityDependencies["wait"]>(() => new Promise(() => {}));
+    const configuration = pluginConfigurationSchema.parse({ scope: binding.scope, connectionId: binding.connectionId,
+      accountId: binding.accountId, pluginDigest: binding.pluginDigest, settings: {} });
+    const adapter = createTools({ configuration, credentials: f.credentials, fetch: f.fetch,
+      clock: f.dependencies.clock, observer: f.dependencies.observer, wait });
+    const input = { context: invocation.context, connection: { connectionId: binding.connectionId, accountId: binding.accountId },
+      name: twilioSmsTools[0].name, operationId: "operation", input: { kind: "account_status" }, moneyExposure: null, requiredLimit: null };
+    expect(f.credentials.access).not.toHaveBeenCalled(); expect(f.fetch).not.toHaveBeenCalled();
+    const result = await adapter.invoke(input);
+    expect(result).toEqual({ ok: true, value: { operationId: "operation", status: "succeeded", sendReadiness: "unknown",
+      data: { sid: binding.accountId, status: "active", type: "Trial" } } });
+    expect(f.credentials.access).toHaveBeenCalledExactlyOnceWith({ connectionId: binding.connectionId, accountId: binding.accountId }, undefined);
+    expect(f.fetch).toHaveBeenCalledOnce();
+    expect(new Headers(f.fetch.mock.calls[0][1]?.headers).get("Authorization"))
+      .toBe("Basic " + Buffer.from(card.apiKeySid + ":" + card.apiKeySecret).toString("base64"));
+    expect(f.events).toMatchObject([{ outcome: "succeeded", correlationId: "correlation", traceId: "trace", runId: "run" }]);
+    const serialized = JSON.stringify({ result, fetchCalls: f.fetch.mock.calls, observations: f.events });
+    expect(serialized).not.toContain(JSON.stringify(card));
+    expect(serialized).not.toMatch(/fixture-secret|factory-auth-token/);
+    expect(serialized).not.toContain("{\\\"");
+    expect(tools.map(tool => tool.name)).toEqual(twilioSmsTools.map(tool => tool.name));
+    expect(wait).toHaveBeenCalledExactlyOnceWith({ milliseconds: 15000 }, { signal: expect.any(AbortSignal) });
+    expect(wait.mock.calls[0][1]?.signal?.aborted).toBe(true);
+
+    f.credentials.access.mockClear(); f.fetch.mockClear();
+    for (const connection of [{ ...input.connection, connectionId: "foreign" }, { ...input.connection, accountId: null }, { ...input.connection, accountId: "AC" + "b".repeat(32) }]) {
+      expect(await adapter.invoke({ ...input, connection })).toMatchObject({ ok: false, error: { code: "forbidden" } });
+      expect(f.credentials.access).not.toHaveBeenCalled(); expect(f.fetch).not.toHaveBeenCalled();
+    }
+  });
   it("is inert and uses API-key Basic auth, bounded signal and no redirects", async () => {
     const f = fixture(); expect(f.fetch).not.toHaveBeenCalled(); expect(f.credentials.access).not.toHaveBeenCalled();
     const result = await f.adapter.invoke(invocation);
-    expect(result).toEqual({ ok: true, value: { operationId: "operation", status: "succeeded", sendReadiness: "unknown", data: { sid: binding.accountSid, status: "active", type: "Trial" } } });
+    expect(result).toEqual({ ok: true, value: { operationId: "operation", status: "succeeded", sendReadiness: "unknown", data: { sid: binding.accountId, status: "active", type: "Trial" } } });
     const [url, options] = f.fetch.mock.calls[0];
-    expect(url).toBe(`https://api.twilio.com/2010-04-01/Accounts/${binding.accountSid}.json`);
+    expect(url).toBe(`https://api.twilio.com/2010-04-01/Accounts/${binding.accountId}.json`);
     expect(options).toMatchObject({ method: "GET", redirect: "error", headers: { Authorization: "Basic " + Buffer.from("SK" + "a".repeat(32) + ":fixture-secret").toString("base64") } });
     expect(options?.signal).toBeInstanceOf(AbortSignal); expect(f.fetch).toHaveBeenCalledTimes(1);
     expect(f.deadlineSignal).toHaveBeenCalledExactlyOnceWith({ timeoutMs: 15000 });
     expect(f.events).toEqual([{ operation: "twilio-sms.account_status", outcome: "succeeded", correlationId: "correlation", traceId: "trace", runId: "run" }]);
   });
-  it.each([false, true])("enforces local admission and host denial (%s)", async admitted => {
-    const f = fixture({ configuration: { ...binding, admitted }, gateway: { dispatch: vi.fn(async () => denied()) } });
+  it.each(["fixture-auth-token", ""])("accepts optional card fields including a blank webhook authToken (%s)", async authToken => {
+    const f = fixture();
+    f.credentials.access.mockResolvedValueOnce({ ok: true, value: { accessToken: JSON.stringify({ accountSid: binding.accountId, apiKeySid: "SK" + "a".repeat(32), apiKeySecret: "fixture-secret", authToken, messagingServiceSid: "", phoneNumberSid: "", brandSid: "", campaignSid: "", tollfreeVerificationSid: "" }) } });
+    expect(await f.adapter.invoke(invocation)).toMatchObject({ ok: true });
+    expect(JSON.stringify(f.fetch.mock.calls)).not.toContain("fixture-auth-token");
+  });
+  it("enforces broker denial without exposing sensitive denial text", async () => {
+    const f = fixture({ configuration: binding });
+    f.credentials.access.mockResolvedValueOnce({ ok: false, error: { code: "forbidden", message: "gateway-secret +15555550100 fixture-secret", retryable: true } });
+    expect(binding).not.toHaveProperty("admitted");
     const result = await f.adapter.invoke(invocation);
     expect(result).toEqual({ ok: false, error: { code: "forbidden", message: "Twilio read forbidden", retryable: false } });
     expect(JSON.stringify({ result, events: f.events })).not.toMatch(/gateway-secret|fixture-secret|15555550100/);
-    expect(f.fetch).not.toHaveBeenCalled(); if (!admitted) expect(f.credentials.access).not.toHaveBeenCalled();
+    expect(f.fetch).not.toHaveBeenCalled(); expect(f.credentials.access).toHaveBeenCalledOnce();
   });
   it.each([
     { ...invocation, command: { kind: "send", connectionId: "twilio", to: "+15555550100" } },
@@ -47,7 +90,7 @@ describe("Twilio reads/auth boundary (fixture fetch only)", () => {
     expect(JSON.stringify(result)).not.toMatch(/20003|Authentication Error|more_info/);
     expect(f.events).toEqual([{ operation: "twilio-sms.account_status", outcome: "permission_limited", correlationId: "correlation", traceId: "trace", runId: "run" }]);
     const sender = fixture({ response: () => Response.json(accountDeniedBody, { status: 401 }) });
-    expect(await sender.adapter.invoke({ ...invocation, command: { kind: "sender_status", connectionId: "twilio", resource: "service" } })).toEqual({ ok: false, error: { code: "unauthenticated", message: "Twilio read unauthenticated", retryable: false } });
+    expect(await sender.adapter.invoke({ ...invocation, command: { kind: "sender_status", resource: "service" } })).toEqual({ ok: false, error: { code: "unauthenticated", message: "Twilio read unauthenticated", retryable: false } });
     expect(f.fetch).toHaveBeenCalledTimes(1); expect(sender.fetch).toHaveBeenCalledTimes(1);
   });
   it.each(["fetch", "body"])("expires the injected deadline during %s without timers or retries", async phase => {
@@ -72,23 +115,25 @@ describe("Twilio reads/auth boundary (fixture fetch only)", () => {
     expect(await expired.adapter.invoke(invocation)).toEqual({ ok: false, error: { code: "unavailable", message: "Twilio read unavailable", retryable: false } });
     expect(expired.fetch).not.toHaveBeenCalled();
   });
-  it.each(["foreign", "malformed", "denied", "expired", "throws"])("fails closed on %s credentials", async mode => {
+  it.each(["foreign", "malformed", "denied", "expired", "throws", "not-json", "pre-decoded"])("fails closed on %s credentials", async mode => {
     const f = fixture();
     f.credentials.access.mockImplementation(async () => {
       if (mode === "throws") throw new Error("broker-secret");
       if (mode === "denied") return { ok: false, error: { code: "forbidden", message: "broker-secret", retryable: false } };
-      return { ok: true, value: { accountSid: mode === "foreign" ? "AC" + "b".repeat(32) : binding.accountSid, apiKeySid: "SK" + "a".repeat(32), apiKeySecret: mode === "malformed" ? "bad\nsecret" : "fixture-secret", expiresAt: mode === "expired" ? 1000 : undefined } };
+      if (mode === "not-json") return { ok: true, value: { accessToken: "not json fixture-secret" } };
+      const card = { accountSid: mode === "foreign" ? "AC" + "b".repeat(32) : binding.accountId, apiKeySid: "SK" + "a".repeat(32), apiKeySecret: mode === "malformed" ? "bad\nsecret" : "fixture-secret" };
+      if (mode === "pre-decoded") return { ok: true, value: card as unknown as { accessToken: string } };
+      return { ok: true, value: { accessToken: JSON.stringify(card), expiresAt: mode === "expired" ? 1000 : undefined } };
     });
     const result = await f.adapter.invoke(invocation); expect(result).toMatchObject({ ok: false });
-    expect(JSON.stringify(result)).not.toContain("secret"); expect(f.fetch).not.toHaveBeenCalled();
+    expect(JSON.stringify({ result, events: f.events })).not.toContain("secret"); expect(f.fetch).not.toHaveBeenCalled();
   });
-  it("rechecks cancellation and guards repeated execute callbacks", async () => {
+  it("rejects cancellation before invoke without network access", async () => {
     const controller = new AbortController();
-    const cancelled = fixture({ gateway: { dispatch: async input => { controller.abort(); return input.execute(); } } });
+    const cancelled = fixture();
+    controller.abort();
     expect(await cancelled.adapter.invoke(invocation, { signal: controller.signal })).toMatchObject({ ok: false, error: { code: "cancelled" } });
     expect(cancelled.fetch).not.toHaveBeenCalled();
-    const repeated = fixture({ gateway: { dispatch: async input => { await input.execute(); return input.execute(); } } });
-    expect(await repeated.adapter.invoke(invocation)).toMatchObject({ ok: false, error: { code: "conflict" } }); expect(repeated.fetch).toHaveBeenCalledTimes(1);
   });
   it.each(["invalid json", "x".repeat(65537), JSON.stringify({ ...accountBody, sid: "AC" + "b".repeat(32) }), JSON.stringify({ ...accountBody, status: null })])("bounds and validates tainted responses", async body => {
     const f = fixture({ response: () => new Response(body) }); expect(await f.adapter.invoke(invocation)).toMatchObject({ ok: false });
@@ -102,27 +147,26 @@ describe("Twilio reads/auth boundary (fixture fetch only)", () => {
     expect(await observer.adapter.invoke(invocation)).toMatchObject({ ok: true });
   });
   it.each([
-    ["service", { sid: binding.messagingServiceSid, account_sid: binding.accountSid, use_inbound_webhook_on_number: false, smart_encoding: true }, `/Services/${binding.messagingServiceSid}`],
-    ["number", { sid: binding.phoneNumberSid, account_sid: binding.accountSid, service_sid: binding.messagingServiceSid, capabilities: ["SMS", "MMS"] }, `/Services/${binding.messagingServiceSid}/PhoneNumbers/${binding.phoneNumberSid}`],
+    ["service", { sid: resourceBinding.messagingServiceSid, account_sid: binding.accountId, use_inbound_webhook_on_number: false, smart_encoding: true }, `/Services/${resourceBinding.messagingServiceSid}`],
+    ["number", { sid: resourceBinding.phoneNumberSid, account_sid: binding.accountId, service_sid: resourceBinding.messagingServiceSid, capabilities: ["SMS", "MMS"] }, `/Services/${resourceBinding.messagingServiceSid}/PhoneNumbers/${resourceBinding.phoneNumberSid}`],
     ["brand", { sid: "BN" + "a".repeat(32), status: "PENDING" }, "/a2p/BrandRegistrations/BN" + "a".repeat(32)],
-    ["campaign", { sid: "QE" + "a".repeat(32), account_sid: binding.accountSid, messaging_service_sid: binding.messagingServiceSid, brand_registration_sid: "BN" + "a".repeat(32), campaign_status: "FAILED" }, `/Services/${binding.messagingServiceSid}/Compliance/Usa2p/QE` + "a".repeat(32)],
-    ["toll_free", { sid: "HH" + "a".repeat(32), account_sid: binding.accountSid, tollfree_phone_number_sid: binding.phoneNumberSid, status: "IN_REVIEW" }, "/Tollfree/Verifications/HH" + "a".repeat(32)],
+    ["campaign", { sid: "QE" + "a".repeat(32), account_sid: binding.accountId, messaging_service_sid: resourceBinding.messagingServiceSid, brand_registration_sid: "BN" + "a".repeat(32), campaign_status: "FAILED" }, `/Services/${resourceBinding.messagingServiceSid}/Compliance/Usa2p/QE` + "a".repeat(32)],
+    ["toll_free", { sid: "HH" + "a".repeat(32), account_sid: binding.accountId, tollfree_phone_number_sid: resourceBinding.phoneNumberSid, status: "IN_REVIEW" }, "/Tollfree/Verifications/HH" + "a".repeat(32)],
   ] as const)("reads %s without asserting send readiness", async (resource, body, path) => {
-    const configuration = resource === "toll_free" ? { ...binding, registration: { kind: "toll_free" as const, verificationSid: "HH" + "a".repeat(32) } } : binding;
-    const f = fixture({ configuration, response: () => Response.json({ ...body, secret: "tainted" }) });
-    const command: TwilioCommand = { kind: "sender_status", connectionId: binding.connectionId, resource };
+    const f = fixture({ response: () => Response.json({ ...body, secret: "tainted" }) });
+    const command: TwilioCommand = { kind: "sender_status", resource };
     const result = await f.adapter.invoke({ ...invocation, command });
     expect(result).toEqual({ ok: true, value: { operationId: "operation", status: "succeeded", data: body, sendReadiness: "unknown" } });
     expect(JSON.stringify(result)).not.toMatch(/secret|tainted/);
     expect(f.fetch.mock.calls[0][0]).toBe("https://messaging.twilio.com/v1" + path);
-    const foreign = fixture({ configuration, response: () => Response.json({ ...body, sid: "AC" + "b".repeat(32) }) });
+    const foreign = fixture({ response: () => Response.json({ ...body, sid: "AC" + "b".repeat(32) }) });
     expect(await foreign.adapter.invoke({ ...invocation, command })).toMatchObject({ ok: false });
   });
-  it("rejects foreign membership and missing registration with zero partial results", async () => {
-    const f = fixture({ response: () => Response.json({ sid: binding.phoneNumberSid, account_sid: binding.accountSid, service_sid: "MG" + "b".repeat(32), capabilities: ["SMS"] }) });
-    expect(await f.adapter.invoke({ ...invocation, command: { kind: "sender_status", connectionId: "twilio", resource: "number" } })).toMatchObject({ ok: false });
-    const unknown = fixture({ configuration: { ...binding, registration: { kind: "unknown" } } });
-    expect(await unknown.adapter.invoke({ ...invocation, command: { kind: "sender_status", connectionId: "twilio", resource: "brand" } })).toMatchObject({ ok: false, error: { code: "unavailable" } }); expect(unknown.fetch).not.toHaveBeenCalled(); expect(unknown.credentials.access).not.toHaveBeenCalled();
+  it("rejects foreign membership and missing credential selectors with zero partial results", async () => {
+    const f = fixture({ response: () => Response.json({ sid: resourceBinding.phoneNumberSid, account_sid: binding.accountId, service_sid: "MG" + "b".repeat(32), capabilities: ["SMS"] }) });
+    expect(await f.adapter.invoke({ ...invocation, command: { kind: "sender_status", resource: "number" } })).toMatchObject({ ok: false });
+    const unknown = fixture({ credential: { ...credential, brandSid: "", campaignSid: "", tollfreeVerificationSid: "", authToken: "" } });
+    expect(await unknown.adapter.invoke({ ...invocation, command: { kind: "sender_status", resource: "brand" } })).toMatchObject({ ok: false, error: { code: "unavailable" } }); expect(unknown.fetch).not.toHaveBeenCalled(); expect(unknown.credentials.access).toHaveBeenCalledOnce();
   });
   it("keeps portable metadata and the typed read catalog aligned", () => {
     const root = new URL("../../", import.meta.url);
@@ -135,4 +179,16 @@ describe("Twilio reads/auth boundary (fixture fetch only)", () => {
     expect(capabilities.capabilities[0].schemaFingerprint).toBe(createHash("sha256").update(readFileSync(new URL("../src/commands.ts", import.meta.url))).digest("hex"));
     expect(twilioSmsTools.every(tool => tool.effect === "read")).toBe(true);
   });
+});
+
+it("binds the credential account and rejects a second command connection", async () => {
+  const foreign = fixture({ credential: { ...credential, accountSid: "AC" + "b".repeat(32) } });
+  const result = await foreign.adapter.invoke(invocation);
+  expect(result).toMatchObject({ ok: false, error: { code: "forbidden" } });
+  expect(foreign.fetch).not.toHaveBeenCalled();
+  expect(JSON.stringify({ result, events: foreign.events })).not.toContain("fixture-secret");
+  const nested = fixture();
+  const input = { ...invocation, command: { ...invocation.command, connectionId: binding.connectionId } };
+  expect(await nested.adapter.invoke(input)).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+  expect(nested.fetch).not.toHaveBeenCalled(); expect(nested.credentials.access).not.toHaveBeenCalled();
 });

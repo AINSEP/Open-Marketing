@@ -1,0 +1,6 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "google-business-profile": { "type": "stdio", "command": "node", "args": ["${PLUGIN_ROOT}/io.github.ainsep.openmarketing/bin/mcp-server.mjs"], "cwd": "${PLUGIN_ROOT}" }
+  }
+}

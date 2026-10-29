@@ -13,8 +13,11 @@ describe("Meta reporting and reconciliation evidence", () => {
     expect(decodeMetaSpendSnapshot(input)).toEqual({ ok: true, value: { snapshotId: "snapshot", accountId: "123", spend: { currency: "USD", minorUnits: 1234 }, window: query.window, timezone: "UTC", attributionWindow: "7d_click", retrievedAt: now } });
   });
   it("preserves append-only restatement lineage without editing the earlier snapshot", () => {
+    const earlier = decodeMetaSpendSnapshot(input);
+    const before = structuredClone(earlier);
     expect(decodeMetaSpendSnapshot({ ...input, snapshotId: "restated", restatementOf: "snapshot", input: { data: [{ ...row, spend: "13.00" }] } })).toMatchObject({ ok: true, value: { snapshotId: "restated", restatementOf: "snapshot", spend: { minorUnits: 1300 } } });
-    expect(row.spend).toBe("12.34");
+    expect(earlier).toEqual(before);
+    expect(earlier).toMatchObject({ ok: true, value: { snapshotId: "snapshot", spend: { minorUnits: 1234 } } });
   });
   it.each([
     { data: [row, row] },

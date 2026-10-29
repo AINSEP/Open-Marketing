@@ -8,7 +8,7 @@
     "SB": "v4",
     "reporting": "v3"
   },
-  "auth": "server-owned sealed pasted JSON; expiresAt epoch milliseconds; no refresh or OAuth descriptor",
+  "auth": "unavailable owner setup: server-owned OAuth/refresh and HTTPS callback integration required; no manual token-expiry card",
   "hostEntry": "./src/index.ts",
   "stdioDefault": "unavailable; authenticated host composition required",
   "journal": "ONE server jobs outbox; no plugin persistence"

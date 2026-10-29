@@ -2,7 +2,7 @@ import type { CallContext } from "@open-marketing/contracts";
 import { createMemoryJournal } from "./memory.ts";
 import { asRecord } from "./readback.ts";
 import { failure, success } from "./schema.ts";
-import { localDate } from "./rules.ts";
+import { localDate, objectiveGoal } from "./rules.ts";
 import type { AccountBinding, GooglePluginDependencies, GoogleTransportPort, VendorRequest } from "./types.ts";
 
 /** Hand-written non-spending fixture, not evidence of any real Google account. */
@@ -27,25 +27,30 @@ export function createFixtureDependencies(required: { transport?: GoogleTranspor
 /** Stateful vendor double emits real REST-shaped fixtures. Fault injection represents
  * ambiguous timeout after commit or partial creation, with no credentials/network.
  * @example createFixtureTransport({ fault: "timeout_after" }) */
-export function createFixtureTransport(required: { fault?: "timeout_before" | "timeout_after" | "partial" } = {}): { transport: GoogleTransportPort; writes(): number } {
-  const state = { campaign: {} as Record<string, unknown>, budget: {} as Record<string, unknown>, group: {} as Record<string, unknown>, ad: {} as Record<string, unknown>, keywords: [] as Record<string, unknown>[], locations: [] as Record<string, unknown>[] };
+export function createFixtureTransport(required: { fault?: "timeout_before" | "timeout_after" | "partial"; goals?: { category: string; origin: string }[] } = {}): { transport: GoogleTransportPort; writes(): number } {
+  const state: FixtureState = { campaign: {}, budget: {}, group: {}, ads: [], keywords: [], locations: [],
+    goals: required.goals ?? [{ category: "SUBMIT_LEAD_FORM", origin: "WEBSITE" }, { category: "PURCHASE", origin: "WEBSITE" }, { category: "PAGE_VIEW", origin: "WEBSITE" }],
+    campaignGoals: [], goalConfigLevel: "CUSTOMER",
+  };
   let writes = 0;
   return {
     writes: () => writes,
     transport: { async request(input) {
       if (input.method === "search") return success({ value: fixtureSearch({ state, input }) });
       if (input.method !== "mutate") return failure({ code: "unavailable", message: "Use the dedicated Data Manager conversion fixtures" });
+      if (input.body.validateOnly === true) return success({ value: {} });
       writes += 1;
       if (required.fault === "timeout_before") return failure({ code: "unavailable", message: "Fixture timeout before commit" });
       const operations = input.body.mutateOperations as Record<string, unknown>[];
       operations.forEach(operation => applyOperation({ state, operation }));
-      if (required.fault === "partial") state.ad = {};
+      if (required.fault === "partial") state.ads = [];
       if (required.fault === "timeout_after") return failure({ code: "unavailable", message: "Fixture timeout after commit" });
       return success({ value: { mutateOperationResponses: operations.map(() => ({})) } });
     } },
   };
 }
-type FixtureState = { campaign: Record<string, unknown>; budget: Record<string, unknown>; group: Record<string, unknown>; ad: Record<string, unknown>; keywords: Record<string, unknown>[]; locations: Record<string, unknown>[] };
+type FixtureState = { campaign: Record<string, unknown>; budget: Record<string, unknown>; group: Record<string, unknown>; ads: Record<string, unknown>[]; keywords: Record<string, unknown>[]; locations: Record<string, unknown>[];
+  goals: { category: string; origin: string }[]; campaignGoals: { category: string; origin: string; biddable: boolean }[]; goalConfigLevel: string };
 function applyOperation(required: { state: FixtureState; operation: Record<string, unknown> }): void {
   const [kind, value] = Object.entries(required.operation)[0];
   const operation = asRecord({ value });
@@ -54,13 +59,33 @@ function applyOperation(required: { state: FixtureState; operation: Record<strin
   const { state } = required;
   switch (kind) {
     case "campaignBudgetOperation": state.budget = { ...state.budget, ...create, ...update, id: "101" }; break;
-    case "campaignOperation": state.campaign = { ...state.campaign, ...create, ...update, id: "201" }; break;
+    case "campaignOperation": applyCampaign({ state, create, update }); break;
     case "adGroupOperation": state.group = { ...state.group, ...create, ...update, id: "301" }; break;
-    case "adGroupAdOperation": state.ad = { ...state.ad, ...create, ...update }; break;
+    case "adGroupAdOperation": {
+      if (create.ad) { state.ads.push({ ...create, id: String(401 + state.ads.length) }); break; }
+      const id = String(update.resourceName).split("~").at(-1);
+      state.ads = state.ads.map(ad => ad.id === id ? { ...ad, ...update } : ad);
+      break;
+    }
     case "adGroupCriterionOperation": applyKeyword({ state, create, update }); break;
-    case "campaignCriterionOperation": state.locations.push({ ...create, type: "LOCATION" }); break;
+    case "campaignCriterionOperation": state.locations.push({ ...create, type: create.proximity ? "PROXIMITY" : "LOCATION" }); break;
+    case "campaignConversionGoalOperation": {
+      const [, category, origin] = String(update.resourceName).split("~");
+      state.campaignGoals = state.campaignGoals.map(goal => goal.category === category && goal.origin === origin ? { ...goal, biddable: update.biddable === true } : goal);
+      state.goalConfigLevel = "CAMPAIGN";
+      break;
+    }
     default: break;
   }
+}
+/** Mirror Google's initial goal defaults and selected standard strategy on fixture creation. O(g), g<=200. */
+function applyCampaign(required: { state: FixtureState; create: Record<string, unknown>; update: Record<string, unknown> }): void {
+  const { state, create, update } = required;
+  state.campaign = { ...state.campaign, ...create, ...update, id: "201" };
+  if (!create.resourceName) return;
+  state.campaign.biddingStrategyType = Object.values(objectiveGoal).find(goal => Object.hasOwn(create, goal.field))?.strategy ?? "MANUAL_CPC";
+  state.campaignGoals = state.goals.map(goal => ({ ...goal, biddable: true }));
+  state.goalConfigLevel = "CUSTOMER";
 }
 function applyKeyword(required: { state: FixtureState; create: Record<string, unknown>; update: Record<string, unknown> }): void {
   if (Object.keys(required.create).length) { required.state.keywords.push({ ...required.create, type: "KEYWORD", criterionId: String(501 + required.state.keywords.length) }); return; }
@@ -72,6 +97,8 @@ function fixtureSearch(required: { state: FixtureState; input: VendorRequest }):
   const { state } = required;
   if (query.includes("metrics.cost_micros")) return { results: [{ segments: { date: "2026-10-11" }, metrics: { costMicros: "1234000", clicks: "4", impressions: "20" } }] };
   if (query.endsWith("FROM customer")) return { results: [{ customer: { id: fixtureBinding.customerId, currencyCode: "USD", timeZone: fixtureBinding.timezone, testAccount: true } }] };
+  const goals = fixtureGoalRows({ state, query });
+  if (goals) return goals;
   if (!state.campaign.id) return { results: [] };
   if (query.includes("FROM campaign WHERE")) return campaignRows({ state, query });
   if (query.includes("FROM ad_group WHERE")) return { results: [{ adGroup: state.group }] };
@@ -79,6 +106,15 @@ function fixtureSearch(required: { state: FixtureState; input: VendorRequest }):
   if (query.includes("FROM ad_group_criterion WHERE")) return { results: state.keywords.map(keyword => ({ adGroup: { id: "301" }, adGroupCriterion: { ...keyword, keyword: asRecord({ value: keyword.keyword }) } })) };
   if (query.includes("FROM campaign_criterion WHERE")) return { results: state.locations.map(location => ({ campaignCriterion: location })) };
   return { results: [] };
+}
+/** Goal query fixtures share creation's state; account goals exist before any campaign. O(g). */
+function fixtureGoalRows(required: { state: FixtureState; query: string }): Record<string, unknown> | undefined {
+  const { state, query } = required;
+  if (query.includes("FROM customer_conversion_goal")) return { results: state.goals.map(goal => ({ customerConversionGoal: goal })) };
+  if (!state.campaign.id) return undefined;
+  if (query.includes("FROM campaign_conversion_goal WHERE")) return { results: state.campaignGoals.map(goal => ({ campaignConversionGoal: goal })) };
+  if (query.includes("FROM conversion_goal_campaign_config WHERE")) return { results: [{ conversionGoalCampaignConfig: { goalConfigLevel: state.goalConfigLevel } }] };
+  return undefined;
 }
 function campaignRows(required: { state: FixtureState; query: string }): Record<string, unknown> {
   const { state, query } = required;
@@ -89,6 +125,5 @@ function campaignRows(required: { state: FixtureState; query: string }): Record<
   return { results: [{ campaign: state.campaign, campaignBudget: state.budget }] };
 }
 function adRows(required: { state: FixtureState }): Record<string, unknown> {
-  if (!required.state.ad.ad) return { results: [] };
-  return { results: [{ adGroup: { id: "301" }, adGroupAd: { ...required.state.ad, ad: { ...asRecord({ value: required.state.ad.ad }), id: "401" } } }] };
+  return { results: required.state.ads.map(ad => ({ adGroup: { id: "301" }, adGroupAd: { ...ad, ad: { ...asRecord({ value: ad.ad }), id: ad.id } } })) };
 }

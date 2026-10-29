@@ -9,7 +9,7 @@ interface Input { context: CallContext; operationId: string; plan: unknown; depe
 /** Hold paused creation before credentials, checkpoints or egress; no active-then-pause fallback.
  * @param required - Owning job's input; plan and checkpoint stay opaque and unused.
  * @param optional - Caller cancellation.
- * @returns Forbidden without admission, cancelled if aborted, otherwise unavailable; never a receipt.
+ * @returns Cancelled if aborted, otherwise unavailable; never a receipt.
  * @example await deployCampaignPaused({ context, operationId, plan, dependencies, checkpoint })
  * @complexity O(1) time/space; zero I/O and zero retries.
  */
@@ -20,7 +20,7 @@ export function deployCampaignPaused(required: Input & { checkpoint: unknown }, 
 /** Hold readback until scoped hierarchy and non-serving response contracts are verified.
  * @param required - Saved job input; references remain caller-owned and unchanged.
  * @param optional - Caller cancellation.
- * @returns Forbidden, cancelled or unavailable; no invented verification or read/write dispatch.
+ * @returns Cancelled or unavailable; no invented verification or read/write dispatch.
  * @example await readCampaignDeployment({ context, operationId, plan, references, dependencies })
  * @complexity O(1) time/space; zero I/O and zero retries.
  */
@@ -28,13 +28,11 @@ export function readCampaignDeployment(required: Input & { references: unknown }
   return Promise.resolve(deploymentHold({ dependencies: required.dependencies }, optional));
 }
 
-/** Admission precedes cancellation and the operation evidence hold; no input payload is read.
+/** Cancellation precedes the operation evidence hold; no input payload is read.
  * @returns A fixed, non-retryable failure without secrets or provider content.
  * @complexity O(1) time/space; no I/O.
  */
-function deploymentHold(required: { dependencies: VkDependencies }, optional?: CallOptions): Outcome<never> {
-  let code: "forbidden" | "cancelled" | "unavailable" = "unavailable";
-  if (required.dependencies.admitted !== true) code = "forbidden";
-  else if (optional?.signal?.aborted) code = "cancelled";
+function deploymentHold(_required: { dependencies: VkDependencies }, optional?: CallOptions): Outcome<never> {
+  const code = optional?.signal?.aborted ? "cancelled" : "unavailable";
   return { ok: false, error: { code, message: "VK request " + code, retryable: false } };
 }

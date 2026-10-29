@@ -1,0 +1,15 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "email-lifecycle",
+  "version": "0.1.0",
+  "description": "Optional email sequences, programme reviews and deliverability guidance. Skills only; disabled by default.",
+  "license": "MIT",
+  "extensions": {
+    "io.github.ainsep.openmarketing": {
+      "version": 1,
+      "enabled": false,
+      "admitted": false,
+      "capabilities": []
+    }
+  }
+}

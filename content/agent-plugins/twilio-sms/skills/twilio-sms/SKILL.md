@@ -1,11 +1,11 @@
 ---
 name: twilio-sms
-description: Inspect a connected Twilio account, sender and registration through OM's server tools.
+description: Inspect Twilio account/sender status and use approved server recipient jobs with verified STOP feedback.
 ---
-Use om_twilio_account_status with the connectionId; use om_twilio_sender_status with connectionId and resource (service, number, brand, campaign or toll_free).
-Number reads check the configured sender's membership and capabilities. Report vendor states literally; permission_limited and missing registration never mean ready.
-Credentials are pasted in the server-owned credential card, never in chat or tool arguments. All calls use OM's ONE server policy; disabled/unadmitted means zero vendor network.
-R1 cannot estimate, send or process delivery/opt-out events. Explain the missing integration instead of calling another vendor tool or bypassing OM with raw MCP/HTTP.
-For future sends: only OM contacts with current explicit SMS-marketing consent; dispatch rechecks consent, suppression, erasure and recipient-local quiet hours. Missing policy/timezone defers sending.
-STOP withdraws consent; HELP never grants it; record START without clearing withdrawals until the policy owner resolves reactivation. Do not duplicate Twilio keyword replies.
-Every send is an external write with existing authority and ONE outbox; bulk uses one grouped exact card, at most 100 frozen recipients. Allowance accounting is not approval; unknown cost requires explicit spend approval.
+
+Use om_twilio_account_status or om_twilio_sender_status for admitted reads. R2 delivery/webhook exports are server integration modules; no new send tool is advertised. Never replace missing integration with raw vendor HTTP/MCP.
+Store Account SID/API Key SID/secret and the optional Account Auth Token in the server form. Webhook verification separately uses the account Auth Token and exact public URL, not the API-key secret. Missing registration/status does not mean ready.
+Once the host is integrated, freeze the approved broadcast definition/content and consent-filtered OM subjects, then enqueue one stable deliveryId per recipient in the ONE outbox. Every send rechecks current SMS consent, suppression/erasure, quiet hours, registration, grant/caps and paid-send authority under the shared subject lane. Unknown cost requires explicit spend authority; accounting is not approval.
+No MMS, provisioning, vendor lists or local scheduler. Report accepted separately from delivered. Unknown outcomes reconcile without blind resend; no vendor dedup guarantee is assumed.
+Verify every raw form webhook with Node crypto HMAC-SHA1 over the exact public URL and every sorted form parameter before state changes. No Twilio SDK is required. Authenticated STOP/opt-out records suppression atomically with replay dedup; START/HELP never remove withdrawn consent. Do not duplicate Twilio's keyword replies.
+Missing host authority, durable stores, webhook binding or price/quiet-hour policy means unavailable. Fixtures do not prove live delivery or production serialization.

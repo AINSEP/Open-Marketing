@@ -10,7 +10,7 @@ Checked against primary sources on **2026-10-12**. These documents establish pro
 - Atomic creation follows Google's [mutate guidance](https://developers.google.com/google-ads/api/docs/mutating/best-practices): negative temporary parent IDs, parent-first operations, `partialFailure=false`. Campaign, ad group, keywords and RSA are all PAUSED. Every normal mutation invokes host dispatch independently. Configuration readback checks Search-only networks, Manual CPC, presence targeting, non-shared DAILY budget, child types/counts, RSA and keyword content, and finite flight dates.
 - Data Manager [ingestion](https://developers.google.com/data-manager/api/reference/rest/v1/events/ingest) supports `validateOnly=true`: validation runs without ingestion and returns errors rather than results. The plugin accepts an empty successful preflight response without requiring a request ID; field warnings or malformed responses reject. A real ingestion receipt only establishes acceptance. [Request diagnostics](https://developers.google.com/data-manager/api/reference/rest/v1/requestStatus/retrieve) use `GET /v1/requestStatus:retrieve?requestId=...`. Matching single-destination SUCCESS, one event and no processing errors establishes `delivered`, meaning processed, not matched or attributed.
 - Data Manager [consent](https://developers.google.com/data-manager/api/reference/rest/v1/Consent) accepts both ad user data and ad personalization. OM GRANTED/DENIED map to CONSENT_GRANTED/CONSENT_DENIED. [Offline mapping](https://developers.google.com/data-manager/api/devguides/events/google-ads/offline/send-events) uses the action owner's operating account and an UPLOAD_CLICKS action; optional manager login is in `destination.loginAccount`, not a Google Ads header. Digests copy unchanged to [UserData](https://developers.google.com/data-manager/api/reference/rest/v1/UserData) emailAddress/phoneNumber fields with encoding HEX. Contacts alone owns normalization/hashing. Stable transactionId is the supplied eventId; journal identity also binds OM definition, account scope and connection.
-- [Agent Plugins v1.1.0](https://github.com/agentplugins/agent-plugins-spec/blob/main/spec/1.1.0.md) closes MCP entries to transport fields. OM metadata is under `plugin.json.extensions["io.github.ainsep.openmarketing"]`; declaration envelopes are in the namespace's `bindings/` directory.
+- [Agent Plugins v1.1.0](https://github.com/agentplugins/agent-plugins-spec/blob/main/spec/1.1.0.md) closes MCP entries to transport fields. OM metadata is under `plugin.json.extensions["io.github.ainsep.openmarketing"]`; declaration envelopes are inline rows in the extension's `capabilities` array and mirrored in the namespace descriptor.
 
 ## v26 migration — checked 2026-10-24
 
@@ -27,7 +27,7 @@ No consumed request field or enum needs changing. Existing schema-byte fingerpri
 
 ## Host integration
 
-The plugin is disabled/unadmitted. The portable MCP entry uses Node **24.2.0** and the packaged `io.github.ainsep.openmarketing/bin/mcp-server.mjs`, which loads TypeScript using Node's built-in type stripping. No transpilation, npm install, network schema retrieval, or `npx` is required to launch. Its default vendor/authority ports return unavailable. `--fixture` selects handwritten local responses, never a vendor endpoint.
+The plugin is host-composed only (`hostEntry`), starts disabled/unadmitted, and has no standalone launcher.
 
 The authenticated OM server loads the namespace public `src/index.ts` only after package trust/admission. Inject `AccountBinding`, `ClockPort`, `CredentialPort`, bounded `HttpPort`, and `HostAuthorityPort`. `createGoogleRestTransport` contains the fixed v26 endpoint mapping; `createHttpAdapter` bounds response bytes and deadlines and emits correlated observations. Do not expose these factories, credential ports or fixture authority to the agent runtime.
 
@@ -39,45 +39,7 @@ Adapt `OperationJournalPort` to the ONE jobs outbox's durable operation metadata
 
 `createStopBinding` is a distinct backend-only sparse campaign-status binding, with a CURRENT halt epoch and stop permit checked by `StopAuthorityPort`. It never reactivates children or edits budget. Campaign pause is idempotent; the server owns durable stop jobs and uncertain-outcome reconciliation. A stopped result requires the requested campaign statuses to read back PAUSED.
 
-`createConversionBinding({ binding, configuration, transport, journal, authority, now })` returns backend-only `deliver` and `reconcile`, preserving capability ID `google-ads.conversions.v1` and `Outcome<{ status: "delivered" | "unknown" }>`. No agent tool exposes either method. Configuration is exactly:
-
-```ts
-{
-  api: "data-manager-v1",
-  cloudProjectId: string,
-  eligibility: "verified" | "unavailable",
-  actionIds: Record<string /* OM definitionId */, string /* numeric Google action ID */>,
-  loginCustomerId?: string
-}
-```
-
-The closed event input is exactly:
-
-```ts
-{
-  eventId: string,
-  definitionId: string,
-  eventType: string, // grant category; action selection uses definitionId
-  occurredAt: number, // epoch milliseconds, integer, 0..4102444800000, not future
-  destination: string,
-  purpose: string,
-  gclid?: string, // 1..256 characters, /^[A-Za-z0-9_-]+$/
-  hashedEmail?: string, // /^[a-f0-9]{64}$/, contacts-prepared SHA-256
-  hashedPhoneNumber?: string, // same digest shape; copied unchanged
-  adUserData: "GRANTED" | "DENIED", // GRANTED required for delivery
-  adPersonalization?: "GRANTED" | "DENIED",
-  valueMicros: string, // 1..18 decimal digits, 0..Number.MAX_SAFE_INTEGER
-  currency: string // uppercase 3-letter code matching bound account
-}
-```
-
-IDs/category/destination/purpose/project are non-empty, at most 256 characters. Require at least one GCLID or digest. Raw email/phone, IP, sessions, additional fields, invalid timestamps and unsafe values reject. Configuration maps 1..100 definitions to numeric action IDs (1..19 digits); optional manager ID is ten digits. Definition IDs are not restricted to signup/trial. The current shared MeasurementGrant type still limits eventTypes to signup/trial; the contracts owner must extend grants before other event categories can be admitted. Arbitrary definitions within a covered category already map independently.
-
-Use the owner's OAuth Cloud project, enable Data Manager API and obtain per-advertiser `https://www.googleapis.com/auth/datamanager` via the [OAuth Web Server flow](https://developers.google.com/data-manager/api/devguides/concepts/deploy). Request offline access; the server stores advertiser refresh tokens encrypted and handles callback/refresh. CredentialPort.access receives the bound advertiser connection/account, required scope and project. Data Manager requires returned `scopes` and matching `cloudProjectId` metadata attested by the broker; missing/mismatched metadata fails before egress. The agent never receives a token, project configuration or authenticated HTTP port. Google Ads Search still uses its separate authorization scope. No API key, partner-link route, SDK or new dependency is introduced.
-
-Adapt ConversionJournalPort.get/claim/append to existing durable measure state in the ONE outbox. Claims must be atomic and append-only evidence must retain requestId, digest, status and bounded diagnosticStatus across process restarts; the latest view must not regress terminal/success evidence during concurrent reconciliation. Read existing records before preflight; reject changed payload/configuration, including the OAuth project, under the same event/definition identity. Two concurrent validations may run, but only one claim ingests. A valid payload changed during preflight also rejects before claim. Loss of receipt/storage leaves unknown and never authorizes resubmission. No verified lookup by OM transaction ID is implemented. Reconcile performs one GET, without a polling loop. FAILED/PARTIAL_SUCCESS yield non-retryable failures and owner recovery; processing/ambiguous/malformed evidence remains unknown. Diagnostics use a closed single-destination event projection; unsupported fields and non-event statuses cannot establish delivery. Documented processing warnings on an otherwise clean SUCCESS are permitted; preflight field warnings reject.
-
-The server-owned ConversionAuthorityPort rechecks CURRENT consent, grant/source identity, schema, connection, project, operating-account action ownership/type/status, import window, production prerequisites and egress audit. One authority dispatch serializes preflight plus ingest through the supplied callback; consent/configuration changes must cancel egress or wait for that critical section. The plugin also rechecks supplied grant/consent after preflight. Reconcile has its own read-only authority dispatch. Keep trusted binding/configuration/event data stable for the duration of a call. Supply bounded HttpPort.get for diagnostics; Search-only HTTP adapters cannot ingest conversions. Each HTTP request remains limited to 15 seconds and 1 MiB, rejects redirects and propagates run/correlation/trace observations without payloads or credentials.
+`createConversionDelivery` takes A3's `PluginCapabilityDependencies` plus its server authority callback, with canonical settings `conversionConfiguration: { actionIds: Record<definitionId, numericActionId> }` and optional `loginCustomerId`; measure supplies `{ context, event, grant, deliveryId }` with contacts-prepared `identifiers.email`, `phone` and/or `gclid`, while unrelated identifier keys are ignored. It sends one bounded Data Manager `events:ingest` POST after current server consent checks, with no preflight or plugin journal; `delivered` means accepted only (`processed` and `attributed` remain unknown), and monetary values convert from the supplied currency's minor units. Ingestion returns `receiptId` for the measure ledger; reconciliation with that saved receipt makes one bounded [request-status GET](https://developers.google.com/data-manager/api/reference/rest/v1/requestStatus/retrieve), reporting processed/failed independently of acceptance and leaving attribution unknown (no receipt means no I/O). Refresh explicitly after Google’s [recommended initial 30-minute wait](https://developers.google.com/data-manager/api/devguides/diagnostics); the canonical broker need not attest scope/project metadata, and Google enforces the OAuth scope.
 
 Cross-account action ownership, partner links, batching, adjustments, additional identifier families, enhanced web conversions and action discovery remain deferred. Host OAuth onboarding, durable jobs/authority composition, real project/account/action evidence and production admission are outside this lane.
 
@@ -94,3 +56,53 @@ The dependency-free `mcp.ts` is a **removable local compatibility shim**, implem
 Data Manager tests are **written, not run**. The shared conversion suite covers a transport double and the real REST/bounded HTTP adapter using handwritten responses only. This job permits exactly one lane typecheck; its final result is recorded in HANDOFF.md. No tests, builds, installs, `om:check`, live vendor calls or migrations run. Consult the lane handoff before admission.
 
 Integrator: validate portable manifests with `@jini-ai/agent-plugins@0.4.4` (Agent Plugins spec 1.1); the previously inspected installed version was 0.4.3. No dependency pin/install occurred in this lane. The older j12 progress ledger predates the Data Manager work; HANDOFF.md is the current continuation record.
+
+## Canonical metrics reads — checked 2026-10-26
+
+`createCapabilities({fetch, credentials, clock, observer, wait, configuration})`
+returns `report.metrics.v1`, `campaign.status.v1` and `tracking.tag.v1` handlers.
+Parse configuration with the shared `pluginConfigurationSchema`: exactly
+`{scope, connectionId, accountId, pluginDigest, settings}`. Settings are tainted
+plugin-install metadata, never authority, account facts or credential identity.
+The server invoker owns admission, approval and egress audit; setup performs no I/O.
+
+The credential broker receives `{connectionId, accountId}` per request and must
+return `accessToken`, the selected ten-digit `customerId`, optional ten-digit
+`loginCustomerId` and optional `developerToken`. Identity is validated in the
+plugin and must match the selected account before egress. The current shared
+broker only promises token/expiry: carrying stored Google identity is an integrator
+NEED. No settings fallback is accepted. Report currency/timezone come from a
+bounded Google customer query, including for empty reports.
+
+Google's [conversion metrics are doubles](https://developers.google.com/google-ads/api/fields/v26/metrics).
+OM preserves source decimal text and uses contracts `decimalToMicros` to round
+conversions and conversion value half-even to millionths. Spend arrives in micros.
+
+Google Search has [fixed pages of up to 10,000 rows](https://developers.google.com/google-ads/api/docs/reporting/paging).
+This plugin queries consecutive 30-day windows with `LIMIT 1001`; saturated
+multi-day windows split in half and their parent rows are discarded. At most
+1,000 rows per response and 5,000 retained rows per report fit the bounded read
+path. The whole report allows 32 requests (including account metadata), 30 seconds,
+and 1 MiB/15 seconds per request. No retries or page-token traversal are added.
+
+A saturated single day, truncated rows or unvisited windows returns
+`complete:false`, `dataThrough:0`, `freshness:"stale"`. Fully visited, unsaturated
+windows can be complete, including exactly 5,000 rows. Oversized/malformed/failed
+responses remain typed failures. Status/tag reads reject continuation tokens.
+Fixtures do not establish account-spend reconciliation or production admission.
+
+## Search terms and exact negatives — checked 2026-10-28
+
+- [search_term_view v26](https://developers.google.com/google-ads/api/fields/v26/search_term_view) aggregates terms at ad-group level and excludes Performance Max. Campaign/ad-group fields do not segment; ad_group_ad fields do.
+- [Reporting segmentation](https://developers.google.com/google-ads/api/docs/reporting/segmentation) permits core dates in WHERE without SELECT. OM's half-open, <=31-day campaign report therefore returns period aggregates, top 50 by served cost. Google omits some low-volume terms, so even `truncated:false` never means total waste.
+- [GAQL grammar](https://developers.google.com/google-ads/api/docs/query/grammar) governs literals. OM accepts numeric scope IDs and restricted, normalized keyword text; callers cannot supply GAQL.
+- [CampaignCriterion v26](https://developers.google.com/google-ads/api/reference/rpc/v26/CampaignCriterion) and [AdGroupCriterion v26](https://developers.google.com/google-ads/api/reference/rpc/v26/AdGroupCriterion) define negative criteria and their scoped resource names. OM validates membership, checks for an existing EXACT negative, and creates at most one criterion per approved call. A valid single mutate ACK establishes creation; malformed ACK/transport uncertainty stays `unknown`, with no automatic retry.
+- The [criteria guide](https://developers.google.com/google-ads/api/docs/targeting/criteria) limits campaign keywords to exclusions. [KeywordInfo v26](https://developers.google.com/google-ads/api/reference/rpc/v26/KeywordInfo) caps text at 80 characters and 10 words. OM supports EXACT only, with a fresh exact card per negative and no retained grant. Local read-only mode blocks this write; production admission/always-on hosting remain prerequisites.
+
+The existing HTTP tools endpoint, agent `om_tool_call`, Studio assistant and CLI all discover these plugin tools generically after the plugin bundle is rebuilt, installed and admitted. For example, replace the fixture connection/account and pass this selection on stdin:
+
+```sh
+om tools call vendor_google_ads_search_terms_report --input-file - <<'JSON'
+{"operationId":"search-terms-example","connectionId":"selected-connection","accountId":"1234567890","arguments":{"campaignId":"201","days":{"start":"2026-10-01","end":"2026-11-01"}}}
+JSON
+```

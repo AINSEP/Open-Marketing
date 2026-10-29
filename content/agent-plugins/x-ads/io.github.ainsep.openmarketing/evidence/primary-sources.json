@@ -1,24 +1,148 @@
 {
-  "checkedAt": "2026-10-24",
+  "checkedAt": "2026-10-25",
   "scope": "R1 reads/pasted OAuth and R2 fixed paused deployment plus server conversions; official docs only, no live vendor effects",
   "sources": [
-    {"url": "https://raw.githubusercontent.com/xdevplatform/docs/main/x-ads-api/fundamentals/versioning.mdx", "quote": "6 months", "fact": "Latest listed version 12, deprecated/EOL TBD; published migration policy describes six months."},
-    {"url": "https://raw.githubusercontent.com/xdevplatform/docs/main/x-ads-api/fundamentals/making-authenticated-requests.mdx", "quote": "using OAuth 1.0a", "fact": "HTTPS ads-api.x.com, Ads-approved app/developer and user account access required; bearer OAuth 2 is insufficient."},
-    {"url": "https://raw.githubusercontent.com/xdevplatform/docs/main/x-ads-api/fundamentals/accessing-ads-accounts.mdx", "quote": "These tokens do not expire", "fact": "Three-legged user access tokens can be revoked; static developer credentials support the app owner's single-account use. No refresh-token flow is asserted."},
-    {"url": "https://raw.githubusercontent.com/xdevplatform/docs/main/fundamentals/developer-apps.mdx", "quote": "http://127.0.0.1", "fact": "General callback docs allow local loopback and require exact registration. OAuth 1 app permissions are read/read-write, not OAuth 2 scope strings. Registered Ads app compatibility is untested; browser OAuth belongs to O2."},
-    {"url": "https://raw.githubusercontent.com/xdevplatform/docs/main/x-ads-api/campaign-management/reference.mdx", "quote": "Include draft campaigns results in your request.", "fact": "v12 GET accounts and accounts/:account_id/campaigns support count/cursor. with_draft=true includes drafts. Campaign response exposes entity_status and currency. Request account echo binds the campaign page."},
-    {"url": "https://raw.githubusercontent.com/xdevplatform/docs/main/x-ads-api/analytics.mdx", "quote": "Available for Account / Funding Instrument", "fact": "v12 GET stats/accounts/:account_id: seven days maximum, twenty IDs, whole hours, TOTAL, one placement. ACCOUNT supports ENGAGEMENT impressions; BILLING and clicks are unsupported at ACCOUNT level and are projected as null. CAMPAIGN supports ENGAGEMENT/BILLING impressions, clicks and billed_charge_local_micro. Supported metrics may be null. Response contains time_series_length, id_data and echoed params. R1 supports ACCOUNT/CAMPAIGN and three documented placements only; no cross-entity or placement totals are inferred."},
-    {"url": "https://raw.githubusercontent.com/xdevplatform/docs/main/x-ads-api/fundamentals/rate-limiting.mdx", "quote": "utilize the ad account level rate limit", "fact": "Account rate headers take precedence over user headers. Synchronous analytics: 250 per 15 minutes. Global account reads: five per 15 minutes. Plugin returns pacing integers and stops on 429; no retry engine."},
-    {"url": "https://raw.githubusercontent.com/ddo/oauth-1.0a/master/package.json", "quote": "2.2.6", "fact": "Requested signer version, MIT, bundled declarations. Publication was checked by the Coordinator review; integration resolution/install remains pending."},
-    {"url": "https://raw.githubusercontent.com/ddo/oauth-1.0a/master/oauth-1.0a.js", "quote": "oauth_nonce: this.getNonce()", "fact": "Override instance getNonce/getTimeStamp with injected IDs/clock; sign the same fixed URL/query passed to fetch. HMAC-SHA1 uses Node crypto."},
-    {"url": "https://raw.githubusercontent.com/xdevplatform/docs/main/x-ads-api/campaign-management/reference.mdx", "quote": "ACTIVE, DRAFT, PAUSED", "fact": "v12 campaign POST defaults ACTIVE; OM sends PAUSED. Funding/name/daily micros/budget_optimization LINE_ITEM are explicit; standard_delivery belongs on the line item. Scoped entity GET verifies funding, currency, budget and paused status."},
-    {"url": "https://raw.githubusercontent.com/xdevplatform/docs/main/x-ads-api/campaign-management/reference.mdx", "quote": "LINK_CLICKS", "fact": "v12 line-item POST requires campaign_id, objective, placements, product_type, start_time and end_time. Fixed WEBSITE_CLICKS/PROMOTED_TWEETS/ALL_ON_TWITTER/MAX/LINK_CLICKS mapping uses an explicit positive bid, daily budget, standard delivery and PAUSED. GET normalizes placements array and ISO times."},
-    {"url": "https://raw.githubusercontent.com/xdevplatform/docs/main/x-ads-api/campaign-management/reference.mdx", "quote": "operator_type", "fact": "Targeting POST supports LOCATION, resolved targeting_value, line_item_id and EQ. Specific criterion GET exposes ID, parent, targeting_type/value and deleted. Documented ordinary inclusive response omits operator_type; an explicit conflicting operator rejects. No location search/value is inferred."},
-    {"url": "https://raw.githubusercontent.com/xdevplatform/docs/main/x-ads-api/campaign-management/reference.mdx", "quote": "Associate one or more Tweets", "fact": "Promoted-tweets POST attaches existing tweet_ids to line_item_id, returns data array; entity GET returns one data object. No writable status/PUT exists. The attachment status can be ACTIVE while serving is prevented by both PAUSED parents. IDs remain strings."},
-    {"url": "https://docs.x.com/x-ads-api/measurement/web-conversions", "quote": "conversions_processed", "fact": "POST /12/measurement/conversions/:pixel_id uses JSON conversions with conversion_time, event_id, identifiers.hashed_email and conversion_id dedupe. HTTP 200 and one processed event are required; account echo must match. Server-resolved existing pixel/event/account binding, contacts SHA256 hash and current grant/consent are prerequisites. No resend or per-event receipt endpoint is asserted."}
+    {
+      "url": "https://raw.githubusercontent.com/xdevplatform/docs/main/x-ads-api/fundamentals/versioning.mdx",
+      "quote": "6 months",
+      "fact": "Latest listed version 12, deprecated/EOL TBD; published migration policy describes six months."
+    },
+    {
+      "url": "https://raw.githubusercontent.com/xdevplatform/docs/main/x-ads-api/fundamentals/making-authenticated-requests.mdx",
+      "quote": "using OAuth 1.0a",
+      "fact": "HTTPS ads-api.x.com, Ads-approved app/developer and user account access required; bearer OAuth 2 is insufficient."
+    },
+    {
+      "url": "https://raw.githubusercontent.com/xdevplatform/docs/main/x-ads-api/fundamentals/accessing-ads-accounts.mdx",
+      "quote": "These tokens do not expire",
+      "fact": "Three-legged user access tokens can be revoked; static developer credentials support the app owner's single-account use. No refresh-token flow is asserted."
+    },
+    {
+      "url": "https://raw.githubusercontent.com/xdevplatform/docs/main/fundamentals/developer-apps.mdx",
+      "quote": "http://127.0.0.1",
+      "fact": "General callback docs allow local loopback and require exact registration. OAuth 1 app permissions are read/read-write, not OAuth 2 scope strings. Registered Ads app compatibility is untested; browser OAuth belongs to O2."
+    },
+    {
+      "url": "https://raw.githubusercontent.com/xdevplatform/docs/main/x-ads-api/campaign-management/reference.mdx",
+      "quote": "Include draft campaigns results in your request.",
+      "fact": "v12 GET accounts and accounts/:account_id/campaigns support count/cursor. with_draft=true includes drafts. Campaign response exposes entity_status and currency. Request account echo binds the campaign page."
+    },
+    {
+      "url": "https://raw.githubusercontent.com/xdevplatform/docs/main/x-ads-api/analytics.mdx",
+      "quote": "Available for Account / Funding Instrument",
+      "fact": "v12 GET stats/accounts/:account_id: seven days maximum, twenty IDs, whole hours, TOTAL, one placement. ACCOUNT supports ENGAGEMENT impressions; BILLING and clicks are unsupported at ACCOUNT level and are projected as null. CAMPAIGN supports ENGAGEMENT/BILLING impressions, clicks and billed_charge_local_micro. Supported metrics may be null. Response contains time_series_length, id_data and echoed params. R1 supports ACCOUNT/CAMPAIGN and three documented placements only; no cross-entity or placement totals are inferred."
+    },
+    {
+      "url": "https://raw.githubusercontent.com/xdevplatform/docs/main/x-ads-api/fundamentals/rate-limiting.mdx",
+      "quote": "utilize the ad account level rate limit",
+      "fact": "Account rate headers take precedence over user headers. Synchronous analytics: 250 per 15 minutes. Global account reads: five per 15 minutes. Plugin returns pacing integers and stops on 429; no retry engine."
+    },
+    {
+      "url": "https://raw.githubusercontent.com/ddo/oauth-1.0a/master/package.json",
+      "quote": "2.2.6",
+      "fact": "Requested signer version, MIT, bundled declarations. Publication was checked by the Coordinator review; integration resolution/install remains pending."
+    },
+    {
+      "url": "https://raw.githubusercontent.com/ddo/oauth-1.0a/master/oauth-1.0a.js",
+      "quote": "oauth_nonce: this.getNonce()",
+      "fact": "Override instance getNonce/getTimeStamp with injected IDs/clock; sign the same fixed URL/query passed to fetch. HMAC-SHA1 uses Node crypto."
+    },
+    {
+      "url": "https://raw.githubusercontent.com/xdevplatform/docs/main/x-ads-api/campaign-management/reference.mdx",
+      "quote": "ACTIVE, DRAFT, PAUSED",
+      "fact": "v12 campaign POST defaults ACTIVE; OM sends PAUSED. Funding/name/daily micros/budget_optimization LINE_ITEM are explicit; standard_delivery belongs on the line item. Scoped entity GET verifies funding, currency, budget and paused status."
+    },
+    {
+      "url": "https://raw.githubusercontent.com/xdevplatform/docs/main/x-ads-api/campaign-management/reference.mdx",
+      "quote": "LINK_CLICKS",
+      "fact": "v12 line-item POST requires campaign_id, objective, placements, product_type, start_time and end_time. Fixed WEBSITE_CLICKS/PROMOTED_TWEETS/ALL_ON_TWITTER/MAX/LINK_CLICKS mapping uses an explicit positive bid, daily budget, standard delivery and PAUSED. GET normalizes placements array and ISO times."
+    },
+    {
+      "url": "https://raw.githubusercontent.com/xdevplatform/docs/main/x-ads-api/campaign-management/reference.mdx",
+      "quote": "operator_type",
+      "fact": "Targeting POST supports LOCATION, resolved targeting_value, line_item_id and EQ. Specific criterion GET exposes ID, parent, targeting_type/value and deleted. Documented ordinary inclusive response omits operator_type; an explicit conflicting operator rejects. No location search/value is inferred."
+    },
+    {
+      "url": "https://raw.githubusercontent.com/xdevplatform/docs/main/x-ads-api/campaign-management/reference.mdx",
+      "quote": "Associate one or more Tweets",
+      "fact": "Promoted-tweets POST attaches existing tweet_ids to line_item_id, returns data array; entity GET returns one data object. No writable status/PUT exists. The attachment status can be ACTIVE while serving is prevented by both PAUSED parents. IDs remain strings."
+    },
+    {
+      "url": "https://docs.x.com/x-ads-api/measurement/web-conversions",
+      "quote": "conversions_processed",
+      "fact": "POST /12/measurement/conversions/:pixel_id uses JSON conversions with conversion_time, event_id, identifiers.hashed_email and conversion_id dedupe. HTTP 200 and one processed event are required; account echo must match. Server-resolved existing pixel/event/account binding, contacts SHA256 hash and current grant/consent are prerequisites. No resend or per-event receipt endpoint is asserted."
+    }
   ],
-  "implementationBounds": {"inputBytes": 65536, "responseBytes": 1048576, "timeoutMs": 15000, "pageRows": 100, "retries": 0},
-  "unverified": ["Actual Ads app access and live response compatibility", "Registered-app OAuth 1 loopback flow", "Campaign-create idempotency guarantee (R2 must never resend unknown writes)"],
-  "blockedPages": [{"url": "https://docs.x.com/x-ads-api/campaign-management/reference", "status": "Planner reported browser size limit; official GitHub source accessed successfully in review and R1."}],
-  "deferred": ["O2 browser OAuth 1.0a", "Integrator signer dependency resolution, host deployment/conversion/HTTP/CLI/MCP binding, IDs/timer forwarding and host acceptance", "Verified production account/funding/post/country and conversion pixel/event binding", "DS2 studio presentation"]
+  "implementationBounds": {
+    "inputBytes": 65536,
+    "responseBytes": 1048576,
+    "timeoutMs": 15000,
+    "pageRows": 100,
+    "retries": 0
+  },
+  "unverified": [
+    "Actual Ads app access and live response compatibility",
+    "Registered-app OAuth 1 loopback flow",
+    "Campaign-create idempotency guarantee (R2 must never resend unknown writes)"
+  ],
+  "blockedPages": [
+    {
+      "url": "https://docs.x.com/x-ads-api/campaign-management/reference",
+      "status": "Planner reported browser size limit; official GitHub source accessed successfully in review and R1."
+    }
+  ],
+  "deferred": [
+    "O2 browser OAuth 1.0a",
+    "Integrator signer dependency resolution, host deployment/conversion/HTTP/CLI/MCP binding, IDs/timer forwarding and host acceptance",
+    "Verified production account/funding/post/country and conversion pixel/event binding",
+    "DS2 studio presentation"
+  ],
+  "canonicalCapabilities": {
+    "scope": "B1 Microsoft/X only; official documentation and synthetic fixtures; no live account validation",
+    "sources": [
+      {
+        "url": "https://docs.x.com/x-ads-api/analytics",
+        "fact": "v12 synchronous analytics supports 7 days/20 IDs and daily account-midnight buckets. Explicit null arrays and null cells on returned entities mean zero; omitted fields remain unavailable and missing entities make coverage incomplete. Analytics is grouped by active_entities placements, restricted to ALL_ON_TWITTER, SPOTLIGHT and TREND."
+      },
+      {
+        "url": "https://docs.x.com/x-ads-api/fundamentals/currency",
+        "fact": "billed_charge_local_micro is already in account currency micros, including JPY/KRW. B1 recovers unsafe JSON integer source tokens before arithmetic; no floating-point money conversion."
+      },
+      {
+        "url": "https://docs.x.com/x-ads-api/fundamentals/timezones",
+        "fact": "DAY uses account midnight with the current UTC offset, and timezone_switch_at marks historical gaps. B1 requires known switch history and whole-hour offsets equal throughout the window/current day; otherwise not_implemented."
+      },
+      {
+        "url": "https://docs.x.com/x-ads-api/campaign-management/reference",
+        "fact": "active_entities selects window-active IDs and placements; campaign_ids, line_item_ids and promoted_tweet_ids limit metadata to selected IDs and required parents, including matching deleted entities. Unknown placements or broken hierarchy evidence fail closed. Activity times describe change events; historical synchronization remains unverified."
+      },
+      {
+        "url": "https://docs.x.com/x-ads-api/analytics",
+        "fact": "For exhausted reads, dataThrough is the requested exclusive end in account timezone capped at retrieval time; incomplete coverage remains 0. This is retrieved coverage, not a processing/finality watermark."
+      },
+      {
+        "url": "https://raw.githubusercontent.com/xdevplatform/docs/main/x-ads-api/campaign-management/reference.mdx",
+        "fact": "Account reads supply timezone/timezone_switch_at but omit currency. One bounded campaign page supplies currency; targeted hierarchy reads must agree. With no campaign currency, canonical reporting returns not_implemented rather than inventing account metadata."
+      }
+    ],
+    "bounds": {
+      "totalMilliseconds": 60000,
+      "requests": 100,
+      "outputRows": 5000,
+      "statusIds": 100,
+      "automaticRetries": 0,
+      "days": 7,
+      "entitiesPerAnalyticsRequest": 20,
+      "activeEntities": 1000
+    },
+    "deferred": [
+      "B2 LINE/Naver implementation",
+      "server manifest-invoker binding and account metadata; no production admission claimed",
+      "Campaign disapproval aggregation/reasons remain unverified; uncertain non-serving states remain unknown with empty descriptions.",
+      "Empty-account metrics currency needs a separately approved funding-instrument read; no currency is inferred from settings."
+    ],
+    "checkedAt": "2026-10-26",
+    "implementedFactory": "createCapabilities parses pluginConfigurationSchema, binds guarded fetch/credentials/wait, derives OAuth nonces from correlation ID, injected clock and a factory-local counter, and cancels waits on completion. Existing OAuth signing is unchanged.",
+    "limits": "Synchronous reporting accepts at most seven days; longer ranges and unverified timezone history return not_implemented."
+  }
 }

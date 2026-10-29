@@ -4,5 +4,23 @@
   "version": "0.1.0",
   "description": "Read-only Naver Search Ads accounts, campaigns, stats and saved paused-reference verification; launches unavailable.",
   "license": "Apache-2.0",
-  "extensions": {"io.github.ainsep.openmarketing": {"version": 1, "enabled": false, "admitted": false, "capabilities": [{"capabilityId": "campaign.read.v1", "version": 1, "pluginId": "naver-ads", "schemaFingerprint": "fcdac11b32ecd8a7e0fa4d4bfef88308cc271a6506e4d79217084f6766868e85", "admitted": false, "effects": ["read"]}, {"capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "naver-ads", "schemaFingerprint": "b67af8350290a5d7f048e75d5342d9f86277c0726f0f18a5b4e6833b8ee704c0", "admitted": false, "effects": ["read"]}]}}
+  "extensions": {"io.github.ainsep.openmarketing": {
+      "credentialAssets": {"io.github.ainsep.openmarketing/assets/icon.svg": "e8311fa0fdcee4c7d0ea677b6320079debe89d9c57fb3811a1d7e6b59f078865"},
+      "credentialCards": [
+        {
+          "target": "naver-ads", "title": "NAVER Search Ads", "label": "Save credentials", "category": "Advertising",
+          "intro": "Obtain Search Ads API keys and the key owner customer ID. The server signs requests with the secret key. Saving does not verify access or enable the plugin.",
+          "usedFor": ["Read accessible ad accounts and campaigns", "Read supported spend reports"],
+          "helpUrl": "https://naver.github.io/searchad-apidoc/", "helpLabel": "Authentication and setup",
+          "baseUrl": "https://api.searchad.naver.com",
+          "saveKind": "app-credentials", "saveTarget": "naver-ads", "icon": "io.github.ainsep.openmarketing/assets/icon.svg",
+          "fields": [{"name": "customerId", "label": "Key owner customer ID", "required": true, "type": "string", "hint": "Enter as text; preserve all digits."}],
+          "secretFields": [{"name": "apiKey", "label": "API key", "required": true}, {"name": "secretKey", "label": "Secret key", "required": true}]
+        }
+      ],"version": 1, "enabled": false, "admitted": false, "capabilities": [
+      {"capabilityId":"campaign.read.v1","version":1,"pluginId":"naver-ads","schemaFingerprint":"fcdac11b32ecd8a7e0fa4d4bfef88308cc271a6506e4d79217084f6766868e85","admitted":false,"effects":["read"]},
+      {"capabilityId":"report.account-spend.v1","version":1,"pluginId":"naver-ads","schemaFingerprint":"36bd294ea1a26d89a754cbbd2c148021d2db4a65eee6e4119d3d21b4eba11a2d","admitted":false,"effects":["read"]},
+      {"capabilityId":"report.metrics.v1","version":1,"pluginId":"naver-ads","schemaFingerprint":"6a94ca7f4b9eca3de22e10a88cbb503e033ce754b664eb7d24da011db1f3abf2","admitted":false,"effects":["read"]},
+      {"capabilityId":"campaign.status.v1","version":1,"pluginId":"naver-ads","schemaFingerprint":"6a94ca7f4b9eca3de22e10a88cbb503e033ce754b664eb7d24da011db1f3abf2","admitted":false,"effects":["read"]}
+    ]}}
 }

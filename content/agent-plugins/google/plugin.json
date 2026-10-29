@@ -1,0 +1,65 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "google",
+  "version": "0.1.0",
+  "description": "Gemini model choices, thinking settings, pricing and API-key connection form.",
+  "license": "Apache-2.0",
+  "extensions": {
+    "io.github.ainsep.openmarketing": {
+      "version": 1,
+      "provides": ["model"],
+      "enabled": true,
+      "admitted": true,
+      "capabilities": {},
+      "credentialCards": [{
+        "target": "google",
+        "title": "Connect Google AI",
+        "label": "Gemini API key",
+        "category": "AI models",
+        "intro": "Connect your Google AI account to use Gemini models.",
+        "usedFor": ["Assistant model requests"],
+        "helpUrl": "https://ai.google.dev/gemini-api/docs/api-key",
+        "helpLabel": "Gemini API-key documentation",
+        "baseUrl": "https://generativelanguage.googleapis.com",
+        "secretFields": [{ "name": "token", "label": "API key", "required": true }],
+        "saveKind": "api-key",
+        "saveTarget": "google"
+      }],
+      "modelProvider": {
+        "protocol": "google",
+        "endpoint": "https://generativelanguage.googleapis.com",
+        "label": "Google AI",
+        "models": [
+          {
+            "id": "gemini-2.5-flash",
+            "label": "Gemini 2.5 Flash",
+            "efforts": [
+              { "id": "default", "label": "Default", "request": {} },
+              { "id": "off", "label": "Off", "request": { "generationConfig": { "thinkingConfig": { "thinkingBudget": 0 } } } },
+              { "id": "low", "label": "Low", "request": { "generationConfig": { "thinkingConfig": { "thinkingBudget": 1024 } } } },
+              { "id": "high", "label": "High", "request": { "generationConfig": { "thinkingConfig": { "thinkingBudget": 3072 } } } }
+            ],
+            "pricing": {
+              "inputUsdPerMTok": "0.30", "outputUsdPerMTok": "2.50", "cachedInputUsdPerMTok": "0.03",
+              "source": "https://ai.google.dev/gemini-api/docs/pricing", "observedOn": "2026-10-28"
+            }
+          },
+          {
+            "id": "gemini-3.8-flash",
+            "label": "Gemini 3.8 Flash",
+            "efforts": [
+              { "id": "default", "label": "Default", "request": {} },
+              { "id": "low", "label": "Low", "request": { "generationConfig": { "thinkingConfig": { "thinkingLevel": "low" } } } },
+              { "id": "medium", "label": "Medium", "request": { "generationConfig": { "thinkingConfig": { "thinkingLevel": "medium" } } } },
+              { "id": "high", "label": "High", "request": { "generationConfig": { "thinkingConfig": { "thinkingLevel": "high" } } } }
+            ],
+            "pricing": {
+              "inputUsdPerMTok": "0.75", "outputUsdPerMTok": "3.75", "cachedInputUsdPerMTok": "0.075",
+              "source": "https://ai.google.dev/gemini-api/docs/pricing", "observedOn": "2026-10-28"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

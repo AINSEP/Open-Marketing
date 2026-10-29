@@ -7,7 +7,7 @@ import type { KakaoAdsAdapter, KakaoDependencies, KakaoInvocation, KakaoResult }
 import { decodeKakaoReport, reportBeforeToday } from "./reporting.js";
 
 const vendorId = z.union([z.string().regex(/^[1-9][0-9]{0,18}$/), z.number().int().positive().max(Number.MAX_SAFE_INTEGER).transform(String)]);
-const configurationSchema = z.strictObject({ scope: scopeSchema, connectionId: idSchema, accountId: z.string().regex(/^[1-9][0-9]{0,18}$/).nullable(), admitted: z.boolean() });
+export const configurationSchema = z.strictObject({ scope: scopeSchema, connectionId: idSchema, accountId: z.string().regex(/^[1-9][0-9]{0,18}$/).nullable() });
 const credentialSchema = z.object({ accessToken: z.string().min(1).max(4096).regex(/^[\x21-\x7e]+$/), expiresAt: epochSchema.optional() });
 const entity = z.object({ id: vendorId, name: z.string().max(1024), config: z.enum(["ON", "OFF", "DEL"]), adAccountId: vendorId.optional() });
 const integer = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
@@ -33,7 +33,7 @@ export function createKakaoAdsAdapter(required: KakaoDependencies): KakaoAdsAdap
   } };
 }
 
-/** Parse and bind before credential access. Unadmitted calls cannot resolve secrets. @complexity O(b), b<=64KiB. */
+/** Parse and bind before credential access. The host owns admission. @complexity O(b), b<=64KiB. */
 function prepare(required: { dependencies: KakaoDependencies; input: KakaoInvocation }, optional?: CallOptions): Outcome<Prepared> {
   if (optional?.signal?.aborted) return failure({ code: "cancelled" });
   const bounded = boundInput({ input: required.input });
@@ -41,7 +41,6 @@ function prepare(required: { dependencies: KakaoDependencies; input: KakaoInvoca
   const invocation = invocationSchema.safeParse(bounded.value);
   const configuration = configurationSchema.safeParse(required.dependencies.configuration);
   if (!invocation.success || !configuration.success) return failure({ code: "invalid_input" });
-  if (!configuration.data.admitted) return failure({ code: "forbidden" });
   const scope = invocation.data.context.scope;
   if (scope.ownerId !== configuration.data.scope.ownerId || scope.workspaceId !== configuration.data.scope.workspaceId) return failure({ code: "forbidden" });
   if (invocation.data.command.kind !== "list_accounts" && configuration.data.accountId === null) return failure({ code: "invalid_input" });
@@ -58,7 +57,7 @@ function boundInput(required: { input: unknown }): Outcome<unknown> {
 }
 
 /** Credentials resolve once. The host guarded fetch rechecks authority after this await.
- * No network on expired tokens, invalid dates or revoked local admission. @complexity One broker call and one GET.
+ * No network on expired tokens, invalid dates. @complexity One broker call and one GET.
  */
 async function execute(required: { dependencies: KakaoDependencies; prepared: Prepared }, optional?: CallOptions): Promise<Outcome<KakaoResult>> {
   const { dependencies, prepared } = required;
@@ -70,13 +69,13 @@ async function execute(required: { dependencies: KakaoDependencies; prepared: Pr
   if (!credential.ok) return failure({ code: credential.error.code });
   const token = checkCredential({ input: credential.value, now: dependencies.clock.now({}) });
   if (!token.ok) return token;
-  if (!dependencies.configuration.admitted) return failure({ code: "forbidden" });
-  const body = await request({ dependencies, request: prepared.request, token: token.value }, optional);
+  const body = await requestKakaoRead({ dependencies, request: prepared.request, token: token.value }, optional);
   if (!body.ok) return body;
-  return decode({ prepared, body: body.value, retrievedAt: dependencies.clock.now({}) });
+  if (body.value.status !== 200) return statusFailure({ status: body.value.status, body: { ok: true, value: body.value.body } });
+  return decode({ prepared, body: body.value.body, retrievedAt: dependencies.clock.now({}) });
 }
 /** Business tokens have no assumed lifetime; honor optional broker expiry only. @complexity O(b), b<=4096. */
-function checkCredential(required: { input: unknown; now: number }): Outcome<string> {
+export function checkCredential(required: { input: unknown; now: number }): Outcome<string> {
   const parsed = credentialSchema.safeParse(required.input);
   if (!parsed.success) return failure({ code: "unauthenticated" });
   if (parsed.data.expiresAt !== undefined && parsed.data.expiresAt <= required.now) return failure({ code: "expired" });
@@ -86,16 +85,19 @@ function checkCredential(required: { input: unknown; now: number }): Outcome<str
 /** Native fetch callback ABI; fixed origin, redirect refusal and an injected deadline covering streamed body.
  * Error bodies never escape. @complexity O(b) time/space, b<=1MiB; no retries.
  */
-async function request(required: { dependencies: KakaoDependencies; request: KakaoWireRequest; token: string }, optional?: CallOptions): Promise<Outcome<unknown>> {
+export async function requestKakaoRead(required: { dependencies: Pick<KakaoDependencies, "fetch"> & Partial<Pick<KakaoDependencies, "createDeadlineSignal">>; request: KakaoWireRequest; token: string }, optional?: CallOptions): Promise<Outcome<{ status: number; body: unknown }>> {
   if (optional?.signal?.aborted) return failure({ code: "cancelled" });
-  const deadline = required.dependencies.createDeadlineSignal({ timeoutMs: 15000 });
-  const signal = AbortSignal.any([deadline, ...optional?.signal ? [optional.signal] : []]);
+  const signal = AbortSignal.any([required.dependencies.createDeadlineSignal?.({ timeoutMs: 15000 }), optional?.signal].filter(value => value !== undefined));
   try {
     const headers: Record<string, string> = { Authorization: "Bearer " + required.token };
     if (required.request.accountId !== null) headers.adAccountId = required.request.accountId;
     const response = await required.dependencies.fetch(required.request.url, { method: "GET", headers, redirect: "error", signal });
+    if (response.status === 404) { await response.body?.cancel(); return { ok: true, value: { status: 404, body: null } }; }
     const body = await readBody({ response });
-    if (response.status === 200) return body;
+    if (response.status === 200) {
+      if (!body.ok) return body;
+      return { ok: true, value: { status: 200, body: body.value } };
+    }
     return statusFailure({ status: response.status, body });
   } catch { return failure({ code: optional?.signal?.aborted ? "cancelled" : "unavailable" }); }
 }

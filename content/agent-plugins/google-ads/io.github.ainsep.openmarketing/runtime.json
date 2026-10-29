@@ -11,7 +11,5 @@
   "conversionEligibility": "unavailable until independently verified",
   "dataManager": "implemented data-manager-v1 preflight/ingest/request diagnostics; production eligibility unverified",
   "journal": "adapt ONE server jobs outbox metadata; memory only in --fixture",
-  "hostEntry": "./src/index.ts",
-  "stdioDefault": "unavailable; authenticated host composition required",
-  "fixtureFlag": "--fixture"
+  "hostEntry": "./src/index.ts"
 }

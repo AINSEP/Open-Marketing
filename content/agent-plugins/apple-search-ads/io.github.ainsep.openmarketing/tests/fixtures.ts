@@ -6,7 +6,6 @@ export const context: CallContext = { scope: { ownerId: "owner", workspaceId: "w
 export const account = { adAccount: { id: 123, name: "Fixture account", orgId: 900 }, roles: ["Admin"] };
 export const campaign = { id: 456, adAccountId: 123, name: "Fixture campaign", status: "PAUSED", dailyBudget: { value: { amount: "37.0123", currency: "USD" } } };
 export const pagination = { totalCount: 3, offset: 0, pageSize: 100 };
-export const reportCommand = { kind: "report", startDate: "2026-10-22", endDate: "2026-10-23" };
 
 /** Synthetic broker and actual Response streams around the public plugin entry. The integrator
  * binds the same dispatch suite to its real host adapter; no production authority is faked here.

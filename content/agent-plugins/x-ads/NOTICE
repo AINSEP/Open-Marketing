@@ -3,3 +3,4 @@ X is a trademark of its respective owner; this project is independent of X.
 Uses oauth-1.0a 2.2.6 (MIT), Copyright (c) 2014 Ddo, https://github.com/ddo/oauth-1.0a.
 Integrator packaging must retain the dependency's MIT license in distributed bundles.
 No vendor SDK or sibling Jini/Tovu source is distributed here.
+Includes MIT-licensed material adapted from AgriciDaniel/claude-ads; see skills/x-ads/PROVENANCE.md.

@@ -1,6 +1,15 @@
 {
   "checkedAt": "2026-10-24", "apiVersion": "v1", "scope": "R1 reads/auth + R2 paused launch/offline CAPI; official documentation, not live eligibility",
   "sources": [
+    {
+      "id": "measurement-day-window", "checkedAt": "2026-10-28", "url": "https://developers.snap.com/marketing-api/Ads-API/measurement",
+      "section": "Metrics and supported granularities, DAY column",
+      "quote": "time must be of day boundary, start_time and end_time within 31 days",
+      "timezoneSection": "Parameters for creating an asynchronous report, DAY granularity bullet",
+      "timezoneQuote": "must be the daily boundry for the timezone of the Ad Account in question",
+      "facts": "The synchronous DAY limit is 31 days, not 32. The cited sections do not define end inclusivity or DST behavior. Per the coordinator decision, OM counts a half-open [start,end) of up to 31 account-local calendar dates using the existing date-only guard, then resolves both local midnights and rejects future ends. Fall-back can span 745 elapsed hours; spring-forward can span 743. The timezone quote is from the async section; calendar counting for synchronous DST windows is OM's interpretation, not a documented vendor guarantee.",
+      "verification": "Official documentation fetched as text; synthetic regression fixtures written, not run. No authenticated vendor call: live acceptance across DST remains unverified. Vendor refusal keeps the existing sanitized typed failure; no retry or fallback."
+    },
     { "id": "version", "url": "https://developers.snap.com/marketing-api/Ads-API/quick-start", "quote": "All requests use the base URL", "facts": "HTTPS adsapi.snapchat.com/v1; Bearer header. Organization-admin-created OAuth app required." },
     { "id": "auth", "url": "https://developers.snap.com/marketing-api/Ads-API/authentication", "quote": "3600 seconds", "facts": "Authorization-code flow and refresh endpoint; snapchat-marketing-api permits reads/writes; snapchat-offline-conversions-api is separate. Protect client secrets; Organization Admin creates apps." },
     { "id": "redirect-refresh", "url": "https://developers.snap.com/marketing-api/Ads-API/faq", "quote": "SSL hosted URL you control", "facts": "FAQ specifies SSL redirects and no fixed refresh-token expiry; access removal can invalidate refresh. No loopback exception found: paste-token only." },
@@ -30,5 +39,34 @@
     { "fact": "Reporting boundary inclusivity", "behavior": "Retain windows, label provider_unspecified; no canonical half-open totals." }
   ],
   "blockedPages": [{ "url": "https://businesshelp.snapchat.com/s/article/api-apply?language=en_US", "result": "Loading/CSS Error shell; Coordinator browser follow-up needed for approval details." }],
-  "researchLimits": "No inspected developers.snap.com page blocked. No official Marketing OpenAPI/Swagger/Postman artifact located; official CAPI SDKs do not implement these reads. Review reported Jini npm registry verification blocked; pins unchanged, no Jini dependency requested. No authenticated vendor calls."
+  "researchLimits": "No inspected developers.snap.com page blocked. No official Marketing OpenAPI/Swagger/Postman artifact located; official CAPI SDKs do not implement these reads. Review reported Jini npm registry verification blocked; pins unchanged, no Jini dependency requested. No authenticated vendor calls.",
+  "metricsStatus": {
+  "checkedAt": "2026-10-26",
+  "status": "documentation and synthetic fixtures only; tests written, not run; not production admission",
+  "sources": [
+    {
+      "url": "https://developers.snap.com/marketing-api/Ads-API/measurement",
+      "facts": "Ad-account stats supports breakdown=campaign. DAY breakdown uses timeseries_stats[].timeseries_stat with account identity, breakdown_stats.campaign[] child series and per-day timeseries. One account request replaces enumeration/per-campaign calls. Swipe-up 28_DAY, view 1_DAY and total conversion source are explicit; engaged-view window is vendor default, not an explicitly selected parameter. Parent finalized/conversion-processed marks apply conservatively."
+    },
+    {
+      "url": "https://developers.snap.com/marketing-api/Ads-API/campaigns",
+      "facts": "Campaign reads bind ad_account_id. Configured ACTIVE alone does not prove delivery; DELIVERING is consumed conservatively."
+    },
+    {
+      "url": "https://developers.snap.com/marketing-api/Ads-API/ad-accounts",
+      "facts": "GET /v1/adaccounts/{id} wraps one adaccount with id, currency and timezone. Validate before resolving local-midnight stats boundaries."
+    }
+  ],
+  "supported": [
+    "Account spend and campaign DAY metrics; exact native micros and purchase millionths",
+    "Owned campaign configuration/delivery status, with no inferred campaign-wide disapproval"
+  ],
+  "notImplemented": [
+    "ad_group/ad metrics hierarchy mapping",
+    "campaign rejection-description schema; no descriptions invented"
+  ],
+  "limits": "At most 31 calendar days for DAY stats; longer windows return limit_exceeded before credentials or egress. One account metadata GET plus one stats GET, each <=15s/1MiB; <=5,000 rows. Pagination stays incomplete; missing intervals are not fabricated. Unknown watermarks stay 0/stale/provisional. Up to 10 separate campaign status reads.",
+  "abi": "createCapabilities(PluginCapabilityDependencies) returns catalog-ID handlers; only server invoker owns admission/approval. No plugin authority ports.",
+  "configuration": "Shared pluginConfigurationSchema: {scope,connectionId,accountId,pluginDigest,settings}. Account currency/timezone come from vendor metadata; tokens from credentials.access. Install settings cannot override account facts."
+}
 }

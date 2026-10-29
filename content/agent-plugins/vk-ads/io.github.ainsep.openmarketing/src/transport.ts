@@ -38,9 +38,8 @@ export function createVkAdsAdapter(required: VkDependencies): VkAdsAdapter {
   } };
 }
 
-/** Validate bounded inputs and authority before any credential, clock or network access. O(b). */
+/** Validate bounded inputs and binding before any credential, clock or network access. O(b). */
 function prepare(required: { dependencies: VkDependencies; input: VkInvocation }, optional?: CallOptions): Outcome<Prepared> {
-  if (required.dependencies.admitted !== true) return failure({ code: "forbidden" });
   if (optional?.signal?.aborted) return failure({ code: "cancelled" });
   try {
     const json = JSON.stringify(required.input);
@@ -130,10 +129,9 @@ function transportFailure(required: CallOptions): AppError["code"] {
   return required.signal?.aborted ? "cancelled" : "unavailable";
 }
 
-/** Recheck admission/binding/expiry at each actual egress, including after async credential access. */
+/** Recheck binding/expiry at each actual egress; host effects own admission, including after async credential access. */
 function preflight(required: Runtime & { token?: VkToken }, optional: CallOptions): Outcome<void> {
   const { dependencies, prepared, token } = required;
-  if (dependencies.admitted !== true) return failure({ code: "forbidden" });
   if (!sameBinding({ first: dependencies.configuration, second: prepared.configuration })) return failure({ code: "forbidden" });
   if (optional.signal?.aborted) return failure({ code: "cancelled" });
   const now = dependencies.clock.now({});

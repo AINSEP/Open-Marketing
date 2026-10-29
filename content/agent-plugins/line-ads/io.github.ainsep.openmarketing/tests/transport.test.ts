@@ -21,14 +21,19 @@ describe("LINE read boundaries", () => {
     expect(f.calls[0].url).toBe("https://ads.line.me/api/v3/groups/G1/adaccounts?page=1&size=100");
     expect(f.credentialCalls).toEqual([{ connectionId: "connection", accountId: null }]);
   });
-  it.each(["TW", "TH"] as const)("keeps %s unavailable despite admission", async country => {
+  it.each(["TW", "TH"] as const)("reads %s through the shared regional API", async country => {
     const f = fixture(); f.binding.country = country;
-    expect(await f.adapter.invoke(invocation())).toMatchObject({ ok: false, error: { code: "unavailable" } });
-    expect(f.calls).toEqual([]); expect(f.credentialCalls).toEqual([]);
+    expect(await f.adapter.invoke(invocation())).toMatchObject({ ok: true });
+    expect(f.calls).toHaveLength(1); expect(f.credentialCalls).toHaveLength(1);
   });
-  it.each(["revoke", "rebind"])("blocks %s during credential resolution", async change => {
-    const f = fixture({ credentialHook: ({ state, binding }) => { if (change === "revoke") state.admitted = false; else binding.accountId = "999"; } });
+  it("preserves binding checks during credential resolution", async () => {
+    const f = fixture({ credentialHook: ({ binding }) => { binding.accountId = "999"; } });
     expect(await f.adapter.invoke(invocation())).toMatchObject({ ok: false, error: { code: "forbidden" } }); expect(f.calls).toEqual([]);
+  });
+  it("relies on host guarded fetch for admission withdrawal", async () => {
+    const f = fixture({ credentialHook: ({ state }) => { state.admitted = false; } });
+    expect(await f.adapter.invoke(invocation())).toMatchObject({ ok: false, error: { code: "unavailable" } });
+    expect(f.credentialCalls).toHaveLength(1); expect(f.calls).toEqual([]);
   });
   it.each(["bearer", JSON.stringify({ ...bundle, groupId: "../foreign" }), JSON.stringify({ ...bundle, secretKey: "" })])("rejects malformed credential bundle %s", async token => {
     const f = fixture({ token });
@@ -115,10 +120,14 @@ describe("LINE read boundaries", () => {
     const fingerprint = createHash("sha256").update(await readFile(new URL("../src/commands.ts", import.meta.url))).digest("hex");
     expect(manifest.extensions["io.github.ainsep.openmarketing"]).toMatchObject({ enabled: false, admitted: false, capabilities: capabilities.capabilities });
     expect(lineAdsTools.map(tool => tool.name)).toEqual(["list_accounts", "list_campaigns", "report"]);
-    expect(capabilities.capabilities).toHaveLength(3);
+    expect(capabilities.capabilities).toHaveLength(5);
     for (const capability of capabilities.capabilities.slice(0, 2)) expect(capability).toMatchObject({ admitted: false, effects: ["read"], schemaFingerprint: fingerprint });
     const deploymentSource = await Promise.all(["campaign-deployment", "campaign-translation", "commands", "transport"].map(name => readFile(new URL("../src/" + name + ".ts", import.meta.url))));
     expect(capabilities.capabilities[2]).toMatchObject({ capabilityId: "campaign.create-paused.v1", admitted: false, effects: ["write"], schemaFingerprint: createHash("sha256").update(Buffer.concat(deploymentSource)).digest("hex") });
+    const canonicalSource = await Promise.all(["transport", "reporting"].map(name => readFile(new URL("../src/" + name + ".ts", import.meta.url))));
+    const canonicalFingerprint = createHash("sha256").update(Buffer.concat(canonicalSource)).digest("hex");
+    expect(capabilities.capabilities.slice(3).map((item: { capabilityId: string }) => item.capabilityId)).toEqual(["campaign.status.v1", "report.metrics.v1"]);
+    for (const capability of capabilities.capabilities.slice(3)) expect(capability).toMatchObject({ admitted: false, effects: ["read"], schemaFingerprint: canonicalFingerprint });
     expect(capabilities.tools.map((tool: { name: string }) => tool.name)).toEqual(["list_accounts", "list_campaigns", "report"]);
     expect(capabilities.deployment).toMatchObject({ create: "deployCampaignPaused", read: "readCampaignDeployment", planSchema: "campaignDeploymentPlanSchema", admitted: false });
     expect(JSON.parse(await readFile(new URL("mcp.json", root), "utf8")).mcpServers).toEqual({});

@@ -266,6 +266,106 @@
       "doesNotVerify": [
         "Live account eligibility, granted scopes or successful provider execution"
       ]
+    },
+    {
+      "id": "meta-ads-insights",
+      "url": "https://developers.facebook.com/docs/marketing-api/insights/",
+      "checkedOn": "2026-10-26",
+      "access": "HTTP 429 Too Many Requests",
+      "verified": [],
+      "doesNotVerify": [
+        "Omitted purchase action semantics",
+        "Attribution or action_report_time semantics"
+      ],
+      "implementationNote": "Explicit effective-status filtering includes deleted/archived child objects. All pages must succeed before any batch is complete; rejected filters never retry unfiltered. Semantic remedy is review-confirmed in the object-status entry."
+    },
+    {
+      "id": "meta-ads-insights-best-practices",
+      "url": "https://developers.facebook.com/docs/marketing-api/insights/best-practices/",
+      "checkedOn": "2026-10-26",
+      "access": "HTTP 429 Too Many Requests",
+      "verified": []
+    },
+    {
+      "id": "meta-ads-account-sdk",
+      "url": "https://github.com/facebook/facebook-python-business-sdk/blob/main/facebook_business/adobjects/adaccount.py",
+      "checkedOn": "2026-10-26",
+      "access": "readable via raw.githubusercontent.com",
+      "verified": [
+        "GET account /insights supports filtering, level, limit, time_increment, time_range, action_attribution_windows and action_report_time parameters",
+        "GET campaigns edge supports effective_status"
+      ],
+      "doesNotVerify": [
+        "Runtime deleted/archived insight inclusion",
+        "Omitted-action zero semantics",
+        "Account eligibility or reconciliation"
+      ]
+    },
+    {
+      "id": "meta-ads-effective-status-sdk",
+      "url": "https://github.com/facebook/facebook-python-business-sdk/blob/main/facebook_business/adobjects/ad.py",
+      "checkedOn": "2026-10-26",
+      "access": "readable via raw.githubusercontent.com",
+      "verified": [
+        "Ad effective-status enum includes DELETED, ARCHIVED and serving/review/parent-paused states"
+      ],
+      "relatedSources": [
+        "https://github.com/facebook/facebook-python-business-sdk/blob/main/facebook_business/adobjects/campaign.py",
+        "https://github.com/facebook/facebook-python-business-sdk/blob/main/facebook_business/adobjects/adset.py"
+      ],
+      "doesNotVerify": [
+        "Insight filter acceptance for an account",
+        "Current version eligibility"
+      ]
+    },
+    {
+      "id": "meta-ad-object-status",
+      "url": "https://developers.facebook.com/docs/marketing-api/best-practices/manage-your-ad-object-status",
+      "checkedOn": "2026-10-26",
+      "access": "Implementation web retrieval throttled; search returned no results",
+      "verification": "Review-confirmed by ADS-memory/reports/2026-10-26-opus-rereview-fixwave.md, fx-plugins-c1; not independently retrieved in this run",
+      "reviewConfirmed": [
+        "Child-level insights exclude ARCHIVED and DELETED by default",
+        "An explicit object effective_status filter queries deleted objects; OM sends it for each child level"
+      ],
+      "doesNotVerify": [
+        "Live account eligibility, accepted filters or spend reconciliation"
+      ]
+    },
+    {
+      "id": "meta-customer-list-audience-upload",
+      "url": "https://developers.facebook.com/docs/marketing-api/audiences/guides/custom-audiences",
+      "relatedSources": [
+        "https://developers.facebook.com/docs/marketing-api/reference/custom-audience/users/",
+        "https://github.com/facebook/facebook-python-business-sdk/blob/main/facebook_business/adobjects/helpers/customaudiencemixin.py",
+        "https://github.com/facebook/facebook-python-business-sdk/blob/main/facebook_business/adobjects/customaudience.py"
+      ],
+      "checkedOn": "2026-10-28",
+      "apiVersion": "v26.0 (adsGraphVersion)",
+      "access": "Guide and users reference returned HTTP 429 in this build; both official SDK files retrieved through raw.githubusercontent.com.",
+      "verification": "Guide/reference facts were verified by the Coordinator in 2026-10-28-w18-p4-audiences/review.md; SDK facts independently retrieved in this build. No live account request or provider-acceptance check.",
+      "verified": [
+        "SDK accepts a pre-hashed EMAIL_SHA256 payload with a flat data array and an optional session.",
+        "SDK exposes custom-audience account_id and subtype, CUSTOM subtype, and POST /users."
+      ],
+      "reviewConfirmed": [
+        "Email preparation: trim surrounding whitespace, lowercase, then SHA-256 as lowercase hexadecimal; no Gmail dot or plus rewriting.",
+        "POST /{custom_audience_id}/users accepts payload={schema:EMAIL_SHA256,data:[emailSha256]}; provider maximum 10000 identifiers, OM B1 sends exactly one.",
+        "Optional session uses an integer session_id unique per ad account, 1-based batch_seq and last_batch_flag.",
+        "Receipt fields include audience_id, session_id, num_received, num_invalid_entries and invalid_entry_samples.",
+        "Upload acceptance is not proof of person matching, audience eligibility or targetability."
+      ],
+      "normalizationVector": {
+        "normalizedEmail": "mary@example.com",
+        "emailSha256": "f1904cf1a9d73a55fa5de0ac823c4403ded71afd4c3248d00bdcd0866552bb79"
+      },
+      "implementationNote": "Separate from the CAPI conversion path. Contacts owns normalization and SHA-256; audience.member.add.v1 only validates lowercase digest format and passes it through. Check account_id and CUSTOM subtype before one form-encoded POST. Session ID derives from the first 13 hex characters of the stable correlation/audience/email digest. Never expose invalid-entry samples. Accept only a matching audience_id with num_received >= 1 and zero invalid entries; otherwise unknown, except explicit invalid entries return a constant invalid_input. No retries.",
+      "doesNotVerify": [
+        "Required permission, token eligibility, business eligibility, Custom Audience Terms acceptance or live account behavior.",
+        "Error mapping for ToS code 200/subcode 1870090 and integrity operation_status 471 (deferred).",
+        "Session-versus-no-session behavior, provider deduplication guarantees and session ID collision handling.",
+        "Consent, erasure, grant, cap and subject-lane enforcement: the server sync worker and ServiceGrant runtime are deferred; this adapter is not a production sync workflow."
+      ]
     }
   ],
   "reproducibility": "URLs reference upstream main as observed on checkedOn; no immutable upstream revision or live account behavior is asserted. No upstream source code was copied.",
@@ -330,7 +430,7 @@
     }
   ],
   "conversionFingerprint": {
-    "value": "44288ead6cd72a7e0a42df68ead675e32ec402981a4d885438c976e7dce777b1",
+    "value": "701b41444c81cefa2fe56155344c1fc71ff0446360d99b6067ce071b3a0f9471",
     "method": "SHA-256 of concatenated UTF-8 file bytes in listed order",
     "files": [
       "src/capi-normalization.ts",
@@ -349,7 +449,7 @@
     "resourceBounds": "OM: <=100 discovery Pages, <=64KiB boundary JSON, <=15s HTTP calls; <=5 polls/container 60s apart under one shared five-minute deadline.",
     "idempotency": "Server single outbox key=operationId for FULL tool invocation; completed/uncertain operations cannot rerun. Read PUBLISHED before publish; lost ACK gets one status read, never a second POST. No plugin store or extra lock.",
     "fingerprint": {
-      "value": "1c1f813e65db6730068c7776fce05320c2013a22baf7b2470cc8e5db01fd3486",
+      "value": "a2cd6285622ae7049ccc50bbdfa55ff52fe007e12e1edc6e99ba3db0e471599d",
       "method": "SHA-256 of concatenated UTF-8 file bytes in listed order",
       "files": [
         "src/instagram.ts",
@@ -357,5 +457,6 @@
       ],
       "status": "proposed local codec fingerprint; not a captured hosted schema or admission"
     }
-  }
+  },
+  "metricsReadCheckedOn": "2026-10-26"
 }

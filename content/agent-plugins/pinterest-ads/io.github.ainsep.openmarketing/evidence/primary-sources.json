@@ -13,5 +13,25 @@
   "omBounds": {"requestBytes": 65536, "responseBytes": 1048576, "timeoutMs": 15000, "maxPageSize": 100, "maxCampaignIds": 100, "maxReportRows": 9000, "maxVendorDates": 90, "retries": 0, "deploymentCreates": 3, "deploymentReadbacks": 3, "maxCountries": 20, "conversionEventsPerCall": 1, "maxConversionMappings": 100, "maxConversionGrantDefinitions": 16, "maxConversionAgeMs": 86400000},
   "deployment": {"source": "https://raw.githubusercontent.com/pinterest/api-description/main/v5/openapi.yaml", "quote": "Campaign data on success.", "facts": "Endpoint-referenced CampaignBatchCreateRequest/CampaignCreateItem, AdGroupBatchCreateRequest, AdBatchCreateRequest/AdCreate: singleton POST arrays to account campaigns/ad_groups/ads; 200 items with data and optional exceptions. GET each candidate at the account-scoped resource URL. Preserve candidate before examining exceptions. MAX_BID + CLICKTHROUGH + bid_in_micro_currency, REGULAR + pin_id; auto_targeting_enabled/is_creative_optimization false, campaign automated/Performance+ false. No general create-idempotency guarantee verified; no retries.", "readback": "Require candidate ID/account/parent and every encoded field to match exactly; unexpected vendor defaults in consumed configuration fail closed, no inferred normalization."},
   "conversions": {"source": "https://raw.githubusercontent.com/pinterest/api-description/main/v5/openapi.yaml", "quote": "Whether the event was processed successfully.", "facts": "POST /ad_accounts/{ad_account_id}/events accepts {data:[event]}; use action_source:web, event_name:signup, original event_id, exact event_time seconds, explicit event_source_url, opt_out:false under current consent, user_data.em:[contacts SHA-256]. Require HTTP 200, num_events_received=1, num_events_processed=1 and singleton events status:processed with no error_message. Authority/outbox are server-owned; never resend unknown."},
-  "conflicts": ["LOCATION nested country_codes prose conflicts with string-array schema; official targeting guide confirms country arrays for this narrow path. No alternate encoding/fallback.", "Conversion endpoint token prose and rate-limit categories differ from the guide. Broker must supply the proper account-scoped token/ads:write; no throughput promise."]
+  "conflicts": ["LOCATION nested country_codes prose conflicts with string-array schema; official targeting guide confirms country arrays for this narrow path. No alternate encoding/fallback.", "Conversion endpoint token prose and rate-limit categories differ from the guide. Broker must supply the proper account-scoped token/ads:write; no throughput promise."],
+  "metricsStatus": {
+  "checkedAt": "2026-10-26",
+  "status": "documentation and synthetic fixtures only; tests written, not run; not production admission",
+  "sources": [
+    {
+      "url": "https://raw.githubusercontent.com/pinterest/api-description/main/v5/openapi.yaml",
+      "facts": "ads/list takes campaign_ids. Rejection reasons/labels are conditional on REJECTED despite required-array declarations; missing/null accepted. Campaign summary_status describes RUNNING/PAUSED/NOT_STARTED/COMPLETED/ARCHIVED/DRAFT/DELETED_DRAFT; disabled/future values remain unknown. Default analytics timezone is UTC; no reporting_timezone sent, independent of account time_zone. Non-hourly date range/history bounded to 90 days."
+    }
+  ],
+  "supported": [
+    "Account DAY metrics in default UTC for any account timezone; exact account-currency micros and conversion millionths",
+    "Campaign summary status and owned child-ad rejection descriptions; configured ACTIVE alone remains unknown"
+  ],
+  "notImplemented": [
+    "Campaign/ad-group/ad metric grains",
+    "Provider freshness watermark; remains 0/stale/provisional"
+  ],
+  "limits": "5 campaigns/10 status reads, 100 ads each; paginated ads incomplete. Account analytics: 5,000 rows and recent closed UTC days. Unsupported history/future returns limit_exceeded. Complete response coverage is separate from 0/stale/provisional unknown watermark.",
+  "abi": "createCapabilities(PluginCapabilityDependencies) returns catalog-ID handlers; only server invoker owns admission/approval. No plugin authority ports."
+}
 }

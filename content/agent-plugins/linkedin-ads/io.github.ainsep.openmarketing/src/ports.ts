@@ -1,4 +1,4 @@
-import type { CallContext, CallOptions, ClockPort, EffectEnvelope, HaltStopPermit, HaltStopRequest, ObserverPort, Outcome, Scope } from "@open-marketing/contracts";
+import type { CallContext, CallOptions, ClockPort, EffectEnvelope, ObserverPort, Outcome, Scope } from "@open-marketing/contracts";
 import type { LinkedInCommand } from "./commands.js";
 import type { LinkedInWireRequest } from "./wire.js";
 
@@ -25,7 +25,7 @@ export interface LinkedInCredentialPort {
  * It claims operationId + argumentsDigest in the ONE jobs outbox before execute, never executes
  * an already dispatched claim again, and appends egress audit with context IDs. No plugin store.
  * Credentials resolve BEFORE dispatch. Hold the server safety fence through execute; no await
- * between the final authority check and execute. Halt permits authorize this pause mapping only.
+ * between the final authority check and execute.
  * execute's zero-argument shape is the existing host callback ABI, exercised by the shared suite.
  */
 export interface LinkedInGatewayPort {
@@ -35,7 +35,6 @@ export interface LinkedInGatewayPort {
     operation: LinkedInCommand["kind"];
     request: LinkedInWireRequest;
     effect: EffectEnvelope;
-    permit?: HaltStopPermit;
     execute: () => Promise<Outcome<LinkedInResult>>;
   }, optional?: CallOptions): Promise<Outcome<LinkedInResult>>;
 }
@@ -54,12 +53,9 @@ export interface LinkedInInvocation {
   readonly moneyExposure: EffectEnvelope["moneyExposure"];
   readonly requiredLimit: EffectEnvelope["requiredLimit"];
 }
-/** Campaign-only backend stop: one entity per call/permit; not a separate assistant tool. */
-export interface LinkedInStopInput { readonly context: CallContext; readonly request: HaltStopRequest; readonly permit: HaltStopPermit }
-/** Inert adapter; invoke/stop each perform at most one vendor request, with zero retries. */
+/** Inert adapter; invoke performs at most one vendor request, with zero retries. */
 export interface LinkedInAdsAdapter {
   invoke(required: LinkedInInvocation, optional?: CallOptions): Promise<Outcome<LinkedInResult>>;
-  stop(required: LinkedInStopInput, optional?: CallOptions): Promise<Outcome<LinkedInResult>>;
 }
 /** Dependencies are supplied by server composition. fetch is the documented browser/Node ABI. */
 export interface LinkedInDependencies {

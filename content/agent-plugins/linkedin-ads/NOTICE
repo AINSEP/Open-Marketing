@@ -3,3 +3,4 @@ Copyright Open Marketing contributors.
 Apache-2.0; packaging and server adapter patterns adapted from OM Meta Ads and Google Ads.
 LinkedIn is a trademark of LinkedIn Corporation. This project is independent of LinkedIn.
 No vendor SDK or sibling Jini/Tovu source is distributed in this package.
+Includes MIT-licensed material adapted from AgriciDaniel/claude-ads; see skills/linkedin-ads/PROVENANCE.md.

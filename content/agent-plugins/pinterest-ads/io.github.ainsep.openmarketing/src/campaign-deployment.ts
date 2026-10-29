@@ -98,7 +98,6 @@ async function readStep(required: { input: Checked; step: Step; references: Pint
 /** Complete snapshot/closed schema and binding checks before checkpoints/credentials. O(b), <=64KiB. */
 function checkInput(required: { input: Omit<Input, "checkpoint"> }): Outcome<Checked> {
   const input = required.input;
-  if (!input.dependencies.admitted) return failure({ code: "forbidden" });
   const bounded = boundInput({ input: { context: input.context, operationId: input.operationId, plan: input.plan, configuration: input.dependencies.configuration } });
   if (!bounded.ok) return bounded;
   const parsed = inputSchema.safeParse(bounded.value);
@@ -129,7 +128,7 @@ async function send(required: { input: Checked; request: PinterestWriteRequest }
   const { input } = required;
   const credential = await resolveCredential({ dependencies: input.dependencies }, optional);
   if (!credential.ok) return credential;
-  return requestPinterest({ ...required, dependencies: input.dependencies, context: input.context, credential: credential.value, isCurrent: () => input.dependencies.admitted }, optional);
+  return requestPinterest({ ...required, dependencies: input.dependencies, context: input.context, credential: credential.value }, optional);
 }
 function receipt(required: { references: PinterestDeploymentReferences; hierarchy: unknown[]; status?: PinterestDeploymentResult["status"] }): Outcome<PinterestDeploymentResult> {
   return { ok: true, value: { ...required, status: required.status ?? "unknown", references: { ...required.references }, entityIds: Object.values(required.references) } };

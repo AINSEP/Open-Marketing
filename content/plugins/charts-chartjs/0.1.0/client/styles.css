@@ -1,0 +1,19 @@
+/* Layout/theme adaptation of Jini's Recharts artifact; see NOTICE. */
+.jini-chart[data-chart-provider="plugin.chartjs"] {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  height: 22rem;
+  color: var(--om-text, #172033);
+  font-family: var(--om-font-body, sans-serif);
+  --jini-chart-default-1: var(--om-accent-text, #007A52);
+  --jini-chart-default-2: var(--om-warning, #B7791F);
+  --jini-chart-default-3: var(--om-danger, #D14343);
+  --jini-chart-default-4: var(--om-text-muted, #64748B);
+  --jini-chart-default-5: var(--om-border-control, #8B5CF6);
+  --jini-chart-default-6: var(--om-text, #0891B2);
+  --jini-chart-surface: var(--om-surface);
+  --jini-chart-text: var(--om-text);
+  --jini-chart-axis: var(--om-text-muted);
+  --jini-chart-grid: var(--om-border);
+}

@@ -1,3 +1,7 @@
 Open Marketing — Microsoft Advertising agent plugin
 Copyright Open Marketing contributors. Apache-2.0.
 Packaging and injected adapter patterns follow OM LinkedIn Ads. Microsoft is a trademark of Microsoft Corporation; this project is independent of Microsoft. No vendor SDK or sibling repository source is distributed.
+
+ZIP report decoding uses fflate 0.8.3 (MIT), Copyright (c) 2026 Arjun Barrett.
+https://github.com/101arrowz/fflate — license: https://github.com/101arrowz/fflate/blob/v0.8.3/LICENSE
+Includes MIT-licensed material adapted from AgriciDaniel/claude-ads; see skills/microsoft-ads/PROVENANCE.md.

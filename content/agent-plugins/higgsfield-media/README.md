@@ -17,8 +17,8 @@ Code/package/scripts live in `io.github.ainsep.openmarketing/`. Import its publi
 entry after generic plugin admission; never import it into feature core, studio,
 desktop or agent. Root workspaces/lockfile remain integrator-owned.
 
-1. Validate the portable package with `@open-marketing/plugins`. Package capability
-   fingerprints are inert placeholders; the host hashes binding bytes, pins the
+1. Install through the server add-on upload boundary (Jini lifecycle). Package
+   capability fingerprints are inert placeholders; the host hashes binding bytes, pins the
    reviewed package and computes current remote input/output schema fingerprints.
 2. Connect using `mcp.json` on the server. `plugin.json` contains OAuth/discovery
    defaults and conservative risk hints under the OM namespace. Additional

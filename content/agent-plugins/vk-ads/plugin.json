@@ -6,12 +6,24 @@
   "license": "Apache-2.0",
   "extensions": {
     "io.github.ainsep.openmarketing": {
+      "credentialAssets": {"io.github.ainsep.openmarketing/assets/icon.svg": "e461f1b1fcc76525f12acab9031126ee0643c5d0cc7783d3deb46b498493da1a"},
+      "credentialCards": [
+        {
+          "target": "vk-ads", "title": "VK Ads", "label": "Save access token", "category": "Advertising",
+          "intro": "Paste an existing Ads access token for the intended account. Token issuance and refresh are external; this plugin does not renew tokens. Saving does not verify access or enable the plugin.",
+          "usedFor": ["Read the token-bound account and its campaigns"],
+          "helpUrl": "https://ads.vk.ru/en/doc/api/info/Authorization", "helpLabel": "Authentication and setup",
+          "baseUrl": "https://ads.vk.ru",
+          "saveKind": "api-key", "saveTarget": "vk-ads", "icon": "io.github.ainsep.openmarketing/assets/icon.svg",
+          "secretFields": [{"name": "token", "label": "Existing Ads access token", "required": true}]
+        }
+      ],
       "version": 1,
       "enabled": false,
       "admitted": false,
       "capabilities": [
         {"capabilityId": "campaign.read.v1", "version": 1, "pluginId": "vk-ads", "schemaFingerprint": "05f75326eb105935dcd98a0eb5f8917b95597c54db91e6685b1a85968a30c16a", "admitted": false, "effects": ["read"]}
-      ]
+  ]
     }
   }
 }

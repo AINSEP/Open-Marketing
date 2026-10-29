@@ -1,6 +1,7 @@
-import type { CallContext, ObserverEvent, Outcome } from "@open-marketing/contracts";
+import { pluginConfigurationSchema } from "@open-marketing/contracts";
+import type { PluginCapabilityDependencies, CallContext, ObserverEvent, Outcome } from "@open-marketing/contracts";
 import { isDeepStrictEqual } from "node:util";
-import { createLineAdsAdapter } from "../src/index.js";
+import { createCapabilities, createLineAdsAdapter } from "../src/index.js";
 import type { LineAdsConfiguration, LineAdsDependencies, LineAdsInvocation } from "../src/index.js";
 import type { LineAdsPausedPlan } from "../src/index.js";
 
@@ -37,6 +38,7 @@ export function fixture(required: { response?: () => Response | Promise<Response
       return { ok: true, value: { accessToken: (required.token ?? JSON.stringify(bundle)) as string } };
     } },
     fetch: async (url, init) => {
+      if (!state.admitted) throw new Error("Host guarded fetch denied");
       if (!String(url).startsWith("https://ads.line.me/api/v3/") || init?.method !== "GET") throw new Error("Unexpected fixture request");
       calls.push({ url: String(url), init: init ?? {} });
       return required.response ? required.response() : Response.json(campaignPage);
@@ -115,4 +117,27 @@ export function deploymentFixture(required: { response?: (input: { resource: str
     return { ok: true, value: undefined };
   } };
   return { ...f, dependencies, input, rows, journal, violations };
+}
+
+/** Independent status wire page, distinct from legacy campaign listing fixtures. */
+export const statusPage = { datas: [
+  { id: 456, configuredStatus: "ACTIVE", deliveryStatus: "NOT_APPROVED", deliveryStatusReasons: [{ code: "CREATIVE_REVIEW_NOT_APPROVED" }, { code: "CREATIVE_REVIEW_NOT_APPROVED" }] },
+  { id: 457, configuredStatus: "REMOVED", deliveryStatus: "REMOVED" },
+], paging: { page: 1, size: 100, totalElements: 2 } };
+
+/** Canonical ABI over the same memory custody/HTTP seam. Expiry is manual; no timers/network. */
+export function capabilityFixture(required: { response?: (input: { url: URL; requestIndex: number }) => Response | Promise<Response> } = {}) {
+  const f = fixture();
+  const waits: number[] = [];
+  const dependencies: PluginCapabilityDependencies = { ...f.dependencies,
+    configuration: pluginConfigurationSchema.parse({ scope: context.scope, connectionId: "connection", accountId: "123", pluginDigest: "a".repeat(64), settings: {} }),
+    wait: async input => { waits.push(input.milliseconds); return { ok: true, value: undefined }; },
+    fetch: async (url, init) => {
+      f.calls.push({ url: String(url), init: init ?? {} });
+      if (new URL(String(url)).pathname.includes("/groups/")) return Response.json({ ...accountPage, datas: [{ id: 123, country: f.binding.country, currency: f.binding.currency, timezone: f.binding.timezone }] });
+      if (required.response) return required.response({ url: new URL(String(url)), requestIndex: f.calls.length });
+      return Response.json(statusPage);
+    },
+  };
+  return { ...f, dependencies, capabilities: createCapabilities(dependencies), waits };
 }

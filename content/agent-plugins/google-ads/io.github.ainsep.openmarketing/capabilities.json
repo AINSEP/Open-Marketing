@@ -2,10 +2,87 @@
   "version": 1,
   "admitted": false,
   "capabilities": [
-    "google-ads.search.v1",
-    "google-ads.reporting.v1",
-    "google-ads.stop.v1",
-    "google-ads.conversions.v1"
+    {
+      "capabilityId": "google-ads.search.v1",
+      "version": 1,
+      "pluginId": "google-ads",
+      "schemaFingerprint": "cd0de4d65255610ec743c1eb46720b5289d8ce27b0702b3f329feff80962167d",
+      "admitted": false,
+      "effects": [
+        "write",
+        "ad_spend"
+      ]
+    },
+    {
+      "capabilityId": "google-ads.reporting.v1",
+      "version": 1,
+      "pluginId": "google-ads",
+      "schemaFingerprint": "cd0de4d65255610ec743c1eb46720b5289d8ce27b0702b3f329feff80962167d",
+      "admitted": false,
+      "effects": [
+        "read"
+      ]
+    },
+    {
+      "capabilityId": "google-ads.stop.v1",
+      "version": 1,
+      "pluginId": "google-ads",
+      "schemaFingerprint": "cd0de4d65255610ec743c1eb46720b5289d8ce27b0702b3f329feff80962167d",
+      "admitted": false,
+      "effects": [
+        "halt_stop"
+      ]
+    },
+    {
+      "capabilityId": "google-ads.conversions.v1",
+      "version": 1,
+      "pluginId": "google-ads",
+      "schemaFingerprint": "cd0de4d65255610ec743c1eb46720b5289d8ce27b0702b3f329feff80962167d",
+      "admitted": false,
+      "effects": [
+        "conversion"
+      ]
+    },
+    {
+      "capabilityId": "campaign.validate.v1",
+      "version": 1,
+      "pluginId": "google-ads",
+      "schemaFingerprint": "7d1b394997c3b26199a0fbf27b31faefe62d25b1371e224d50d159ed06ab4cee",
+      "admitted": false,
+      "effects": [
+        "read"
+      ]
+    },
+    {
+      "capabilityId": "report.metrics.v1",
+      "version": 1,
+      "pluginId": "google-ads",
+      "schemaFingerprint": "7d1b394997c3b26199a0fbf27b31faefe62d25b1371e224d50d159ed06ab4cee",
+      "admitted": false,
+      "effects": [
+        "read"
+      ]
+    },
+    {
+      "capabilityId": "campaign.status.v1",
+      "version": 1,
+      "pluginId": "google-ads",
+      "schemaFingerprint": "7d1b394997c3b26199a0fbf27b31faefe62d25b1371e224d50d159ed06ab4cee",
+      "admitted": false,
+      "effects": [
+        "read"
+      ]
+    },
+    {
+      "capabilityId": "tracking.tag.v1",
+      "version": 1,
+      "pluginId": "google-ads",
+      "schemaFingerprint": "7d1b394997c3b26199a0fbf27b31faefe62d25b1371e224d50d159ed06ab4cee",
+      "admitted": false,
+      "effects": [
+        "read"
+      ]
+    }
   ],
   "deployment": {
     "capabilityId": "google-ads.search.v1",

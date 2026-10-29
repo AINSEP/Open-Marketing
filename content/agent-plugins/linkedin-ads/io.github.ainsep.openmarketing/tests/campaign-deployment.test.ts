@@ -1,3 +1,5 @@
+import { campaignDeploymentReceiptSchema, pluginConfigurationSchema } from "@open-marketing/contracts";
+import type { CampaignDeploymentRequired } from "@open-marketing/contracts";
 import { expect, it } from "vitest";
 import { deployCampaignPaused, readCampaignDeployment } from "../src/index.js";
 import { campaign, configuration, context, draft, fixture as baseFixture } from "./fixtures.js";
@@ -5,19 +7,23 @@ const { campaignGroupId: _parent, ...child } = campaign as Extract<typeof campai
 const plan = { group: draft, campaign: { ...child, kind: "create_campaign_draft", campaignGroupId: { from: "group" } }, creative: { kind: "create_creative_draft", campaignId: { from: "campaign" }, reference: "urn:li:share:987" } };
 /** The real Rest.li transport with synthetic ACKs and scoped reads; no vendor I/O. */
 function fixture(options: { failPost?: number; badAck?: boolean; checkpointFail?: number; change?: Record<string, unknown>; readFailure?: boolean; readId?: string } = {}) {
-  const f = baseFixture(); const rows = new Map<string, object>(); const calls: { url: string; init?: RequestInit }[] = []; const checkpoints: object[] = []; const intents = new Set<string>(); let posts = 0;
-  const input: Parameters<typeof deployCampaignPaused>[0] = { context, operationId: "launch", plan, dependencies: { ...f.dependencies, admitted: true, fetch: async (url, init) => {
+  const f = baseFixture(); const rows = new Map<string, object>(); const calls: { url: string; init?: RequestInit }[] = []; const metadata: { url: string; init?: RequestInit }[] = []; const checkpoints: object[] = []; const intents = new Set<string>(); let posts = 0;
+  const input: CampaignDeploymentRequired = { context, operationId: "launch", plan, connectionId: "connection", accountId: "123", saved: { references: {}, record: null }, dependencies: { ...f.dependencies, configuration: pluginConfigurationSchema.parse({ scope: context.scope, connectionId: "connection", accountId: "123", pluginDigest: configuration.pluginDigest, settings: {} }), wait: async () => ({ ok: true, value: undefined }), fetch: async (url, init) => {
+    if (String(url) === "https://api.linkedin.com/rest/adAccounts/123") { metadata.push({ url: String(url), init }); return Response.json({ id: 123, currency: "USD" }); }
     calls.push({ url: String(url), init }); const headers = new Headers(init?.headers); expect(headers.get("LinkedIn-Version")).toBe("202610"); expect(headers.get("X-Restli-Protocol-Version")).toBe("2.0.0");
     if (init?.method === "GET") { const id = decodeURIComponent(new URL(String(url)).pathname.split("/").at(-1)!); if (options.readFailure && id === (options.readId ?? "567")) throw new Error("read unavailable"); return Response.json({ ...rows.get(id), ...(id === (options.readId ?? "567") ? options.change : {}) }); }
     posts++; if (posts === options.failPost) throw new Error("ambiguous write"); const id = ["456", "567", "urn:li:sponsoredCreative:678"][posts - 1];
     const body = JSON.parse(String(init?.body)); rows.set(id, { ...body, id, account: "urn:li:sponsoredAccount:123", isServing: false });
     return new Response(null, { status: 201, headers: { "x-restli-id": options.badAck ? "bad" : id } });
   } }, async checkpoint(event) { checkpoints.push(event); if (checkpoints.length === options.checkpointFail || (event.phase === "dispatch" && intents.has(event.step))) return { ok: false, error: { code: "conflict", message: "stop", retryable: false } }; if (event.phase === "dispatch") intents.add(event.step); return { ok: true, value: undefined }; } };
-  return { input, calls, f, checkpoints, posts: () => posts };
+  return { input, calls, metadata, f, checkpoints, posts: () => posts };
 }
 it("creates a DRAFT hierarchy with acknowledged parents, scoped readback and no nested jobs", async () => {
   const f = fixture(); const result = await deployCampaignPaused(f.input);
-  expect(result).toMatchObject({ ok: true, value: { status: "acknowledged", references: { group: "456", campaign: "567", creative: "urn:li:sponsoredCreative:678" } } });
+  expect(result).toMatchObject({ ok: true, value: { status: "acknowledged", state: "draft", references: { group: "456", campaign: "567", creative: "urn:li:sponsoredCreative:678" } } });
+  expect(f.metadata.map(call => call.init?.method)).toEqual(["GET"]);
+  if (result.ok) expect(campaignDeploymentReceiptSchema.safeParse(result.value).success).toBe(true);
+  expect(f.checkpoints).toEqual(["group", "campaign", "creative"].flatMap(step => ["dispatch", "acknowledged"].map(phase => expect.objectContaining({ step, phase, record: { step, phase } }))));
   expect(f.calls.map(call => call.init?.method)).toEqual(["POST", "GET", "POST", "POST", "GET", "GET", "GET"]);
   expect(f.calls[1].url).toBe("https://api.linkedin.com/rest/adAccounts/123/adCampaignGroups/456");
   const bodies = f.calls.filter(call => call.init?.method === "POST").map(call => JSON.parse(String(call.init?.body)));
@@ -43,14 +49,14 @@ it.each([{ account: "urn:li:sponsoredAccount:999" }, { campaignGroup: "urn:li:sp
 });
 it("retains all IDs after read failure and reconciles with GET only", async () => {
   const f = fixture({ readFailure: true }); expect(await deployCampaignPaused(f.input)).toMatchObject({ ok: true, value: { status: "unknown", entityIds: ["456", "567", "urn:li:sponsoredCreative:678"] } });
-  const start = f.calls.length; await readCampaignDeployment({ ...f.input, references: { group: "456", campaign: "567", creative: "urn:li:sponsoredCreative:678" } }); expect(f.calls.slice(start).every(call => call.init?.method === "GET")).toBe(true); expect(f.posts()).toBe(3);
+  const start = f.calls.length; await readCampaignDeployment({ ...f.input, saved: { references: { group: "456", campaign: "567", creative: "urn:li:sponsoredCreative:678" }, record: null } }); expect(f.calls.slice(start).every(call => call.init?.method === "GET")).toBe(true); expect(f.posts()).toBe(3);
 });
-it("unadmitted, cancelled, foreign scope and invalid full plans do no credential or network I/O", async () => {
-  const f = fixture(); f.input.dependencies.admitted = false; expect((await deployCampaignPaused(f.input)).ok).toBe(false); f.input.dependencies.admitted = true;
+it("cancelled, foreign scope and invalid full plans do no credential or network I/O", async () => {
+  const f = fixture();
   await deployCampaignPaused(f.input, { signal: AbortSignal.abort() });
   expect((await deployCampaignPaused({ ...f.input, plan: { ...plan, creative: { ...plan.creative, url: "https://bad.test" } } })).ok).toBe(false);
   expect((await deployCampaignPaused({ ...f.input, context: { ...context, scope: { ...configuration.scope, workspaceId: "foreign" } } })).ok).toBe(false);
-  expect(f.f.credentialCalls).toEqual([]); expect(f.calls).toEqual([]);
+  expect(f.f.credentialCalls).toEqual([]); expect(f.calls).toEqual([]); expect(f.metadata).toEqual([]);
 });
 it.each([{ content: { reference: "urn:li:share:999" } }, { isServing: true }, { intendedStatus: "ACTIVE" }])("requires non-serving creative/reference evidence: %j", async change => {
   const f = fixture({ readId: "urn:li:sponsoredCreative:678", change }); expect(await deployCampaignPaused(f.input)).toMatchObject({ value: { status: "unknown", entityIds: ["456", "567", "urn:li:sponsoredCreative:678"] } });
@@ -64,7 +70,7 @@ it.each([
   const references = { group: "456", campaign: "567", creative: "urn:li:sponsoredCreative:678" };
   expect(await deployCampaignPaused(f.input)).toMatchObject({ ok: true, value: { status: "acknowledged", references, hierarchy: [expect.anything(), expect.anything(), { content: { reference: "urn:li:share:987" } }] } });
   const start = f.calls.length;
-  expect(await readCampaignDeployment({ ...f.input, references })).toMatchObject({ ok: true, value: { status: "acknowledged" } });
+  expect(await readCampaignDeployment({ ...f.input, saved: { references, record: null } })).toMatchObject({ ok: true, value: { status: "acknowledged" } });
   expect(f.calls.slice(start).map(call => call.init?.method)).toEqual(["GET", "GET", "GET"]);
   expect(f.posts()).toBe(3);
   const creativeBody = JSON.parse(String(f.calls.filter(call => call.init?.method === "POST")[2].init?.body));
@@ -83,7 +89,11 @@ it.each([
   expect(await deployCampaignPaused(f.input)).toMatchObject({ ok: true, value: { status: "unknown", entityIds: ["456", "567", "urn:li:sponsoredCreative:678"] } });
   expect(f.posts()).toBe(3);
 });
-it("admission change at the checkpoint stops before credentials", async () => {
-  const f = fixture(); f.input.checkpoint = async () => { f.input.dependencies.admitted = false; return { ok: true, value: undefined }; };
-  await deployCampaignPaused(f.input); expect(f.f.credentialCalls).toEqual([]); expect(f.calls).toEqual([]);
+it("reconciles saved references with one GET and no new writes", async () => {
+  const f = fixture();
+  await deployCampaignPaused(f.input);
+  const start = f.calls.length;
+  expect(await deployCampaignPaused({ ...f.input, saved: { references: { group: "456" }, record: null } })).toMatchObject({ ok: true, value: { status: "unknown", state: "draft" } });
+  expect(f.calls.slice(start).map(call => call.init?.method)).toEqual(["GET"]);
+  expect(f.posts()).toBe(3);
 });

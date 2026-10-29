@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { parseBoundary } from "@open-marketing/contracts";
-import type { AppError, EffectCategory, Outcome } from "@open-marketing/contracts";
+import { definePluginTools, parseBoundary } from "@open-marketing/contracts";
+import type { AppError, Outcome } from "@open-marketing/contracts";
 
 /** TikTok v1.3 IDs stay decimal strings; no numeric precision loss. */
 export const vendorIdSchema = z.string().regex(/^[1-9][0-9]{0,31}$/);
@@ -24,7 +24,7 @@ const variants = {
   "get-campaigns": z.strictObject({ kind: z.literal("get-campaigns"), ...pagination, campaignIds: ids.optional() }),
   "get-adgroups": z.strictObject({ kind: z.literal("get-adgroups"), ...pagination, adgroupIds: ids.optional() }),
   "get-ads": z.strictObject({ kind: z.literal("get-ads"), ...pagination, adIds: ids.optional() }),
-  report: z.strictObject({ kind: z.literal("report"), ...pagination, startDate: z.iso.date(), endDate: z.iso.date() }).refine(validReportDates),
+  report: z.strictObject({ kind: z.literal("report"), ...pagination, pageSize: z.number().int().min(1).max(1000).default(100), startDate: z.iso.date(), endDate: z.iso.date() }).refine(validReportDates),
   "create-campaign-paused": z.strictObject({ kind: z.literal("create-campaign-paused"), name, budget }),
   "create-adgroup-paused": z.strictObject({ kind: z.literal("create-adgroup-paused"), name, campaignId: vendorIdSchema, budget, locationIds: ids, scheduleStart: z.string().regex(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/), scheduleEnd: z.string().regex(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/).optional() }),
   "create-ad-paused": z.strictObject({ kind: z.literal("create-ad-paused"), name, adgroupId: vendorIdSchema, text: z.string().trim().min(1).max(100), videoId: mediaId.optional(), imageIds: z.array(mediaId).length(1).optional(), adFormat: z.enum(["SINGLE_IMAGE", "SINGLE_VIDEO"]).optional(), identityType: z.enum(["AUTH_CODE", "CUSTOMIZED_USER"]).optional(), identityId: mediaId, landingPageUrl: tiktokUrlSchema }).refine(validCreative),
@@ -36,25 +36,27 @@ const variants = {
 export const tiktokCommandSchema = z.discriminatedUnion("kind", [variants["get-advertiser"], variants["get-campaigns"], variants["get-adgroups"], variants["get-ads"], variants.report, variants["create-campaign-paused"], variants["create-adgroup-paused"], variants["create-ad-paused"], variants["activate-entity"], variants["pause-entity"]]);
 export type TikTokCommand = z.infer<typeof tiktokCommandSchema>;
 export type TikTokReadCommand = Extract<TikTokCommand, { kind: "get-advertiser" | "get-campaigns" | "get-adgroups" | "get-ads" | "report" }>;
-/** Backend-only closed campaign stop, absent from tiktokTools. Host must verify the permit. */
+/** Backend-only closed campaign stop, absent from assistant tools. Host must verify the permit. */
 export const tiktokHaltCommandSchema = z.strictObject({ kind: z.literal("halt-stop"), campaignIds: ids });
 export type TikTokDispatchCommand = TikTokCommand | z.infer<typeof tiktokHaltCommandSchema>;
 export type TikTokReportQuery = Extract<TikTokCommand, { kind: "report" }>;
 export type TikTokPath = "advertiser/info/" | "campaign/get/" | "adgroup/get/" | "ad/get/" | "report/integrated/get/" | "campaign/create/" | "adgroup/create/" | "ad/create/" | "campaign/status/update/" | "adgroup/status/update/" | "ad/status/update/";
 export type TikTokEncoded = { method: "GET"; path: TikTokPath; parameters: Readonly<Record<string, string>> } | { method: "POST"; path: TikTokPath; body: Readonly<Record<string, unknown>> };
-/** Server consumes these trusted local descriptors through its ONE catalog/policy. */
-export const tiktokTools = [
-  describeTool({ name: "tiktok_ads.get_advertiser", schema: variants["get-advertiser"], description: "Read the configured advertiser; not OAuth account enumeration." }),
-  describeTool({ name: "tiktok_ads.get_campaigns", schema: variants["get-campaigns"], description: "Read one advertiser's campaigns, at most 100 per page." }),
-  describeTool({ name: "tiktok_ads.get_adgroups", schema: variants["get-adgroups"], description: "Read one advertiser's ad groups, at most 100 per page." }),
-  describeTool({ name: "tiktok_ads.get_ads", schema: variants["get-ads"], description: "Read one advertiser's ads, at most 100 per page." }),
-  describeTool({ name: "tiktok_ads.report", schema: variants.report, description: "Read account spend for at most 31 inclusive account-local dates; partial pages are not totals." }),
-  describeTool({ name: "tiktok_ads.create_campaign_paused", schema: variants["create-campaign-paused"], effects: ["write"], description: "Create one disabled website traffic campaign and read its status; never activate it." }),
-  describeTool({ name: "tiktok_ads.create_adgroup_paused", schema: variants["create-adgroup-paused"], effects: ["write"], description: "Create one disabled TikTok website traffic group with a daily budget and read its status." }),
-  describeTool({ name: "tiktok_ads.create_ad_paused", schema: variants["create-ad-paused"], effects: ["write"], description: "Create one disabled single-video ad with an existing identity/video and read its status." }),
-  describeTool({ name: "tiktok_ads.activate_entity", schema: variants["activate-entity"], effects: ["ad_spend"], description: "Enable one entity; requires the server's exact spend card for every call." }),
-  describeTool({ name: "tiktok_ads.pause_entity", schema: variants["pause-entity"], effects: ["write"], description: "Disable one existing campaign, ad group or ad through the normal write policy." }),
-] as const;
+/** Fixed descriptors and parser share the original Zod variants; no registration or I/O. */
+export const { tools, parseTool } = definePluginTools({ tools: [
+  { name: "tiktok_ads.get_advertiser", inputSchema: variants["get-advertiser"], effects: ["read"], description: "Read the configured advertiser; not OAuth account enumeration." },
+  { name: "tiktok_ads.get_campaigns", inputSchema: variants["get-campaigns"], effects: ["read"], description: "Read one advertiser's campaigns, at most 100 per page." },
+  { name: "tiktok_ads.get_adgroups", inputSchema: variants["get-adgroups"], effects: ["read"], description: "Read one advertiser's ad groups, at most 100 per page." },
+  { name: "tiktok_ads.get_ads", inputSchema: variants["get-ads"], effects: ["read"], description: "Read one advertiser's ads, at most 100 per page." },
+  { name: "tiktok_ads.report", inputSchema: variants.report, effects: ["read"], description: "Read account spend for at most 31 inclusive account-local dates; partial pages are not totals." },
+  { name: "tiktok_ads.create_campaign_paused", inputSchema: variants["create-campaign-paused"], effects: ["write"], description: "Create one disabled website traffic campaign and read its status; never activate it." },
+  { name: "tiktok_ads.create_adgroup_paused", inputSchema: variants["create-adgroup-paused"], effects: ["write"], description: "Create one disabled TikTok website traffic group with a daily budget and read its status." },
+  { name: "tiktok_ads.create_ad_paused", inputSchema: variants["create-ad-paused"], effects: ["write"], description: "Create one disabled single-video ad with an existing identity/video and read its status." },
+  { name: "tiktok_ads.activate_entity", inputSchema: variants["activate-entity"], effects: ["ad_spend"], description: "Enable one entity; requires the server's exact spend card for every call." },
+  { name: "tiktok_ads.pause_entity", inputSchema: variants["pause-entity"], effects: ["write"], description: "Disable one existing campaign, ad group or ad through the normal write policy." },
+] });
+/** Output-mode schema bytes preserve existing capability fingerprints. */
+export const tiktokSchemaFingerprints = Object.fromEntries(Object.entries(variants).map(([kind, schema]) => [kind, createHash("sha256").update(JSON.stringify(z.toJSONSchema(schema))).digest("hex")])) as Record<keyof typeof variants, string>;
 
 /** Dates are inclusive local calendar dates; Date.parse checks span, not account timezone. */
 function validReportDates(required: { startDate: string; endDate: string }): boolean {
@@ -66,11 +68,6 @@ function validReportDates(required: { startDate: string; endDate: string }): boo
 function validCreative(required: { adFormat?: string; identityType?: string; videoId?: string; imageIds?: string[] }): boolean {
   if (required.adFormat === "SINGLE_IMAGE") return required.imageIds?.length === 1 && required.videoId === undefined;
   return required.videoId !== undefined && (required.identityType !== "CUSTOMIZED_USER" || required.imageIds?.length === 1);
-}
-
-function describeTool(required: { name: string; schema: z.ZodType; description: string; effects?: readonly EffectCategory[] }) {
-  const inputSchema = z.toJSONSchema(required.schema);
-  return { name: required.name, description: required.description, inputSchema, schemaFingerprint: createHash("sha256").update(JSON.stringify(inputSchema)).digest("hex"), effects: required.effects ?? ["read"] as const };
 }
 
 /** Fixed request mapping. All account IDs come from the host binding, never the command.
@@ -107,7 +104,7 @@ function encodeWrite(required: { command: Exclude<TikTokCommand, TikTokReadComma
   const base = { advertiser_id: accountId, operation_status: tiktokStatus.disabled };
   switch (command.kind) {
     case "create-campaign-paused": return { ok: true, value: { method: "POST", path: "campaign/create/", body: { ...base, campaign_name: command.name, objective_type: "TRAFFIC", budget_mode: "BUDGET_MODE_DAY", budget: command.budget } } };
-    case "create-adgroup-paused": return { ok: true, value: { method: "POST", path: "adgroup/create/", body: { ...base, campaign_id: command.campaignId, adgroup_name: command.name, budget_mode: "BUDGET_MODE_DAY", budget: command.budget, promotion_type: "WEBSITE", placement_type: "PLACEMENT_TYPE_NORMAL", placements: ["PLACEMENT_TIKTOK"], location_ids: command.locationIds, optimization_goal: "CLICK", billing_event: "CPC", bid_type: "BID_TYPE_NO_BID", pacing: "PACING_MODE_SMOOTH", schedule_type: command.scheduleEnd ? "SCHEDULE_START_END" : "SCHEDULE_FROM_NOW", schedule_start_time: command.scheduleStart, ...(command.scheduleEnd ? { schedule_end_time: command.scheduleEnd } : {}) } } };
+    case "create-adgroup-paused": return { ok: true, value: { method: "POST", path: "adgroup/create/", body: { ...base, campaign_id: command.campaignId, adgroup_name: command.name, budget_mode: "BUDGET_MODE_DAY", budget: command.budget, promotion_type: "WEBSITE", placement_type: "PLACEMENT_TYPE_NORMAL", placements: ["PLACEMENT_TIKTOK"], location_ids: command.locationIds, optimization_goal: "CLICK", billing_event: "CPC", bid_type: "BID_TYPE_NO_BID", pacing: "PACING_MODE_SMOOTH", schedule_start_time: command.scheduleStart, ...(command.scheduleEnd ? { schedule_type: "SCHEDULE_START_END", schedule_end_time: command.scheduleEnd } : { schedule_type: "SCHEDULE_FROM_NOW" }) } } };
     case "create-ad-paused": return { ok: true, value: { method: "POST", path: "ad/create/", body: { advertiser_id: accountId, adgroup_id: command.adgroupId, creatives: [{ operation_status: tiktokStatus.disabled, ad_name: command.name, ad_text: command.text, ad_format: command.adFormat ?? "SINGLE_VIDEO", ...(command.videoId ? { video_id: command.videoId } : {}), ...(command.imageIds ? { image_ids: command.imageIds } : {}), identity_type: command.identityType ?? "AUTH_CODE", identity_id: command.identityId, landing_page_url: command.landingPageUrl, call_to_action: "LEARN_MORE" }] } } };
     case "activate-entity": case "pause-entity": return { ok: true, value: { method: "POST", path: `${command.entityType}/status/update/`, body: { advertiser_id: accountId, [`${command.entityType}_ids`]: [command.entityId], operation_status: command.kind === "activate-entity" ? tiktokStatus.enabled : tiktokStatus.disabled } } };
     default: { const exhaustive: never = command; return exhaustive; }
@@ -149,7 +146,7 @@ export function boundTikTokJson(required: { input: unknown }): Outcome<unknown> 
 /** Candidate response shapes are fixture-labelled UNVERIFIED in evidence; host admission stays false.
  * Extra vendor fields are stripped rather than forwarded to the assistant.
  */
-export const tiktokPageSchema = z.object({ page: z.number().int().min(1).max(10000), page_size: z.number().int().min(1).max(100), total_page: z.number().int().nonnegative().max(10000), total_number: z.number().int().nonnegative().max(1000000) });
+export const tiktokPageSchema = z.object({ page: z.number().int().min(1).max(10000), page_size: z.number().int().min(1).max(1000), total_page: z.number().int().nonnegative().max(10000), total_number: z.number().int().nonnegative().max(1000000) });
 /** Exact nonnegative vendor decimal text; exponent is supplied by the host, not inferred. */
 export const tiktokSpendSchema = z.string().regex(/^(0|[1-9][0-9]{0,15})(\.[0-9]{1,3})?$/);
 /** Narrow account-total wire shape; no conversion metrics or CAC interpretation. */

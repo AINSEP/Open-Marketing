@@ -1,0 +1,100 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "anthropic",
+  "version": "0.1.0",
+  "description": "Claude model choices, effort settings, pricing and API-key connection form.",
+  "license": "Apache-2.0",
+  "extensions": {
+    "io.github.ainsep.openmarketing": {
+      "version": 1,
+      "provides": ["model"],
+      "enabled": true,
+      "admitted": true,
+      "capabilities": {},
+      "credentialCards": [{
+        "target": "anthropic",
+        "title": "Connect Anthropic",
+        "label": "Anthropic API key",
+        "category": "AI models",
+        "intro": "Connect your Anthropic account to use Claude models.",
+        "usedFor": ["Assistant model requests"],
+        "helpUrl": "https://platform.claude.com/docs/en/api/overview",
+        "helpLabel": "Anthropic API documentation",
+        "baseUrl": "https://api.anthropic.com",
+        "secretFields": [{ "name": "token", "label": "API key", "required": true }],
+        "saveKind": "api-key",
+        "saveTarget": "anthropic"
+      }],
+      "modelProvider": {
+        "protocol": "anthropic",
+        "endpoint": "https://api.anthropic.com",
+        "label": "Anthropic",
+        "models": [
+          {
+            "id": "claude-sonnet-5-5",
+            "label": "Claude Sonnet 5.5",
+            "efforts": [
+              { "id": "default", "label": "Default", "request": {} },
+              { "id": "low", "label": "Low", "request": { "output_config": { "effort": "low" } } },
+              { "id": "medium", "label": "Medium", "request": { "output_config": { "effort": "medium" } } },
+              { "id": "high", "label": "High", "request": { "output_config": { "effort": "high" } } },
+              { "id": "xhigh", "label": "Extra high", "request": { "output_config": { "effort": "xhigh" } } },
+              { "id": "max", "label": "Maximum", "request": { "output_config": { "effort": "max" } } }
+            ],
+            "pricing": {
+              "inputUsdPerMTok": "2", "outputUsdPerMTok": "10", "cachedInputUsdPerMTok": "0.10",
+              "cacheWriteUsdPerMTok": { "5m": "2.50", "1h": "4" },
+              "source": "https://platform.claude.com/docs/en/about-claude/pricing", "observedOn": "2026-10-28"
+            }
+          },
+          {
+            "id": "claude-opus-5-5",
+            "label": "Claude Opus 5.5",
+            "efforts": [
+              { "id": "default", "label": "Default", "request": {} },
+              { "id": "low", "label": "Low", "request": { "output_config": { "effort": "low" } } },
+              { "id": "medium", "label": "Medium", "request": { "output_config": { "effort": "medium" } } },
+              { "id": "high", "label": "High", "request": { "output_config": { "effort": "high" } } },
+              { "id": "xhigh", "label": "Extra high", "request": { "output_config": { "effort": "xhigh" } } },
+              { "id": "max", "label": "Maximum", "request": { "output_config": { "effort": "max" } } }
+            ],
+            "pricing": {
+              "inputUsdPerMTok": "4", "outputUsdPerMTok": "20", "cachedInputUsdPerMTok": "0.20",
+              "cacheWriteUsdPerMTok": { "5m": "5", "1h": "8" },
+              "source": "https://platform.claude.com/docs/en/about-claude/pricing", "observedOn": "2026-10-28"
+            }
+          },
+          {
+            "id": "claude-fable-5-1",
+            "label": "Claude Fable 5.1",
+            "efforts": [
+              { "id": "default", "label": "Default", "request": {} },
+              { "id": "low", "label": "Low", "request": { "output_config": { "effort": "low" } } },
+              { "id": "medium", "label": "Medium", "request": { "output_config": { "effort": "medium" } } },
+              { "id": "high", "label": "High", "request": { "output_config": { "effort": "high" } } },
+              { "id": "xhigh", "label": "Extra high", "request": { "output_config": { "effort": "xhigh" } } },
+              { "id": "max", "label": "Maximum", "request": { "output_config": { "effort": "max" } } }
+            ],
+            "pricing": {
+              "inputUsdPerMTok": "10", "outputUsdPerMTok": "50", "cachedInputUsdPerMTok": "0.25",
+              "cacheWriteUsdPerMTok": { "5m": "12.50", "1h": "20" },
+              "source": "https://platform.claude.com/docs/en/about-claude/pricing", "observedOn": "2026-10-28"
+            }
+          },
+          {
+            "id": "claude-haiku-5-5",
+            "label": "Claude Haiku 5.5",
+            "efforts": [
+              { "id": "default", "label": "Default", "request": {} },
+              { "id": "low", "label": "Low", "request": { "output_config": { "effort": "low" } } },
+              { "id": "medium", "label": "Medium", "request": { "output_config": { "effort": "medium" } } },
+              { "id": "high", "label": "High", "request": { "output_config": { "effort": "high" } } },
+              { "id": "xhigh", "label": "Extra high", "request": { "output_config": { "effort": "xhigh" } } },
+              { "id": "max", "label": "Maximum", "request": { "output_config": { "effort": "max" } } }
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

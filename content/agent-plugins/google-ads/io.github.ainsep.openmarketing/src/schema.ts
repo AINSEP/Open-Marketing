@@ -3,10 +3,10 @@ import type { AppError, Outcome } from "@open-marketing/contracts";
 /** Local JSON Schema subset used for closed tool inputs and provider projections.
  * No schema fetches or executable validators. Extend only with a paired fixture. */
 export interface Schema {
-  type: "object" | "array" | "string" | "integer" | "boolean";
+  type: "object" | "array" | "string" | "integer" | "number" | "boolean";
   properties?: Record<string, Schema>; required?: string[]; additionalProperties?: false;
   items?: Schema; minItems?: number; maxItems?: number; minLength?: number; maxLength?: number;
-  minimum?: number; maximum?: number; pattern?: string; enum?: readonly (string | number | boolean)[];
+  minimum?: number; maximum?: number; exclusiveMinimum?: number; pattern?: string; enum?: readonly (string | number | boolean)[];
 }
 /** Stable boundary error without tainted payloads. */
 export function failure<T>(required: { code: AppError["code"]; message: string }): Outcome<T> {
@@ -34,8 +34,9 @@ function matches(required: { schema: Schema; input: unknown; depth: number }): b
     case "array": return arrayMatches(required);
     case "string": return stringMatches({ schema, input });
     case "integer": return integerMatches({ schema, input });
+    case "number": return numberMatches({ schema, input });
     case "boolean": return typeof input === "boolean";
-    default: { const exhaustive: never = schema.type; return exhaustive; }
+    default: return false;
   }
 }
 function objectMatches(required: { schema: Schema; input: unknown; depth: number }): boolean {
@@ -64,6 +65,13 @@ function integerMatches(required: { schema: Schema; input: unknown }): boolean {
   const { schema, input } = required;
   if (typeof input !== "number" || !Number.isSafeInteger(input)) return false;
   return input >= (schema.minimum ?? 0) && input <= (schema.maximum ?? Number.MAX_SAFE_INTEGER);
+}
+/** Validate finite decimal boundaries from Zod's JSON projection; pure O(1). */
+function numberMatches(required: { schema: Schema; input: unknown }): boolean {
+  const { schema, input } = required;
+  if (typeof input !== "number" || !Number.isFinite(input)) return false;
+  if (schema.exclusiveMinimum !== undefined && input <= schema.exclusiveMinimum) return false;
+  return input >= (schema.minimum ?? -Infinity) && input <= (schema.maximum ?? Infinity);
 }
 /** Schema constructors keep the entire public MCP input schema inspectable. */
 export function object(required: { properties: Record<string, Schema>; optional?: string[] }): Schema {

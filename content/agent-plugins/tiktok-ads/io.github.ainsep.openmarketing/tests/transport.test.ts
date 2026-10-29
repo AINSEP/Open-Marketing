@@ -279,3 +279,32 @@ it("encodes a finite UTC end without changing the standalone continuous-schedule
   expect(JSON.parse(String(f.fetchCalls[0].init?.body))).toMatchObject({ operation_status: "DISABLE", budget_mode: "BUDGET_MODE_DAY", schedule_type: "SCHEDULE_START_END", schedule_start_time: "2026-10-13 00:00:00", schedule_end_time: "2026-10-15 00:00:00" });
   expect(encodeTikTokCommand({ input: adgroup, accountId: "123" })).toMatchObject({ ok: true, value: { body: { schedule_type: "SCHEDULE_FROM_NOW" } } });
 });
+
+import { requestTikTokRead } from "../src/transport.js";
+it("shares the bounded GET edge without weakening exact path, cancellation or body limits", async () => {
+  const calls: RequestInit[] = [];
+  const readFetch = (async (url, init) => {
+    expect(String(url)).toBe("https://business-api.tiktok.com/open_api/v1.3/campaign/get/?advertiser_id=123");
+    calls.push(init!);
+    return new Response("x".repeat(1048577));
+  }) as typeof fetch;
+  const wire = { method: "GET" as const, path: "campaign/get/" as const, parameters: { advertiser_id: "123" } };
+  expect(await requestTikTokRead({ fetch: readFetch, wire, token: "fixture-token" })).toMatchObject({ ok: false, error: { code: "limit_exceeded" } });
+  expect(calls[0]).toMatchObject({ method: "GET", redirect: "error", headers: { "Access-Token": "fixture-token" } });
+  const controller = new AbortController(); controller.abort();
+  expect(await requestTikTokRead({ fetch: readFetch, wire, token: "fixture-token" }, { signal: controller.signal })).toMatchObject({ ok: false, error: { code: "cancelled" } });
+  expect(calls).toHaveLength(1);
+});
+
+it("passes the caller signal unchanged to canonical read transport without an ambient timeout", async () => {
+  const controller = new AbortController();
+  let captured: AbortSignal | null | undefined;
+  const { requestTikTokRead } = await import("../src/transport.js");
+  const result = await requestTikTokRead({ fetch: (async (_url, options) => { captured = options?.signal; return Response.json({ code: 0, data: {} }); }) as typeof fetch, wire: { method: "GET", path: "advertiser/info/", parameters: { advertiser_ids: '["123"]' } }, token: "fixture-token" }, { signal: controller.signal });
+  expect(result.ok).toBe(true); expect(captured).toBe(controller.signal);
+});
+
+it("accepts 1,000-row report pages while entity-list commands remain capped at 100", () => {
+  expect(encodeTikTokCommand({ input: { ...reportQuery, pageSize: 1000 }, accountId: "123" })).toMatchObject({ ok: true, value: { parameters: { page_size: "1000" } } });
+  expectError({ result: encodeTikTokCommand({ input: { kind: "get-campaigns", pageSize: 1000 }, accountId: "123" }), code: "invalid_input" });
+});

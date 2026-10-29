@@ -5,11 +5,11 @@ Inert server-loaded Agent Plugins 1.1.0 package; disabled and unadmitted by defa
 After the integrator connects the catalog, the owner can ask to list Reddit businesses or report account/campaign spend, impressions and clicks. Account listing excludes shared accounts when implemented. This is a partial R1 handoff, not a complete launch integration.
 
 ```ts
-const adapter = createRedditAdsAdapter({ configuration, admitted, credentials, fetch: guardedServerFetch, createDeadline: ({ timeoutMs }) => AbortSignal.timeout(timeoutMs), clock, observer });
+const adapter = createRedditAdsAdapter({ configuration, credentials, fetch: guardedServerFetch, createDeadline: ({ timeoutMs }) => AbortSignal.timeout(timeoutMs), clock, observer });
 await adapter.invoke({ context, operationId, command: { kind: "list_businesses" }, moneyExposure: null, requiredLimit: null }, { signal });
 ```
 
-The only public entry is `io.github.ainsep.openmarketing/src/index.ts`. `configuration` holds `{scope, connectionId, accountId, currency}`; account/currency may be null only for discovery. `admitted({context})` checks current host admission synchronously before credentials and again before fetch. The host's guarded fetch rechecks connection/plugin/account authority after its own awaits. Credentials are server-brokered via `access({connectionId, accountId}, options)`; require adsread and preserve server scope/plugin checks even with a null account. Imports/factories start no services. Canonical OM context/options/outcome/clock/observer contracts are reused.
+The only public entry is `io.github.ainsep.openmarketing/src/index.ts`. Legacy adapter `configuration` holds `{scope, connectionId, accountId, currency}`; account/currency may be null only for discovery. The host's guarded fetch rechecks connection/plugin/account authority after its own awaits. Credentials are server-brokered via `access({connectionId, accountId}, options)`; require adsread and preserve server scope/plugin checks even with a null account. Imports/factories start no services. Canonical OM context/options/outcome/clock/observer contracts are reused.
 
 Auth is paste-token only. After catalog integration, use the existing server CLI `om integrations connect --plugin reddit-ads --token-stdin`; never paste credentials into chat. Reddit returns 3600- or 86400-second lifetimes; the server may supply `expiresAt` in epoch milliseconds. Known expiry rejects locally; 401 means reconnect with a fresh token. Unknown expiry is not a lifetime guarantee. No automatic refresh, OAuth descriptor or O2 work is supplied; Ads loopback eligibility remains unverified.
 
@@ -61,3 +61,22 @@ Official create pages were rechecked; schema controls remain absent in extracted
 R2 review items 3 and 5 remain blocked for successful translation, three PAUSED creates, durable checkpoints, ordered matching readback and GET-only reconciliation. Tests now exercise the explicit unavailable entry points and zero checkpoint/credential/deadline/network effects; no test claims uncertain-create retention or vendor compatibility. NEEDS: official schemas listed above, then implementation and behavioral tests, followed by integrator binding to the existing grouped card/outbox. No dependency, manifest, policy, outbox, migration or shared-file changes.
 
 R2F audit: PASS for lane isolation, sole public entry, canonical contracts and zero effects; R2 functionality remains blocked. Reuse: installed Zod `never` denies every plan and canonical `Outcome` represents denial; existing fixture dependencies assert absence of effects. Pattern follows existing object-input functions and typed failures. Public entry points/schema are documented. Function assessment: `translateCampaign/deployCampaignPaused/readCampaignDeployment/deploymentUnavailable | INCONCLUSIVE | official schemas and executed behavioral evidence missing | unconditional denial`. Each is O(1) time/space with no external I/O. Coverage and runtime self-validation were not run under dispatch. Scope/requirements/test-integrity review preserved R1 and all existing assertions; the single permitted R2F typecheck result is in the handoff.
+
+Fix wave 2026-10-26: `createCapabilities` uses the contracts host ABI and catalog keys
+`report.metrics.v1`/`campaign.status.v1`; canonical status uses only broker and host-guarded fetch,
+without plugin admission hooks. Legacy `invoke` remains separate.
+Canonical configuration is contracts `pluginConfigurationSchema`:
+`{scope, connectionId, accountId, pluginDigest, settings}`. Install settings do not supply account
+facts; a validated account GET supplies currency, the credential broker supplies the token.
+Daily account/campaign metrics use explicit UTC, a 31-day window, and up to 50 bounded POST
+report pages with at most 5,000 retained rows. Spend micros and counts stay exact integer strings; null, zero and unsupported
+conversion metrics stay distinct. DATE suffixes are cut to ISO calendar dates. Duplicate/foreign
+rows and conflicting currency reject the page atomically; a validated exclusive-end row is filtered.
+Validated pagination tokens are followed on reconstructed account URLs with the same POST body;
+request or row truncation returns `complete:false`. Unknown
+coverage stays `dataThrough:0`, stale and provisional, including a valid empty response.
+[Reddit reporting](https://ads-api.reddit.com/docs/v3/api/get-a-report) confirms UTC, spend units,
+restatement and 24-month delivery history. The official extracted page omits detailed schema controls;
+[Airbyte's connector source](https://raw.githubusercontent.com/airbytehq/airbyte/master/airbyte-integrations/connectors/source-reddit-ads/manifest.yaml)
+verifies daily breakdowns, `data.metrics[]` and date truncation. Fixture regressions are written,
+not run; vendor acceptance remains unverified. Legacy aggregate reports are unchanged.
