@@ -189,7 +189,7 @@ describe("durable SQLite restart and admission", () => {
     expect(fixture.counts()).toEqual({ submissions: 1, jobs: 1, receipts: 1, accepted: 1 });
     expect(fixture.captures()[0].visitToken).toBe("visit-one");
   });
-  it("overlapping roots reject instead of joining another request's transaction", async () => {
+  it("overlapping roots wait their turn instead of joining another request's transaction", async () => {
     const entered = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
     const receipts = { ...fixture.receipts, async find(input: Parameters<Fixture["receipts"]["find"]>[0]) {
@@ -197,11 +197,14 @@ describe("durable SQLite restart and admission", () => {
     } };
     const first = fixture.service({ receipts }).submitPublic({ context, slug: "lead", publicationId: "publication-one", attemptId: "attempt-one", body });
     await entered.promise;
+    let second: ReturnType<ReturnType<Fixture["service"]>["submitPublic"]> | undefined;
     try {
-      expect(await fixture.service().submitPublic({ context, slug: "lead", publicationId: "publication-one", attemptId: "attempt-two", body })).toMatchObject({ ok: false, error: { code: "unavailable" } });
+      second = fixture.service().submitPublic({ context, slug: "lead", publicationId: "publication-one", attemptId: "attempt-two", body });
+      expect(fixture.counts()).toEqual({ submissions: 0, jobs: 0, receipts: 0, accepted: 0 });
     } finally { release.resolve(); }
     expect(await first).toMatchObject({ ok: true, value: { status: "accepted" } });
-    expect(fixture.counts()).toEqual({ submissions: 1, jobs: 1, receipts: 1, accepted: 0 });
+    expect(await second).toMatchObject({ ok: true, value: { status: "accepted" } });
+    expect(fixture.counts()).toEqual({ submissions: 2, jobs: 2, receipts: 2, accepted: 0 });
   });
 });
 

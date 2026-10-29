@@ -46,11 +46,16 @@ describe('server-owned SQLite shim', () => {
         await withTransaction({ pool, work: tx => tx.query({ text: 'INSERT INTO items VALUES ($1)', values: ['committed'] }) }, { observer: () => { throw new Error('telemetry'); } });
         expect(database.prepare('SELECT id FROM items').all()).toEqual([{ id: 'committed' }]);
     });
-    it('rejects overlapping bodies before sharing a transaction and rejects use after release', async () => {
+    it('queues overlapping bodies until the lease ends instead of sharing a transaction, and rejects use after release', async () => {
         const { pool } = fixture();
         const client = await pool.connect();
-        await expect(withTransaction({ pool, work: async () => 1 })).rejects.toMatchObject({ code: 'connect_failed', cause: { code: 'connection_busy' } });
+        const order: string[] = [];
+        const waiting = withTransaction({ pool, work: async () => { order.push('queued'); return 1; } });
+        await client.query({ text: 'SELECT 1' });
+        order.push('holder');
         client.release({});
+        expect(await waiting).toBe(1);
+        expect(order).toEqual(['holder', 'queued']);
         await expect(client.query({ text: 'SELECT 1' })).rejects.toMatchObject({ code: 'connection_released' });
         expect(await withTransaction({ pool, work: async () => 2 })).toBe(2);
     });

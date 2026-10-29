@@ -336,3 +336,53 @@ describe('kernel ownership and cleanup', () => {
         } finally { database.close(); }
     });
 });
+
+describe('single-handle contention (B3 regression)', () => {
+    /** Two roots held open by gates; the second must wait its turn, never fail or join the first. */
+    it('queues concurrent roots FIFO on one handle, commits each alone, and fails a nested root fast', async () => {
+        const database = new Database(':memory:');
+        const kernel = sqliteKernel(createCheckedSqliteClient({ database }));
+        const pool = createSqlitePool({ database, kernel });
+        database.exec('CREATE TABLE items (value TEXT)');
+        const entered = Promise.withResolvers<void>();
+        const gate = Promise.withResolvers<void>();
+        const order: string[] = [];
+        let nested: unknown;
+        try {
+            const first = pool.transaction({ work: async ({ session }) => {
+                await session.query({ text: 'INSERT INTO items VALUES ($1)', values: ['first'] });
+                nested = await withTransaction({ pool, work: async () => 'nested' }).catch((cause: unknown) => cause);
+                entered.resolve();
+                await gate.promise;
+                order.push('first');
+                return { ok: false, error: { code: 'denied' } };
+            } });
+            await entered.promise;
+            const roots = ['second', 'third'].map(value => pool.transaction({ work: async ({ session }) => {
+                expect(database.prepare('SELECT value FROM items').all()).not.toContainEqual({ value: 'first' });
+                await session.query({ text: 'INSERT INTO items VALUES ($1)', values: [value] });
+                order.push(value);
+                return value;
+            } }));
+            expect(nested).toMatchObject({ code: 'connect_failed', cause: { code: 'connection_busy' } });
+            expect(database.prepare('SELECT value FROM items').all()).toEqual([{ value: 'first' }]);
+            gate.resolve();
+            expect(await first).toMatchObject({ ok: false });
+            expect(await Promise.all(roots)).toEqual(['second', 'third']);
+            expect(order).toEqual(['first', 'second', 'third']);
+            expect(database.prepare('SELECT value FROM items ORDER BY rowid').all()).toEqual([{ value: 'second' }, { value: 'third' }]);
+            expect(database.inTransaction).toBe(false);
+        } finally { gate.resolve(); database.close(); }
+    });
+    it('drains queued roots with connection_unavailable when the holder quarantines the handle', async () => {
+        const database = new Database(':memory:');
+        const pool = createSqlitePool({ database, kernel: sqliteKernel(createCheckedSqliteClient({ database })) });
+        try {
+            const client = await pool.connect();
+            const queued = [pool.connect(), withTransaction({ pool, work: async () => 'never' })];
+            client.release({ destroy: true });
+            await expect(queued[0]).rejects.toMatchObject({ code: 'connection_unavailable' });
+            await expect(queued[1]).rejects.toMatchObject({ code: 'connect_failed', cause: { code: 'connection_unavailable' } });
+        } finally { database.close(); }
+    });
+});

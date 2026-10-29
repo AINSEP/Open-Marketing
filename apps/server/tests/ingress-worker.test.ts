@@ -121,7 +121,7 @@ async function fixture(_input: Record<string, never>) {
         const database = input.database;
         const visits = createVisitTokens({ key: localKey({ ownerToken: credentials.token, domain: 'visits' }), clock, ids });
         const digestKey = localKey({ ownerToken: credentials.token, domain: 'contacts' });
-        const subjectLane = createSubjectLane({ resolveSubject: createSqlContactRepo({ uow: database.unit }).get });
+        const subjectLane = createSubjectLane({ resolveSubject: createSqlContactRepo({ uow: database.reads }).get });
         const identity = bindIdentity({ unit: database.unit, subjectLane, clock, ids, observer, digestKey, tokens: visits.tokens });
         const forms = bindForms({ database, subjectLane, clock, ids, observer, digestKey, tokens: visits.tokens });
         const measureDb: MeasureSqlDatabase = database.workspace;

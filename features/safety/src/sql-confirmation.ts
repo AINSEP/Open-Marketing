@@ -11,6 +11,18 @@ import { z } from "zod";
 /** Retain a bounded driver code without exposing its SQL, parameters or raw message. */
 const storageErrorSchema = z.object({ code: z.string().regex(/^[A-Za-z0-9_]{1,64}$/) });
 
+/** Bounded cause walk (<=4); keep the innermost driver code and its immediate wrapper, so a transaction
+ * owner's outer body-failure wrapper cannot hide the underlying SQL error code. @complexity O(1). */
+function storageCodes(required: { cause: unknown }): string[] {
+ const codes: string[] = [];
+ let current = required.cause;
+ for (let depth = 0; depth < 4 && current !== undefined && current !== null; depth++) {
+  const parsed = storageErrorSchema.safeParse(current);
+  if (parsed.success) codes.push(parsed.data.code);
+  current = current instanceof Error ? current.cause : undefined;
+ }
+ return codes.slice(-2);
+}
 /** Parse bounded database payloads before restoring authority. @complexity O(b), b <=256KiB. */
 function readCard(required: { row: Readonly<Record<string, unknown>> }): StoredCard {
  if (typeof required.row.payload !== "string" || required.row.payload.length > 262144) throw new Error("Invalid card storage");
@@ -34,8 +46,7 @@ export function createSqlConfirmationExchange(required: { db: SafetySqlDatabase;
   if (options?.signal?.aborted) return failure({ code: "cancelled", message: "Confirmation cancelled" });
   try { return await required.db.transaction({ work: input.execute }); }
   catch (cause) {
-   const codes = [cause, cause instanceof Error ? cause.cause : undefined]
-    .map(value => storageErrorSchema.safeParse(value)).filter(value => value.success).map(value => value.data.code);
+   const codes = storageCodes({ cause });
    const code = codes.length ? ` (${codes.join("/")})` : "";
    return failure({ code: "unavailable", message: `Confirmation storage unavailable${code}; no authority granted` });
   }

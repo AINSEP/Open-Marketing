@@ -329,7 +329,7 @@ export async function bootServer(required: {
         services.handleChartRequest = resources.addons?.handleChartRequest;
         const visits = createVisitTokens({ key: localKey({ ownerToken: credentials.value.token, domain: 'visits' }), clock: required.clock, ids: required.ids });
         const digestKey = localKey({ ownerToken: credentials.value.token, domain: 'contacts' });
-        const subjectLane = createSubjectLane({ resolveSubject: createSqlContactRepo({ uow: database.unit }).get });
+        const subjectLane = createSubjectLane({ resolveSubject: createSqlContactRepo({ uow: database.reads }).get });
         const identity = bindIdentity({ unit: database.unit, clock: required.clock, ids: required.ids, observer: required.observer, digestKey, tokens: visits.tokens, subjectLane }, { observedCampaigns: { observed: (i, o) => membership.observed(i, o) } });
         const forms = bindForms({ database, clock: required.clock, ids: required.ids, observer: required.observer, digestKey, tokens: visits.tokens, subjectLane });
         await seedSandboxForm({ binding: forms, context, clock: required.clock, ids: required.ids });

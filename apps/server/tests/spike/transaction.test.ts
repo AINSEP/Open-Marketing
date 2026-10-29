@@ -89,18 +89,19 @@ describe('A1: published Jini forms + one checked SQLite kernel + real OM jobs', 
         expect(await value.submissions.findById({ workspaceId: other.scope.workspaceId, id: first.value.receipt.submissionId })).toBeNull();
     });
 
-    it('rejects an overlapping request without letting it join the first transaction, then permits retry', async () => {
+    it('queues an overlapping request without letting it join the first transaction, then commits it alone', async () => {
         const value = await fixture({});
         const { promise: holding, resolve: release } = Promise.withResolvers<void>();
         const { promise: started, resolve: entered } = Promise.withResolvers<void>();
         const first = value.submit({ attemptId: 'first', failure: 'outcome', hold: () => { entered(); return holding; } });
+        let second: ReturnType<typeof value.submit> | undefined;
         try {
             await started;
-            await expect(value.submit({ attemptId: 'second' })).rejects.toMatchObject({ code: 'connect_failed', cause: { code: 'connection_busy' } });
+            second = value.submit({ attemptId: 'second' });
             expect(counts({ fixture: value }).slice(0, 4)).toEqual([1, 1, 1, 1]);
         } finally { release(); await first; }
-        expect(counts({ fixture: value })).toEqual([0, 0, 0, 0, 0, 0, 0]);
-        expect(await value.submit({ attemptId: 'second' })).toMatchObject({ ok: true, value: { status: 'accepted' } });
+        expect(await second).toMatchObject({ ok: true, value: { status: 'accepted' } });
+        expect(counts({ fixture: value })).toEqual([1, 1, 1, 1, 0, 0, 0]);
     });
 
     it('nested real repository/session calls join and roll back, and expired sessions cannot query', async () => {
