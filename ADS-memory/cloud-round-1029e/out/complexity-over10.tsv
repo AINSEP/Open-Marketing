@@ -1,0 +1,5 @@
+file:line	name	score	group
+apps/studio/tests/addons.test.ts:22	<anonymous>	11	apps
+apps/studio/src/shared/api/http.ts:98	<anonymous>	11	apps
+content/agent-plugins/google-ads/io.github.ainsep.openmarketing/tests/read-capabilities.test.ts:341	test	11	plugins
+content/agent-plugins/meta-ads/io.github.ainsep.openmarketing/src/instagram-fetch.ts:69	<anonymous>	11	plugins

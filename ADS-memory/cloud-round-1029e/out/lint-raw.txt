@@ -1,0 +1,72 @@
+
+> open-marketing@0.0.0 om:lint /home/user/Open-Marketing
+> node development/scripts/lint.mjs
+
+packages/contracts/dist/src/index.d.ts: stale or invalid generated source provenance
+packages/contracts/dist/src/index.js: stale or invalid generated source provenance
+packages/contracts/dist/src/addons/index.d.ts: stale or invalid generated source provenance
+packages/contracts/dist/src/addons/index.js: stale or invalid generated source provenance
+packages/contracts/dist/src/agent/index.d.ts: stale or invalid generated source provenance
+packages/contracts/dist/src/agent/index.js: stale or invalid generated source provenance
+packages/contracts/dist/src/api/index.d.ts: stale or invalid generated source provenance
+packages/contracts/dist/src/api/index.js: stale or invalid generated source provenance
+packages/contracts/dist/src/capabilities/index.d.ts: stale or invalid generated source provenance
+packages/contracts/dist/src/capabilities/index.js: stale or invalid generated source provenance
+packages/contracts/dist/src/launch/index.d.ts: stale or invalid generated source provenance
+packages/contracts/dist/src/launch/index.js: stale or invalid generated source provenance
+packages/contracts/dist/src/metrics/index.d.ts: stale or invalid generated source provenance
+packages/contracts/dist/src/metrics/index.js: stale or invalid generated source provenance
+packages/contracts/dist/src/telemetry/index.d.ts: stale or invalid generated source provenance
+packages/contracts/dist/src/telemetry/index.js: stale or invalid generated source provenance
+packages/contracts/dist/src/values/index.d.ts: stale or invalid generated source provenance
+packages/contracts/dist/src/values/index.js: stale or invalid generated source provenance
+/home/user/Open-Marketing/apps/server/tests/consent-limit.test.ts:9: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+/home/user/Open-Marketing/apps/server/tests/integration-oauth-vendors.test.ts:32: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+/home/user/Open-Marketing/apps/server/tests/integrations.test.ts:454: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+/home/user/Open-Marketing/apps/server/tests/om-tools.test.ts:668: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+/home/user/Open-Marketing/apps/studio/tests/addons.test.ts:22: sonarjs/cognitive-complexity: Refactor this function to reduce its Cognitive Complexity from 11 to the 10 allowed.
+/home/user/Open-Marketing/apps/studio/tests/leads.test.tsx:21: om/no-functions-in-component-body: No function definitions inside TSX component bodies; extract to hooks/rules.
+/home/user/Open-Marketing/apps/studio/tests/leads.test.tsx:22: om/no-functions-in-component-body: No function definitions inside TSX component bodies; extract to hooks/rules.
+/home/user/Open-Marketing/apps/studio/tests/leads.test.tsx:50: om/no-functions-in-component-body: No function definitions inside TSX component bodies; extract to hooks/rules.
+/home/user/Open-Marketing/apps/studio/tests/leads.test.tsx:74: om/no-functions-in-component-body: No function definitions inside TSX component bodies; extract to hooks/rules.
+/home/user/Open-Marketing/apps/studio/tests/shell.test.ts:21: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+/home/user/Open-Marketing/content/plugins/charts-chartjs/src/provider.ts:66: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+/home/user/Open-Marketing/content/plugins/charts-chartjs/src/provider.ts:78: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+/home/user/Open-Marketing/content/plugins/charts-chartjs/src/provider.ts:79: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+/home/user/Open-Marketing/content/plugins/charts-chartjs/src/provider.ts:81: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+/home/user/Open-Marketing/content/plugins/charts-chartjs/src/provider.ts:91: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+/home/user/Open-Marketing/content/plugins/charts-chartjs/src/provider.ts:108: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+/home/user/Open-Marketing/content/plugins/charts-chartjs/src/provider.ts:125: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+/home/user/Open-Marketing/content/plugins/charts-chartjs/tests/provider.test.ts:13: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+/home/user/Open-Marketing/content/plugins/charts-chartjs/tests/provider.test.ts:18: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+/home/user/Open-Marketing/content/plugins/charts-echarts/src/provider.ts:75: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+/home/user/Open-Marketing/content/plugins/charts-echarts/src/provider.ts:86: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+/home/user/Open-Marketing/content/plugins/charts-echarts/src/provider.ts:87: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+/home/user/Open-Marketing/content/plugins/charts-echarts/src/provider.ts:95: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+/home/user/Open-Marketing/content/plugins/charts-echarts/src/provider.ts:106: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+/home/user/Open-Marketing/content/plugins/charts-echarts/src/provider.ts:106: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+/home/user/Open-Marketing/content/plugins/charts-echarts/src/provider.ts:112: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+/home/user/Open-Marketing/content/plugins/charts-echarts/src/provider.ts:112: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+/home/user/Open-Marketing/content/plugins/charts-echarts/src/provider.ts:113: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+/home/user/Open-Marketing/content/plugins/charts-echarts/src/provider.ts:115: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+/home/user/Open-Marketing/content/plugins/charts-echarts/src/provider.ts:128: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+/home/user/Open-Marketing/content/plugins/charts-echarts/src/provider.ts:147: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+/home/user/Open-Marketing/content/plugins/charts-echarts/tests/provider.test.ts:12: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+/home/user/Open-Marketing/apps/studio/src/shared/api/http.ts:98: sonarjs/cognitive-complexity: Refactor this function to reduce its Cognitive Complexity from 11 to the 10 allowed.
+/home/user/Open-Marketing/content/agent-plugins/google-ads/io.github.ainsep.openmarketing/tests/campaign-deployment.test.ts:452: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+/home/user/Open-Marketing/content/agent-plugins/google-ads/io.github.ainsep.openmarketing/tests/read-capabilities.test.ts:341: sonarjs/cognitive-complexity: Refactor this function to reduce its Cognitive Complexity from 11 to the 10 allowed.
+/home/user/Open-Marketing/content/agent-plugins/higgsfield-media/io.github.ainsep.openmarketing/src/adapter.ts:39: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+/home/user/Open-Marketing/content/agent-plugins/higgsfield-media/io.github.ainsep.openmarketing/src/adapter.ts:43: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+/home/user/Open-Marketing/content/agent-plugins/higgsfield-media/io.github.ainsep.openmarketing/src/adapter.ts:51: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+/home/user/Open-Marketing/content/agent-plugins/higgsfield-media/io.github.ainsep.openmarketing/src/adapter.ts:56: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+/home/user/Open-Marketing/content/agent-plugins/higgsfield-media/io.github.ainsep.openmarketing/src/bridge.ts:39: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+/home/user/Open-Marketing/content/agent-plugins/higgsfield-media/io.github.ainsep.openmarketing/src/bridge.ts:52: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+/home/user/Open-Marketing/content/agent-plugins/higgsfield-media/io.github.ainsep.openmarketing/tests/federation-integration.test.ts:34: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+/home/user/Open-Marketing/content/agent-plugins/higgsfield-media/io.github.ainsep.openmarketing/tests/federation-integration.test.ts:42: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+/home/user/Open-Marketing/content/agent-plugins/higgsfield-media/io.github.ainsep.openmarketing/tests/federation-integration.test.ts:44: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+/home/user/Open-Marketing/content/agent-plugins/higgsfield-media/io.github.ainsep.openmarketing/tests/federation-integration.test.ts:52: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+/home/user/Open-Marketing/content/agent-plugins/higgsfield-media/io.github.ainsep.openmarketing/tests/federation-integration.test.ts:59: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+/home/user/Open-Marketing/content/agent-plugins/higgsfield-media/io.github.ainsep.openmarketing/tests/safety-integration.test.ts:75: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+/home/user/Open-Marketing/content/agent-plugins/meta-ads/io.github.ainsep.openmarketing/src/instagram-fetch.ts:69: sonarjs/cognitive-complexity: Refactor this function to reduce its Cognitive Complexity from 11 to the 10 allowed.
+/home/user/Open-Marketing/apps/studio/src/widgets/workspace-canvas/ui/AlertsFeed.tsx:45: om/two-object-arguments: Owned signatures accept at most two object arguments; wrap foreign ABIs at their callback boundary.
+ ELIFECYCLE  Command failed with exit code 1.

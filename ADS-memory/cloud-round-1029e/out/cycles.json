@@ -1,0 +1,3012 @@
+{
+ "dependencyCruiserViolationRows": 53,
+ "uniqueCycles": 53,
+ "runtimeCycles": 41,
+ "typeOnlyCycles": 12,
+ "cycles": [
+  {
+   "id": 1,
+   "packages": [
+    "apps/server"
+   ],
+   "length": 3,
+   "runtime": true,
+   "typeOnlyEdges": 2,
+   "runtimeEdges": 1,
+   "chain": [
+    "apps/server/src/alerts/email.ts",
+    "apps/server/src/alerts/provider-settings.ts",
+    "apps/server/src/composition/agent-plugin-backends.ts",
+    "apps/server/src/alerts/email.ts"
+   ],
+   "edges": [
+    {
+     "from": "apps/server/src/alerts/email.ts",
+     "to": "apps/server/src/alerts/provider-settings.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/alerts/provider-settings.ts",
+     "to": "apps/server/src/composition/agent-plugin-backends.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/agent-plugin-backends.ts",
+     "to": "apps/server/src/alerts/email.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "apps/server/src/alerts/email.ts"
+   ]
+  },
+  {
+   "id": 2,
+   "packages": [
+    "apps/server"
+   ],
+   "length": 4,
+   "runtime": true,
+   "typeOnlyEdges": 2,
+   "runtimeEdges": 2,
+   "chain": [
+    "apps/server/src/alerts/email.ts",
+    "apps/server/src/composition/forms.ts",
+    "apps/server/src/composition/identity.ts",
+    "apps/server/src/composition/agent-plugin-backends.ts",
+    "apps/server/src/alerts/email.ts"
+   ],
+   "edges": [
+    {
+     "from": "apps/server/src/alerts/email.ts",
+     "to": "apps/server/src/composition/forms.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/forms.ts",
+     "to": "apps/server/src/composition/identity.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/identity.ts",
+     "to": "apps/server/src/composition/agent-plugin-backends.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/agent-plugin-backends.ts",
+     "to": "apps/server/src/alerts/email.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "apps/server/src/alerts/email.ts"
+   ]
+  },
+  {
+   "id": 3,
+   "packages": [
+    "apps/server"
+   ],
+   "length": 6,
+   "runtime": true,
+   "typeOnlyEdges": 1,
+   "runtimeEdges": 5,
+   "chain": [
+    "apps/server/src/alerts/index.ts",
+    "apps/server/src/alerts/email.ts",
+    "apps/server/src/composition/forms.ts",
+    "apps/server/src/composition/identity.ts",
+    "apps/server/src/composition/agent-plugin-backends.ts",
+    "apps/server/src/om-tools.ts",
+    "apps/server/src/alerts/index.ts"
+   ],
+   "edges": [
+    {
+     "from": "apps/server/src/alerts/index.ts",
+     "to": "apps/server/src/alerts/email.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "export",
+      "type-only"
+     ]
+    },
+    {
+     "from": "apps/server/src/alerts/email.ts",
+     "to": "apps/server/src/composition/forms.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/forms.ts",
+     "to": "apps/server/src/composition/identity.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/identity.ts",
+     "to": "apps/server/src/composition/agent-plugin-backends.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/agent-plugin-backends.ts",
+     "to": "apps/server/src/om-tools.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import",
+      "type-only"
+     ]
+    },
+    {
+     "from": "apps/server/src/om-tools.ts",
+     "to": "apps/server/src/alerts/index.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "apps/server/src/alerts/index.ts"
+   ]
+  },
+  {
+   "id": 4,
+   "packages": [
+    "apps/server"
+   ],
+   "length": 6,
+   "runtime": true,
+   "typeOnlyEdges": 1,
+   "runtimeEdges": 5,
+   "chain": [
+    "apps/server/src/alerts/index.ts",
+    "apps/server/src/alerts/jobs.ts",
+    "apps/server/src/composition/forms.ts",
+    "apps/server/src/composition/identity.ts",
+    "apps/server/src/composition/agent-plugin-backends.ts",
+    "apps/server/src/om-tools.ts",
+    "apps/server/src/alerts/index.ts"
+   ],
+   "edges": [
+    {
+     "from": "apps/server/src/alerts/index.ts",
+     "to": "apps/server/src/alerts/jobs.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "export"
+     ]
+    },
+    {
+     "from": "apps/server/src/alerts/jobs.ts",
+     "to": "apps/server/src/composition/forms.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/forms.ts",
+     "to": "apps/server/src/composition/identity.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/identity.ts",
+     "to": "apps/server/src/composition/agent-plugin-backends.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/agent-plugin-backends.ts",
+     "to": "apps/server/src/om-tools.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import",
+      "type-only"
+     ]
+    },
+    {
+     "from": "apps/server/src/om-tools.ts",
+     "to": "apps/server/src/alerts/index.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "apps/server/src/alerts/index.ts"
+   ]
+  },
+  {
+   "id": 5,
+   "packages": [
+    "apps/server"
+   ],
+   "length": 4,
+   "runtime": true,
+   "typeOnlyEdges": 1,
+   "runtimeEdges": 3,
+   "chain": [
+    "apps/server/src/alerts/index.ts",
+    "apps/server/src/alerts/provider-settings.ts",
+    "apps/server/src/composition/agent-plugin-backends.ts",
+    "apps/server/src/om-tools.ts",
+    "apps/server/src/alerts/index.ts"
+   ],
+   "edges": [
+    {
+     "from": "apps/server/src/alerts/index.ts",
+     "to": "apps/server/src/alerts/provider-settings.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "export",
+      "type-only"
+     ]
+    },
+    {
+     "from": "apps/server/src/alerts/provider-settings.ts",
+     "to": "apps/server/src/composition/agent-plugin-backends.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/agent-plugin-backends.ts",
+     "to": "apps/server/src/om-tools.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import",
+      "type-only"
+     ]
+    },
+    {
+     "from": "apps/server/src/om-tools.ts",
+     "to": "apps/server/src/alerts/index.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "apps/server/src/alerts/index.ts"
+   ]
+  },
+  {
+   "id": 6,
+   "packages": [
+    "apps/server"
+   ],
+   "length": 7,
+   "runtime": true,
+   "typeOnlyEdges": 1,
+   "runtimeEdges": 6,
+   "chain": [
+    "apps/server/src/alerts/index.ts",
+    "apps/server/src/alerts/store.ts",
+    "apps/server/src/alerts/email.ts",
+    "apps/server/src/composition/forms.ts",
+    "apps/server/src/composition/identity.ts",
+    "apps/server/src/composition/agent-plugin-backends.ts",
+    "apps/server/src/om-tools.ts",
+    "apps/server/src/alerts/index.ts"
+   ],
+   "edges": [
+    {
+     "from": "apps/server/src/alerts/index.ts",
+     "to": "apps/server/src/alerts/store.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "export",
+      "type-only"
+     ]
+    },
+    {
+     "from": "apps/server/src/alerts/store.ts",
+     "to": "apps/server/src/alerts/email.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/alerts/email.ts",
+     "to": "apps/server/src/composition/forms.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/forms.ts",
+     "to": "apps/server/src/composition/identity.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/identity.ts",
+     "to": "apps/server/src/composition/agent-plugin-backends.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/agent-plugin-backends.ts",
+     "to": "apps/server/src/om-tools.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import",
+      "type-only"
+     ]
+    },
+    {
+     "from": "apps/server/src/om-tools.ts",
+     "to": "apps/server/src/alerts/index.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "apps/server/src/alerts/index.ts"
+   ]
+  },
+  {
+   "id": 7,
+   "packages": [
+    "apps/server"
+   ],
+   "length": 8,
+   "runtime": true,
+   "typeOnlyEdges": 1,
+   "runtimeEdges": 7,
+   "chain": [
+    "apps/server/src/alerts/jobs.ts",
+    "apps/server/src/alerts/store.ts",
+    "apps/server/src/alerts/email.ts",
+    "apps/server/src/composition/forms.ts",
+    "apps/server/src/composition/identity.ts",
+    "apps/server/src/composition/agent-plugin-backends.ts",
+    "apps/server/src/om-tools.ts",
+    "apps/server/src/alerts/index.ts",
+    "apps/server/src/alerts/jobs.ts"
+   ],
+   "edges": [
+    {
+     "from": "apps/server/src/alerts/jobs.ts",
+     "to": "apps/server/src/alerts/store.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/alerts/store.ts",
+     "to": "apps/server/src/alerts/email.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/alerts/email.ts",
+     "to": "apps/server/src/composition/forms.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/forms.ts",
+     "to": "apps/server/src/composition/identity.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/identity.ts",
+     "to": "apps/server/src/composition/agent-plugin-backends.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/agent-plugin-backends.ts",
+     "to": "apps/server/src/om-tools.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import",
+      "type-only"
+     ]
+    },
+    {
+     "from": "apps/server/src/om-tools.ts",
+     "to": "apps/server/src/alerts/index.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/alerts/index.ts",
+     "to": "apps/server/src/alerts/jobs.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "export"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "apps/server/src/alerts/jobs.ts"
+   ]
+  },
+  {
+   "id": 8,
+   "packages": [
+    "apps/server"
+   ],
+   "length": 3,
+   "runtime": true,
+   "typeOnlyEdges": 1,
+   "runtimeEdges": 2,
+   "chain": [
+    "apps/server/src/composition/agent-plugin-backends.ts",
+    "apps/server/src/composition/forms.ts",
+    "apps/server/src/composition/identity.ts",
+    "apps/server/src/composition/agent-plugin-backends.ts"
+   ],
+   "edges": [
+    {
+     "from": "apps/server/src/composition/agent-plugin-backends.ts",
+     "to": "apps/server/src/composition/forms.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/forms.ts",
+     "to": "apps/server/src/composition/identity.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/identity.ts",
+     "to": "apps/server/src/composition/agent-plugin-backends.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "apps/server/src/composition/agent-plugin-backends.ts"
+   ]
+  },
+  {
+   "id": 9,
+   "packages": [
+    "apps/server"
+   ],
+   "length": 2,
+   "runtime": true,
+   "typeOnlyEdges": 1,
+   "runtimeEdges": 1,
+   "chain": [
+    "apps/server/src/composition/agent-plugin-backends.ts",
+    "apps/server/src/composition/identity.ts",
+    "apps/server/src/composition/agent-plugin-backends.ts"
+   ],
+   "edges": [
+    {
+     "from": "apps/server/src/composition/agent-plugin-backends.ts",
+     "to": "apps/server/src/composition/identity.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/identity.ts",
+     "to": "apps/server/src/composition/agent-plugin-backends.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "apps/server/src/composition/agent-plugin-backends.ts"
+   ]
+  },
+  {
+   "id": 10,
+   "packages": [
+    "apps/server"
+   ],
+   "length": 7,
+   "runtime": true,
+   "typeOnlyEdges": 2,
+   "runtimeEdges": 5,
+   "chain": [
+    "apps/server/src/composition/alerts.ts",
+    "apps/server/src/alerts/index.ts",
+    "apps/server/src/alerts/email.ts",
+    "apps/server/src/composition/forms.ts",
+    "apps/server/src/composition/identity.ts",
+    "apps/server/src/composition/agent-plugin-backends.ts",
+    "apps/server/src/om-tools.ts",
+    "apps/server/src/composition/alerts.ts"
+   ],
+   "edges": [
+    {
+     "from": "apps/server/src/composition/alerts.ts",
+     "to": "apps/server/src/alerts/index.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/alerts/index.ts",
+     "to": "apps/server/src/alerts/email.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "export",
+      "type-only"
+     ]
+    },
+    {
+     "from": "apps/server/src/alerts/email.ts",
+     "to": "apps/server/src/composition/forms.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/forms.ts",
+     "to": "apps/server/src/composition/identity.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/identity.ts",
+     "to": "apps/server/src/composition/agent-plugin-backends.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/agent-plugin-backends.ts",
+     "to": "apps/server/src/om-tools.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import",
+      "type-only"
+     ]
+    },
+    {
+     "from": "apps/server/src/om-tools.ts",
+     "to": "apps/server/src/composition/alerts.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "apps/server/src/composition/alerts.ts"
+   ]
+  },
+  {
+   "id": 11,
+   "packages": [
+    "apps/server"
+   ],
+   "length": 3,
+   "runtime": true,
+   "typeOnlyEdges": 2,
+   "runtimeEdges": 1,
+   "chain": [
+    "apps/server/src/composition/alerts.ts",
+    "apps/server/src/composition/agent-plugin-backends.ts",
+    "apps/server/src/om-tools.ts",
+    "apps/server/src/composition/alerts.ts"
+   ],
+   "edges": [
+    {
+     "from": "apps/server/src/composition/alerts.ts",
+     "to": "apps/server/src/composition/agent-plugin-backends.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/agent-plugin-backends.ts",
+     "to": "apps/server/src/om-tools.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import",
+      "type-only"
+     ]
+    },
+    {
+     "from": "apps/server/src/om-tools.ts",
+     "to": "apps/server/src/composition/alerts.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "apps/server/src/composition/alerts.ts"
+   ]
+  },
+  {
+   "id": 12,
+   "packages": [
+    "apps/server"
+   ],
+   "length": 7,
+   "runtime": true,
+   "typeOnlyEdges": 2,
+   "runtimeEdges": 5,
+   "chain": [
+    "apps/server/src/composition/alerts.ts",
+    "apps/server/src/composition/reporting.ts",
+    "apps/server/src/alerts/jobs.ts",
+    "apps/server/src/composition/forms.ts",
+    "apps/server/src/composition/identity.ts",
+    "apps/server/src/composition/agent-plugin-backends.ts",
+    "apps/server/src/om-tools.ts",
+    "apps/server/src/composition/alerts.ts"
+   ],
+   "edges": [
+    {
+     "from": "apps/server/src/composition/alerts.ts",
+     "to": "apps/server/src/composition/reporting.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/reporting.ts",
+     "to": "apps/server/src/alerts/jobs.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/alerts/jobs.ts",
+     "to": "apps/server/src/composition/forms.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/forms.ts",
+     "to": "apps/server/src/composition/identity.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/identity.ts",
+     "to": "apps/server/src/composition/agent-plugin-backends.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/agent-plugin-backends.ts",
+     "to": "apps/server/src/om-tools.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import",
+      "type-only"
+     ]
+    },
+    {
+     "from": "apps/server/src/om-tools.ts",
+     "to": "apps/server/src/composition/alerts.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "apps/server/src/composition/alerts.ts"
+   ]
+  },
+  {
+   "id": 13,
+   "packages": [
+    "apps/server"
+   ],
+   "length": 6,
+   "runtime": true,
+   "typeOnlyEdges": 2,
+   "runtimeEdges": 4,
+   "chain": [
+    "apps/server/src/composition/reporting.ts",
+    "apps/server/src/alerts/jobs.ts",
+    "apps/server/src/composition/forms.ts",
+    "apps/server/src/composition/identity.ts",
+    "apps/server/src/composition/agent-plugin-backends.ts",
+    "apps/server/src/om-tools.ts",
+    "apps/server/src/composition/reporting.ts"
+   ],
+   "edges": [
+    {
+     "from": "apps/server/src/composition/reporting.ts",
+     "to": "apps/server/src/alerts/jobs.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/alerts/jobs.ts",
+     "to": "apps/server/src/composition/forms.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/forms.ts",
+     "to": "apps/server/src/composition/identity.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/identity.ts",
+     "to": "apps/server/src/composition/agent-plugin-backends.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/agent-plugin-backends.ts",
+     "to": "apps/server/src/om-tools.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import",
+      "type-only"
+     ]
+    },
+    {
+     "from": "apps/server/src/om-tools.ts",
+     "to": "apps/server/src/composition/reporting.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "apps/server/src/composition/reporting.ts"
+   ]
+  },
+  {
+   "id": 14,
+   "packages": [
+    "apps/server"
+   ],
+   "length": 3,
+   "runtime": true,
+   "typeOnlyEdges": 2,
+   "runtimeEdges": 1,
+   "chain": [
+    "apps/server/src/composition/reporting.ts",
+    "apps/server/src/composition/agent-plugin-backends.ts",
+    "apps/server/src/om-tools.ts",
+    "apps/server/src/composition/reporting.ts"
+   ],
+   "edges": [
+    {
+     "from": "apps/server/src/composition/reporting.ts",
+     "to": "apps/server/src/composition/agent-plugin-backends.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/agent-plugin-backends.ts",
+     "to": "apps/server/src/om-tools.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import",
+      "type-only"
+     ]
+    },
+    {
+     "from": "apps/server/src/om-tools.ts",
+     "to": "apps/server/src/composition/reporting.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "apps/server/src/composition/reporting.ts"
+   ]
+  },
+  {
+   "id": 15,
+   "packages": [
+    "apps/server"
+   ],
+   "length": 5,
+   "runtime": true,
+   "typeOnlyEdges": 2,
+   "runtimeEdges": 3,
+   "chain": [
+    "apps/server/src/composition/reporting.ts",
+    "apps/server/src/composition/forms.ts",
+    "apps/server/src/composition/identity.ts",
+    "apps/server/src/composition/agent-plugin-backends.ts",
+    "apps/server/src/om-tools.ts",
+    "apps/server/src/composition/reporting.ts"
+   ],
+   "edges": [
+    {
+     "from": "apps/server/src/composition/reporting.ts",
+     "to": "apps/server/src/composition/forms.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/forms.ts",
+     "to": "apps/server/src/composition/identity.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/identity.ts",
+     "to": "apps/server/src/composition/agent-plugin-backends.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/agent-plugin-backends.ts",
+     "to": "apps/server/src/om-tools.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import",
+      "type-only"
+     ]
+    },
+    {
+     "from": "apps/server/src/om-tools.ts",
+     "to": "apps/server/src/composition/reporting.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "apps/server/src/composition/reporting.ts"
+   ]
+  },
+  {
+   "id": 16,
+   "packages": [
+    "apps/server"
+   ],
+   "length": 3,
+   "runtime": true,
+   "typeOnlyEdges": 1,
+   "runtimeEdges": 2,
+   "chain": [
+    "apps/server/src/composition/tracking.ts",
+    "apps/server/src/composition/agent-plugin-backends.ts",
+    "apps/server/src/om-tools.ts",
+    "apps/server/src/composition/tracking.ts"
+   ],
+   "edges": [
+    {
+     "from": "apps/server/src/composition/tracking.ts",
+     "to": "apps/server/src/composition/agent-plugin-backends.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/agent-plugin-backends.ts",
+     "to": "apps/server/src/om-tools.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import",
+      "type-only"
+     ]
+    },
+    {
+     "from": "apps/server/src/om-tools.ts",
+     "to": "apps/server/src/composition/tracking.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import",
+      "type-only"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "apps/server/src/composition/tracking.ts"
+   ]
+  },
+  {
+   "id": 17,
+   "packages": [
+    "apps/server"
+   ],
+   "length": 6,
+   "runtime": true,
+   "typeOnlyEdges": 2,
+   "runtimeEdges": 4,
+   "chain": [
+    "apps/server/src/composition/tracking.ts",
+    "apps/server/src/inbound/public.ts",
+    "apps/server/src/composition/forms.ts",
+    "apps/server/src/composition/identity.ts",
+    "apps/server/src/composition/agent-plugin-backends.ts",
+    "apps/server/src/om-tools.ts",
+    "apps/server/src/composition/tracking.ts"
+   ],
+   "edges": [
+    {
+     "from": "apps/server/src/composition/tracking.ts",
+     "to": "apps/server/src/inbound/public.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/inbound/public.ts",
+     "to": "apps/server/src/composition/forms.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/forms.ts",
+     "to": "apps/server/src/composition/identity.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/identity.ts",
+     "to": "apps/server/src/composition/agent-plugin-backends.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/agent-plugin-backends.ts",
+     "to": "apps/server/src/om-tools.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import",
+      "type-only"
+     ]
+    },
+    {
+     "from": "apps/server/src/om-tools.ts",
+     "to": "apps/server/src/composition/tracking.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import",
+      "type-only"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "apps/server/src/composition/tracking.ts"
+   ]
+  },
+  {
+   "id": 18,
+   "packages": [
+    "apps/server"
+   ],
+   "length": 6,
+   "runtime": true,
+   "typeOnlyEdges": 3,
+   "runtimeEdges": 3,
+   "chain": [
+    "apps/server/src/conversations.ts",
+    "apps/server/src/model-providers.ts",
+    "apps/server/src/composition/addons.ts",
+    "apps/server/src/composition/agent-plugin-backends.ts",
+    "apps/server/src/om-tools.ts",
+    "apps/server/src/inbound/owner.ts",
+    "apps/server/src/conversations.ts"
+   ],
+   "edges": [
+    {
+     "from": "apps/server/src/conversations.ts",
+     "to": "apps/server/src/model-providers.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/model-providers.ts",
+     "to": "apps/server/src/composition/addons.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/addons.ts",
+     "to": "apps/server/src/composition/agent-plugin-backends.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/agent-plugin-backends.ts",
+     "to": "apps/server/src/om-tools.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import",
+      "type-only"
+     ]
+    },
+    {
+     "from": "apps/server/src/om-tools.ts",
+     "to": "apps/server/src/inbound/owner.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import",
+      "type-only"
+     ]
+    },
+    {
+     "from": "apps/server/src/inbound/owner.ts",
+     "to": "apps/server/src/conversations.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "apps/server/src/conversations.ts"
+   ]
+  },
+  {
+   "id": 19,
+   "packages": [
+    "apps/server"
+   ],
+   "length": 3,
+   "runtime": true,
+   "typeOnlyEdges": 1,
+   "runtimeEdges": 2,
+   "chain": [
+    "apps/server/src/inbound/integrations.ts",
+    "apps/server/src/om-tools.ts",
+    "apps/server/src/inbound/owner.ts",
+    "apps/server/src/inbound/integrations.ts"
+   ],
+   "edges": [
+    {
+     "from": "apps/server/src/inbound/integrations.ts",
+     "to": "apps/server/src/om-tools.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/om-tools.ts",
+     "to": "apps/server/src/inbound/owner.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import",
+      "type-only"
+     ]
+    },
+    {
+     "from": "apps/server/src/inbound/owner.ts",
+     "to": "apps/server/src/inbound/integrations.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "apps/server/src/inbound/integrations.ts"
+   ]
+  },
+  {
+   "id": 20,
+   "packages": [
+    "apps/server"
+   ],
+   "length": 6,
+   "runtime": true,
+   "typeOnlyEdges": 2,
+   "runtimeEdges": 4,
+   "chain": [
+    "apps/server/src/inbound/messaging-webhooks.ts",
+    "apps/server/src/composition/identity.ts",
+    "apps/server/src/composition/agent-plugin-backends.ts",
+    "apps/server/src/om-tools.ts",
+    "apps/server/src/composition/tracking.ts",
+    "apps/server/src/inbound/public.ts",
+    "apps/server/src/inbound/messaging-webhooks.ts"
+   ],
+   "edges": [
+    {
+     "from": "apps/server/src/inbound/messaging-webhooks.ts",
+     "to": "apps/server/src/composition/identity.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/identity.ts",
+     "to": "apps/server/src/composition/agent-plugin-backends.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/agent-plugin-backends.ts",
+     "to": "apps/server/src/om-tools.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import",
+      "type-only"
+     ]
+    },
+    {
+     "from": "apps/server/src/om-tools.ts",
+     "to": "apps/server/src/composition/tracking.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import",
+      "type-only"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/tracking.ts",
+     "to": "apps/server/src/inbound/public.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/inbound/public.ts",
+     "to": "apps/server/src/inbound/messaging-webhooks.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "apps/server/src/inbound/messaging-webhooks.ts"
+   ]
+  },
+  {
+   "id": 21,
+   "packages": [
+    "apps/server"
+   ],
+   "length": 8,
+   "runtime": true,
+   "typeOnlyEdges": 2,
+   "runtimeEdges": 6,
+   "chain": [
+    "apps/server/src/inbound/owner.ts",
+    "apps/server/src/composition/alerts.ts",
+    "apps/server/src/alerts/index.ts",
+    "apps/server/src/alerts/email.ts",
+    "apps/server/src/composition/forms.ts",
+    "apps/server/src/composition/identity.ts",
+    "apps/server/src/composition/agent-plugin-backends.ts",
+    "apps/server/src/om-tools.ts",
+    "apps/server/src/inbound/owner.ts"
+   ],
+   "edges": [
+    {
+     "from": "apps/server/src/inbound/owner.ts",
+     "to": "apps/server/src/composition/alerts.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/alerts.ts",
+     "to": "apps/server/src/alerts/index.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/alerts/index.ts",
+     "to": "apps/server/src/alerts/email.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "export",
+      "type-only"
+     ]
+    },
+    {
+     "from": "apps/server/src/alerts/email.ts",
+     "to": "apps/server/src/composition/forms.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/forms.ts",
+     "to": "apps/server/src/composition/identity.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/identity.ts",
+     "to": "apps/server/src/composition/agent-plugin-backends.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/agent-plugin-backends.ts",
+     "to": "apps/server/src/om-tools.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import",
+      "type-only"
+     ]
+    },
+    {
+     "from": "apps/server/src/om-tools.ts",
+     "to": "apps/server/src/inbound/owner.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import",
+      "type-only"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "apps/server/src/inbound/owner.ts"
+   ]
+  },
+  {
+   "id": 22,
+   "packages": [
+    "apps/server"
+   ],
+   "length": 5,
+   "runtime": true,
+   "typeOnlyEdges": 2,
+   "runtimeEdges": 3,
+   "chain": [
+    "apps/server/src/inbound/public.ts",
+    "apps/server/src/composition/identity.ts",
+    "apps/server/src/composition/agent-plugin-backends.ts",
+    "apps/server/src/om-tools.ts",
+    "apps/server/src/composition/tracking.ts",
+    "apps/server/src/inbound/public.ts"
+   ],
+   "edges": [
+    {
+     "from": "apps/server/src/inbound/public.ts",
+     "to": "apps/server/src/composition/identity.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/identity.ts",
+     "to": "apps/server/src/composition/agent-plugin-backends.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/agent-plugin-backends.ts",
+     "to": "apps/server/src/om-tools.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import",
+      "type-only"
+     ]
+    },
+    {
+     "from": "apps/server/src/om-tools.ts",
+     "to": "apps/server/src/composition/tracking.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import",
+      "type-only"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/tracking.ts",
+     "to": "apps/server/src/inbound/public.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "apps/server/src/inbound/public.ts"
+   ]
+  },
+  {
+   "id": 23,
+   "packages": [
+    "apps/server"
+   ],
+   "length": 5,
+   "runtime": true,
+   "typeOnlyEdges": 1,
+   "runtimeEdges": 4,
+   "chain": [
+    "apps/server/src/inbound/public.ts",
+    "apps/server/src/inbound/messaging-webhooks.ts",
+    "apps/server/src/composition/agent-plugin-backends.ts",
+    "apps/server/src/om-tools.ts",
+    "apps/server/src/composition/tracking.ts",
+    "apps/server/src/inbound/public.ts"
+   ],
+   "edges": [
+    {
+     "from": "apps/server/src/inbound/public.ts",
+     "to": "apps/server/src/inbound/messaging-webhooks.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/inbound/messaging-webhooks.ts",
+     "to": "apps/server/src/composition/agent-plugin-backends.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/agent-plugin-backends.ts",
+     "to": "apps/server/src/om-tools.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import",
+      "type-only"
+     ]
+    },
+    {
+     "from": "apps/server/src/om-tools.ts",
+     "to": "apps/server/src/composition/tracking.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import",
+      "type-only"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/tracking.ts",
+     "to": "apps/server/src/inbound/public.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "apps/server/src/inbound/public.ts"
+   ]
+  },
+  {
+   "id": 24,
+   "packages": [
+    "apps/server"
+   ],
+   "length": 3,
+   "runtime": true,
+   "typeOnlyEdges": 1,
+   "runtimeEdges": 2,
+   "chain": [
+    "apps/server/src/om-tools.ts",
+    "apps/server/src/alerts/provider-settings.ts",
+    "apps/server/src/composition/agent-plugin-backends.ts",
+    "apps/server/src/om-tools.ts"
+   ],
+   "edges": [
+    {
+     "from": "apps/server/src/om-tools.ts",
+     "to": "apps/server/src/alerts/provider-settings.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/alerts/provider-settings.ts",
+     "to": "apps/server/src/composition/agent-plugin-backends.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/server/src/composition/agent-plugin-backends.ts",
+     "to": "apps/server/src/om-tools.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import",
+      "type-only"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "apps/server/src/om-tools.ts"
+   ]
+  },
+  {
+   "id": 25,
+   "packages": [
+    "apps/studio"
+   ],
+   "length": 2,
+   "runtime": false,
+   "typeOnlyEdges": 2,
+   "runtimeEdges": 0,
+   "chain": [
+    "apps/studio/src/shared/api/types.ts",
+    "apps/studio/src/shared/api/validation.ts",
+    "apps/studio/src/shared/api/types.ts"
+   ],
+   "edges": [
+    {
+     "from": "apps/studio/src/shared/api/types.ts",
+     "to": "apps/studio/src/shared/api/validation.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "apps/studio/src/shared/api/validation.ts",
+     "to": "apps/studio/src/shared/api/types.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "apps/studio/src/shared/api/types.ts"
+   ]
+  },
+  {
+   "id": 26,
+   "packages": [
+    "content/agent-plugins/amazon-ads"
+   ],
+   "length": 3,
+   "runtime": true,
+   "typeOnlyEdges": 1,
+   "runtimeEdges": 2,
+   "chain": [
+    "content/agent-plugins/amazon-ads/io.github.ainsep.openmarketing/src/commands.ts",
+    "content/agent-plugins/amazon-ads/io.github.ainsep.openmarketing/src/reporting.ts",
+    "content/agent-plugins/amazon-ads/io.github.ainsep.openmarketing/src/ports.ts",
+    "content/agent-plugins/amazon-ads/io.github.ainsep.openmarketing/src/commands.ts"
+   ],
+   "edges": [
+    {
+     "from": "content/agent-plugins/amazon-ads/io.github.ainsep.openmarketing/src/commands.ts",
+     "to": "content/agent-plugins/amazon-ads/io.github.ainsep.openmarketing/src/reporting.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "content/agent-plugins/amazon-ads/io.github.ainsep.openmarketing/src/reporting.ts",
+     "to": "content/agent-plugins/amazon-ads/io.github.ainsep.openmarketing/src/ports.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "content/agent-plugins/amazon-ads/io.github.ainsep.openmarketing/src/ports.ts",
+     "to": "content/agent-plugins/amazon-ads/io.github.ainsep.openmarketing/src/commands.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "content/agent-plugins/amazon-ads/io.github.ainsep.openmarketing/src/commands.ts"
+   ]
+  },
+  {
+   "id": 27,
+   "packages": [
+    "content/agent-plugins/google-ads"
+   ],
+   "length": 2,
+   "runtime": true,
+   "typeOnlyEdges": 0,
+   "runtimeEdges": 2,
+   "chain": [
+    "content/agent-plugins/google-ads/io.github.ainsep.openmarketing/src/hosted.ts",
+    "content/agent-plugins/google-ads/io.github.ainsep.openmarketing/src/read-capabilities.ts",
+    "content/agent-plugins/google-ads/io.github.ainsep.openmarketing/src/hosted.ts"
+   ],
+   "edges": [
+    {
+     "from": "content/agent-plugins/google-ads/io.github.ainsep.openmarketing/src/hosted.ts",
+     "to": "content/agent-plugins/google-ads/io.github.ainsep.openmarketing/src/read-capabilities.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "content/agent-plugins/google-ads/io.github.ainsep.openmarketing/src/read-capabilities.ts",
+     "to": "content/agent-plugins/google-ads/io.github.ainsep.openmarketing/src/hosted.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "content/agent-plugins/google-ads/io.github.ainsep.openmarketing/src/hosted.ts"
+   ]
+  },
+  {
+   "id": 28,
+   "packages": [
+    "content/agent-plugins/google-ads"
+   ],
+   "length": 2,
+   "runtime": false,
+   "typeOnlyEdges": 2,
+   "runtimeEdges": 0,
+   "chain": [
+    "content/agent-plugins/google-ads/io.github.ainsep.openmarketing/src/schemas.ts",
+    "content/agent-plugins/google-ads/io.github.ainsep.openmarketing/src/types.ts",
+    "content/agent-plugins/google-ads/io.github.ainsep.openmarketing/src/schemas.ts"
+   ],
+   "edges": [
+    {
+     "from": "content/agent-plugins/google-ads/io.github.ainsep.openmarketing/src/schemas.ts",
+     "to": "content/agent-plugins/google-ads/io.github.ainsep.openmarketing/src/types.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "content/agent-plugins/google-ads/io.github.ainsep.openmarketing/src/types.ts",
+     "to": "content/agent-plugins/google-ads/io.github.ainsep.openmarketing/src/schemas.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "content/agent-plugins/google-ads/io.github.ainsep.openmarketing/src/schemas.ts"
+   ]
+  },
+  {
+   "id": 29,
+   "packages": [
+    "content/agent-plugins/line-ads"
+   ],
+   "length": 2,
+   "runtime": false,
+   "typeOnlyEdges": 2,
+   "runtimeEdges": 0,
+   "chain": [
+    "content/agent-plugins/line-ads/io.github.ainsep.openmarketing/src/commands.ts",
+    "content/agent-plugins/line-ads/io.github.ainsep.openmarketing/src/ports.ts",
+    "content/agent-plugins/line-ads/io.github.ainsep.openmarketing/src/commands.ts"
+   ],
+   "edges": [
+    {
+     "from": "content/agent-plugins/line-ads/io.github.ainsep.openmarketing/src/commands.ts",
+     "to": "content/agent-plugins/line-ads/io.github.ainsep.openmarketing/src/ports.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "content/agent-plugins/line-ads/io.github.ainsep.openmarketing/src/ports.ts",
+     "to": "content/agent-plugins/line-ads/io.github.ainsep.openmarketing/src/commands.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "content/agent-plugins/line-ads/io.github.ainsep.openmarketing/src/commands.ts"
+   ]
+  },
+  {
+   "id": 30,
+   "packages": [
+    "content/agent-plugins/meta-ads"
+   ],
+   "length": 2,
+   "runtime": true,
+   "typeOnlyEdges": 0,
+   "runtimeEdges": 2,
+   "chain": [
+    "content/agent-plugins/meta-ads/io.github.ainsep.openmarketing/src/audiences.ts",
+    "content/agent-plugins/meta-ads/io.github.ainsep.openmarketing/src/read-capabilities.ts",
+    "content/agent-plugins/meta-ads/io.github.ainsep.openmarketing/src/audiences.ts"
+   ],
+   "edges": [
+    {
+     "from": "content/agent-plugins/meta-ads/io.github.ainsep.openmarketing/src/audiences.ts",
+     "to": "content/agent-plugins/meta-ads/io.github.ainsep.openmarketing/src/read-capabilities.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "content/agent-plugins/meta-ads/io.github.ainsep.openmarketing/src/read-capabilities.ts",
+     "to": "content/agent-plugins/meta-ads/io.github.ainsep.openmarketing/src/audiences.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "content/agent-plugins/meta-ads/io.github.ainsep.openmarketing/src/audiences.ts"
+   ]
+  },
+  {
+   "id": 31,
+   "packages": [
+    "content/agent-plugins/meta-ads"
+   ],
+   "length": 2,
+   "runtime": true,
+   "typeOnlyEdges": 1,
+   "runtimeEdges": 1,
+   "chain": [
+    "content/agent-plugins/meta-ads/io.github.ainsep.openmarketing/src/instagram-fetch.ts",
+    "content/agent-plugins/meta-ads/io.github.ainsep.openmarketing/src/instagram.ts",
+    "content/agent-plugins/meta-ads/io.github.ainsep.openmarketing/src/instagram-fetch.ts"
+   ],
+   "edges": [
+    {
+     "from": "content/agent-plugins/meta-ads/io.github.ainsep.openmarketing/src/instagram-fetch.ts",
+     "to": "content/agent-plugins/meta-ads/io.github.ainsep.openmarketing/src/instagram.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "content/agent-plugins/meta-ads/io.github.ainsep.openmarketing/src/instagram.ts",
+     "to": "content/agent-plugins/meta-ads/io.github.ainsep.openmarketing/src/instagram-fetch.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "content/agent-plugins/meta-ads/io.github.ainsep.openmarketing/src/instagram-fetch.ts"
+   ]
+  },
+  {
+   "id": 32,
+   "packages": [
+    "content/agent-plugins/microsoft-ads"
+   ],
+   "length": 2,
+   "runtime": true,
+   "typeOnlyEdges": 1,
+   "runtimeEdges": 1,
+   "chain": [
+    "content/agent-plugins/microsoft-ads/io.github.ainsep.openmarketing/src/commands.ts",
+    "content/agent-plugins/microsoft-ads/io.github.ainsep.openmarketing/src/ports.ts",
+    "content/agent-plugins/microsoft-ads/io.github.ainsep.openmarketing/src/commands.ts"
+   ],
+   "edges": [
+    {
+     "from": "content/agent-plugins/microsoft-ads/io.github.ainsep.openmarketing/src/commands.ts",
+     "to": "content/agent-plugins/microsoft-ads/io.github.ainsep.openmarketing/src/ports.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import",
+      "type-only"
+     ]
+    },
+    {
+     "from": "content/agent-plugins/microsoft-ads/io.github.ainsep.openmarketing/src/ports.ts",
+     "to": "content/agent-plugins/microsoft-ads/io.github.ainsep.openmarketing/src/commands.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "content/agent-plugins/microsoft-ads/io.github.ainsep.openmarketing/src/commands.ts"
+   ]
+  },
+  {
+   "id": 33,
+   "packages": [
+    "content/agent-plugins/microsoft-ads"
+   ],
+   "length": 2,
+   "runtime": true,
+   "typeOnlyEdges": 0,
+   "runtimeEdges": 2,
+   "chain": [
+    "content/agent-plugins/microsoft-ads/io.github.ainsep.openmarketing/src/commands.ts",
+    "content/agent-plugins/microsoft-ads/io.github.ainsep.openmarketing/src/reporting.ts",
+    "content/agent-plugins/microsoft-ads/io.github.ainsep.openmarketing/src/commands.ts"
+   ],
+   "edges": [
+    {
+     "from": "content/agent-plugins/microsoft-ads/io.github.ainsep.openmarketing/src/commands.ts",
+     "to": "content/agent-plugins/microsoft-ads/io.github.ainsep.openmarketing/src/reporting.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "content/agent-plugins/microsoft-ads/io.github.ainsep.openmarketing/src/reporting.ts",
+     "to": "content/agent-plugins/microsoft-ads/io.github.ainsep.openmarketing/src/commands.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "content/agent-plugins/microsoft-ads/io.github.ainsep.openmarketing/src/commands.ts"
+   ]
+  },
+  {
+   "id": 34,
+   "packages": [
+    "content/agent-plugins/microsoft-ads"
+   ],
+   "length": 3,
+   "runtime": true,
+   "typeOnlyEdges": 1,
+   "runtimeEdges": 2,
+   "chain": [
+    "content/agent-plugins/microsoft-ads/io.github.ainsep.openmarketing/src/reporting.ts",
+    "content/agent-plugins/microsoft-ads/io.github.ainsep.openmarketing/src/ports.ts",
+    "content/agent-plugins/microsoft-ads/io.github.ainsep.openmarketing/src/commands.ts",
+    "content/agent-plugins/microsoft-ads/io.github.ainsep.openmarketing/src/reporting.ts"
+   ],
+   "edges": [
+    {
+     "from": "content/agent-plugins/microsoft-ads/io.github.ainsep.openmarketing/src/reporting.ts",
+     "to": "content/agent-plugins/microsoft-ads/io.github.ainsep.openmarketing/src/ports.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import",
+      "type-only"
+     ]
+    },
+    {
+     "from": "content/agent-plugins/microsoft-ads/io.github.ainsep.openmarketing/src/ports.ts",
+     "to": "content/agent-plugins/microsoft-ads/io.github.ainsep.openmarketing/src/commands.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "content/agent-plugins/microsoft-ads/io.github.ainsep.openmarketing/src/commands.ts",
+     "to": "content/agent-plugins/microsoft-ads/io.github.ainsep.openmarketing/src/reporting.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "content/agent-plugins/microsoft-ads/io.github.ainsep.openmarketing/src/reporting.ts"
+   ]
+  },
+  {
+   "id": 35,
+   "packages": [
+    "content/agent-plugins/pinterest-ads"
+   ],
+   "length": 2,
+   "runtime": true,
+   "typeOnlyEdges": 1,
+   "runtimeEdges": 1,
+   "chain": [
+    "content/agent-plugins/pinterest-ads/io.github.ainsep.openmarketing/src/commands.ts",
+    "content/agent-plugins/pinterest-ads/io.github.ainsep.openmarketing/src/ports.ts",
+    "content/agent-plugins/pinterest-ads/io.github.ainsep.openmarketing/src/commands.ts"
+   ],
+   "edges": [
+    {
+     "from": "content/agent-plugins/pinterest-ads/io.github.ainsep.openmarketing/src/commands.ts",
+     "to": "content/agent-plugins/pinterest-ads/io.github.ainsep.openmarketing/src/ports.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import",
+      "type-only"
+     ]
+    },
+    {
+     "from": "content/agent-plugins/pinterest-ads/io.github.ainsep.openmarketing/src/ports.ts",
+     "to": "content/agent-plugins/pinterest-ads/io.github.ainsep.openmarketing/src/commands.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "content/agent-plugins/pinterest-ads/io.github.ainsep.openmarketing/src/commands.ts"
+   ]
+  },
+  {
+   "id": 36,
+   "packages": [
+    "content/agent-plugins/pinterest-ads"
+   ],
+   "length": 3,
+   "runtime": true,
+   "typeOnlyEdges": 1,
+   "runtimeEdges": 2,
+   "chain": [
+    "content/agent-plugins/pinterest-ads/io.github.ainsep.openmarketing/src/commands.ts",
+    "content/agent-plugins/pinterest-ads/io.github.ainsep.openmarketing/src/reporting.ts",
+    "content/agent-plugins/pinterest-ads/io.github.ainsep.openmarketing/src/ports.ts",
+    "content/agent-plugins/pinterest-ads/io.github.ainsep.openmarketing/src/commands.ts"
+   ],
+   "edges": [
+    {
+     "from": "content/agent-plugins/pinterest-ads/io.github.ainsep.openmarketing/src/commands.ts",
+     "to": "content/agent-plugins/pinterest-ads/io.github.ainsep.openmarketing/src/reporting.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "content/agent-plugins/pinterest-ads/io.github.ainsep.openmarketing/src/reporting.ts",
+     "to": "content/agent-plugins/pinterest-ads/io.github.ainsep.openmarketing/src/ports.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "content/agent-plugins/pinterest-ads/io.github.ainsep.openmarketing/src/ports.ts",
+     "to": "content/agent-plugins/pinterest-ads/io.github.ainsep.openmarketing/src/commands.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "content/agent-plugins/pinterest-ads/io.github.ainsep.openmarketing/src/commands.ts"
+   ]
+  },
+  {
+   "id": 37,
+   "packages": [
+    "content/agent-plugins/reddit-ads"
+   ],
+   "length": 2,
+   "runtime": false,
+   "typeOnlyEdges": 2,
+   "runtimeEdges": 0,
+   "chain": [
+    "content/agent-plugins/reddit-ads/io.github.ainsep.openmarketing/src/commands.ts",
+    "content/agent-plugins/reddit-ads/io.github.ainsep.openmarketing/src/ports.ts",
+    "content/agent-plugins/reddit-ads/io.github.ainsep.openmarketing/src/commands.ts"
+   ],
+   "edges": [
+    {
+     "from": "content/agent-plugins/reddit-ads/io.github.ainsep.openmarketing/src/commands.ts",
+     "to": "content/agent-plugins/reddit-ads/io.github.ainsep.openmarketing/src/ports.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "content/agent-plugins/reddit-ads/io.github.ainsep.openmarketing/src/ports.ts",
+     "to": "content/agent-plugins/reddit-ads/io.github.ainsep.openmarketing/src/commands.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "content/agent-plugins/reddit-ads/io.github.ainsep.openmarketing/src/commands.ts"
+   ]
+  },
+  {
+   "id": 38,
+   "packages": [
+    "content/agent-plugins/resend-email"
+   ],
+   "length": 2,
+   "runtime": false,
+   "typeOnlyEdges": 2,
+   "runtimeEdges": 0,
+   "chain": [
+    "content/agent-plugins/resend-email/io.github.ainsep.openmarketing/src/commands.ts",
+    "content/agent-plugins/resend-email/io.github.ainsep.openmarketing/src/ports.ts",
+    "content/agent-plugins/resend-email/io.github.ainsep.openmarketing/src/commands.ts"
+   ],
+   "edges": [
+    {
+     "from": "content/agent-plugins/resend-email/io.github.ainsep.openmarketing/src/commands.ts",
+     "to": "content/agent-plugins/resend-email/io.github.ainsep.openmarketing/src/ports.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "content/agent-plugins/resend-email/io.github.ainsep.openmarketing/src/ports.ts",
+     "to": "content/agent-plugins/resend-email/io.github.ainsep.openmarketing/src/commands.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "content/agent-plugins/resend-email/io.github.ainsep.openmarketing/src/commands.ts"
+   ]
+  },
+  {
+   "id": 39,
+   "packages": [
+    "content/agent-plugins/snapchat-ads"
+   ],
+   "length": 3,
+   "runtime": true,
+   "typeOnlyEdges": 2,
+   "runtimeEdges": 1,
+   "chain": [
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/capi.ts",
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/commands.ts",
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/ports.ts",
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/capi.ts"
+   ],
+   "edges": [
+    {
+     "from": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/capi.ts",
+     "to": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/commands.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/commands.ts",
+     "to": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/ports.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/ports.ts",
+     "to": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/capi.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/capi.ts"
+   ]
+  },
+  {
+   "id": 40,
+   "packages": [
+    "content/agent-plugins/snapchat-ads"
+   ],
+   "length": 2,
+   "runtime": false,
+   "typeOnlyEdges": 2,
+   "runtimeEdges": 0,
+   "chain": [
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/capi.ts",
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/ports.ts",
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/capi.ts"
+   ],
+   "edges": [
+    {
+     "from": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/capi.ts",
+     "to": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/ports.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/ports.ts",
+     "to": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/capi.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/capi.ts"
+   ]
+  },
+  {
+   "id": 41,
+   "packages": [
+    "content/agent-plugins/snapchat-ads"
+   ],
+   "length": 4,
+   "runtime": true,
+   "typeOnlyEdges": 2,
+   "runtimeEdges": 2,
+   "chain": [
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/capi.ts",
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/transport.ts",
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/commands.ts",
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/ports.ts",
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/capi.ts"
+   ],
+   "edges": [
+    {
+     "from": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/capi.ts",
+     "to": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/transport.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/transport.ts",
+     "to": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/commands.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/commands.ts",
+     "to": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/ports.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/ports.ts",
+     "to": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/capi.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/capi.ts"
+   ]
+  },
+  {
+   "id": 42,
+   "packages": [
+    "content/agent-plugins/snapchat-ads"
+   ],
+   "length": 2,
+   "runtime": false,
+   "typeOnlyEdges": 2,
+   "runtimeEdges": 0,
+   "chain": [
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/commands.ts",
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/ports.ts",
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/commands.ts"
+   ],
+   "edges": [
+    {
+     "from": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/commands.ts",
+     "to": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/ports.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/ports.ts",
+     "to": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/commands.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/commands.ts"
+   ]
+  },
+  {
+   "id": 43,
+   "packages": [
+    "content/agent-plugins/snapchat-ads"
+   ],
+   "length": 5,
+   "runtime": true,
+   "typeOnlyEdges": 2,
+   "runtimeEdges": 3,
+   "chain": [
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/metrics-status.ts",
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/commands.ts",
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/ports.ts",
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/capi.ts",
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/transport.ts",
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/metrics-status.ts"
+   ],
+   "edges": [
+    {
+     "from": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/metrics-status.ts",
+     "to": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/commands.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/commands.ts",
+     "to": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/ports.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/ports.ts",
+     "to": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/capi.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/capi.ts",
+     "to": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/transport.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/transport.ts",
+     "to": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/metrics-status.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/metrics-status.ts"
+   ]
+  },
+  {
+   "id": 44,
+   "packages": [
+    "content/agent-plugins/snapchat-ads"
+   ],
+   "length": 5,
+   "runtime": true,
+   "typeOnlyEdges": 2,
+   "runtimeEdges": 3,
+   "chain": [
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/reporting.ts",
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/commands.ts",
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/ports.ts",
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/capi.ts",
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/transport.ts",
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/reporting.ts"
+   ],
+   "edges": [
+    {
+     "from": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/reporting.ts",
+     "to": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/commands.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import",
+      "type-only"
+     ]
+    },
+    {
+     "from": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/commands.ts",
+     "to": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/ports.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/ports.ts",
+     "to": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/capi.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/capi.ts",
+     "to": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/transport.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/transport.ts",
+     "to": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/reporting.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/reporting.ts"
+   ]
+  },
+  {
+   "id": 45,
+   "packages": [
+    "content/agent-plugins/snapchat-ads"
+   ],
+   "length": 4,
+   "runtime": true,
+   "typeOnlyEdges": 2,
+   "runtimeEdges": 2,
+   "chain": [
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/reporting.ts",
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/ports.ts",
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/capi.ts",
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/transport.ts",
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/reporting.ts"
+   ],
+   "edges": [
+    {
+     "from": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/reporting.ts",
+     "to": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/ports.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/ports.ts",
+     "to": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/capi.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/capi.ts",
+     "to": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/transport.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    },
+    {
+     "from": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/transport.ts",
+     "to": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/reporting.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/reporting.ts"
+   ]
+  },
+  {
+   "id": 46,
+   "packages": [
+    "content/agent-plugins/snapchat-ads"
+   ],
+   "length": 3,
+   "runtime": true,
+   "typeOnlyEdges": 2,
+   "runtimeEdges": 1,
+   "chain": [
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/transport.ts",
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/ports.ts",
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/capi.ts",
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/transport.ts"
+   ],
+   "edges": [
+    {
+     "from": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/transport.ts",
+     "to": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/ports.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/ports.ts",
+     "to": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/capi.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/capi.ts",
+     "to": "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/transport.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "content/agent-plugins/snapchat-ads/io.github.ainsep.openmarketing/src/transport.ts"
+   ]
+  },
+  {
+   "id": 47,
+   "packages": [
+    "content/agent-plugins/twilio-sms"
+   ],
+   "length": 2,
+   "runtime": false,
+   "typeOnlyEdges": 2,
+   "runtimeEdges": 0,
+   "chain": [
+    "content/agent-plugins/twilio-sms/io.github.ainsep.openmarketing/src/commands.ts",
+    "content/agent-plugins/twilio-sms/io.github.ainsep.openmarketing/src/ports.ts",
+    "content/agent-plugins/twilio-sms/io.github.ainsep.openmarketing/src/commands.ts"
+   ],
+   "edges": [
+    {
+     "from": "content/agent-plugins/twilio-sms/io.github.ainsep.openmarketing/src/commands.ts",
+     "to": "content/agent-plugins/twilio-sms/io.github.ainsep.openmarketing/src/ports.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "content/agent-plugins/twilio-sms/io.github.ainsep.openmarketing/src/ports.ts",
+     "to": "content/agent-plugins/twilio-sms/io.github.ainsep.openmarketing/src/commands.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "content/agent-plugins/twilio-sms/io.github.ainsep.openmarketing/src/commands.ts"
+   ]
+  },
+  {
+   "id": 48,
+   "packages": [
+    "content/agent-plugins/twilio-sms"
+   ],
+   "length": 2,
+   "runtime": true,
+   "typeOnlyEdges": 1,
+   "runtimeEdges": 1,
+   "chain": [
+    "content/agent-plugins/twilio-sms/io.github.ainsep.openmarketing/src/commands.ts",
+    "content/agent-plugins/twilio-sms/io.github.ainsep.openmarketing/src/transport.ts",
+    "content/agent-plugins/twilio-sms/io.github.ainsep.openmarketing/src/commands.ts"
+   ],
+   "edges": [
+    {
+     "from": "content/agent-plugins/twilio-sms/io.github.ainsep.openmarketing/src/commands.ts",
+     "to": "content/agent-plugins/twilio-sms/io.github.ainsep.openmarketing/src/transport.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "content/agent-plugins/twilio-sms/io.github.ainsep.openmarketing/src/transport.ts",
+     "to": "content/agent-plugins/twilio-sms/io.github.ainsep.openmarketing/src/commands.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "content/agent-plugins/twilio-sms/io.github.ainsep.openmarketing/src/commands.ts"
+   ]
+  },
+  {
+   "id": 49,
+   "packages": [
+    "content/agent-plugins/twilio-sms"
+   ],
+   "length": 3,
+   "runtime": false,
+   "typeOnlyEdges": 3,
+   "runtimeEdges": 0,
+   "chain": [
+    "content/agent-plugins/twilio-sms/io.github.ainsep.openmarketing/src/transport.ts",
+    "content/agent-plugins/twilio-sms/io.github.ainsep.openmarketing/src/ports.ts",
+    "content/agent-plugins/twilio-sms/io.github.ainsep.openmarketing/src/commands.ts",
+    "content/agent-plugins/twilio-sms/io.github.ainsep.openmarketing/src/transport.ts"
+   ],
+   "edges": [
+    {
+     "from": "content/agent-plugins/twilio-sms/io.github.ainsep.openmarketing/src/transport.ts",
+     "to": "content/agent-plugins/twilio-sms/io.github.ainsep.openmarketing/src/ports.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "content/agent-plugins/twilio-sms/io.github.ainsep.openmarketing/src/ports.ts",
+     "to": "content/agent-plugins/twilio-sms/io.github.ainsep.openmarketing/src/commands.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "content/agent-plugins/twilio-sms/io.github.ainsep.openmarketing/src/commands.ts",
+     "to": "content/agent-plugins/twilio-sms/io.github.ainsep.openmarketing/src/transport.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "content/agent-plugins/twilio-sms/io.github.ainsep.openmarketing/src/transport.ts"
+   ]
+  },
+  {
+   "id": 50,
+   "packages": [
+    "content/agent-plugins/vk-ads"
+   ],
+   "length": 2,
+   "runtime": false,
+   "typeOnlyEdges": 2,
+   "runtimeEdges": 0,
+   "chain": [
+    "content/agent-plugins/vk-ads/io.github.ainsep.openmarketing/src/commands.ts",
+    "content/agent-plugins/vk-ads/io.github.ainsep.openmarketing/src/ports.ts",
+    "content/agent-plugins/vk-ads/io.github.ainsep.openmarketing/src/commands.ts"
+   ],
+   "edges": [
+    {
+     "from": "content/agent-plugins/vk-ads/io.github.ainsep.openmarketing/src/commands.ts",
+     "to": "content/agent-plugins/vk-ads/io.github.ainsep.openmarketing/src/ports.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "content/agent-plugins/vk-ads/io.github.ainsep.openmarketing/src/ports.ts",
+     "to": "content/agent-plugins/vk-ads/io.github.ainsep.openmarketing/src/commands.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "content/agent-plugins/vk-ads/io.github.ainsep.openmarketing/src/commands.ts"
+   ]
+  },
+  {
+   "id": 51,
+   "packages": [
+    "content/agent-plugins/whatsapp-business"
+   ],
+   "length": 2,
+   "runtime": false,
+   "typeOnlyEdges": 2,
+   "runtimeEdges": 0,
+   "chain": [
+    "content/agent-plugins/whatsapp-business/io.github.ainsep.openmarketing/src/ports.ts",
+    "content/agent-plugins/whatsapp-business/io.github.ainsep.openmarketing/src/transport.ts",
+    "content/agent-plugins/whatsapp-business/io.github.ainsep.openmarketing/src/ports.ts"
+   ],
+   "edges": [
+    {
+     "from": "content/agent-plugins/whatsapp-business/io.github.ainsep.openmarketing/src/ports.ts",
+     "to": "content/agent-plugins/whatsapp-business/io.github.ainsep.openmarketing/src/transport.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "content/agent-plugins/whatsapp-business/io.github.ainsep.openmarketing/src/transport.ts",
+     "to": "content/agent-plugins/whatsapp-business/io.github.ainsep.openmarketing/src/ports.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "content/agent-plugins/whatsapp-business/io.github.ainsep.openmarketing/src/ports.ts"
+   ]
+  },
+  {
+   "id": 52,
+   "packages": [
+    "features/jobs"
+   ],
+   "length": 2,
+   "runtime": false,
+   "typeOnlyEdges": 2,
+   "runtimeEdges": 0,
+   "chain": [
+    "features/jobs/src/schema.ts",
+    "features/jobs/src/types.ts",
+    "features/jobs/src/schema.ts"
+   ],
+   "edges": [
+    {
+     "from": "features/jobs/src/schema.ts",
+     "to": "features/jobs/src/types.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    },
+    {
+     "from": "features/jobs/src/types.ts",
+     "to": "features/jobs/src/schema.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "features/jobs/src/schema.ts"
+   ]
+  },
+  {
+   "id": 53,
+   "packages": [
+    "features/measure"
+   ],
+   "length": 2,
+   "runtime": true,
+   "typeOnlyEdges": 1,
+   "runtimeEdges": 1,
+   "chain": [
+    "features/measure/src/rules.ts",
+    "features/measure/src/types.ts",
+    "features/measure/src/rules.ts"
+   ],
+   "edges": [
+    {
+     "from": "features/measure/src/rules.ts",
+     "to": "features/measure/src/types.ts",
+     "typeOnly": false,
+     "dependencyTypes": [
+      "local",
+      "import",
+      "type-only"
+     ]
+    },
+    {
+     "from": "features/measure/src/types.ts",
+     "to": "features/measure/src/rules.ts",
+     "typeOnly": true,
+     "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+     ]
+    }
+   ],
+   "reportedFor": [
+    "features/measure/src/rules.ts"
+   ]
+  }
+ ]
+}

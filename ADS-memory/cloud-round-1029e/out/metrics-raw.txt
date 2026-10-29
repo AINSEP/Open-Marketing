@@ -1,0 +1,5 @@
+
+> open-marketing@0.0.0 om:metrics /home/user/Open-Marketing
+> node development/scripts/metrics.mjs
+
+OM metric integrity PASS: 1041 sources, 29216 functions; cyclomatic/NLOC report only (.tmp/om-metrics.json)
