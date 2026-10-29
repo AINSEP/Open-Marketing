@@ -1,8 +1,9 @@
 import { z } from "zod";
-import type { CallOptions, ObserverPort, Outcome, PluginCapabilityDependencies } from "@open-marketing/contracts";
-import { parseBoundary, parseExactIntegerJson, pluginConfigurationSchema } from "@open-marketing/contracts";
+import type { CallContext, CallOptions, ClockPort, ObserverPort, Outcome, PluginCapabilityDependencies, ServiceContext } from "@open-marketing/contracts";
+import { callContextSchema, metricBatchSchema, parseBoundary, parseExactIntegerJson, pluginConfigurationSchema, serviceContextSchema } from "@open-marketing/contracts";
 import { failure, parse, success, id, numericId, object, text } from "./schema.ts";
 import { transportBindingSchema } from "./schemas.ts";
+import { metricSearchRows } from "./metrics.ts";
 import type { AccountBinding, CredentialPort, GoogleTransportPort, HttpPort, HttpRequest, VendorRequest } from "./types.ts";
 
 const dataManagerScope = "https://www.googleapis.com/auth/datamanager";
@@ -170,4 +171,38 @@ function requestId(required: { value: string | null }): { requestId?: string } {
 function observe(required: { observer: ObserverPort; input: HttpRequest; outcome: string }): void {
   try { required.observer.observe({ operation: "google-ads.http", outcome: required.outcome, correlationId: required.input.context.correlationId, traceId: required.input.context.traceId, runId: required.input.context.runId }); }
   catch { /* Required audit is enforced by host authority; optional telemetry cannot rewrite a provider receipt. */ }
+}
+
+type ReadBinding = Pick<AccountBinding, "scope" | "connectionId" | "customerId">;
+export type ReadDependencies = { binding: ReadBinding; transport: GoogleTransportPort; clock: ClockPort };
+export const accountSchema = z.object({ id: z.string().regex(/^[1-9][0-9]{9}$/), currencyCode: metricBatchSchema.shape.currency, timeZone: metricBatchSchema.shape.timezone });
+
+/** Normalize the two host context ABIs; typed failures contain no supplied values. */
+export function readContext({ context }: { context: CallContext | ServiceContext }): Outcome<CallContext> {
+  const service = serviceContextSchema.safeParse(context);
+  if (!service.success) return parseBoundary({ schema: callContextSchema, input: context });
+  const { serviceId, ...rest } = service.data;
+  return parseBoundary({ schema: callContextSchema, input: { ...rest, principal: { kind: "service", serviceId } } });
+}
+
+/** Metadata is read even for empty reports. Never accept currency/timezone from install settings.
+ * O(1) projection; one bounded customer search, explicit missing/foreign metadata failures.
+ */
+export async function readAccount(required: { dependencies: ReadDependencies; context: CallContext }, optional?: CallOptions): Promise<Outcome<z.infer<typeof accountSchema>>> {
+  const response = await search({ ...required, query: "SELECT customer.id, customer.currency_code, customer.time_zone FROM customer LIMIT 2" }, optional);
+  if (!response.ok) return response;
+  if (!response.value.complete || response.value.rows.length !== 1) return failure({ code: "unavailable", message: "Google account metadata unavailable" });
+  const account = parseBoundary({ schema: accountSchema, input: response.value.rows[0].customer });
+  if (!account.ok) return account;
+  if (account.value.id !== required.dependencies.binding.customerId) return failure({ code: "forbidden", message: "Foreign Google account metadata" });
+  return account;
+}
+
+/** One bounded search through the existing transport, preserving cancellation and typed failures. */
+export async function search(required: { dependencies: ReadDependencies; context: CallContext; query: string }, optional?: CallOptions): Promise<ReturnType<typeof metricSearchRows>> {
+  if (optional?.signal?.aborted) return failure({ code: "cancelled", message: "Google read cancelled" });
+  const result = await required.dependencies.transport.request({ method: "search", context: required.context, operationId: required.context.correlationId, body: { query: required.query } });
+  if (!result.ok) return result;
+  if (optional?.signal?.aborted) return failure({ code: "cancelled", message: "Google read cancelled" });
+  return metricSearchRows({ value: result.value });
 }

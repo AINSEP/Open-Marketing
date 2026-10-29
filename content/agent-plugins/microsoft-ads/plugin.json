@@ -26,9 +26,9 @@
       ],
     "version": 1, "enabled": false, "admitted": false,
     "capabilities": [
-      {"capabilityId": "campaign.read.v1", "version": 1, "pluginId": "microsoft-ads", "schemaFingerprint": "1abd16e62d89486521ea5167c895e71ddcc8b40f35d07d54b788260cbd1e6512", "admitted": false, "effects": ["read"]},
-      {"capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "microsoft-ads", "schemaFingerprint": "55c444c83a65235e0aaa06d13d16a1e05eb682378aee6dc67d15dc70240f7291", "admitted": false, "effects": ["read"]},
-      {"capabilityId": "report.metrics.v1", "version": 1, "pluginId": "microsoft-ads", "schemaFingerprint": "55c444c83a65235e0aaa06d13d16a1e05eb682378aee6dc67d15dc70240f7291", "admitted": false, "effects": ["read"]},
+      {"capabilityId": "campaign.read.v1", "version": 1, "pluginId": "microsoft-ads", "schemaFingerprint": "fee2210e9f186b72ac6c0ba6bc3f0451cbddc4d2125641ce28c60b9ff97e8be7", "admitted": false, "effects": ["read"]},
+      {"capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "microsoft-ads", "schemaFingerprint": "3ed0ddc2685af26fe5087bbd870042e9560b7f02bda9efa56cc986bbf6a5cca9", "admitted": false, "effects": ["read"]},
+      {"capabilityId": "report.metrics.v1", "version": 1, "pluginId": "microsoft-ads", "schemaFingerprint": "3ed0ddc2685af26fe5087bbd870042e9560b7f02bda9efa56cc986bbf6a5cca9", "admitted": false, "effects": ["read"]},
       {"capabilityId": "campaign.create-paused.v1", "version": 1, "pluginId": "microsoft-ads", "schemaFingerprint": "ffb393f0127cdb6bd459fde81c366806f9894f9945258bda217566a2e1707fc1", "admitted": false, "effects": ["write"]},
       {"capabilityId": "conversion.deliver.v1", "version": 1, "pluginId": "microsoft-ads", "schemaFingerprint": "814c9e8550de9e59d2069bcca77ff6393d0114205528fa916a705e5d23bfb6a0", "admitted": false, "effects": ["conversion"]}
     ]

@@ -1,13 +1,9 @@
 import { z } from "zod";
 import type { Outcome } from "@open-marketing/contracts";
-import { failure } from "./ports.js";
+import { date, failure, reportCommandSchema } from "./ports.js";
 
 const day = 86400000;
-const date = z.iso.date();
-const ids = z.array(z.string().regex(/^[0-9]{1,18}$/)).min(1).max(100).refine(value => new Set(value).size === value.length);
-/** Native vendor UTC date parameters; no unverified inclusive/exclusive conversion. */
-export const reportCommandSchema = z.strictObject({ kind: z.literal("report"), level: z.enum(["ACCOUNT", "CAMPAIGN"]), startDate: date, endDate: date, campaignIds: ids.optional() })
-  .refine(value => value.level === "CAMPAIGN" ? value.campaignIds !== undefined : value.campaignIds === undefined);
+export { reportCommandSchema } from "./ports.js";
 type ReportCommand = z.infer<typeof reportCommandSchema>;
 const metric = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).nullable().optional();
 const row = z.object({ DATE: date, AD_ACCOUNT_ID: z.string().regex(/^[0-9]{1,18}$/).optional(), CAMPAIGN_ID: z.string().regex(/^[0-9]{1,18}$/).optional(), SPEND_IN_MICRO_DOLLAR: metric, TOTAL_IMPRESSION: metric, TOTAL_CLICKTHROUGH: metric });

@@ -1,16 +1,12 @@
 import { z } from "zod";
-import { reportCommandSchema } from "./reporting.js";
-import { failure } from "./ports.js";
+import { commandSchema, failure } from "./ports.js";
 import type { Outcome } from "@open-marketing/contracts";
-import type { MicrosoftAdsConfiguration, MicrosoftAdsWireRequest } from "./ports.js";
+import type { MicrosoftAdsCommand, MicrosoftAdsConfiguration, MicrosoftAdsWireRequest } from "./ports.js";
+export { commandSchema } from "./ports.js";
+export type { MicrosoftAdsCommand } from "./ports.js";
 /** JSON numbers must be exact; Microsoft long IDs outside JS's safe range fail closed. */
 export const vendorIdSchema = z.string().regex(/^[1-9][0-9]{0,15}$/).refine(value => Number.isSafeInteger(Number(value)));
 const providerId = z.union([vendorIdSchema, z.number().int().positive().max(Number.MAX_SAFE_INTEGER).transform(String)]);
-export const commandSchema = z.discriminatedUnion("kind", [
-  z.strictObject({ kind: z.literal("list_accounts"), pageIndex: z.number().int().min(0).max(10000).default(0), pageSize: z.number().int().min(1).max(100).default(100) }),
-  z.strictObject({ kind: z.literal("list_campaigns") }), reportCommandSchema,
-]);
-export type MicrosoftAdsCommand = z.input<typeof commandSchema>;
 export const microsoftAdsTools = commandSchema.options.map(schema => ({ name: schema.shape.kind.value, inputSchema: schema, effect: "read" as const }));
 const text = z.string().max(1024);
 const account = z.object({ Id: providerId, ParentCustomerId: providerId, Name: text, CurrencyCode: z.string().regex(/^[A-Z]{3}$/), AccountLifeCycleStatus: text });

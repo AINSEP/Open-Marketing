@@ -2,26 +2,13 @@ import { z } from "zod";
 import type { AppError, Outcome } from "@open-marketing/contracts";
 import type { SnapchatConfiguration, SnapchatWireRequest } from "./ports.js";
 
-export const vendorId = z.string().regex(/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/);
-export const timestamp = z.iso.datetime({ offset: true }).max(40);
+export { vendorId, timestamp, commandSchema } from "./ports.js";
+export type { SnapchatCommand } from "./ports.js";
+import { vendorId, timestamp, commandSchema, cursor } from "./ports.js";
+import type { SnapchatCommand } from "./ports.js";
+
 export const success = z.enum(["SUCCESS", "success"]);
 export const integer = z.union([z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).transform(String), z.string().regex(/^(0|[1-9][0-9]{0,19})$/)]);
-const cursor = z.string().min(1).max(2048).regex(/^[A-Za-z0-9_+\/=-]+$/);
-const page = { pageSize: z.number().int().min(50).max(100).default(100), cursor: cursor.optional() };
-const window = z.strictObject({ start: timestamp, end: timestamp }).refine(value => {
-  const duration = Date.parse(value.end) - Date.parse(value.start);
-  return duration > 0 && duration <= 366 * 86400000;
-});
-/** Closed assistant commands; TOTAL only, explicit <=366-day window, no mutations or arbitrary HTTP. */
-export const commandSchema = z.discriminatedUnion("kind", [
-  z.strictObject({ kind: z.literal("list_organizations") }),
-  z.strictObject({ kind: z.literal("list_accounts"), organizationId: vendorId, ...page }),
-  z.strictObject({ kind: z.literal("list_campaigns"), ...page }),
-  z.strictObject({ kind: z.literal("list_creatives"), ...page }),
-  z.strictObject({ kind: z.literal("report"), campaignId: vendorId.optional(), window }),
-]);
-/** Defaults apply at the adapter boundary. Omit campaignId to report bound-account spend only. */
-export type SnapchatCommand = z.input<typeof commandSchema>;
 /** Host catalog descriptors; the adapter executes refinements even after JSON-schema projection. */
 export const snapchatAdsTools = commandSchema.options.map(schema => ({ name: schema.shape.kind.value, inputSchema: schema, effect: "read" as const }));
 

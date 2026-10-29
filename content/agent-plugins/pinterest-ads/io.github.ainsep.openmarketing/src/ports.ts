@@ -1,5 +1,16 @@
+import { z } from "zod";
 import type { PluginCapability, AppError, CallContext, CallOptions, ClockPort, EffectEnvelope, ObserverPort, Outcome, Scope } from "@open-marketing/contracts";
-import type { PinterestCommand } from "./commands.js";
+export const date = z.iso.date();
+const ids = z.array(z.string().regex(/^[0-9]{1,18}$/)).min(1).max(100).refine(value => new Set(value).size === value.length);
+/** Native vendor UTC date parameters; no unverified inclusive/exclusive conversion. */
+export const reportCommandSchema = z.strictObject({ kind: z.literal("report"), level: z.enum(["ACCOUNT", "CAMPAIGN"]), startDate: date, endDate: date, campaignIds: ids.optional() })
+  .refine(value => value.level === "CAMPAIGN" ? value.campaignIds !== undefined : value.campaignIds === undefined);
+export const cursor = z.string().min(1).max(2048).regex(/^[^\x00-\x1f\x7f]+$/);
+const page = { pageSize: z.number().int().min(1).max(100).default(100), pageToken: cursor.optional() };
+export const accounts = z.strictObject({ kind: z.literal("list_accounts"), ...page });
+export const campaigns = z.strictObject({ kind: z.literal("list_campaigns"), ...page });
+export const commandSchema = z.discriminatedUnion("kind", [accounts, campaigns, reportCommandSchema]);
+export type PinterestCommand = z.input<typeof commandSchema>;
 
 /** Server-resolved binding. Null account/currency permits connection-only account discovery. */
 export interface PinterestConfiguration {

@@ -1,6 +1,12 @@
 import { z } from "zod";
 import { callContextSchema, idSchema } from "@open-marketing/contracts";
-import { dateSchema, presets } from "./reporting.js";
+/** Real ISO days, without normalizing impossible calendar dates. */
+export const dateSchema = z.iso.date();
+/** Fixed verified presets; no arbitrary columns, filters or SB spend claims. */
+export const presets = {
+  spCampaigns: { adProduct: "SPONSORED_PRODUCTS", groupBy: ["campaign", "adGroup"], columns: ["adGroupId", "campaignId", "impressions", "clicks", "cost", "date"], reportTypeId: "spCampaigns", timeUnit: "DAILY", format: "GZIP_JSON" },
+  sbPurchasedProduct: { adProduct: "SPONSORED_BRANDS", groupBy: ["purchasedAsin"], columns: ["adGroupName", "campaignName", "purchasedAsin", "productName", "sales14d", "orders14d", "date"], reportTypeId: "sbPurchasedProduct", timeUnit: "DAILY", format: "GZIP_JSON" },
+} as const;
 
 /** Decimal provider identifiers remain strings; unsafe numeric IDs reject at the boundary. */
 export const vendorIdSchema = z.string().regex(/^[1-9][0-9]{0,19}$/);

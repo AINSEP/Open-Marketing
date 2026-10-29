@@ -1,13 +1,14 @@
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import { callContextSchema, definePluginTools, pluginConfigurationSchema, pluginConnectionConfigurationSchema, idSchema } from "@open-marketing/contracts";
-import type { CallContext, CallOptions, ClockPort, EffectEnvelope, ObserverPort, Outcome, PluginCapabilityDependencies, PluginConfiguration, PluginConnectionConfiguration, PluginToolsFactory } from "@open-marketing/contracts";
+import type { CallOptions, ClockPort, EffectEnvelope, ObserverPort, Outcome, PluginCapabilityDependencies, PluginConfiguration, PluginConnectionConfiguration, PluginToolsFactory } from "@open-marketing/contracts";
 import { boundedJson, digest, failure, parse } from "./boundary.js";
 import { bindDispatch, organicGraphVersion } from "./instagram-fetch.js";
 import { vendorIdSchema } from "./commands.js";
 import { decodeInstagramResponse, publishInstagramPost, readInstagramQuota, readInstagramStatus } from "./instagram-publish.js";
 import { localMediaMessage, metaInstagramPostSchema } from "./instagram-post.js";
 import type { InstagramGraphCall, MetaInstagramPublishResult, MetaInstagramWait } from "./instagram-post.js";
+import type { MetaInstagramDispatch } from "./ports.js";
 
 export { metaInstagramPostSchema } from "./instagram-post.js";
 export type { InstagramGraphCall, MetaInstagramPost, MetaInstagramPublishResult, MetaInstagramWait } from "./instagram-post.js";
@@ -25,14 +26,7 @@ const requestSchema = z.strictObject({ context: callContextSchema, connectionId:
 const configurationSchema = z.strictObject({ apiVersion: z.string().regex(/^v[1-9][0-9]{0,2}\.[0-9]{1,2}$/), timeoutMs: z.number().int().min(1).max(15000) });
 export type MetaInstagramRequest = z.infer<typeof requestSchema>;
 export type MetaInstagramConfiguration = z.infer<typeof configurationSchema>;
-export interface MetaInstagramGraphRequest { readonly method: "GET" | "POST"; readonly endpoint: string; readonly parameters: Readonly<Record<string, string | boolean>> }
-
-/** Server-owned policy + credentialed egress. Bind this callback to the frozen full tool invocation,
- * use operationId as the ONE outbox key, and recheck current authority after resolving credentials
- * at EVERY Graph call. Subcalls share that approved job; they do not enqueue separate approvals.
- * Bound HTTP/response bytes; never redirect credentials, retry POSTs, or return provider secrets.
- */
-export type MetaInstagramDispatch = (required: { context: CallContext; connectionId: string; operationId: string; effect: EffectEnvelope; request: MetaInstagramGraphRequest; timeoutMs: number }, optional?: CallOptions) => Promise<Outcome<unknown>>;
+export type { MetaInstagramGraphRequest, MetaInstagramDispatch } from "./ports.js";
 
 const accountsSchema = z.object({ data: z.array(z.object({ id: vendorIdSchema, name: z.string().max(256), instagram_business_account: z.object({ id: vendorIdSchema, username: z.string().max(256).optional() }).nullish() })).max(100), paging: z.object({ next: z.string().max(8192).optional() }).optional() });
 const insightsSchema = z.object({ data: z.array(z.object({ name: z.enum(["reach", "views", "total_interactions"]), period: z.string().max(64), values: z.array(z.object({ value: z.number().finite().nonnegative(), end_time: z.string().max(64).optional() })).max(100) })).max(3) });

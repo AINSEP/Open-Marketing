@@ -1,6 +1,49 @@
+import { z } from "zod";
+import { digestSchema, epochSchema, idSchema, scopeSchema } from "@open-marketing/contracts";
 import type { PluginCapability, CallContext, CallOptions, ClockPort, EffectEnvelope, ObserverPort, Outcome, Scope } from "@open-marketing/contracts";
-import type { SnapchatCommand } from "./commands.js";
-import type { SnapchatCapiConfiguration, SnapchatCapiRequest, SnapchatCapiPayload, SnapchatConversionOutcome } from "./capi.js";
+
+export const vendorId = z.string().regex(/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/);
+export const timestamp = z.iso.datetime({ offset: true }).max(40);
+export const cursor = z.string().min(1).max(2048).regex(/^[A-Za-z0-9_+\/=-]+$/);
+const page = { pageSize: z.number().int().min(50).max(100).default(100), cursor: cursor.optional() };
+const window = z.strictObject({ start: timestamp, end: timestamp }).refine(value => {
+  const duration = Date.parse(value.end) - Date.parse(value.start);
+  return duration > 0 && duration <= 366 * 86400000;
+});
+/** Closed assistant commands; TOTAL only, explicit <=366-day window, no mutations or arbitrary HTTP. */
+export const commandSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("list_organizations") }),
+  z.strictObject({ kind: z.literal("list_accounts"), organizationId: vendorId, ...page }),
+  z.strictObject({ kind: z.literal("list_campaigns"), ...page }),
+  z.strictObject({ kind: z.literal("list_creatives"), ...page }),
+  z.strictObject({ kind: z.literal("report"), campaignId: vendorId.optional(), window }),
+]);
+/** Defaults apply at the adapter boundary. Omit campaignId to report bound-account spend only. */
+export type SnapchatCommand = z.input<typeof commandSchema>;
+
+/** Shared internal binding parser; the sole public module does not expose wire helpers. */
+export const configurationSchema = z.strictObject({ scope: scopeSchema, connectionId: idSchema, accountId: vendorId.nullable(), currency: z.string().regex(/^[A-Z]{3}$/),
+  timezone: z.string().min(1).max(100), apiVersion: z.literal("v1"), pluginDigest: digestSchema });
+
+const digest = z.string().regex(/^[a-f0-9]{64}$/);
+const eventSchema = z.strictObject({ eventId: idSchema, definitionId: idSchema, subjectId: idSchema, occurredAt: epochSchema,
+  destination: idSchema, purpose: idSchema, identifiers: z.strictObject({ email: digest }), identifierDigests: z.strictObject({ email: digest }) });
+const grantSchema = z.strictObject({ kind: z.literal("measurement"), grantId: idSchema, scope: scopeSchema, connectionId: idSchema,
+  accountId: idSchema, definitionIds: z.array(idSchema).min(1).max(16), destination: idSchema, purpose: idSchema, payloadSchema: idSchema,
+  payloadVersion: z.literal(1), expiresAt: epochSchema, revoked: z.boolean() });
+export const requestSchema = z.strictObject({ context: z.strictObject({ scope: scopeSchema, serviceId: idSchema, correlationId: idSchema, traceId: idSchema }),
+  event: eventSchema, grant: grantSchema, deliveryId: idSchema });
+export const capiConfigurationSchema = configurationSchema.extend({ accountId: vendorId, mode: z.literal("production-server"),
+  destination: idSchema, purpose: idSchema, payloadSchema: idSchema, pixelId: vendorId, pixelAccountId: vendorId,
+  definition: z.strictObject({ id: idSchema, actionSource: z.literal("OFFLINE"), eventName: z.literal("SIGN_UP") }) });
+/** Server verifies a genuinely offline definition and owned Pixel; missing mapping denies locally. */
+export type SnapchatCapiConfiguration = z.infer<typeof capiConfigurationSchema>;
+/** Transient contacts destination SHA-256 plus internal evidence digest; never hash or send the HMAC. */
+export type SnapchatCapiRequest = z.infer<typeof requestSchema>;
+/** Exact single-event payload, copied to the authority fence; occurrence remains milliseconds. */
+export interface SnapchatCapiPayload { data: [{ event_name: "SIGN_UP"; event_time: number; event_id: string; action_source: "OFFLINE"; user_data: { em: [string] } }] }
+/** Delivered means documented VALID acknowledgement, not attribution. */
+export interface SnapchatConversionOutcome { status: "delivered" | "unknown" }
 
 /** Server-resolved binding. Null account permits discovery only; currency/timezone come from the account. */
 export interface SnapchatConfiguration {

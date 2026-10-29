@@ -15,7 +15,7 @@
           "capabilityId": "campaign.read.v1",
           "version": 1,
           "pluginId": "amazon-ads",
-          "schemaFingerprint": "5ab9c065e869f12e0e739e72c3075c30a0f6b5b1beb8e7c785d03665cf3ea20b",
+          "schemaFingerprint": "5e8a95c2d85c8675aabaf4f090063127ed69ae3fa9217bc15ae305a00a9e4ea2",
           "admitted": false,
           "effects": [
             "read"
@@ -25,7 +25,7 @@
           "capabilityId": "report.account-spend.v1",
           "version": 1,
           "pluginId": "amazon-ads",
-          "schemaFingerprint": "5ab9c065e869f12e0e739e72c3075c30a0f6b5b1beb8e7c785d03665cf3ea20b",
+          "schemaFingerprint": "5e8a95c2d85c8675aabaf4f090063127ed69ae3fa9217bc15ae305a00a9e4ea2",
           "admitted": false,
           "effects": [
             "read"
@@ -35,7 +35,7 @@
           "capabilityId": "report.request.v1",
           "version": 1,
           "pluginId": "amazon-ads",
-          "schemaFingerprint": "5ab9c065e869f12e0e739e72c3075c30a0f6b5b1beb8e7c785d03665cf3ea20b",
+          "schemaFingerprint": "5e8a95c2d85c8675aabaf4f090063127ed69ae3fa9217bc15ae305a00a9e4ea2",
           "admitted": false,
           "effects": [
             "write"

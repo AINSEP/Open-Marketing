@@ -2,14 +2,13 @@ import type { PluginCapabilitiesFactory, PluginCapabilityDependencies } from "@o
 import { context, envelope, campaignPage, mapping, midnight, statsUrl, projectSeries, status } from "./metrics-status.js";
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { pluginConfigurationSchema, campaignStatusInputSchema, campaignStatusOutputSchema, reportMetricsInputSchema, metricBatchSchema, callContextSchema, digestSchema, epochSchema, idSchema, parseBoundary, scopeSchema, parseExactIntegerJson } from "@open-marketing/contracts";
+import { pluginConfigurationSchema, campaignStatusInputSchema, campaignStatusOutputSchema, reportMetricsInputSchema, metricBatchSchema, callContextSchema, epochSchema, idSchema, parseBoundary, parseExactIntegerJson } from "@open-marketing/contracts";
 import type { CampaignStatusOutput, MetricBatch, ReportMetricsInput, PluginCapability, CallOptions, Outcome } from "@open-marketing/contracts";
 import { commandSchema, decodeList, encodeCommand, failure, success, vendorId } from "./commands.js";
 import { decodeReport, reportWindowValid } from "./reporting.js";
 import type { SnapchatAdsAdapter, SnapchatConfiguration, SnapchatDependencies, SnapchatInvocation, SnapchatResult, SnapchatWireRequest } from "./ports.js";
-/** Shared internal binding parser; the sole public module does not expose wire helpers. */
-export const configurationSchema = z.strictObject({ scope: scopeSchema, connectionId: idSchema, accountId: vendorId.nullable(), currency: z.string().regex(/^[A-Z]{3}$/),
-  timezone: z.string().min(1).max(100), apiVersion: z.literal("v1"), pluginDigest: digestSchema });
+import { configurationSchema } from "./ports.js";
+export { configurationSchema } from "./ports.js";
 const invocationSchema = z.strictObject({ context: callContextSchema, operationId: idSchema, command: commandSchema });
 const credentialSchema = z.strictObject({ accessToken: z.string().min(1).max(4096).regex(/^[\x21-\x7e]+$/), expiresAt: epochSchema.optional() });
 type Prepared = { invocation: SnapchatInvocation; configuration: SnapchatConfiguration; request: SnapchatWireRequest; ownershipId?: string };

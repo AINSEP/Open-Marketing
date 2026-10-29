@@ -27,7 +27,7 @@
           "capabilityId": "sms.read.v1",
           "version": 1,
           "pluginId": "twilio-sms",
-          "schemaFingerprint": "faebe3e09bac92105b3c5b1a44292b8c071353efe93a243d08672dd680c8df2b",
+          "schemaFingerprint": "6f795bb41bf98ab04181b23abbaa3b7709cfbbbe9fbeb29f0db31cda9b12af36",
           "admitted": false,
           "effects": [
             "read"

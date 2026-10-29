@@ -26,3 +26,13 @@ export interface MetaGatewayPort {
 export interface MetaFederationHostPort {
   invoke(required: { context: CallContext; call: MetaCall }, optional?: CallOptions): Promise<Outcome<unknown>>;
 }
+
+export interface MetaInstagramGraphRequest { readonly method: "GET" | "POST"; readonly endpoint: string; readonly parameters: Readonly<Record<string, string | boolean>> }
+
+/** Server-owned policy + credentialed egress. Bind this callback to the frozen full tool invocation,
+ * use operationId as the ONE outbox key, and recheck current authority after resolving credentials
+ * at EVERY Graph call. Subcalls share that approved job; they do not enqueue separate approvals.
+ * Bound HTTP/response bytes; never redirect credentials, retry POSTs, or return provider secrets.
+ */
+export type MetaInstagramDispatch = (required: { context: CallContext; connectionId: string; operationId: string; effect: EffectEnvelope; request: MetaInstagramGraphRequest; timeoutMs: number }, optional?: CallOptions) => Promise<Outcome<unknown>>;
+

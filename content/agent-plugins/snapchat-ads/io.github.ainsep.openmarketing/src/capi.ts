@@ -1,30 +1,12 @@
 /** Server-only offline SIGN_UP delivery; no assistant tool or implicit web-event relabeling. */
 import { z } from "zod";
-import { epochSchema, idSchema, scopeSchema } from "@open-marketing/contracts";
 import type { CallOptions, Outcome, ServiceContext } from "@open-marketing/contracts";
-import { failure, vendorId } from "./commands.js";
-import { beforeEgress, boundInput, configurationSchema, requestSnapchat, resolveCredential } from "./transport.js";
-import type { SnapchatCapiDependencies } from "./ports.js";
+import { failure } from "./commands.js";
+import { beforeEgress, boundInput, requestSnapchat, resolveCredential } from "./transport.js";
+import { requestSchema, capiConfigurationSchema } from "./ports.js";
+import type { SnapchatCapiDependencies, SnapchatCapiConfiguration, SnapchatCapiRequest, SnapchatCapiPayload, SnapchatConversionOutcome } from "./ports.js";
+export type { SnapchatCapiConfiguration, SnapchatCapiRequest, SnapchatCapiPayload, SnapchatConversionOutcome } from "./ports.js";
 
-const digest = z.string().regex(/^[a-f0-9]{64}$/);
-const eventSchema = z.strictObject({ eventId: idSchema, definitionId: idSchema, subjectId: idSchema, occurredAt: epochSchema,
-  destination: idSchema, purpose: idSchema, identifiers: z.strictObject({ email: digest }), identifierDigests: z.strictObject({ email: digest }) });
-const grantSchema = z.strictObject({ kind: z.literal("measurement"), grantId: idSchema, scope: scopeSchema, connectionId: idSchema,
-  accountId: idSchema, definitionIds: z.array(idSchema).min(1).max(16), destination: idSchema, purpose: idSchema, payloadSchema: idSchema,
-  payloadVersion: z.literal(1), expiresAt: epochSchema, revoked: z.boolean() });
-const requestSchema = z.strictObject({ context: z.strictObject({ scope: scopeSchema, serviceId: idSchema, correlationId: idSchema, traceId: idSchema }),
-  event: eventSchema, grant: grantSchema, deliveryId: idSchema });
-const capiConfigurationSchema = configurationSchema.extend({ accountId: vendorId, mode: z.literal("production-server"),
-  destination: idSchema, purpose: idSchema, payloadSchema: idSchema, pixelId: vendorId, pixelAccountId: vendorId,
-  definition: z.strictObject({ id: idSchema, actionSource: z.literal("OFFLINE"), eventName: z.literal("SIGN_UP") }) });
-/** Server verifies a genuinely offline definition and owned Pixel; missing mapping denies locally. */
-export type SnapchatCapiConfiguration = z.infer<typeof capiConfigurationSchema>;
-/** Transient contacts destination SHA-256 plus internal evidence digest; never hash or send the HMAC. */
-export type SnapchatCapiRequest = z.infer<typeof requestSchema>;
-/** Exact single-event payload, copied to the authority fence; occurrence remains milliseconds. */
-export interface SnapchatCapiPayload { data: [{ event_name: "SIGN_UP"; event_time: number; event_id: string; action_source: "OFFLINE"; user_data: { em: [string] } }] }
-/** Delivered means documented VALID acknowledgement, not attribution. */
-export interface SnapchatConversionOutcome { status: "delivered" | "unknown" }
 /** Reconciliation never sends, resolves credentials or infers delivery. */
 export interface SnapchatCapiBackend {
   deliver(required: SnapchatCapiRequest, optional?: CallOptions): Promise<Outcome<SnapchatConversionOutcome>>;

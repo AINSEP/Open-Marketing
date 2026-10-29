@@ -1,18 +1,18 @@
 import { z } from "zod";
-import { callContextSchema, campaignKeySchema, capabilityCatalog, idSchema, metricBatchSchema, parseBoundary, scopeSchema, serviceContextSchema } from "@open-marketing/contracts";
+import { capabilityCatalog, metricBatchSchema } from "@open-marketing/contracts";
 import type { CallContext, CallOptions, CampaignStatusOutput, CapabilityInput, CapabilityOutput, ClockPort, Outcome, PluginCapability, PluginCapabilityDependencies, PluginCapabilities, PluginCapabilitiesFactory, TrackingTagInput } from "@open-marketing/contracts";
 import { createAudienceCapabilities } from "./audiences.js";
 import { boundedJson, digest, failure, parse } from "./boundary.js";
 import { vendorIdSchema } from "./commands.js";
+import { boundContext } from "./evidence.js";
+export { boundContext } from "./evidence.js";
 import type { MetaBinding } from "./evidence.js";
 import type { MetaInstagramDispatch } from "./instagram.js";
 import { decodeMetrics, insightRowSchema, insightsParameters } from "./metrics.js";
 import { adsGraphVersion, createConfiguredDispatch } from "./instagram-fetch.js";
 
-const bindingSchema = z.strictObject({ scope: scopeSchema, connectionId: idSchema, accountId: vendorIdSchema });
 type Dependencies = { binding: Pick<MetaBinding, "scope" | "connectionId" | "accountId">; dispatch: MetaInstagramDispatch; clock: ClockPort };
 type Reads = { [K in "report.metrics.v1" | "campaign.status.v1" | "tracking.tag.v1"]: PluginCapability<K> };
-const connectionSchema = campaignKeySchema.pick({ accountId: true }).extend({ connectionId: idSchema });
 const accountSchema = z.object({ id: z.string().regex(/^act_[1-9][0-9]{0,31}$/), account_id: vendorIdSchema, currency: z.string().regex(/^[A-Z]{3}$/), timezone_name: metricBatchSchema.shape.timezone });
 const pagingSchema = z.object({ next: z.string().min(1).max(8192).optional(), cursors: z.object({ after: z.string().min(1).max(2048) }).optional() }).optional();
 const issue = z.object({ error_message: z.string().min(1).max(1000).optional(), error_summary: z.string().min(1).max(1000).optional() });
@@ -81,26 +81,6 @@ function executeRead(required: { dependencies: Dependencies; read: ReadCall; inp
   if ("grain" in required.input) return readMetrics({ ...required, input: required.input });
   if ("vendorCampaignIds" in required.input) return readStatus({ ...required, ids: required.input.vendorCampaignIds });
   return readTag({ ...required, input: required.input });
-}
-/** Validate call context and its single connection against the configured account/scope before I/O.
- * Returns the normalized context or a constant typed failure; O(1) bounded schema work.
- * @example boundContext({ binding: { scope, connectionId, accountId }, call })
- */
-export function boundContext(required: { binding: unknown; call: { context: unknown; connection: unknown } }): Outcome<CallContext> {
-  const binding = parse({ schema: bindingSchema, input: required.binding });
-  if (!binding.ok) return binding;
-  const context = readContext({ value: required.call.context });
-  if (!context.ok) return context;
-  const connection = parse({ schema: connectionSchema, input: required.call.connection });
-  if (!connection.ok) return connection;
-  if (context.value.scope.ownerId !== binding.value.scope.ownerId || context.value.scope.workspaceId !== binding.value.scope.workspaceId || connection.value.connectionId !== binding.value.connectionId || connection.value.accountId !== binding.value.accountId) return failure({ code: "forbidden", message: "Meta read binding mismatch" });
-  return context;
-}
-function readContext({ value }: { value: unknown }): Outcome<CallContext> {
-  const service = serviceContextSchema.safeParse(value);
-  if (!service.success) return parseBoundary({ schema: callContextSchema, input: value });
-  const { serviceId, ...rest } = service.data;
-  return parseBoundary({ schema: callContextSchema, input: { ...rest, principal: { kind: "service", serviceId } } });
 }
 /** Fresh per-invocation limits. Never follow paging.next, retain credentials, retry or perform per-item I/O.
  * The dispatch/fetch supplied by the host owns egress audit and trace instrumentation.

@@ -1,11 +1,12 @@
-import { z } from "zod";
 import { definePluginTools, epochSchema, parseBoundary } from "@open-marketing/contracts";
 import type { AppError, CallOptions, Outcome, PluginCapabilityDependencies, PluginToolsFactory } from "@open-marketing/contracts";
-import { configurationSchema, decodeTwilioRead, encodeTwilioRead, invocationSchema, twilioSmsTools } from "./commands.js";
+import { credentialSchema, configurationSchema, decodeTwilioRead, encodeTwilioRead, invocationSchema, twilioSmsTools } from "./commands.js";
 import type { TwilioCommand, TwilioConfiguration, TwilioDependencies, TwilioInvocation, TwilioResult, TwilioSmsAdapter } from "./ports.js";
+import type { Credential } from "./commands.js";
+export type { Credential } from "./commands.js";
 
 /** Pure discovery and parsing over the existing read schemas; declarations grant no authority. */
-export const { tools, parseTool } = definePluginTools({ tools: twilioSmsTools.map(tool => ({
+export const { tools, parseTool }: ReturnType<typeof definePluginTools> = definePluginTools({ tools: twilioSmsTools.map(tool => ({
   name: tool.name, description: "Twilio SMS " + tool.name, effects: ["read"], inputSchema: tool.inputSchema,
 })) });
 
@@ -37,19 +38,6 @@ export function createTools(required: PluginCapabilityDependencies): ReturnType<
     } finally { timers.forEach(timer => timer.abort()); }
   } };
 }
-
-const account = z.string().regex(/^AC[0-9a-fA-F]{32}$/);
-const credentialSchema = z.strictObject({ accountSid: account, apiKeySid: z.string().regex(/^SK[0-9a-fA-F]{32}$/),
-  apiKeySecret: z.string().min(1).max(4096).regex(/^[\x21-\x7e]+$/),
-  authToken: z.string().min(1).max(4096).regex(/^[\x21-\x7e]+$/).optional().or(z.literal("")).transform(value => value || undefined),
-  webhookUrl: z.string().max(2048).optional().or(z.literal("")).transform(value => value || undefined),
-  messagingServiceSid: z.string().regex(/^MG[0-9a-fA-F]{32}$/).optional().or(z.literal("")).transform(value => value || undefined),
-  phoneNumberSid: z.string().regex(/^PN[0-9a-fA-F]{32}$/).optional().or(z.literal("")).transform(value => value || undefined),
-  brandSid: z.string().regex(/^BN[0-9a-fA-F]{32}$/).optional().or(z.literal("")).transform(value => value || undefined),
-  campaignSid: z.string().regex(/^QE[0-9a-fA-F]{32}$/).optional().or(z.literal("")).transform(value => value || undefined),
-  tollfreeVerificationSid: z.string().regex(/^HH[0-9a-fA-F]{32}$/).optional().or(z.literal("")).transform(value => value || undefined),
-});
-export type Credential = z.infer<typeof credentialSchema> & { expiresAt?: number };
 
 /** Decode the broker's JSON card for this call only; malformed cards return a fixed, secret-free failure.
  * @complexity O(b) time/space, card JSON capped at 16KiB; no I/O. */

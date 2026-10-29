@@ -3,13 +3,8 @@ import { z } from "zod";
 import type { Outcome } from "@open-marketing/contracts";
 import { failure } from "./ports.js";
 
-/** Real ISO days, without normalizing impossible calendar dates. */
-export const dateSchema = z.iso.date();
-/** Fixed verified presets; no arbitrary columns, filters or SB spend claims. */
-export const presets = {
-  spCampaigns: { adProduct: "SPONSORED_PRODUCTS", groupBy: ["campaign", "adGroup"], columns: ["adGroupId", "campaignId", "impressions", "clicks", "cost", "date"], reportTypeId: "spCampaigns", timeUnit: "DAILY", format: "GZIP_JSON" },
-  sbPurchasedProduct: { adProduct: "SPONSORED_BRANDS", groupBy: ["purchasedAsin"], columns: ["adGroupName", "campaignName", "purchasedAsin", "productName", "sales14d", "orders14d", "date"], reportTypeId: "sbPurchasedProduct", timeUnit: "DAILY", format: "GZIP_JSON" },
-} as const;
+import { dateSchema, presets } from "./commands.js";
+export { dateSchema, presets } from "./commands.js";
 const configuration = z.object({ adProduct: z.string(), groupBy: z.array(z.string()).max(4), columns: z.array(z.string()).max(32), reportTypeId: z.enum(["spCampaigns", "sbPurchasedProduct"]), timeUnit: z.literal("DAILY"), format: z.literal("GZIP_JSON"), filters: z.null().optional() });
 /** Private location is consumed internally and stripped from all public status results. */
 export const reportSchema = z.object({ reportId: z.string().uuid(), startDate: dateSchema, endDate: dateSchema, status: z.enum(["PENDING", "COMPLETED"]), configuration, url: z.string().max(16384).nullable(), urlExpiresAt: z.iso.datetime({ offset: true }).nullable() })

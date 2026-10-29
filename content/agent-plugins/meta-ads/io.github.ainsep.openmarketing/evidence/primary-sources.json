@@ -449,7 +449,7 @@
     "resourceBounds": "OM: <=100 discovery Pages, <=64KiB boundary JSON, <=15s HTTP calls; <=5 polls/container 60s apart under one shared five-minute deadline.",
     "idempotency": "Server single outbox key=operationId for FULL tool invocation; completed/uncertain operations cannot rerun. Read PUBLISHED before publish; lost ACK gets one status read, never a second POST. No plugin store or extra lock.",
     "fingerprint": {
-      "value": "a2cd6285622ae7049ccc50bbdfa55ff52fe007e12e1edc6e99ba3db0e471599d",
+      "value": "5bbdd09ac7bff6c310bb5ce2b66530f8abf5513728039d32d081d56c75a03cf6",
       "method": "SHA-256 of concatenated UTF-8 file bytes in listed order",
       "files": [
         "src/instagram.ts",

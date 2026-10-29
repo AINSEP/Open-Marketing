@@ -7,7 +7,7 @@ import { vendorIdSchema } from "./commands.js";
 import { adsGraphVersion } from "./instagram-fetch.js";
 import type { createConfiguredDispatch } from "./instagram-fetch.js";
 import type { MetaInstagramDispatch } from "./instagram.js";
-import { boundContext } from "./read-capabilities.js";
+import { boundContext } from "./evidence.js";
 
 const inputSchema = capabilityCatalog["audience.member.add.v1"].input.extend({ audienceId: vendorIdSchema, emailSha256: sha256 });
 const audienceSchema = z.object({ account_id: vendorIdSchema, subtype: z.string().min(1).max(100) });

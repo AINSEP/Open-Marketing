@@ -2,17 +2,13 @@ import { z } from "zod";
 import { callContextSchema, idSchema } from "@open-marketing/contracts";
 import type { Outcome } from "@open-marketing/contracts";
 import type { PinterestConfiguration, PinterestWireRequest } from "./ports.js";
-import { failure } from "./ports.js";
-import { reportCommandSchema, reportQuery } from "./reporting.js";
+import { accounts, campaigns, commandSchema, failure, reportCommandSchema } from "./ports.js";
+import { reportQuery } from "./reporting.js";
 
 export const vendorId = z.string().regex(/^[0-9]{1,18}$/);
-export const cursor = z.string().min(1).max(2048).regex(/^[^\x00-\x1f\x7f]+$/);
-const page = { pageSize: z.number().int().min(1).max(100).default(100), pageToken: cursor.optional() };
-const accounts = z.strictObject({ kind: z.literal("list_accounts"), ...page });
-const campaigns = z.strictObject({ kind: z.literal("list_campaigns"), ...page });
+export { cursor, commandSchema } from "./ports.js";
+export type { PinterestCommand } from "./ports.js";
 const accountsUrl = "https://api.pinterest.com/v5/ad_accounts";
-export const commandSchema = z.discriminatedUnion("kind", [accounts, campaigns, reportCommandSchema]);
-export type PinterestCommand = z.input<typeof commandSchema>;
 export const invocationSchema = z.strictObject({ context: callContextSchema, operationId: idSchema, command: commandSchema });
 /** Full strict schemas, including kind. Every exposed tool is read-only. */
 export const pinterestAdsTools = [

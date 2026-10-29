@@ -1,8 +1,6 @@
 import { z } from "zod";
 import { callContextSchema, idSchema, pluginConfigurationSchema } from "@open-marketing/contracts";
 import type { Outcome } from "@open-marketing/contracts";
-import type { TwilioCommand, TwilioReadData } from "./ports.js";
-import type { Credential } from "./transport.js";
 
 const account = z.string().regex(/^AC[0-9a-fA-F]{32}$/);
 const service = z.string().regex(/^MG[0-9a-fA-F]{32}$/);
@@ -31,6 +29,23 @@ export const readDataSchema = z.union([
   z.object({ sid: campaign, account_sid: account, messaging_service_sid: service, brand_registration_sid: brand, campaign_status: status }),
   z.object({ sid: tollfree, account_sid: account, tollfree_phone_number_sid: number, status }),
 ]);
+
+/** Closed read commands; credentials and arbitrary phone destinations are excluded. */
+export type TwilioCommand = z.infer<typeof commandSchema>;
+/** Validated, minimal vendor projections; no webhook URLs, auth tokens or raw responses. */
+export type TwilioReadData = z.infer<typeof readDataSchema>;
+
+export const credentialSchema = z.strictObject({ accountSid: account, apiKeySid: z.string().regex(/^SK[0-9a-fA-F]{32}$/),
+  apiKeySecret: z.string().min(1).max(4096).regex(/^[\x21-\x7e]+$/),
+  authToken: z.string().min(1).max(4096).regex(/^[\x21-\x7e]+$/).optional().or(z.literal("")).transform(value => value || undefined),
+  webhookUrl: z.string().max(2048).optional().or(z.literal("")).transform(value => value || undefined),
+  messagingServiceSid: z.string().regex(/^MG[0-9a-fA-F]{32}$/).optional().or(z.literal("")).transform(value => value || undefined),
+  phoneNumberSid: z.string().regex(/^PN[0-9a-fA-F]{32}$/).optional().or(z.literal("")).transform(value => value || undefined),
+  brandSid: z.string().regex(/^BN[0-9a-fA-F]{32}$/).optional().or(z.literal("")).transform(value => value || undefined),
+  campaignSid: z.string().regex(/^QE[0-9a-fA-F]{32}$/).optional().or(z.literal("")).transform(value => value || undefined),
+  tollfreeVerificationSid: z.string().regex(/^HH[0-9a-fA-F]{32}$/).optional().or(z.literal("")).transform(value => value || undefined),
+});
+export type Credential = z.infer<typeof credentialSchema> & { expiresAt?: number };
 
 /** Encode fixed GET endpoints from this call's credential. Missing selectors have zero vendor I/O.
  * @returns A URL or null when a required resource selector is absent. @complexity O(1).

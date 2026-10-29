@@ -1,5 +1,14 @@
+import { z } from "zod";
 import type { AppError, CallContext, CallOptions, ClockPort, EffectEnvelope, ObserverPort, Outcome, Scope } from "@open-marketing/contracts";
-import type { MicrosoftAdsCommand } from "./commands.js";
+export const dayMs = 86400000;
+const utcDay = z.number().int().min(Date.UTC(2000, 0, 1)).max(Date.UTC(2100, 0, 1)).refine(value => value % dayMs === 0);
+export const reportCommandSchema = z.strictObject({ kind: z.literal("report"), window: z.strictObject({ start: utcDay, end: utcDay }) })
+  .refine(value => value.window.end > value.window.start && value.window.end - value.window.start <= 366 * dayMs);
+export const commandSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("list_accounts"), pageIndex: z.number().int().min(0).max(10000).default(0), pageSize: z.number().int().min(1).max(100).default(100) }),
+  z.strictObject({ kind: z.literal("list_campaigns") }), reportCommandSchema,
+]);
+export type MicrosoftAdsCommand = z.input<typeof commandSchema>;
 /** Server-owned binding. Null account/customer/currency permits account discovery only. */
 export interface MicrosoftAdsConfiguration {
   readonly scope: Scope;

@@ -3,12 +3,11 @@ import { callContextSchema, campaignDeploymentReceiptSchema, campaignValidateInp
 import type { CallContext, CallOptions, CampaignDeploymentReceipt, CampaignDeploymentRequired, CampaignValidateOutput, EffectCategory, Outcome, PluginCapability, PluginCapabilityDependencies, PluginConfiguration, PluginTool, PluginToolInvocation, PluginToolsFactory } from "@open-marketing/contracts";
 import { createGooglePlugin, prepareCreation } from "./plugin.ts";
 import { addNegativeKeyword, negativeKeywordInputSchema } from "./negative-keywords.ts";
-import { readAccount, readContext } from "./read-capabilities.ts";
 import { asRecord } from "./readback.ts";
 import { digest, operationIdentity } from "./rules.ts";
 import { failure, protect, success } from "./schema.ts";
 import { campaignDeploymentPlanSchema, planSchema, toolInputSchemas } from "./schemas.ts";
-import { createCallTransport } from "./transport.ts";
+import { createCallTransport, readAccount, readContext } from "./transport.ts";
 import { searchTermsInputSchema, searchTermsReport } from "./search-terms.ts";
 import type { AccountBinding, GoogleTransportPort, OperationJournalPort, OperationRecord, Receipt, SearchPlan, ToolName } from "./types.ts";
 

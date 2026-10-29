@@ -17,10 +17,10 @@
       ],
     "version": 1, "enabled": false, "admitted": false,
     "capabilities": [
-      {"capabilityId": "campaign.read.v1", "version": 1, "pluginId": "snapchat-ads", "schemaFingerprint": "31873ff5ec7a23f56f9a5a699b60616981a65cd63a768a016ae7ec78257517e4", "admitted": false, "effects": ["read"]},
+      {"capabilityId": "campaign.read.v1", "version": 1, "pluginId": "snapchat-ads", "schemaFingerprint": "7068bb2fdc3e2ee9cd64e1ec51f711e883af66135202b9e90f346da612a98c6d", "admitted": false, "effects": ["read"]},
       {"capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "snapchat-ads", "schemaFingerprint": "555b3a0d5d9abf48eec7bf00a641327bdd0fd8e033d420eb2623bc25ec9ddcad", "admitted": false, "effects": ["read"]},
       {"capabilityId": "campaign.create-paused.v1", "version": 1, "pluginId": "snapchat-ads", "schemaFingerprint": "f457fe6b598df8a8338e338d0fb2209a819bf621e1e1017f3a352fecc154da70", "admitted": false, "effects": ["write"]},
-      {"capabilityId": "conversion.deliver.v1", "version": 1, "pluginId": "snapchat-ads", "schemaFingerprint": "9439862b6db16ca02f69b1e0bebeb285afdf859d6c117e113e6816f168207ec8", "admitted": false, "effects": ["conversion"]}
-    , {"capabilityId":"report.metrics.v1","version":1,"pluginId":"snapchat-ads","schemaFingerprint":"d342458edec4628a99cded9101d4012ae6c70924f0cac67857af36407c2b77bc","admitted":false,"effects":["read"]}, {"capabilityId":"campaign.status.v1","version":1,"pluginId":"snapchat-ads","schemaFingerprint":"d342458edec4628a99cded9101d4012ae6c70924f0cac67857af36407c2b77bc","admitted":false,"effects":["read"]}]
+      {"capabilityId": "conversion.deliver.v1", "version": 1, "pluginId": "snapchat-ads", "schemaFingerprint": "93ef797ddc2595c61f4f7118be6158ae0000fa3f6259b5faa9a190a1c12629a0", "admitted": false, "effects": ["conversion"]}
+    , {"capabilityId":"report.metrics.v1","version":1,"pluginId":"snapchat-ads","schemaFingerprint":"e9af3126a579142d9773c41c801b03f1796cedb75b4cf00c4fc9fdc8fde9112d","admitted":false,"effects":["read"]}, {"capabilityId":"campaign.status.v1","version":1,"pluginId":"snapchat-ads","schemaFingerprint":"e9af3126a579142d9773c41c801b03f1796cedb75b4cf00c4fc9fdc8fde9112d","admitted":false,"effects":["read"]}]
   } }
 }

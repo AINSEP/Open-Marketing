@@ -173,7 +173,7 @@
           "capabilityId": "campaign.validate.v1",
           "version": 1,
           "pluginId": "google-ads",
-          "schemaFingerprint": "7d1b394997c3b26199a0fbf27b31faefe62d25b1371e224d50d159ed06ab4cee",
+          "schemaFingerprint": "9d56f268ea886630527e2a92165713966f9a7f2671dfb92544f82ac712df97ee",
           "admitted": false,
           "effects": [
             "read"
@@ -183,7 +183,7 @@
           "capabilityId": "report.metrics.v1",
           "version": 1,
           "pluginId": "google-ads",
-          "schemaFingerprint": "7d1b394997c3b26199a0fbf27b31faefe62d25b1371e224d50d159ed06ab4cee",
+          "schemaFingerprint": "9d56f268ea886630527e2a92165713966f9a7f2671dfb92544f82ac712df97ee",
           "admitted": false,
           "effects": [
             "read"
@@ -193,7 +193,7 @@
           "capabilityId": "campaign.status.v1",
           "version": 1,
           "pluginId": "google-ads",
-          "schemaFingerprint": "7d1b394997c3b26199a0fbf27b31faefe62d25b1371e224d50d159ed06ab4cee",
+          "schemaFingerprint": "9d56f268ea886630527e2a92165713966f9a7f2671dfb92544f82ac712df97ee",
           "admitted": false,
           "effects": [
             "read"
@@ -203,7 +203,7 @@
           "capabilityId": "tracking.tag.v1",
           "version": 1,
           "pluginId": "google-ads",
-          "schemaFingerprint": "7d1b394997c3b26199a0fbf27b31faefe62d25b1371e224d50d159ed06ab4cee",
+          "schemaFingerprint": "9d56f268ea886630527e2a92165713966f9a7f2671dfb92544f82ac712df97ee",
           "admitted": false,
           "effects": [
             "read"

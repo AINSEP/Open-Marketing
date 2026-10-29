@@ -2,12 +2,9 @@ import { z } from "zod";
 import { metricBatchSchema, decimalToMicros } from "@open-marketing/contracts";
 import type { CallOptions, Outcome, MetricBatch, MetricMapping, MetricGrain, ReportMetricsInput, CampaignStatusOutput } from "@open-marketing/contracts";
 import { request, statusRequest } from "./commands.js";
-import { failure } from "./ports.js";
+import { dayMs, failure, reportCommandSchema } from "./ports.js";
 import type { MicrosoftAdsArchiveEntry, MicrosoftAdsDependencies, MicrosoftAdsWireRequest } from "./ports.js";
-const dayMs = 86400000;
-const utcDay = z.number().int().min(Date.UTC(2000, 0, 1)).max(Date.UTC(2100, 0, 1)).refine(value => value % dayMs === 0);
-export const reportCommandSchema = z.strictObject({ kind: z.literal("report"), window: z.strictObject({ start: utcDay, end: utcDay }) })
-  .refine(value => value.window.end > value.window.start && value.window.end - value.window.start <= 366 * dayMs);
+export { reportCommandSchema } from "./ports.js";
 type ReportCommand = z.infer<typeof reportCommandSchema>;
 const columns = ["AccountId", "CampaignId", "TimePeriod", "CurrencyCode", "Spend", "Impressions", "Clicks", "ConversionsQualified"];
 const decimal = z.string().max(64).regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/);

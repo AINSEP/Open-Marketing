@@ -2,7 +2,7 @@
 import { z } from 'zod';
 import { parseBoundary, pluginConfigurationSchema } from '@open-marketing/contracts';
 import type { PluginCapabilityDependencies, PluginConfiguration, PluginConnectionConfiguration, CallContext, CallOptions, Outcome } from '@open-marketing/contracts';
-import type { MetaInstagramDispatch } from './instagram.js';
+import type { MetaInstagramDispatch } from './ports.js';
 import { failure } from './boundary.js';
 
 /** One version for Ads reads, deployment encoding/digests and destination validation. */
@@ -73,7 +73,7 @@ function encodeRequest(required: { input: Parameters<MetaInstagramDispatch>[0] }
   const advertisingPath = /^\/act_([1-9][0-9]{0,31})\/(campaigns|adsets|ads)$/.exec(adsPath);
   const advertising = input.request.method === 'POST' && advertisingPath !== null && advertisingPath[1] === input.effect.accountId;
   const reportingPath = /^\/act_([1-9][0-9]{0,31})(?:\/(?:insights|campaigns|ads|adsets|adspixels))?$/.exec(adsPath);
-  const reporting = input.request.method === 'GET' && reportingPath !== null && reportingPath[1] === input.effect.accountId && input.effect.effects.length === 1 && input.effect.effects[0] === 'read';
+  const reporting = isAdsReportingRequest({ input, reportingPath });
   const targetingSearch = input.request.method === 'GET' && adsPath === '/search' && input.effect.effects.length === 1 && input.effect.effects[0] === 'read';
   const audience = input.request.method === 'POST' && /^\/[1-9][0-9]{0,31}\/users$/.test(adsPath) && input.effect.effects.length === 1 && input.effect.effects[0] === 'write';
   const conversion = input.request.method === 'POST' && /^\/[1-9][0-9]{0,31}\/events$/.test(adsPath) && input.effect.effects.length === 1 && input.effect.effects[0] === 'conversion';
@@ -83,6 +83,10 @@ function encodeRequest(required: { input: Parameters<MetaInstagramDispatch>[0] }
   if (parameters.has('access_token') || parameters.toString().length > 65536) return failure({ code: 'invalid_input', message: 'Instagram parameters invalid or oversized' });
   return { ok: true, value: { url: input.request.endpoint + (input.request.method === 'GET' ? '?' + parameters : ''),
     body: input.request.method === 'POST' ? parameters.toString() : undefined } };
+}
+
+function isAdsReportingRequest({ input, reportingPath }: { input: Parameters<MetaInstagramDispatch>[0]; reportingPath: RegExpExecArray | null }): boolean {
+  return input.request.method === 'GET' && reportingPath !== null && reportingPath[1] === input.effect.accountId && input.effect.effects.length === 1 && input.effect.effects[0] === 'read';
 }
 
 /** Stream counting bounds allocation even without Content-Length. Parsing does not grant authority. */

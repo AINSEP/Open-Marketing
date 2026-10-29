@@ -1,13 +1,10 @@
 import type { CallContext, CallOptions, ClockPort, ObserverPort, Outcome } from "@open-marketing/contracts";
 import type { z } from "zod";
-import type { configurationSchema, commandSchema, readDataSchema } from "./commands.js";
+import type { configurationSchema, TwilioCommand, TwilioReadData } from "./commands.js";
 
 /** Standard host configuration; vendor identity/selectors come from call-local credentials. */
 export type TwilioConfiguration = z.infer<typeof configurationSchema>;
-/** Closed read commands; credentials and arbitrary phone destinations are excluded. */
-export type TwilioCommand = z.infer<typeof commandSchema>;
-/** Validated, minimal vendor projections; no webhook URLs, auth tokens or raw responses. */
-export type TwilioReadData = z.infer<typeof readDataSchema>;
+export type { TwilioCommand, TwilioReadData } from "./commands.js";
 /** API-key material stays in the server-loaded plugin and is never returned or observed. */
 export interface TwilioCredentialPort {
   access(required: { connectionId: string; accountId: string }, optional?: CallOptions): Promise<Outcome<{ accessToken: string; expiresAt?: number }>>;

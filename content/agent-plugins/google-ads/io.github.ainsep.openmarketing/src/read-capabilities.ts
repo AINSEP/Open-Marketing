@@ -1,21 +1,20 @@
 import { z } from "zod";
-import { callContextSchema, campaignKeySchema, capabilityCatalog, idSchema, metricBatchSchema, parseBoundary, serviceContextSchema } from "@open-marketing/contracts";
-import type { CallContext, CallOptions, CallableCapabilityId, CampaignStatusOutput, CapabilityInput, CapabilityOutput, ClockPort, Outcome, PluginCapability, PluginCapabilityDependencies, PluginCapabilitiesFactory, ReportMetricsInput, ServiceContext, TrackingTagInput } from "@open-marketing/contracts";
+import { campaignKeySchema, capabilityCatalog, idSchema, parseBoundary } from "@open-marketing/contracts";
+import type { CallContext, CallOptions, CallableCapabilityId, CampaignStatusOutput, CapabilityInput, CapabilityOutput, Outcome, PluginCapability, PluginCapabilityDependencies, PluginCapabilitiesFactory, ReportMetricsInput, TrackingTagInput } from "@open-marketing/contracts";
 import { failure, numericId, parse, protect, success } from "./schema.ts";
 import { transportBindingSchema } from "./schemas.ts";
 import { asRecord, localInstant } from "./readback.ts";
 import { decodeMetrics, metricSearchRows, metricsQuery } from "./metrics.ts";
-import type { AccountBinding, GoogleTransportPort } from "./types.ts";
-import { createCallTransport, readSignal } from "./transport.ts";
+import { accountSchema, createCallTransport, readAccount, readContext, readSignal, search } from "./transport.ts";
+import type { ReadDependencies as Dependencies } from "./transport.ts";
+export { readAccount, readContext } from "./transport.ts";
 import { stopScopeMatches, transmitStop } from "./stop.ts";
 import { validateCampaignDeployment } from "./hosted.ts";
 
-type ReadBinding = Pick<AccountBinding, "scope" | "connectionId" | "customerId">;
-type Dependencies = { binding: ReadBinding; transport: GoogleTransportPort; clock: ClockPort };
+type ReadBinding = Dependencies["binding"];
 type ReadId = Exclude<CallableCapabilityId, "campaign.validate.v1">;
 type Reads = { [K in CallableCapabilityId]: PluginCapability<K> } & { "campaign.halt-stop.v1": PluginCapability<"campaign.halt-stop.v1"> };
 const connectionSchema = campaignKeySchema.pick({ accountId: true }).extend({ connectionId: idSchema });
-const accountSchema = z.object({ id: z.string().regex(/^[1-9][0-9]{9}$/), currencyCode: metricBatchSchema.shape.currency, timeZone: metricBatchSchema.shape.timezone });
 
 /** Canonical server ABI; validate configuration and bind existing adapters per call for cancellation.
  * No construction-time I/O or plugin authority. O(1) setup; bounded Google reads per handler.
@@ -93,13 +92,6 @@ async function invokeRead<K extends ReadId>(required: Dependencies & { call: Par
     return success({ value: output.data as CapabilityOutput<K> });
   } });
 }
-/** Normalize the two host context ABIs; typed failures contain no supplied values. */
-export function readContext({ context }: { context: CallContext | ServiceContext }): Outcome<CallContext> {
-  const service = serviceContextSchema.safeParse(context);
-  if (!service.success) return parseBoundary({ schema: callContextSchema, input: context });
-  const { serviceId, ...rest } = service.data;
-  return parseBoundary({ schema: callContextSchema, input: { ...rest, principal: { kind: "service", serviceId } } });
-}
 async function executeRead(required: { dependencies: Dependencies; context: CallContext; id: ReadId; input: CapabilityInput<ReadId> }, optional?: CallOptions): Promise<Outcome<unknown>> {
   const { dependencies, context, input } = required;
   if (required.id === "report.metrics.v1" && "grain" in input) {
@@ -119,18 +111,6 @@ function dateWindows({ days, maxDays }: { days: ReportMetricsInput["days"]; maxD
     windows.push({ start: new Date(start).toISOString().slice(0, 10), end: new Date(Math.min(end, start + maxDays * 86400000)).toISOString().slice(0, 10) });
   }
   return windows;
-}
-/** Metadata is read even for empty reports. Never accept currency/timezone from install settings.
- * O(1) projection; one bounded customer search, explicit missing/foreign metadata failures.
- */
-export async function readAccount(required: { dependencies: Dependencies; context: CallContext }, optional?: CallOptions): Promise<Outcome<z.infer<typeof accountSchema>>> {
-  const response = await search({ ...required, query: "SELECT customer.id, customer.currency_code, customer.time_zone FROM customer LIMIT 2" }, optional);
-  if (!response.ok) return response;
-  if (!response.value.complete || response.value.rows.length !== 1) return failure({ code: "unavailable", message: "Google account metadata unavailable" });
-  const account = parseBoundary({ schema: accountSchema, input: response.value.rows[0].customer });
-  if (!account.ok) return account;
-  if (account.value.id !== required.dependencies.binding.customerId) return failure({ code: "forbidden", message: "Foreign Google account metadata" });
-  return account;
 }
 /** Fetch bounded date windows; split oversized responses and discard saturated parent pages before visiting child windows.
  * O(r+n) retained work, r<=32 requests, n<=5,000 rows; <=30s total and <=1MiB per response.
@@ -175,13 +155,6 @@ async function metricWindow(required: { dependencies: Dependencies; context: Cal
 function inWindow({ row, days }: { row: Record<string, unknown>; days: ReportMetricsInput["days"] }): boolean {
   const day = asRecord({ value: row.segments }).date;
   return typeof day === "string" && day >= days.start && day < days.end;
-}
-async function search(required: { dependencies: Dependencies; context: CallContext; query: string }, optional?: CallOptions): Promise<ReturnType<typeof metricSearchRows>> {
-  if (optional?.signal?.aborted) return failure({ code: "cancelled", message: "Google read cancelled" });
-  const result = await required.dependencies.transport.request({ method: "search", context: required.context, operationId: required.context.correlationId, body: { query: required.query } });
-  if (!result.ok) return result;
-  if (optional?.signal?.aborted) return failure({ code: "cancelled", message: "Google read cancelled" });
-  return metricSearchRows({ value: result.value });
 }
 const campaignSchema = campaignKeySchema.pick({ vendorCampaignId: true }).extend({
   vendorCampaignId: idSchema.max(19).regex(/^[1-9][0-9]*$/), status: idSchema, primaryStatus: idSchema, primaryStatusReasons: idSchema.array().max(20),

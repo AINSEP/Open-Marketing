@@ -1,7 +1,8 @@
 import { z } from "zod";
-import { digestSchema, epochSchema, idSchema, scopeSchema } from "@open-marketing/contracts";
-import type { Outcome } from "@open-marketing/contracts";
+import { callContextSchema, campaignKeySchema, digestSchema, epochSchema, idSchema, parseBoundary, scopeSchema, serviceContextSchema } from "@open-marketing/contracts";
+import type { CallContext, Outcome } from "@open-marketing/contracts";
 import { boundedJson, digest, failure, parse } from "./boundary.js";
+import { vendorIdSchema } from "./commands.js";
 import type { MetaInvocation } from "./commands.js";
 import type { MetaEvidencePort } from "./ports.js";
 
@@ -52,4 +53,28 @@ function matchesRequest(required: { binding: MetaBinding; request: MetaInvocatio
  */
 export function createUnavailableMetaEvidence(_required: Record<string, never>): MetaEvidencePort {
   return { async resolve() { return failure({ code: "unavailable", message: "Meta hosted capability evidence has not been admitted" }); } };
+}
+
+const capabilityBindingSchema = z.strictObject({ scope: scopeSchema, connectionId: idSchema, accountId: vendorIdSchema });
+const connectionSchema = campaignKeySchema.pick({ accountId: true }).extend({ connectionId: idSchema });
+
+/** Validate call context and its single connection against the configured account/scope before I/O.
+ * Returns the normalized context or a constant typed failure; O(1) bounded schema work.
+ * @example boundContext({ binding: { scope, connectionId, accountId }, call })
+ */
+export function boundContext(required: { binding: unknown; call: { context: unknown; connection: unknown } }): Outcome<CallContext> {
+  const binding = parse({ schema: capabilityBindingSchema, input: required.binding });
+  if (!binding.ok) return binding;
+  const context = readContext({ value: required.call.context });
+  if (!context.ok) return context;
+  const connection = parse({ schema: connectionSchema, input: required.call.connection });
+  if (!connection.ok) return connection;
+  if (context.value.scope.ownerId !== binding.value.scope.ownerId || context.value.scope.workspaceId !== binding.value.scope.workspaceId || connection.value.connectionId !== binding.value.connectionId || connection.value.accountId !== binding.value.accountId) return failure({ code: "forbidden", message: "Meta read binding mismatch" });
+  return context;
+}
+function readContext({ value }: { value: unknown }): Outcome<CallContext> {
+  const service = serviceContextSchema.safeParse(value);
+  if (!service.success) return parseBoundary({ schema: callContextSchema, input: value });
+  const { serviceId, ...rest } = service.data;
+  return parseBoundary({ schema: callContextSchema, input: { ...rest, principal: { kind: "service", serviceId } } });
 }
