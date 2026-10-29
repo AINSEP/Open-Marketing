@@ -1,0 +1,10 @@
+
+ RUN  v3.2.4 /home/user/Open-Marketing/apps/server
+
+ ✓ tests/integrations.test.ts (50 tests) 493ms
+
+ Test Files  1 passed (1)
+      Tests  50 passed (50)
+   Start at  19:16:38
+   Duration  4.91s (transform 1.98s, setup 0ms, collect 4.01s, tests 493ms, environment 0ms, prepare 108ms)
+

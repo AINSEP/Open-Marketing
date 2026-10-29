@@ -44,7 +44,7 @@ it.each(['key', 'apiKey'])('rejects credential-bearing card URLs using %s before
     const integrations = createIntegrations({ ...f.dependencies, readCredentialCards });
     try {
         const response = await handleIntegrationRequest({ context: owner, integrations, request: { method: 'GET', path: '/api/addons/v1/integrations/oauth/status', query: { pluginId } } });
-        expect(response).toEqual({ status: 400, body: { ok: false, error: { code: 'invalid_input', message: 'Invalid credential card or asset', retryable: false } }, headers: { 'cache-control': 'no-store' } });
+        expect(response).toEqual({ status: 400, body: { ok: false, error: { code: 'invalid_input', message: 'Integration operation unavailable or denied', retryable: false } }, headers: { 'cache-control': 'no-store' } });
         expect(JSON.stringify([response, f.events, f.dependencies.audit.entries({})])).not.toContain('fixture-query-secret');
     } finally { f.dispose(); }
 });
