@@ -1,8 +1,30 @@
 import { expect, it } from "vitest";
-import { deriveMetricRatios, metricBatchSchema, metricMappingSchema, metricValuesSchema, ratioResultSchema } from "../src/index.js";
+import { decimalToMicros, deriveMetricRatios, metricBatchSchema, metricMappingSchema, metricValuesSchema, ratioResultSchema } from "../src/index.js";
 import type { MetricBatch, MetricGrain } from "../src/index.js";
 
 const meaning = { vendorField: "cost_micros", meaning: "Billed account currency micros" };
+it.each([
+  ["0", "0"], ["1", "1000000"], ["123.45", "123450000"],
+  ["9007199254740993.123456", "9007199254740993123456"], ["1e-6", "1"], ["1.23000000e2", "123000000"],
+  ["0e999", "0"], ["1e31", "1" + "0".repeat(37)],
+])("scales exact major units %s to micros without currency-specific minor units", (value, expected) => {
+  expect(decimalToMicros({ value, rounding: "reject" })).toEqual({ ok: true, value: expected });
+});
+it.each([
+  ["0.0000005", "0"], ["0.0000015", "2"], ["1.2345665", "1234566"], ["1.2345675", "1234568"],
+  ["1.2345674", "1234567"], ["1.2345676", "1234568"], ["0.9999995", "1000000"], ["1e-999", "0"],
+])("rounds %s half-even with exact ties and carry", (value, expected) => {
+  expect(decimalToMicros({ value, rounding: "half_even" })).toEqual({ ok: true, value: expected });
+  expect(decimalToMicros({ value, rounding: "reject" })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+});
+it("rejects malformed/negative/oversized values, overflow including rounding carry, and invalid rounding", () => {
+  for (const value of ["", "-1", "+1", "01", ".5", "1.", "NaN", " 1", "1e1000", "1".repeat(101), "1e32", "9".repeat(32) + ".9999995"])
+    expect(decimalToMicros({ value, rounding: "half_even" })).toMatchObject({ ok: false });
+  expect(decimalToMicros({ value: "1", rounding: "up" as "reject" })).toMatchObject({ ok: false });
+});
+it("accepts complete empty coverage with an unknown cutoff without asserting vendor finality", () => {
+  expect(metricBatchSchema.parse({ ...batch(), rows: [], complete: true, dataThrough: 0, finality: "provisional" })).toMatchObject({ rows: [], complete: true, dataThrough: 0 });
+});
 function batch(): MetricBatch {
   return { schema: "report.metrics.v1", pluginId: "ads", connectionId: "c", accountId: "a", currency: "USD", timezone: "America/Los_Angeles",
     grain: "campaign", days: { start: "2026-10-01", end: "2026-10-03" }, mapping: { pluginId: "ads", version: "1", grains: { campaign: { spend: meaning } } },

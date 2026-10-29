@@ -1,9 +1,10 @@
 import { expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import {
  assistantUsageSchema, a2uiSurfacePayloadSchema, approvalPayloadSchema, assistantContextSchema, assistantRunRequestSchema,
- assistantSettingsSchema, assistantSettingsStatusSchema, boundedJsonSchema, conversationListSchema,
+ assistantSettingsSchema, assistantSettingsStatusSchema, boundedJsonSchema, cardSchema, conversationListSchema,
  conversationReadSchema, conversationSchema, frontendInvocationSchema, frontendResultSchema,
- navigationActionSchema, navigationTargetSchema, operationPollSchema, runEventSchema, startRunSchema,
+ modelProviderSchema, navigationActionSchema, navigationTargetSchema, operationPollSchema, runEventSchema, startRunSchema,
  studioNavigationTargetSchema, surfaceAcknowledgementSchema, toolCallSchema, toolDescriptorSchema,
  toolOperationSchema, toolRequestedPayloadSchema, toolResultPayloadSchema, toolResultSchema, toolSearchSchema,
 } from "../src/index.js";
@@ -138,8 +139,58 @@ it("carries the current frontend bind token additively without putting it in eve
 
 it('accepts additive provider/effort and flat usage while preserving unknown cost', () => {
  expect(assistantSettingsSchema.parse({ ...settings, provider: 'openai', effort: 'high' }).provider).toBe('openai');
- expect(assistantSettingsSchema.safeParse({ ...settings, provider: 'arbitrary-url' }).success).toBe(false);
+ expect(assistantSettingsSchema.parse({ ...settings, provider: 'acme-models' }).provider).toBe('acme-models');
+ for (const provider of ['', 'x'.repeat(257)]) expect(assistantSettingsSchema.safeParse({ ...settings, provider }).success).toBe(false);
  const usage = assistantUsageSchema.parse({ kind: 'usage', complete: false, costBasis: 'unavailable', durationMs: 8000 });
- expect(usage.costUsd).toBeUndefined(); expect(usage.totalCostUsd).toBeUndefined();
+ expect(usage.costUsdMicros).toBeUndefined(); expect(usage.totalCostUsdMicros).toBeUndefined();
+ expect(assistantUsageSchema.parse({ ...usage, costUsdMicros: '70000' }).costUsdMicros).toBe('70000');
+ for (const costUsdMicros of [0.07, '-1', '0.5', '007']) expect(assistantUsageSchema.safeParse({ ...usage, costUsdMicros }).success).toBe(false);
  expect(assistantUsageSchema.safeParse({ ...usage, inputTokens: -1 }).success).toBe(false);
+});
+
+const providerModel = { id: "example-model", label: "Example model", efforts: [{ id: "default", label: "Default", request: {} }] };
+const providerDeclaration = { protocol: "openai", endpoint: "https://example.test", label: "Example provider", models: [providerModel] };
+
+it("parses all three real data-only provider manifests and their API-key cards", () => {
+ for (const id of ["anthropic", "openai", "google"]) {
+  const manifest = JSON.parse(readFileSync(new URL(`../../../content/agent-plugins/${id}/plugin.json`, import.meta.url), "utf8"));
+  const extension = manifest.extensions["io.github.ainsep.openmarketing"];
+  expect(manifest.name).toBe(id);
+  expect(extension).toMatchObject({ version: 1, provides: ["model"], enabled: true, admitted: true, capabilities: {} });
+  const provider = modelProviderSchema.parse(extension.modelProvider);
+  expect(provider.protocol).toBe(id);
+  expect(provider.models.length).toBeGreaterThan(0);
+  expect(extension.credentialCards).toHaveLength(1);
+  for (const raw of extension.credentialCards) {
+   const card = cardSchema.parse(raw);
+   expect(card).toMatchObject({ target: id, saveTarget: id, saveKind: "api-key", baseUrl: provider.endpoint,
+    secretFields: [{ name: "token", label: "API key", required: true }] });
+   expect(card.fields).toBeUndefined();
+   expect(card.probeUrl).toBeUndefined();
+  }
+ }
+});
+
+it("rejects unknown keys within provider models and efforts", () => {
+ expect(modelProviderSchema.safeParse({ ...providerDeclaration, models: [{ ...providerModel, unknown: true }] }).success).toBe(false);
+ const model = { ...providerModel, efforts: [{ ...providerModel.efforts[0], unknown: true }] };
+ expect(modelProviderSchema.safeParse({ ...providerDeclaration, models: [model] }).success).toBe(false);
+});
+
+it("keeps omitted pricing absent and rejects a non-decimal price", () => {
+ const parsed = modelProviderSchema.parse(providerDeclaration);
+ expect(parsed.models[0]).not.toHaveProperty("pricing");
+ const pricing = { inputUsdPerMTok: "1.75", outputUsdPerMTok: "14", source: "https://example.test/pricing", observedOn: "2026-10-28" };
+ const model = { ...providerModel, pricing };
+ expect(modelProviderSchema.parse({ ...providerDeclaration, models: [model] }).models[0]?.pricing).toEqual(pricing);
+ expect(modelProviderSchema.safeParse({ ...providerDeclaration, models: [{ ...model, pricing: { ...pricing, inputUsdPerMTok: "free" } }] }).success).toBe(false);
+});
+
+it("accepts optional server-derived context protocol and rejects an unknown protocol", () => {
+ const context = { settings, messages: [] };
+ expect(assistantContextSchema.parse(context)).toEqual(context);
+ for (const protocol of ["anthropic", "openai", "google", "azure"]) {
+  expect(assistantContextSchema.parse({ ...context, protocol }).protocol).toBe(protocol);
+ }
+ expect(assistantContextSchema.safeParse({ ...context, protocol: "other" }).success).toBe(false);
 });

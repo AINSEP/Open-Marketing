@@ -6,7 +6,6 @@ export const runGrantMetadataSchema = z.strictObject({ grantId: idSchema, agentI
 export type RunGrantMetadata = z.infer<typeof runGrantMetadataSchema>;
 /** Service-control credential is never a scoped OM run grant. No token appears in event DTOs. */
 export interface ServiceControlCredential { readonly kind: "service-control"; readonly bearer: string }
-export interface RunGrantCredential { readonly kind: "run-grant"; readonly bearer: string; readonly metadata: RunGrantMetadata }
 /** Sent only over authenticated service control. Model runtimes require runBearer; sandbox callers may omit it.
  * The run-scoped bearer authenticates OM requests, never the vendor; it must not enter events/history.
  */
@@ -17,7 +16,6 @@ export type CancelRunRequest = z.infer<typeof cancelRunSchema>;
 export const eventCursorSchema = epochSchema;
 export const runEventSchema = z.strictObject({ protocolVersion: z.literal(1), eventId: idSchema, runId: idSchema, sequence: eventCursorSchema, correlationId: idSchema, traceId: idSchema, kind: z.enum(["started", "delta", "tool_requested", "tool_result", "cancelled", "ended", "error"]), operationId: idSchema.optional(), argumentsDigest: digestSchema.optional(), payload: z.json() });
 export type RunEvent = z.infer<typeof runEventSchema>;
-export type SseEvent = RunEvent;
 export const eventSubscriptionSchema = z.strictObject({ runId: idSchema, after: eventCursorSchema, limit: z.number().int().min(1).max(1000) });
 export type EventSubscription = z.infer<typeof eventSubscriptionSchema>;
 export interface RunReceipt { readonly runId: string; readonly status: "requested" | "pending" }

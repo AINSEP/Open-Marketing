@@ -1,5 +1,21 @@
 import { expect, it } from "vitest";
 import { neutralCampaignLaunchSchema, neutralCampaignRecordSchema, saveNeutralCampaignSchema } from "../src/index.js";
+import { campaignDeploymentReceiptSchema } from "../src/index.js";
+import type { CampaignDeploymentReceipt, CampaignDeploymentRequired } from "../src/index.js";
+
+it("accepts paused/draft receipts and opaque checkpoints while rejecting active state", () => {
+  const receipt: CampaignDeploymentReceipt = { status: "acknowledged", state: "paused", entityIds: ["e"], references: ["e"], checkpoint: { phase: "saved" } };
+  expect(campaignDeploymentReceiptSchema.parse(receipt)).toEqual(receipt);
+  expect(campaignDeploymentReceiptSchema.parse({ ...receipt, state: "draft", references: { campaign: "e" } }).references).toEqual({ campaign: "e" });
+  expect(campaignDeploymentReceiptSchema.safeParse({ ...receipt, state: "active" }).success).toBe(false);
+  const saved: CampaignDeploymentRequired["saved"] = { references: { campaign: "e" }, record: null };
+  expect(saved.record).toBeNull();
+  type RequiredInput<T extends CampaignDeploymentRequired> = T;
+  // @ts-expect-error Both deploy and read require checkpoint persistence.
+  type MissingCheckpoint = RequiredInput<Omit<CampaignDeploymentRequired, "checkpoint">>;
+  // @ts-expect-error The latest opaque record is required alongside saved references.
+  type MissingRecord = RequiredInput<Omit<CampaignDeploymentRequired, "saved"> & { saved: { references: Record<string, string> } }>;
+});
 
 function launch() {
   return { schemaVersion: 2, operationId: "op", name: "Local campaign", objective: "traffic", schedule: { window: { start: 1, end: 2 }, timezone: "UTC" },

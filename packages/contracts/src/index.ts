@@ -2,19 +2,26 @@
 export { captureEventSchema, recentEventsSchema } from './telemetry/index.js';
 export type { CaptureEvent, RecentEvents } from './telemetry/index.js';
 export { PROTOCOL_VERSION, runGrantMetadataSchema, startRunSchema, cancelRunSchema, eventCursorSchema, runEventSchema, eventSubscriptionSchema } from "./agent/index.js";
-export type { RunGrantMetadata, ServiceControlCredential, RunGrantCredential, StartRunRequest, CancelRunRequest, RunEvent, SseEvent, EventSubscription, RunReceipt, CancellationReceipt, AgentHealth } from "./agent/index.js";
-export { navigationTargetSchema, navigationActionSchema, navigationResultSchema, approvalChoiceSchema, confirmationCardSchema, approvalResponseSchema, apiRequestSchema, mcpRequestSchema, chatMessageSchema } from "./api/index.js";
-export type { NavigationTarget, NavigationAction, NavigationResult, ConfirmationCard, ApprovalResponse, ApiRequest, ApiResponse, OmMcpRequest, ChatMessage } from "./api/index.js";
+export type { RunGrantMetadata, ServiceControlCredential, StartRunRequest, CancelRunRequest, RunEvent, EventSubscription, RunReceipt, CancellationReceipt, AgentHealth } from "./agent/index.js";
+export { navigationTargetSchema, navigationActionSchema, navigationResultSchema, approvalChoiceSchema, confirmationCardSchema, approvalResponseSchema, mcpRequestSchema, chatMessageSchema } from "./api/index.js";
+export type { NavigationTarget, NavigationAction, NavigationResult, ConfirmationCard, ApprovalResponse, OmMcpRequest, ChatMessage } from "./api/index.js";
 export { effectCategorySchema, moneyExposureSchema, dailyLimitRequirementSchema, effectEnvelopeSchema, capabilityEnvelopeSchema, generationCostQuoteSchema, generationAllowanceSettingsSchema, DEFAULT_GENERATION_ALLOWANCE, generationApprovalRequirementSchema, haltStopRequestSchema, measurementGrantSchema } from "./capabilities/index.js";
-export type { EffectCategory, MoneyExposure, DailyLimitRequirement, EffectEnvelope, CapabilityEnvelope, GenerationCostQuote, CostQuote, GenerationAllowanceSettings, GenerationApprovalRequirement, HaltStopRequest, HaltStopPermit, MeasurementGrant, MeasurementServiceGrant } from "./capabilities/index.js";
+export type { EffectCategory, MoneyExposure, DailyLimitRequirement, EffectEnvelope, CapabilityEnvelope, GenerationCostQuote, GenerationAllowanceSettings, GenerationApprovalRequirement, HaltStopRequest, HaltStopPermit, MeasurementGrant } from "./capabilities/index.js";
 export { idSchema, epochSchema, digestSchema, moneySchema, timeWindowSchema, scopeSchema, principalSchema, appErrorSchema, callContextSchema, pageQuerySchema, notImplemented, parseBoundary } from "./values/index.js";
-export type { AppError, Outcome, Scope, Principal, PrincipalReference, Money, TimeWindow, OperationId, EventCursor, CallContext, ServiceContext, CallOptions, ClockPort, IdPort, ObserverEvent, ObserverPort, PageQuery, Page } from "./values/index.js";
-export { addonNavigationTargetSchema, studioNavigationTargetSchema, boundedJsonSchema, assistantSettingsSchema, assistantSettingsStatusSchema, assistantRunRequestSchema, conversationSummarySchema, conversationListSchema, conversationSchema, conversationReadSchema, assistantContextSchema, toolDescriptorSchema, toolSearchSchema, toolCallSchema, toolResultSchema, toolOperationSchema } from "./api/index.js";
-export type { AddonNavigationTarget, StudioNavigationTarget, AssistantSettings, AssistantSettingsStatus, AssistantRunRequest, ConversationSummary, ConversationList, Conversation, ConversationRead, AssistantContext, ToolDescriptor, ToolSearch, ToolCall, ToolResult, ToolOperation } from "./api/index.js";
+export type { AppError, Outcome, Scope, Principal, Money, TimeWindow, OperationId, CallContext, ServiceContext, CallOptions, ClockPort, IdPort, ObserverEvent, ObserverPort, PageQuery, Page } from "./values/index.js";
+export { addonNavigationTargetSchema, chatAttachmentSchema, studioNavigationTargetSchema, boundedJsonSchema, assistantSettingsSchema, assistantSettingsStatusSchema, assistantRunRequestSchema, conversationSummarySchema, conversationListSchema, conversationSchema, conversationReadSchema, assistantContextSchema, toolDescriptorSchema, toolSearchSchema, toolCallSchema, toolResultSchema, toolOperationSchema } from "./api/index.js";
+export type { AddonNavigationTarget, ChatAttachmentRef, StudioNavigationTarget, AssistantSettings, AssistantSettingsStatus, AssistantRunRequest, ConversationSummary, ConversationList, Conversation, ConversationRead, AssistantContext, ToolDescriptor, ToolSearch, ToolCall, ToolResult, ToolOperation } from "./api/index.js";
 export { toolRequestedPayloadSchema, toolResultPayloadSchema, approvalPayloadSchema, operationPollSchema, frontendInvocationSchema, frontendResultSchema, a2uiSurfacePayloadSchema, surfaceAcknowledgementSchema } from "./agent/index.js";
 export type { ToolRequestedPayload, ToolResultPayload, ApprovalPayload, OperationPoll, FrontendInvocation, FrontendResult, A2uiSurfacePayload, SurfaceAcknowledgement } from "./agent/index.js";
 export { addonKindSchema, addonSummarySchema, addonListRequestSchema, addonListSchema, setAddonEnabledSchema, uninstallAddonSchema, addonUninstallReceiptSchema, addonUploadSchema, installAddonSchema, addonToolEffectsSchema, addonToolSourceSchema, integrationSummarySchema, integrationListSchema, connectIntegrationTokenSchema, disconnectIntegrationSchema, chartProviderDescriptorSchema, chartProviderListSchema } from "./addons/index.js";
 export type { AddonKind, AddonSummary, AddonListRequest, AddonList, SetAddonEnabled, UninstallAddon, AddonUninstallReceipt, AddonUpload, InstallAddon, AddonToolSource, IntegrationSummary, IntegrationList, ConnectIntegrationToken, DisconnectIntegration, ChartProviderDescriptor, ChartProviderList } from "./addons/index.js";
+export { oauthClientStatusSchema, oauthStatusSchema, oauthChallengeSchema } from "./addons/index.js";
+export { pluginSecretQuerySchema, pluginSecretSetSchema, pluginSecretStatusSchema, cardSchema, credentialCardSchema, credentialPluginStatusSchema } from "./addons/index.js";
+export type { PluginSecretQuery, PluginSecretSet, PluginSecretStatus, CredentialCard } from "./addons/index.js";
+export { pluginToolSchema, definePluginTools } from "./addons/index.js";
+export type { PluginTool, PluginToolInvocation, PluginToolsFactory } from "./addons/index.js";
+export { mailAdapterDescriptorSchema, mailManifestExtensionSchema, mailProviderSelectionSchema, mailProviderSettingsSchema } from "./addons/index.js";
+export type { MailAdapterDescriptor, MailManifestExtension, MailProviderSelection, MailProviderSettings } from "./addons/index.js";
 
 /** One explicit transaction owner. Root work rolls back on a throw or returned {ok:false}.
  * Pass its session to every participating repository; session transactions join the root.
@@ -32,13 +39,17 @@ export interface SqlSession extends UnitOfWork {
   }): Promise<{ rows: Row[]; rowCount: number | null }>;
 }
 
-export { assistantUsageSchema, assistantProviderSchema, assistantRuntimeSchema } from './api/index.js';
-export type { AssistantProvider, AssistantUsage } from './api/index.js';
-export { metricGrainSchema, metricValuesSchema, metricMappingSchema, metricBatchSchema, ratioResultSchema, deriveMetricRatios } from './metrics/index.js';
+export { assistantUsageSchema, assistantProviderSchema, assistantRuntimeSchema, modelProtocolSchema } from './api/index.js';
+export type { AssistantProvider, AssistantUsage, ModelProtocol } from './api/index.js';
+export { modelProviderSchema } from './addons/index.js';
+export type { ModelProvider } from './addons/index.js';
+export { metricGrainSchema, metricValuesSchema, metricMappingSchema, metricBatchSchema, ratioResultSchema, deriveMetricRatios, decimalToMicros } from './metrics/index.js';
 export type { MetricGrain, MetricValues, MetricMapping, MetricBatch, RatioResult, MetricRatios } from './metrics/index.js';
-export { capabilityIdSchema, capabilityCatalog, reportMetricsInputSchema, campaignStatusInputSchema, campaignStatusOutputSchema, trackingTagInputSchema, trackingTagOutputSchema, effectiveCapabilityEffects } from './capabilities/index.js';
-export type { CapabilityId, CallableCapabilityId, CapabilityInput, CapabilityOutput, PluginCapability, ReportMetricsInput, CampaignStatusInput, CampaignStatusOutput, TrackingTagInput, TrackingTagOutput } from './capabilities/index.js';
-export { campaignKeySchema, encodeCampaignKey, parseCampaignKey, approverRefSchema, dispatchDecisionSchema } from './values/index.js';
+export { campaignValidateInputSchema, campaignValidateOutputSchema, campaignValidationEvidenceSchema, capabilityIdSchema, capabilityCatalog, reportMetricsInputSchema, campaignStatusInputSchema, campaignStatusOutputSchema, trackingTagInputSchema, trackingTagOutputSchema, effectiveCapabilityEffects, pluginConfigurationSchema, pluginConnectionConfigurationSchema } from './capabilities/index.js';
+export type { CampaignValidateInput, CampaignValidateOutput, CampaignValidationEvidence, CapabilityId, CallableCapabilityId, CapabilityInput, CapabilityOutput, PluginCapability, PluginCapabilityDependencies, PluginCapabilities, PluginCapabilitiesFactory, PluginConfiguration, PluginConnectionConfiguration, ReportMetricsInput, CampaignStatusInput, CampaignStatusOutput, TrackingTagInput, TrackingTagOutput } from './capabilities/index.js';
+export { campaignKeySchema, encodeCampaignKey, parseCampaignKey, approverRefSchema, dispatchDecisionSchema, serviceContextSchema, parseExactIntegerJson, canonicalizeArguments } from './values/index.js';
 export type { CampaignKey, ApproverRef, DispatchDecision } from './values/index.js';
 export { neutralCampaignLaunchSchema, neutralCampaignRecordSchema, saveNeutralCampaignSchema } from './launch/index.js';
 export type { NeutralCampaignLaunch, NeutralCampaignRecord } from './launch/index.js';
+export { campaignDeploymentReceiptSchema } from './launch/index.js';
+export type { CampaignDeploymentReceipt, CampaignDeploymentRequired } from './launch/index.js';

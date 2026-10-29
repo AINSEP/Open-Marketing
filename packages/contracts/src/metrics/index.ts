@@ -4,6 +4,35 @@ import type { Outcome } from "../values/index.js";
 
 /** JSON integers: currency micros, conversion millionths, or whole counts; never JS numbers. */
 const integer = z.string().regex(/^(0|[1-9]\d{0,37})$/);
+const decimalInput = z.strictObject({ value: z.string().min(1).max(100).regex(/^(0|[1-9]\d*)(?:\.(\d+))?(?:[eE]([+-]?\d{1,3}))?$/), rounding: z.enum(["reject", "half_even"]) });
+/** Scale nonnegative major units to integer micros, including JPY/KRW; currency exponents do not apply.
+ * Returns invalid_input for malformed text, non-exact reject rounding, or >38 output digits.
+ * Pure bounded BigInt arithmetic: <=100 characters, exponent magnitude <=999.
+ * @example decimalToMicros({ value: "1.2345675", rounding: "half_even" }) // "1234568"
+ */
+export function decimalToMicros(required: { value: string; rounding: "reject" | "half_even" }): Outcome<string> {
+  const parsed = parseBoundary({ schema: decimalInput, input: required });
+  if (!parsed.ok) return parsed;
+  const [mantissa, exponent = "0"] = parsed.value.value.toLowerCase().split("e");
+  const [whole, fraction = ""] = mantissa.split(".");
+  const coefficient = BigInt(whole + fraction);
+  const shift = 6 + Number(exponent) - fraction.length;
+  const scaled = scaleMicros({ coefficient, shift, rounding: parsed.value.rounding });
+  return parseBoundary({ schema: integer, input: scaled?.toString() });
+}
+
+/** Half-even operates on the remainder exactly, including ties and carry into a new digit. */
+function scaleMicros(required: { coefficient: bigint; shift: number; rounding: "reject" | "half_even" }): bigint | undefined {
+  if (required.shift >= 0) return required.coefficient * 10n ** BigInt(required.shift);
+  const divisor = 10n ** BigInt(-required.shift);
+  const quotient = required.coefficient / divisor;
+  const remainder = required.coefficient % divisor;
+  if (remainder === 0n) return quotient;
+  if (required.rounding === "reject") return undefined;
+  const doubled = remainder * 2n;
+  const roundUp = doubled > divisor || (doubled === divisor && quotient % 2n !== 0n);
+  return roundUp ? quotient + 1n : quotient;
+}
 const metricName = z.enum(["spend", "impressions", "clicks", "vendorConversions", "vendorConversionValue"]);
 export const metricGrainSchema = z.enum(["account", "campaign", "ad_group", "ad"]);
 export type MetricGrain = z.infer<typeof metricGrainSchema>;
@@ -29,7 +58,10 @@ const entity = z.discriminatedUnion("grain", [
   z.strictObject({ grain: z.literal("ad_group"), vendorCampaignId: idSchema, vendorAdGroupId: idSchema }),
   z.strictObject({ grain: z.literal("ad"), vendorCampaignId: idSchema, vendorAdGroupId: idSchema, vendorAdId: idSchema }),
 ]);
-/** One account/grain/period; reach covers this whole period, never individual days. */
+/** One account/grain/period; reach covers this whole period, never individual days.
+ * complete means all requested pages/entities were obtained, including a valid empty result.
+ * dataThrough is the exclusive known coverage cutoff (0 means unknown), not vendor finality.
+ */
 const batchShape = z.strictObject({
   schema: z.literal("report.metrics.v1"), pluginId: idSchema, connectionId: idSchema, accountId: idSchema,
   currency: moneySchema.shape.currency, timezone: z.string().min(1).max(100).refine(value => validTimezone({ value })),

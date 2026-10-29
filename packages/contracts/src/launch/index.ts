@@ -1,5 +1,23 @@
 import { z } from "zod";
 import { callContextSchema, digestSchema, idSchema, moneySchema, scopeSchema, timeWindowSchema } from "../values/index.js";
+import type { CallContext, Outcome } from "../values/index.js";
+import type { PluginCapabilityDependencies } from "../capabilities/index.js";
+
+/** Paused/draft deployment evidence; plugin checkpoint extensions remain opaque to core. */
+export const campaignDeploymentReceiptSchema = z.looseObject({
+  status: z.enum(["acknowledged", "unknown"]), state: z.enum(["paused", "draft"]), entityIds: z.array(idSchema).max(500),
+  references: z.union([z.array(idSchema).max(500), z.record(idSchema, idSchema)]).optional(),
+});
+export type CampaignDeploymentReceipt = z.infer<typeof campaignDeploymentReceiptSchema>;
+/** Shared input for deployCampaignPaused and readCampaignDeployment; the host owns persistence.
+ * saved.record is the latest opaque checkpoint, or null before one exists.
+ */
+export type CampaignDeploymentRequired = {
+  context: CallContext; operationId: string; plan: unknown; connectionId: string; accountId: string;
+  dependencies: PluginCapabilityDependencies;
+  checkpoint(required: { step: string; phase: string; references?: unknown; record?: unknown }): Promise<Outcome<void>>;
+  saved: { references: Record<string, string>; record: unknown | null };
+};
 
 const positiveMoney = moneySchema.refine(value => value.minorUnits > 0);
 const countries = z.array(z.string().regex(/^[A-Z]{2}$/)).min(1).max(20)

@@ -12,14 +12,14 @@ export type AppError = z.infer<typeof appErrorSchema>;
 export type Outcome<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: AppError };
 export type Scope = z.infer<typeof scopeSchema>;
 export type Principal = z.infer<typeof principalSchema>;
-export type PrincipalReference = Principal;
 export type Money = z.infer<typeof moneySchema>;
 export type TimeWindow = z.infer<typeof timeWindowSchema>;
 export type OperationId = string;
-export type EventCursor = number;
 export const callContextSchema = z.strictObject({ scope: scopeSchema, principal: principalSchema, correlationId: idSchema, traceId: idSchema, runId: idSchema.optional() });
 export type CallContext = z.infer<typeof callContextSchema>;
-export interface ServiceContext { readonly scope: Scope; readonly serviceId: string; readonly correlationId: string; readonly traceId: string }
+/** Service identity and trace data only; parsing conveys no execution authority. */
+export const serviceContextSchema = z.strictObject({ scope: scopeSchema, serviceId: idSchema, correlationId: idSchema, traceId: idSchema });
+export type ServiceContext = z.infer<typeof serviceContextSchema>;
 export interface CallOptions { readonly signal?: AbortSignal }
 export interface ClockPort { now(required: Record<string, never>): number }
 export interface IdPort { next(required: Record<string, never>): string }
@@ -35,6 +35,71 @@ export function parseBoundary<T>(required: { schema: z.ZodType<T>; input: unknow
  const parsed = required.schema.safeParse(required.input);
  if (!parsed.success) return { ok: false, error: { code: "invalid_input", message: "Boundary validation failed", retryable: false } };
  return { ok: true, value: parsed.data };
+}
+
+/** Sort object keys recursively, preserving array order; depth is checked even for leaves.
+ * @complexity O(n log n) time, O(n) space for validated JSON.
+ */
+function canonicalValue(required: { value: unknown; depth: number }): unknown {
+ if (required.depth > 16) throw new Error("JSON depth exceeds 16");
+ if (Array.isArray(required.value)) return required.value.map(value => canonicalValue({ value, depth: required.depth + 1 }));
+ if (required.value === null || typeof required.value !== "object") return required.value;
+ const record = required.value as Record<string, unknown>;
+ return Object.fromEntries(Object.keys(record).sort().map(key => [key, canonicalValue({ value: record[key], depth: required.depth + 1 })]));
+}
+/** Canonical JSON for argument digests; no effects or hashing.
+ * Accepts JSON with serialized.length <=65,536 UTF-16 code units and depth <=16.
+ * Returns invalid_input for non-JSON or bounds failures, without exposing input.
+ * @example canonicalizeArguments({ arguments: { b: 1, a: 2 } }) // { ok: true, value: '{"a":2,"b":1}' }
+ * @complexity O(n log n) time, O(n) space for accepted JSON; initial serialization precedes bounds checks.
+ */
+export function canonicalizeArguments(required: { arguments: unknown }): Outcome<string> {
+ try {
+  const serialized = JSON.stringify(required.arguments);
+  if (!serialized || serialized.length > 65_536) return { ok: false, error: { code: "invalid_input", message: "Arguments exceed JSON bounds", retryable: false } };
+  const parsed = z.json().safeParse(required.arguments);
+  if (!parsed.success) return { ok: false, error: { code: "invalid_input", message: "Arguments must be JSON", retryable: false } };
+  const canonical = JSON.stringify(canonicalValue({ value: parsed.data, depth: 0 }));
+  return { ok: true, value: canonical };
+ } catch { return { ok: false, error: { code: "invalid_input", message: "Arguments exceed JSON bounds", retryable: false } }; }
+}
+
+const exactJsonInput = z.strictObject({ text: z.string().max(1048576) });
+const exactJsonOptions = z.strictObject({ numericTextKeys: z.array(idSchema).max(100).optional() });
+/** Parse <=1 MiB of JSON, recovering unsafe integer tokens and selected numeric fields as text.
+ * Safe ordinary numbers retain their shape. Missing source evidence fails with protocol_mismatch;
+ * callers must still schema-validate the returned data. No effects, O(b) time/space in bounded bytes.
+ * @example parseExactIntegerJson({ text: '{"id":9007199254740993,"cost":1.25}' }, { numericTextKeys: ["cost"] })
+ */
+export function parseExactIntegerJson(required: { text: string }, optional?: { numericTextKeys?: readonly string[] }): Outcome<unknown> {
+  const input = parseBoundary({ schema: exactJsonInput, input: required });
+  if (!input.ok) return input;
+  const options = parseBoundary({ schema: exactJsonOptions, input: optional ?? {} });
+  if (!options.ok) return options;
+  if (new TextEncoder().encode(input.value.text).byteLength > 1048576) return { ok: false, error: { code: "limit_exceeded", message: "JSON exceeds 1 MiB", retryable: false } };
+  const keys = new Set(options.value.numericTextKeys);
+  try {
+    // Native JSON reviver ABI: source is supplied before floating-point precision is lost.
+    const value: unknown = JSON.parse(input.value.text, (key: string, value: unknown, context?: { source?: string }) =>
+      exactJsonNumber({ key, value, source: context?.source, keys }));
+    return { ok: true, value };
+  } catch {
+    return { ok: false, error: { code: "protocol_mismatch", message: "Invalid JSON or unavailable numeric precision", retryable: false } };
+  }
+}
+
+/** Foreign reviver wrapper; only source text can recover an unsafe integer or decimal field. */
+function exactJsonNumber(required: { key: string; value: unknown; source?: string; keys: ReadonlySet<string> }): unknown {
+  const { value, source } = required;
+  if (typeof value !== "number") return value;
+  if (required.keys.has(required.key)) {
+    if (source === undefined) throw new Error("Numeric source unavailable");
+    return source;
+  }
+  if (!Number.isFinite(value)) throw new Error("Non-finite JSON number");
+  if (!Number.isInteger(value) || Number.isSafeInteger(value)) return value;
+  if (source === undefined || !/^-?(0|[1-9]\d*)$/.test(source)) throw new Error("Exact integer source unavailable");
+  return source;
 }
 
 export const campaignKeySchema = z.strictObject({ pluginId: idSchema, accountId: idSchema, vendorCampaignId: idSchema });
