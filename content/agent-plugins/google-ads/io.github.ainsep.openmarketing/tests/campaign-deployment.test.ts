@@ -447,13 +447,14 @@ for (const fault of ["http", "partialFailure", "malformed"] as const) {
   test(`validate ${fault} response fails without exposing credential or vendor text`, async () => {
     const f = hostedDeploymentFixture(); const token = "fixture-validation-token-never-real";
     const fetch = f.required.dependencies.fetch;
+    const faulting: typeof fetch = async (url, init) => {
+      if (!JSON.parse(String(init?.body)).validateOnly) return fetch(url, init);
+      if (fault === "http") return Response.json({ error: { message: token } }, { status: 400 });
+      return Response.json(fault === "partialFailure" ? { partialFailureError: { message: token } } : [token]);
+    };
     const dependencies = { ...f.required.dependencies,
       credentials: { access: async () => success({ value: { accessToken: token, secrets: { developerToken: "a".repeat(22) } } }) },
-      fetch: async (url: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
-        if (!JSON.parse(String(init?.body)).validateOnly) return fetch(url, init);
-        if (fault === "http") return Response.json({ error: { message: token } }, { status: 400 });
-        return Response.json(fault === "partialFailure" ? { partialFailureError: { message: token } } : [token]);
-      },
+      fetch: faulting,
     };
     const result = await createCapabilities(dependencies)["campaign.validate.v1"]({ context: f.required.context,
       connection: { connectionId: f.required.connectionId, accountId: f.required.accountId }, input: { operationId: f.required.operationId, plan } });

@@ -1,4 +1,4 @@
-import type { LeadDisplay, LeadStageRequest, OAuthClientRequest, OAuthClientStatus, OAuthStatus } from "./validation.js";
+import type { LeadDisplay, LeadStageRequest, OAuthClientRequest, OAuthClientStatus, OAuthStatus } from "./lead-oauth.js";
 import type { ConversionSettingsStatus, SetConversionSettings, A2uiSurfacePayload, SurfaceAcknowledgement, ToolCall, ToolResult, MailProviderSelection, MailProviderSettings } from '@open-marketing/contracts';
 import type { ChatAttachmentRef, AssistantSettings, AssistantSettingsStatus, Conversation, ConversationList, ConversationSummary, ToolRequestedPayload, ToolResultPayload, ApprovalPayload, CancellationReceipt, ChatMessage, ConfirmationCard, NavigationResult, Outcome, ApprovalResponse, RunEvent, NavigationAction, Money, ClockPort, IdPort, CaptureEvent } from "@open-marketing/contracts";
 

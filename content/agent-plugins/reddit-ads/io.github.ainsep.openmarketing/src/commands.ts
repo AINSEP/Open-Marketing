@@ -1,8 +1,9 @@
 import { z } from "zod";
 import { callContextSchema, idSchema } from "@open-marketing/contracts";
 import type { Outcome } from "@open-marketing/contracts";
-import type { RedditWireRequest } from "./ports.js";
 import { reportCommandSchema, encodeReport, pageFields } from "./reporting.js";
+/** Plain wire request produced by the encoder; re-exported by ports. */
+export interface RedditWireRequest { readonly url: string; readonly method: "GET" | "POST"; readonly body?: string }
 
 /** Local bounds for opaque provider IDs and continuation tokens; never accept URLs as commands. */
 export const accountIdSchema = z.string().regex(/^[A-Za-z0-9_]{1,128}$/);

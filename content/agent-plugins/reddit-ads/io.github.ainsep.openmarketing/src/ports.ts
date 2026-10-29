@@ -13,7 +13,7 @@ export interface RedditCredentialPort {
   access(required: { connectionId: string; accountId: string | null }, optional?: CallOptions): Promise<Outcome<{ accessToken: string; expiresAt?: number }>>;
 }
 /** Fixed vendor request, constructed solely from parsed commands. POST reports are reads. */
-export interface RedditWireRequest { readonly url: string; readonly method: "GET" | "POST"; readonly body?: string }
+export type { RedditWireRequest } from "./commands.js";
 /** Public receipts contain projected data only, with no inferred serving or spend state. */
 export interface RedditResult { readonly operationId: string; readonly status: "succeeded"; readonly observedState: "unknown"; readonly data: unknown }
 /** Read-only invocation: spend metadata must be null. */

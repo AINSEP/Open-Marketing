@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { array, bool, currency, date, epoch, id, micros, numericId, object, status, text } from "./schema.ts";
 import type { Schema } from "./schema.ts";
-import type { ToolName } from "./types.ts";
+import type { ToolName } from "./tool-name.ts";
 
 const headlines = z.array(z.string().min(1).max(30)).min(3).max(15);
 const descriptions = z.array(z.string().min(1).max(90)).min(2).max(4);

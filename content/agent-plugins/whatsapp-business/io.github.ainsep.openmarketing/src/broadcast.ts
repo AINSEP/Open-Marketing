@@ -2,10 +2,10 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import { callContextSchema, epochSchema, generationCostQuoteSchema, idSchema, moneySchema } from "@open-marketing/contracts";
 import type { CallOptions, Outcome, PluginCapabilityDependencies } from "@open-marketing/contracts";
-import { templatesSchema } from "./commands.js";
+import { configurationSchema, templatesSchema } from "./commands.js";
 import { effectiveDate, maximumRate, rateCategorySchema } from "./rates.js";
 import type { Rates } from "./rates.js";
-import { apiVersion, configurationSchema, parseCredential, readBody } from "./transport.js";
+import { apiVersion, parseCredential, readBody } from "./transport.js";
 import type { Credential } from "./transport.js";
 
 /** Matches STOP ingress; the host uses this channel for current consent and suppression. */

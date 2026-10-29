@@ -15,7 +15,7 @@ export interface VkCredentials {
   save?(required: { connectionId: string; accountId: string | null; token: VkToken }, optional?: CallOptions): Promise<Outcome<void>>;
 }
 /** Private GET path; callers cannot supply hosts, headers, bodies or account overrides. */
-export interface VkWireRequest { readonly path: string; readonly method: "GET" }
+export type { VkWireRequest } from "./commands.js";
 /** Explicit token identity; timezone remains unknown instead of inferred from currency. */
 export interface VkAccount { readonly id: string; readonly username: string; readonly currency: string; readonly status: "active" | "deleted" | "blocked" }
 /** A single validated page, never a raw response or a serving-state assertion. */

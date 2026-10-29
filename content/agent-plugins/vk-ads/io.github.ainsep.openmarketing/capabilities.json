@@ -2,7 +2,7 @@
   "version": 1,
   "admitted": false,
   "capabilities": [
-    {"capabilityId": "campaign.read.v1", "version": 1, "pluginId": "vk-ads", "schemaFingerprint": "05f75326eb105935dcd98a0eb5f8917b95597c54db91e6685b1a85968a30c16a", "admitted": false, "effects": ["read"]}
+    {"capabilityId": "campaign.read.v1", "version": 1, "pluginId": "vk-ads", "schemaFingerprint": "0a7c948d7e3fec3fc4abcbf165d964075628ec35bf5acc35ddad6087b2e8393d", "admitted": false, "effects": ["read"]}
   ],
   "tools": [
     {"name": "list_accounts", "effects": ["read"], "capabilityId": "campaign.read.v1"},

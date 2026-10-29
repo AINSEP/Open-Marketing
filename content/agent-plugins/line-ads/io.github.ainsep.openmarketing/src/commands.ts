@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { digestSchema, idSchema } from "@open-marketing/contracts";
-import type { LineAdsWireRequest } from "./ports.js";
+/** Plain wire request produced by the encoder; re-exported by ports. */
+export type LineAdsWireRequest = { readonly url: string; readonly method: "GET" } | { readonly url: string; readonly method: "POST"; readonly body: string };
 
 /** Vendor IDs remain exact strings; unsafe numeric response IDs are rejected, never rounded. */
 export const vendorIdSchema = z.string().regex(/^[1-9][0-9]{0,18}$/);

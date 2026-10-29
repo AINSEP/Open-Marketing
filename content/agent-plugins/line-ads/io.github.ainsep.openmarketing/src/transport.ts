@@ -92,8 +92,12 @@ export async function requestLineAds(required: { dependencies: LineAdsDependenci
     const signal = optional?.signal ? AbortSignal.any([deadline, optional.signal]) : deadline;
     const result = await requestLineRead({ dependencies, request, bundle: bundle.value }, { ...optional, signal });
     // Only the caller's abort is a cancellation; the injected 15s deadline is an unavailable transport.
-    return !result.ok && result.error.code === "cancelled" && !optional?.signal?.aborted ? failure({ code: "unavailable" }) : result;
+    return deadlineAsUnavailable({ result, callerAborted: optional?.signal?.aborted === true });
   } catch { return failure({ code: "unavailable" }); }
+}
+function deadlineAsUnavailable(required: { result: Outcome<unknown>; callerAborted: boolean }): Outcome<unknown> {
+  const { result, callerAborted } = required;
+  return !result.ok && result.error.code === "cancelled" && !callerAborted ? failure({ code: "unavailable" }) : result;
 }
 /** Parse the sealed paste value locally; invalid/legacy bearer tokens never reach LINE. O(b). */
 function parseBundle(required: { input: unknown }): Outcome<z.infer<typeof bundleSchema>> {

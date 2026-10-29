@@ -26,7 +26,7 @@
           "capabilityId": "reddit_ads.list_businesses.v1",
           "version": 1,
           "pluginId": "reddit-ads",
-          "schemaFingerprint": "8026b011795f91513527b7d17b9843ce72ea85e784338857a5661bd701106bea",
+          "schemaFingerprint": "dea659ad6eb11abbe52203a801ebc07f53d108277c580124390143a4a859d9e9",
           "admitted": false,
           "effects": [
             "read"

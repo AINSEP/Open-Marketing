@@ -1,7 +1,7 @@
 {
   "version": 1, "admitted": false,
   "capabilities": [
-    {"capabilityId": "whatsapp.read.v1", "version": 1, "pluginId": "whatsapp-business", "schemaFingerprint": "ef54963c2f44f17b0056d6d4e0f8689068afef112e00e9e880db8584c3d619ea", "admitted": false, "effects": ["read"]}
+    {"capabilityId": "whatsapp.read.v1", "version": 1, "pluginId": "whatsapp-business", "schemaFingerprint": "e2c04b3a9d8b4cfd5d0c870ff6db7f0e720fb1af69d7c97b4c43b7d47e8f5101", "admitted": false, "effects": ["read"]}
   ],
   "tools": [
     {"name": "get_account_status", "effects": ["read"], "capabilityId": "whatsapp.read.v1"},

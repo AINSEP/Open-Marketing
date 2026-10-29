@@ -1,11 +1,11 @@
 {
   "version": 1, "admitted": false,
   "capabilities": [
-    {"capabilityId":"campaign.read.v1","version":1,"pluginId":"line-ads","schemaFingerprint":"78d71319e114851defdd113d59f92b476407011e3e1dc43da8c0f3b24ebdecfd","admitted":false,"effects":["read"]},
-    {"capabilityId":"report.account-spend.v1","version":1,"pluginId":"line-ads","schemaFingerprint":"78d71319e114851defdd113d59f92b476407011e3e1dc43da8c0f3b24ebdecfd","admitted":false,"effects":["read"]},
-    {"capabilityId":"campaign.create-paused.v1","version":1,"pluginId":"line-ads","schemaFingerprint":"1039ea531fb6417ce763e33a04d1e470fa36c8528e04256f913c89b87bb3cd28","admitted":false,"effects":["write"]},
-    {"capabilityId":"campaign.status.v1","version":1,"pluginId":"line-ads","schemaFingerprint":"c7a4b3919b4d166d3ec3ec69bac3eccd8469fe72115d5be2b158f738e9251bfe","admitted":false,"effects":["read"]},
-    {"capabilityId":"report.metrics.v1","version":1,"pluginId":"line-ads","schemaFingerprint":"c7a4b3919b4d166d3ec3ec69bac3eccd8469fe72115d5be2b158f738e9251bfe","admitted":false,"effects":["read"]}
+    {"capabilityId":"campaign.read.v1","version":1,"pluginId":"line-ads","schemaFingerprint":"1d200715961214b1063baf94cd8f7898a5d132aeea0c6b32d4c7204bda55ffa9","admitted":false,"effects":["read"]},
+    {"capabilityId":"report.account-spend.v1","version":1,"pluginId":"line-ads","schemaFingerprint":"1d200715961214b1063baf94cd8f7898a5d132aeea0c6b32d4c7204bda55ffa9","admitted":false,"effects":["read"]},
+    {"capabilityId":"campaign.create-paused.v1","version":1,"pluginId":"line-ads","schemaFingerprint":"969b51e260534efae37ca93694edf2e82f677c3463a65cfef5238328dc5356a6","admitted":false,"effects":["write"]},
+    {"capabilityId":"campaign.status.v1","version":1,"pluginId":"line-ads","schemaFingerprint":"62459310c40b0eb0ea25abb0b17f889bbd4a2a67da82dc8bccf55859708dd44b","admitted":false,"effects":["read"]},
+    {"capabilityId":"report.metrics.v1","version":1,"pluginId":"line-ads","schemaFingerprint":"62459310c40b0eb0ea25abb0b17f889bbd4a2a67da82dc8bccf55859708dd44b","admitted":false,"effects":["read"]}
   ],
   "tools": [
     {"name":"list_accounts","effects":["read"],"capabilityId":"campaign.read.v1"},

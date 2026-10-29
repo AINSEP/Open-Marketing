@@ -665,20 +665,20 @@ it('lists a seeded bundled agent-plugin source in the catalog after real boot re
         const response = await fetch(new URL('/api/tools?limit=100', restarted.studioUrl), { headers: { cookie: secondCookie } });
         expect(response.status).toBe(200);
         // The catalog exceeds the 100-descriptor page maximum, so each name is looked up through the bounded substring search.
-        const found = async (name: string): Promise<string[]> => {
+        const found = async ({ name }: { name: string }): Promise<string[]> => {
             const page = await fetch(new URL('/api/tools?limit=100&query=' + encodeURIComponent(name), restarted.studioUrl), { headers: { cookie: secondCookie } });
             expect(page.status).toBe(200);
             return ((await page.json()) as { value: { name: string }[] }).value.map(tool => tool.name);
         };
         const expected = 'addon_agent_plugin_' + createHash('sha256').update(seeded.id).digest('hex').slice(0, 32);
-        expect(await found(expected)).toContain(expected);
+        expect(await found({ name: expected })).toContain(expected);
         for (const name of ['om_media_list', 'om_media_import', 'om_media_crop', 'om_media_record_provenance',
             'om_contacts_resolve', 'om_forms_publish', 'om_web_events_touches', 'om_privacy_status', 'om_jobs_list', 'om_workspaces_list',
             'om_campaign_create_paused', 'om_creative_generate', 'om_audit_list', 'om_measure_report_cac', 'om_paid_sending_allowance_get',
             'om_forms_preview', 'om_forms_submissions', 'om_jobs_get', 'om_jobs_cancel',
             'om_campaign_propose_launch', 'om_campaign_reconcile', 'om_creative_status', 'om_creative_cancel',
             'om_measure_create_link', 'om_paid_sending_allowance_set', 'om_mail_provider_get', 'om_mail_provider_set']) {
-            expect(await found(name)).toContain(name);
+            expect(await found({ name })).toContain(name);
         }
     } finally { if (server?.ok) await server.value.stop({}); await removeStateRoot({ path: directory }); }
 }, 30000);

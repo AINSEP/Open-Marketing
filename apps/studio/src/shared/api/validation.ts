@@ -2,6 +2,10 @@ import { a2uiSurfacePayloadSchema, campaignKeySchema, epochSchema, idSchema, cre
 import { z } from "zod";
 import { toolRequestedPayloadSchema, toolResultPayloadSchema, approvalPayloadSchema, chatMessageSchema, confirmationCardSchema, navigationActionSchema, navigationTargetSchema, studioNavigationTargetSchema, moneySchema, runEventSchema, parseBoundary } from "@open-marketing/contracts";
 import type { Outcome, RunEvent } from "@open-marketing/contracts";
+import { displayId, leadDisplaySchema, leadStageRequestSchema, oauthClientSetSchema, pluginOAuthStatusSchema } from "./lead-oauth.js";
+import type { LeadDisplay, LeadStageRequest, OAuthClientRequest, OAuthClientStatus, OAuthStatus } from "./lead-oauth.js";
+export { leadDisplaySchema, leadStageRequestSchema, oauthClientSetSchema, pluginOAuthStatusSchema };
+export type { LeadDisplay, LeadStageRequest, OAuthClientRequest, OAuthClientStatus, OAuthStatus };
 import type { StudioPayload, StudioSnapshot } from "./types.js";
 
 const row = z.strictObject({ id: z.string().min(1).max(256), title: z.string().max(200), detail: z.string().max(1024), status: z.string().max(100) });
@@ -9,18 +13,6 @@ const row = z.strictObject({ id: z.string().min(1).max(256), title: z.string().m
 const snapshotRows = z.record(z.string(), z.array(row).max(100))
   .refine(rows => Object.keys(rows).every(target => studioNavigationTargetSchema.safeParse(target).success))
   .refine(rows => navigationTargetSchema.options.every(target => target in rows));
-const displayId = z.string().min(1).max(256);
-/** Studio reads only the inbox presentation fields; backend lifecycle types stay on the server. */
-export const leadDisplaySchema = z.object({
-  leadId: displayId, source: z.object({ kind: z.enum(['form', 'call', 'booking', 'manual']), ref: displayId }),
-  stage: z.enum(['new', 'qualified', 'won', 'disqualified', 'spam']), revision: epochSchema.min(1), erased: z.boolean(),
-  attribution: z.object({ campaign: campaignKeySchema.nullable() }),
-});
-export const leadStageRequestSchema = leadDisplaySchema.pick({ leadId: true }).strict().extend({
-  to: leadDisplaySchema.shape.stage, expectedRevision: leadDisplaySchema.shape.revision.max(Number.MAX_SAFE_INTEGER - 1), changeId: displayId,
-});
-export type LeadDisplay = z.infer<typeof leadDisplaySchema>;
-export type LeadStageRequest = z.infer<typeof leadStageRequestSchema>;
 const title = z.string().min(1).max(200);
 const detail = z.string().max(1024);
 const evidenceList = z.array(detail).max(100);
@@ -133,16 +125,9 @@ function normalizePayload(required: { event: RunEvent }): unknown {
 
 /** Plugin identity and declared client extras are generic; vendor rules stay on the server. */
 export const oauthPluginSchema = idSchema;
-export const oauthClientSetSchema = z.strictObject({ pluginId: idSchema, client: z.object({
-  clientId: z.string().min(1).max(2048), clientSecret: z.string().min(1).max(8192).optional(),
-}).catchall(z.string().min(1).max(2048)).nullable() });
 export const oauthStatusQuerySchema = z.union([z.strictObject({ pluginId: idSchema }), z.strictObject({ transactionId: displayId })]);
-export const pluginOAuthStatusSchema = z.union([oauthStatusSchema, credentialPluginStatusSchema]);
 /** Server-provided sign-in URLs must be HTTPS and cannot embed user/password credentials. */
 export const oauthChallengeSchema = sharedOAuthChallengeSchema.extend({ authorizationUrl: sharedOAuthChallengeSchema.shape.authorizationUrl.refine(value => {
   const url = new URL(value); return url.protocol === 'https:' && !url.username && !url.password;
 }), expiresAt: sharedOAuthChallengeSchema.shape.expiresAt.max(8640000000000000) });
 export type OAuthPlugin = z.infer<typeof oauthPluginSchema>;
-export type OAuthClientRequest = z.infer<typeof oauthClientSetSchema>;
-export type OAuthClientStatus = z.infer<typeof oauthClientStatusSchema>;
-export type OAuthStatus = z.infer<typeof pluginOAuthStatusSchema>;

@@ -1,5 +1,6 @@
 import { z } from "zod";
-import type { VkWireRequest } from "./ports.js";
+/** Plain wire request produced by the encoder; re-exported by ports. */
+export interface VkWireRequest { readonly path: string; readonly method: "GET" }
 
 /** Exact decimal identifiers; unsafe numeric vendor IDs are rejected by response codecs. */
 export const vendorIdSchema = z.string().regex(/^[1-9][0-9]{0,18}$/);

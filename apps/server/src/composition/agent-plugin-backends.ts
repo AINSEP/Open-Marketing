@@ -1100,20 +1100,20 @@ async function bindingCurrent(required: Execution): Promise<boolean> {
 }
 
 /** Marks a guard refusal raised before any native fetch so a plugin can report a definite not-sent failure. */
-function egressRefusal(message: string): Error { return Object.assign(new Error(message), { refusedBeforeEgress: true as const }); }
+function egressRefusal(required: { message: string }): Error { return Object.assign(new Error(required.message), { refusedBeforeEgress: true as const }); }
 /** Foreign fetch ABI: the last admitted gate follows fresh credentials and halt/account checks.
  * Refusal throws only inside the plugin's typed transport boundary; zero native fetches occur.
  */
 function guardedFetch(required: Execution): typeof fetch {
     return async (url, options) => {
-        if (!await bindingCurrent(required) || !await current(required) || options?.signal?.aborted) throw egressRefusal('Plugin unavailable');
-        if (required.stopPermit && required.dependencies.clock.now({}) >= required.stopPermit.expiresAt) throw egressRefusal('Stop permit expired');
+        if (!await bindingCurrent(required) || !await current(required) || options?.signal?.aborted) throw egressRefusal({ message: 'Plugin unavailable' });
+        if (required.stopPermit && required.dependencies.clock.now({}) >= required.stopPermit.expiresAt) throw egressRefusal({ message: 'Stop permit expired' });
         if (!required.stopPermit && toolPolicy({ effects: required.contribution.effects }) !== 'read' && required.input.accountId !== null) {
             const snapshot = await required.dependencies.safetyRepo.snapshot({ context: required.context, accountId: required.input.accountId }, { signal: required.signal });
-            if (!snapshot.ok || snapshot.value.halted) throw egressRefusal('Account halted');
+            if (!snapshot.ok || snapshot.value.halted) throw egressRefusal({ message: 'Account halted' });
         }
-        if (!await campaignAuthorityCurrent(required)) throw egressRefusal('Campaign authority expired or revoked');
-        if (required.signal?.aborted || options?.signal?.aborted) throw egressRefusal('Plugin cancelled');
+        if (!await campaignAuthorityCurrent(required)) throw egressRefusal({ message: 'Campaign authority expired or revoked' });
+        if (required.signal?.aborted || options?.signal?.aborted) throw egressRefusal({ message: 'Plugin cancelled' });
         const signals = [required.signal, options?.signal].filter((signal): signal is AbortSignal => Boolean(signal));
         const signal = required.signal ? AbortSignal.any(signals) : options?.signal;
         return required.dependencies.fetch(url, { ...options, signal });

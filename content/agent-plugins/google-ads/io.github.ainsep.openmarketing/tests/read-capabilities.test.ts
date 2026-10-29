@@ -338,6 +338,12 @@ test("canonical token-only credentials produce valid catalog output", async () =
   const batch = value({ outcome: await reads["report.metrics.v1"]({ context, connection, input: { grain: "account", days } }) });
   assert.equal(metricBatchSchema.safeParse(batch).success, true);
 });
+function assertCanonicalHeaders(required: { headers: Headers[]; canonical: boolean }): void {
+  for (const header of required.headers) {
+    assert.equal(header.get("developer-token"), required.canonical ? "a".repeat(22) : null);
+    assert.equal(header.get("login-customer-id"), required.canonical ? "1234567890" : null);
+  }
+}
 test("canonical secrets and settings supply headers; top-level credential fields are ignored", async () => {
   for (const canonical of [true, false]) {
     const headers: Headers[] = [];
@@ -347,10 +353,7 @@ test("canonical secrets and settings supply headers; top-level credential fields
       fetch: async (_url, init) => { headers.push(new Headers(init?.headers)); return Response.json(JSON.parse(String(init?.body)).query.includes("FROM customer LIMIT 2") ? customerMetadata : { results: [] }); } });
     value({ outcome: await reads["report.metrics.v1"]({ context, connection, input: { grain: "account", days } }) });
     assert.equal(headers.length, 2);
-    for (const header of headers) {
-      assert.equal(header.get("developer-token"), canonical ? "a".repeat(22) : null);
-      assert.equal(header.get("login-customer-id"), canonical ? "1234567890" : null);
-    }
+    assertCanonicalHeaders({ headers, canonical });
   }
 });
 test("malformed developer credentials return a sanitized typed failure before fetch", async () => {

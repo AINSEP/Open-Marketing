@@ -1,8 +1,9 @@
 import { z } from "zod";
-import { callContextSchema, idSchema } from "@open-marketing/contracts";
+import { callContextSchema, idSchema, pluginConfigurationSchema } from "@open-marketing/contracts";
 
 /** Meta IDs remain decimal strings, including IDs beyond safe JS integer precision. */
 export const vendorIdSchema = z.string().regex(/^[1-9][0-9]{0,31}$/);
+export const configurationSchema = pluginConfigurationSchema.extend({ accountId: vendorIdSchema });
 const cursor = z.string().min(1).max(2048).regex(/^[\x21-\x7e]+$/);
 const page = { limit: z.number().int().min(1).max(100).default(100), after: cursor.optional() };
 /** Closed read surface: no URL, token, raw destination, write or account overrides. */

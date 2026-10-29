@@ -1,0 +1,14 @@
+OM cloud round 1029i - remaining lint + small cycles. Branch cloud/om-round-1029i (from origin/main). Time used: ~10 min of 30. Sonnet subagents: 2 (A lint, B cycles). Raw outputs: ADS-memory/cloud-round-1029i/out/*.txt
+
+1. LINT (om:lint)
+ before: 49 findings (15 in scope, 34 out of scope). after: 34, all in out-of-scope paths (higgsfield-media 12, charts-chartjs 9, charts-echarts 13). In-scope: 0.
+ Note: line-ads transport.ts:79 was sonarjs/cognitive-complexity (11), fixed by extracting helper deadlineAsUnavailable; no caller changes.
+ Fixed: apps/server/src/composition/agent-plugin-backends.ts (egressRefusal takes object), apps/server/tests/{consent-limit,om-tools,public-ingress}.test.ts, features/measure/tests/links-grants-boundaries.test.ts, google-ads tests/{campaign-deployment,read-capabilities}.test.ts. No assertions weakened/removed.
+2. BOUNDARIES (om:boundaries)
+ before: 8 cycle files. after: 1 (resend-email commands.ts, out of scope).
+ Fixed via leaf modules / moved types: features/jobs (new src/timing.ts), apps/studio shared/api (new lead-oauth.ts), google-ads (new src/tool-name.ts), line-ads/reddit-ads/vk-ads (WireRequest type moved to commands.ts, re-exported from ports.ts), whatsapp-business (configurationSchema moved to commands.ts). Public exports unchanged.
+ Fingerprints recomputed in plugin.json + capabilities.json for line-ads, reddit-ads, vk-ads, whatsapp-business (manifests tests pass). google-ads needed none.
+3. TESTS (touched packages, run after changes, by subagents)
+ features/jobs 203, apps/studio 329, features/measure 450, google-ads 220, line-ads 107, reddit-ads 113, vk-ads 69, whatsapp-business 116, apps/server consent-limit + public-ingress 24, om-tools alone 102/102. All pass. Typecheck clean for all touched packages/plugins.
+ Not re-run by coordinator: full-workspace suites. Env note: server tests need `pnpm --filter "@open-marketing/server..." build` and agent build first (dist gitignored).
+4. LEFT: resend-email cycle and the 34 lint findings, all out of scope (moving to Jini).

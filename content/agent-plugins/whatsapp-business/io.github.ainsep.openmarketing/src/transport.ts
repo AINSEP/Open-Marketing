@@ -1,11 +1,10 @@
 import { z } from "zod";
-import { definePluginTools, epochSchema, pluginConfigurationSchema } from "@open-marketing/contracts";
+import { definePluginTools, epochSchema } from "@open-marketing/contracts";
 import type { AppError, CallOptions, Outcome, PluginCapabilityDependencies, PluginToolsFactory } from "@open-marketing/contracts";
-import { accountSchema, invocationSchema, sendersSchema, templatesSchema, vendorIdSchema, whatsappBusinessTools } from "./commands.js";
+import { accountSchema, configurationSchema, invocationSchema, sendersSchema, templatesSchema, whatsappBusinessTools } from "./commands.js";
 import type { WhatsAppReadCommand } from "./commands.js";
 import type { WhatsAppBusinessAdapter, WhatsAppConfiguration, WhatsAppDependencies, WhatsAppInvocation, WhatsAppReadResult, WhatsAppWireRequest } from "./ports.js";
 
-export const configurationSchema = pluginConfigurationSchema.extend({ accountId: vendorIdSchema });
 /** Pure discovery and parsing over the existing read schemas; declarations grant no authority. */
 export const { tools, parseTool } = definePluginTools({ tools: whatsappBusinessTools.map(tool => ({
   name: tool.name, description: "WhatsApp Business " + tool.name, effects: ["read"], inputSchema: tool.inputSchema,

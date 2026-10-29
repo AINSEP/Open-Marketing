@@ -1,5 +1,5 @@
 import type { z } from "zod";
-import type { configurationSchema } from "./transport.js";
+import type { configurationSchema } from "./commands.js";
 import type { CallContext, CallOptions, ClockPort, ObserverPort, Outcome } from "@open-marketing/contracts";
 import type { WhatsAppReadCommand, WhatsAppReadData } from "./commands.js";
 

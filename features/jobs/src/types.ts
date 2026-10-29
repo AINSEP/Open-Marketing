@@ -1,7 +1,7 @@
 import type { Outcome, CallContext, CallOptions, ClockPort, IdPort, ObserverPort, Scope, Page, PageQuery, ConfirmationCard, EffectEnvelope, GenerationAllowanceSettings, GenerationCostQuote, GenerationApprovalRequirement, HaltStopRequest, HaltStopPermit, ServiceContext, MeasurementGrant, CapabilityEnvelope } from "@open-marketing/contracts";
 import type { Clock } from "@open-marketing/om-clock";
 import type { z } from "zod";
-import type { enqueueTimingSchema } from "./schema.js";
+import type { enqueueTimingSchema } from "./timing.js";
 export type JobState = "pending" | "leased" | "dispatching" | "retry" | "succeeded" | "denied" | "failed" | "reconcile" | "cancelled";
 export type FailureKind = "permanent" | "transient" | "unknown";
 /** Payload is opaque serialized data. Digest covers operation/payload; optional timing is earliest eligibility, first enqueue wins. */

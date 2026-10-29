@@ -1,6 +1,7 @@
 import type { z } from "zod";
 import type { campaignDeploymentPlanSchema } from "./schemas.ts";
 import type { CallContext, ClockPort, EffectEnvelope, Outcome, Scope } from "@open-marketing/contracts";
+import type { ToolName } from "./tool-name.ts";
 
 /** Server-resolved account binding. Never accepted in agent tool arguments. */
 export interface AccountBinding {
@@ -16,7 +17,7 @@ export type ToolArguments =
   | { operationId: string; campaignId: string; averageDailyBudgetMicros: string }
   | { operationId: string; startDate: string; endDate: string }
   | { operationId: string };
-export type ToolName = "list_accounts" | "read_campaign" | "read_budget" | "report" | "create_paused" | "activate" | "set_budget" | "pause" | "reconcile";
+export type { ToolName } from "./tool-name.ts";
 export interface ToolCall { name: ToolName; arguments: ToolArguments }
 /** All remote hierarchy evidence is parsed before adoption. */
 export interface Hierarchy {
