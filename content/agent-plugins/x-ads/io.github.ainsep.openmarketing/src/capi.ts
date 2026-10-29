@@ -101,7 +101,7 @@ async function dispatch(required: { dependencies: XCapiDependencies; prepared: P
       if (executed) return failure({ code: "conflict" });
       executed = true;
       if (optional.signal?.aborted) return failure({ code: "cancelled" });
-      if (!authorityMatches({ ...prepared, now: dependencies.clock.now({}) }) || !fence.isCurrent()) return failure({ code: "forbidden" });
+      if (!dependencies.configuration.admitted || !authorityMatches({ ...prepared, now: dependencies.clock.now({}) }) || !fence.isCurrent()) return failure({ code: "forbidden" });
       attempted = true;
       const response = await requestXAds({ dependencies, request: { url: prepared.url, method: "POST", body: JSON.stringify(prepared.payload) }, credential: credential.value, isCurrent: fence.isCurrent }, optional);
       if (!response.ok) return response.error.code === "forbidden" ? response : unknown();

@@ -30,13 +30,12 @@ describe("VK R2 evidence hold", () => {
     expect(f.observer.observe).not.toHaveBeenCalled();
   });
 
-  it("denies missing admission before inspecting an unverified launch", async () => {
+  it("rejects an unverified launch command (plugin-local admission was removed; host guarded fetch owns it)", async () => {
     const f = fixture();
-    f.state.admitted = false;
     const input = { ...invocation(), command: { kind: "campaign_deploy_paused" } } as unknown as VkInvocation;
     expect(await f.adapter.invoke(input)).toEqual({
       ok: false,
-      error: { code: "forbidden", message: "VK request forbidden", retryable: false },
+      error: { code: "invalid_input", message: "VK request invalid_input", retryable: false },
     });
     expect(f.credentials.access).not.toHaveBeenCalled();
     expect(f.fetch).not.toHaveBeenCalled();

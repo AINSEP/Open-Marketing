@@ -26,8 +26,8 @@ export function dispatchSuite(required: { name: string; makeFixture: (options?: 
       expect(await f.adapter.invoke(invocation({ command: { kind: "list_campaigns" } }))).toMatchObject({ ok: false, error: { code: "invalid_input" } });
       const input = { ...invocation(), context: { ...invocation().context, scope: { ownerId: "foreign", workspaceId: "workspace" } } };
       expect(await f.adapter.invoke(input)).toMatchObject({ ok: false, error: { code: "forbidden" } });
-      expect(await f.adapter.invoke({ ...input, context: { ...input.context, scope: { ownerId: "owner", workspaceId: "foreign" } } })).toMatchObject({ ok: false, error: { code: "unavailable" } });
-      expect(f.calls).toHaveLength(0); expect(f.credentialCalls).toHaveLength(1);
+      expect(await f.adapter.invoke({ ...input, context: { ...input.context, scope: { ownerId: "owner", workspaceId: "foreign" } } })).toMatchObject({ ok: false, error: { code: "forbidden" } });
+      expect(f.calls).toHaveLength(0); expect(f.credentialCalls).toHaveLength(0);
     });
     it("returns no token/provider additions and observes correlation IDs", async () => {
       const f = required.makeFixture({ response: () => Response.json({ ...{ content: [{ id: 123, name: "Fixture", config: "ON", token: "synthetic-secret" }], number: 0, page: 0, size: 10, totalElements: 1, totalPages: 1 }, token: "synthetic-secret" }) }); const result = await f.adapter.invoke(invocation());

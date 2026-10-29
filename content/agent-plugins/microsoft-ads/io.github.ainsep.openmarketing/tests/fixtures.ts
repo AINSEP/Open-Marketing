@@ -28,7 +28,7 @@ export function fixture() {
   const dependencies: MicrosoftAdsDependencies = {
     configuration: { scope: context.scope, admitted: true, connectionId: "connection", accountId: "123", customerId: "234", currency: "USD", pluginDigest: "a".repeat(64), bindingId: "binding" },
     gateway: { async dispatch(input) { dispatches.push(input); state.gatewayHook(input); if (!state.admitted || !state.bound) return denied; return input.execute(); } },
-    credentials: { async access(input) { if (!state.admitted || !state.bound) return denied; credentials.push(input.connectionId); state.hook(input); if (!state.admitted || !state.bound) return denied; return { ok: true, value: { accessToken: "synthetic-secret", expiresAt: now + 60000, secrets: { developerToken: "synthetic-secret" } } }; } },
+    credentials: { async access(input) { if (!state.admitted || !state.bound) return denied; credentials.push(input.connectionId); state.hook(input); if (!state.admitted || !state.bound) return denied; return { ok: true, value: { accessToken: "synthetic-secret", expiresAt: state.time + 60000, secrets: { developerToken: "synthetic-secret" } } }; } },
     fetch: async (url, init) => { if (!state.admitted || !state.bound) throw new Error("Denied"); calls.push({ url: String(url), init: init! }); state.fetchHook(); init?.signal?.throwIfAborted(); return new Response(JSON.stringify(state.responses.shift()), { status: 200 }); },
     clock: { now: () => state.time }, observer: { observe: event => { observations.push(event); } },
     timeoutSignal: input => { const controller = new AbortController(); timeouts.push({ ...input, deadline: state.time + input.milliseconds, controller }); return controller.signal; },
@@ -112,6 +112,7 @@ export type ConversionFixture = ReturnType<typeof conversionFixture>;
 /** Independent canonical report fixture; columns do not come from the encoder under test. */
 export function metricsFixture(required: { grain: "account" | "campaign" | "ad_group" | "ad"; currency?: string }) {
   const f = reportFixture();
+  f.state.time = Date.UTC(2026, 9, 13); // metric batches require dataThrough (window end, 2026-10-13) <= retrievedAt
   const headers = { account: "AccountId", campaign: "AccountId\tCampaignId", ad_group: "AccountId\tCampaignId\tAdGroupId", ad: "AccountId\tCampaignId\tAdGroupId\tAdId" };
   const ids = { account: "123", campaign: "123\t456", ad_group: "123\t456\t789", ad: "123\t456\t789\t1011" };
   const currency = required.currency ?? "USD";

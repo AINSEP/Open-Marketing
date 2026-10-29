@@ -30,7 +30,7 @@ describe("Yandex portable package", () => {
     }
   });
   it("declares one inert public entry and no agent-side MCP service", async () => {
-    expect(await json({ path: "mcp.json" })).toEqual({ mcpServers: {} });
+    expect(await json({ path: "mcp.json" })).toEqual({ $schema: "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json", mcpServers: {} });
     expect(await json({ path: "package.json" })).toMatchObject({ sideEffects: false, exports: { ".": { types: "./io.github.ainsep.openmarketing/src/index.ts", import: "./io.github.ainsep.openmarketing/dist/index.mjs" } } });
   });
 });

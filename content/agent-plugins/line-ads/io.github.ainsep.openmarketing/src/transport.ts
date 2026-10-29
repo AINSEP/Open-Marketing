@@ -90,7 +90,9 @@ export async function requestLineAds(required: { dependencies: LineAdsDependenci
     if (!current(required)) return failure({ code: "forbidden" });
     const deadline = dependencies.createDeadline({ timeoutMs: 15000 });
     const signal = optional?.signal ? AbortSignal.any([deadline, optional.signal]) : deadline;
-    return await requestLineRead({ dependencies, request, bundle: bundle.value }, { ...optional, signal });
+    const result = await requestLineRead({ dependencies, request, bundle: bundle.value }, { ...optional, signal });
+    // Only the caller's abort is a cancellation; the injected 15s deadline is an unavailable transport.
+    return !result.ok && result.error.code === "cancelled" && !optional?.signal?.aborted ? failure({ code: "unavailable" }) : result;
   } catch { return failure({ code: "unavailable" }); }
 }
 /** Parse the sealed paste value locally; invalid/legacy bearer tokens never reach LINE. O(b). */
@@ -326,7 +328,7 @@ async function readMetrics(required: { dependencies: PluginCapabilityDependencie
   if (!ready.ok) return ready;
   const csv = await requestReport({ ...required, path: `pfreports/${parsed.data.id}/download`, text: true, delay: 500 }, optional);
   if (!csv.ok) return csv;
-  return decodeMetricsCsv({ text: csv.value, input: required.input, connection: required.configuration, currency: metadata.value.currency,
+  return decodeMetricsCsv({ text: csv.value, input: required.input, connection: { connectionId: required.configuration.connectionId, accountId: required.configuration.accountId }, currency: metadata.value.currency,
     timezone: metadata.value.timezone, retrievedAt: required.dependencies.clock.now({}) });
 }
 /** Emit only operation/outcome and caller correlation; telemetry failure cannot change the result. */

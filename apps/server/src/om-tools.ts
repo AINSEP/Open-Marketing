@@ -124,6 +124,13 @@ function unknownState(required: { operation: Operation; error: Pick<AppError, 'c
 export function createOmTools(required: Dependencies): OmTools {
     const operations = new Map<string, Operation>();
     const replays = new Map<string, Operation>();
+    /** Cancel/interruption aborts the operation's egress, not only its stored state. */
+    const aborts = new WeakMap<Operation, AbortController>();
+    function operationSignal(input: { operation: Operation; signal?: AbortSignal }): AbortSignal {
+        let controller = aborts.get(input.operation);
+        if (!controller) { controller = new AbortController(); aborts.set(input.operation, controller); }
+        return input.signal ? AbortSignal.any([input.signal, controller.signal]) : controller.signal;
+    }
     let disposed = false;
     let restored = false;
     const active = new Set<Promise<unknown>>();
@@ -256,6 +263,7 @@ export function createOmTools(required: Dependencies): OmTools {
     function markInterrupted(input: { operation: Operation; status: 'interrupted' | 'cancelled' }): boolean {
         const operation = input.operation;
         if (operation.state.status !== 'pending') return false;
+        aborts.get(operation)?.abort();
         operation.state = operation.executing
             ? unknownState({ operation, error: { code: 'cancelled', message: 'Dispatch interrupted; reconcile the outcome before retrying' } })
             : { status: input.status, operationId: operation.call.operationId };
@@ -360,17 +368,18 @@ export function createOmTools(required: Dependencies): OmTools {
      */
     async function invokeDefinition(input: { operation: Operation; definition: OmToolDefinition; context: CallContext; signal?: AbortSignal }): Promise<Outcome<unknown>> {
         const { operation, definition } = input;
-        if (operation.policy !== 'spend' && operation.policy !== 'generation') return definition.invoke({ context: input.context, input: structuredClone(operation.call.input), signal: input.signal });
+        const signal = operationSignal({ operation, signal: input.signal });
+        if (operation.policy !== 'spend' && operation.policy !== 'generation') return definition.invoke({ context: input.context, input: structuredClone(operation.call.input), signal });
         if (!definition.safety || !operation.approvalId) return localFailure({ code: 'forbidden', message: 'Financial authority is unavailable' });
         const request = { ...operation.request, approvalId: operation.approvalId, policyRevision: 0 };
         if (request.pausedCampaignCalls && operation.call.name === 'om_campaign_deploy_paused')
-            return definition.invoke({ context: input.context, input: structuredClone(operation.call.input), authorization: request, signal: input.signal });
+            return definition.invoke({ context: input.context, input: structuredClone(operation.call.input), authorization: request, signal });
         return definition.safety.withDispatch({ context: input.context, request,
             dispatch: async ({ permit }) => {
-                const current = admitted({ context: operation.context, signal: input.signal });
+                const current = admitted({ context: operation.context, signal });
                 if (!current.ok) return current;
-                return definition.invoke({ context: input.context, input: structuredClone(operation.call.input), authorization: request, permit, signal: input.signal });
-            } }, { signal: input.signal });
+                return definition.invoke({ context: input.context, input: structuredClone(operation.call.input), authorization: request, permit, signal });
+            } }, { signal });
     }
     /** Reuse only bounded, unexpired confirmed write grants from this instance. Spend/destruction
      * always receive a fresh card. The exchange verifies configuration, scope and run identity.

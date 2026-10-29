@@ -109,7 +109,8 @@ for (const transport of ["memory", "http"] as const) {
     it("wires readiness, synthetic authority denial and Jini suppression without egress", async () => {
       const f = make({ transport });
       f.state.ready = false;
-      expect(await f.mailer.send(mailInput, { purpose: "bulk" })).toMatchObject({ ok: false });
+      // Jini's purpose gate refuses a notification-lane send by throwing when no durable outbox path is ready.
+      await expect(f.mailer.send(mailInput, { purpose: "bulk" })).rejects.toThrow("MAILER_SEND_REFUSED_NO_DURABLE_PATH");
       f.state.ready = true;
       f.state.allowed = false;
       expect(await f.mailer.send(mailInput, { purpose: "bulk" })).toMatchObject({ ok: false });

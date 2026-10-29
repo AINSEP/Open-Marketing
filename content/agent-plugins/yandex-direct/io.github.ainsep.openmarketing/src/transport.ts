@@ -168,7 +168,7 @@ function decode(required: { prepared: Prepared; text: string; retrievedAt: numbe
   if (command.kind === "report") return decodeReport({ ...required, command, accountId: configuration.accountId!, currency: configuration.currency! });
   try {
     const input: unknown = JSON.parse(required.text);
-    if (z.object({ error: z.unknown() }).safeParse(input).success) return failure({ code: "unavailable" });
+    if (typeof input === "object" && input !== null && Object.hasOwn(input, "error")) return failure({ code: "unavailable" });
     return decodeList({ input, command, accountId: configuration.accountId });
   } catch { return failure({ code: "protocol_mismatch" }); }
 }

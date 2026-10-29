@@ -126,8 +126,9 @@ function controlError(required: { source: string; cause: unknown; previous: unkn
 }
 
 /** Adapt one server-owned better-sqlite3 handle to the preserved query/pool port, without opening it.
- * A connection is exclusively leased across awaited transaction bodies. Contention fails explicitly
- * instead of allowing another body to share a transaction; j01 owns scheduling/backpressure.
+ * A connection is exclusively leased across awaited transaction bodies. Contending roots wait in FIFO
+ * order for the lease instead of sharing a transaction; a root opened from inside the leased kernel
+ * transaction fails fast (it would wait on itself). Waiters re-check closed/quarantined state.
  * release(destroy) quarantines an uncertain connection. Neither release nor import closes the handle.
  * @returns An inert pool; callers own lifecycle and native busy_timeout configuration.
  * @example const pool = createSqlitePool({ database: serverOwnedHandle, kernel });
@@ -137,6 +138,19 @@ function controlError(required: { source: string; cause: unknown; previous: unkn
 export function createSqlitePool(required: { database: Database.Database; kernel: SqliteKernel<unknown> }): SqlitePool {
     let leased = false;
     let quarantined = false;
+    const waiting: (() => void)[] = [];
+    /** Hand the lease directly to the next FIFO waiter, or free it. @complexity O(1) amortized. */
+    const handOff = (): void => {
+        const next = waiting.shift();
+        if (next) next();
+        else leased = false;
+    };
+    /** Take the lease now or queue for it; nested roots inside the holder's transaction fail fast. */
+    const acquire = async (): Promise<void> => {
+        if (!leased) { leased = true; return; }
+        if (required.kernel.inTransaction()) throw new PgFoundationError({ code: 'connection_busy', message: 'SQLite handle already has a transaction; use its session or schedule work sequentially' });
+        await new Promise<void>(grant => { waiting.push(grant); });
+    };
     const pool: SqlitePool = {
         dialect: 'sqlite',
         kernel: required.kernel,
@@ -145,8 +159,13 @@ export function createSqlitePool(required: { database: Database.Database; kernel
         },
         async connect(): Promise<PgClient> {
             if (!required.database.open || quarantined) throw new PgFoundationError({ code: 'connection_unavailable', message: 'SQLite handle is closed or quarantined' });
-            if (leased || required.database.inTransaction) throw new PgFoundationError({ code: 'connection_busy', message: 'SQLite handle already has a transaction; use its session or schedule work sequentially' });
-            leased = true;
+            await acquire();
+            if (!required.database.open || quarantined || required.database.inTransaction) {
+                handOff();
+                throw new PgFoundationError(required.database.inTransaction
+                    ? { code: 'connection_busy', message: 'SQLite handle already has a foreign transaction; use its session or schedule work sequentially' }
+                    : { code: 'connection_unavailable', message: 'SQLite handle is closed or quarantined' });
+            }
             let released = false;
             return {
                 async query<Row extends Record<string, unknown>>(input: { text: string; values?: unknown[]; script?: true }): Promise<QueryResult<Row>> {
@@ -160,7 +179,7 @@ export function createSqlitePool(required: { database: Database.Database; kernel
                     if (released) return;
                     released = true;
                     quarantined = input.destroy === true;
-                    leased = false;
+                    handOff();
                 },
             };
         },

@@ -83,6 +83,16 @@ async function validateDispatchEvidence(required: { session: JobsSqlSession; job
         return jobFailure({ code: "conflict", message: "Job dispatch claim ended or expired" });
     return { ok: true, value: now };
 }
+/** The transaction owner wraps body throws (transaction_failed with cause) after rollback; restore the
+ * typed store error the body raised. Bounded walk; anything else stays opaque. @complexity O(1), depth <=4. */
+function storeError(required: { error: unknown }): JobStoreError | undefined {
+    let current = required.error;
+    for (let depth = 0; depth < 4 && current instanceof Error; depth++) {
+        if (current instanceof JobStoreError) return current;
+        current = current.cause;
+    }
+    return undefined;
+}
 /** Serialized durable outbox adapter, driver-free and timer-free. Migration application belongs to server composition.
  * @example createSqlOutboxStore({ database })
  * @complexity Indexed transitions/claims plus bounded recovery (<=1000 rows); capacity check O(n), n <=maxJobs.
@@ -98,8 +108,7 @@ export function createSqlOutboxStore(required: { database: JobsSqlDatabase; maxJ
             return result;
         } catch (error) {
             observe({ operation: input.operation, outcome: "unavailable" });
-            if (error instanceof JobStoreError) throw error;
-            throw new JobStoreError({ code: "unavailable", message: "Outbox SQL transaction failed" });
+            throw storeError({ error }) ?? new JobStoreError({ code: "unavailable", message: "Outbox SQL transaction failed" });
         }
     }
     /** SQL telemetry is payload-free and cannot change delivery. @complexity O(1). */

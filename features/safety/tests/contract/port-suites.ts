@@ -120,7 +120,8 @@ export function ConfirmationExchangePortSuite(required: { create: (required?: { 
    const release = Promise.withResolvers<void>();
    const evidence: Parameters<Parameters<typeof import("../../index.js").createMemoryConfirmationExchange>[0]["recordAnswer"]>[0][] = [];
    const original = required.create({ async recordAnswer(input) {
-    evidence.push(structuredClone(input));
+    const { session: _session, ...snapshot } = input as typeof input & { session?: unknown };
+    evidence.push(structuredClone(snapshot));
     input.answer.response.choice = "cancel";
     if (input.answer.approver.kind === "local_token") input.answer.approver.ownerId = "mutated-callback-owner";
     entered.resolve();

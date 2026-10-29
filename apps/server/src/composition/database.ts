@@ -6,8 +6,8 @@ import type { WorkspaceSqlDatabase } from '@open-marketing/workspaces';
 import { z } from 'zod';
 import { createCheckedSqliteClient, createSqlitePool, withTransaction, type PgObserver } from '@open-marketing/om-db';
 
-/** Bind inert transaction adapters; native lifetime stays with bootServer. Busy work fails through
- * the existing typed bridge; there is no additional queue, lease manager or transaction control.
+/** Bind inert transaction adapters; native lifetime stays with bootServer. Contending roots wait
+ * for the om-db pool lease in FIFO order; there is no additional queue, lease manager or transaction control.
  * A supplied session is adapted directly and never opens another root transaction.
  * @example const database = bindServerDatabase({ native, observer, context });
  * @complexity O(1) construction; operation cost is the supplied bounded SQL work.
@@ -23,7 +23,15 @@ export function bindServerDatabase(required: { native: Database.Database; observ
     const workspace: SqlSession = { ...unit,
         query: input => unit.transaction({ work: ({ session }) => session.query(input) }),
     };
-    return { kernel, pool, unit, workspace, observe };
+    /** Autocommit reads for pre-lane hints: the lease waits its turn but issues no BEGIN, so nothing
+     * holds SQLite while the caller later waits on a lane. Each statement is its own snapshot; callers
+     * MUST recheck inside their real transaction and never write through it. Joins stay on the lease. */
+    const reads: UnitOfWork = { async transaction({ work }) {
+        const client = await pool.connect();
+        const session: SqlSession = { query: input => client.query(input), transaction: ({ work: joined }) => joined({ session }) };
+        try { return await work({ session }); } finally { client.release({}); }
+    } };
+    return { kernel, pool, unit, workspace, reads, observe };
 }
 
 /** Persist the trusted local scope using the workspaces adapter, once. A different owner for the

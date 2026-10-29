@@ -42,11 +42,16 @@ async function observedSend(required: { dependencies: Dependencies; input: TikTo
   if (!parsed.ok) return parsed;
   let result: Outcome<unknown>;
   try { result = await send({ dependencies: required.dependencies, input: parsed.value }, optional); }
-  catch { result = failure({ code: "unavailable", message: "TikTok transport failed" }); }
+  catch (error) { result = refusedBeforeEgress({ error }) ? failure({ code: "forbidden", message: "TikTok request refused before any network call" }) : failure({ code: "unavailable", message: "TikTok transport failed" }); }
   const context = parsed.value.context;
   try { required.dependencies.observer.observe({ operation: "tiktok-ads.http", outcome: result.ok ? "received" : result.error.code, correlationId: context.correlationId, traceId: context.traceId, ...("runId" in context ? { runId: context.runId } : {}) }); }
   catch { /* The host owns durable audit; telemetry cannot rewrite the provider result. */ }
   return result;
+}
+
+/** The host fetch guard marks refusals raised before native fetch; only those prove nothing was sent. O(1). */
+function refusedBeforeEgress(required: { error: unknown }): boolean {
+  return typeof required.error === "object" && required.error !== null && (required.error as { refusedBeforeEgress?: unknown }).refusedBeforeEgress === true;
 }
 
 /** Credential resolution consumes the same deadline; revoke/cancel before fetch means zero egress. */
