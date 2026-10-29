@@ -5,7 +5,7 @@ import type { CreativeService } from '@open-marketing/creative';
 import type { DispatchPermit, EffectRequest, FrozenDispatchRequest, SafetyService } from '@open-marketing/safety';
 import { effectRequestSchema } from '@open-marketing/safety';
 import type { routes } from './cli/http.js';
-import type { ApproverRef, ApprovalResponse, CallContext, ConfirmationCard, Outcome, ToolCall, ToolDescriptor, ToolOperation, ToolResult } from '@open-marketing/contracts';
+import type { ApproverRef, ApprovalResponse, CallContext, CallOptions, ConfirmationCard, Outcome, ToolCall, ToolDescriptor, ToolOperation, ToolResult } from '@open-marketing/contracts';
 
 /** Leaf dispatcher contract shared by owner ingress and the catalog implementation.
  * Unknown outcomes remain queryable for reconciliation and never authorize a retry.
@@ -43,7 +43,7 @@ export type CreativeToolInput = z.infer<typeof creativeToolInputSchema>;
 export interface CreativeToolBinding {
     service: CreativeService;
     safety: SafetyService;
-    prepareEffect(required: { context: CallContext; call: ToolCall }): Promise<Outcome<EffectRequest>>;
+    prepareEffect(required: { context: CallContext; call: ToolCall }, optional?: CallOptions): Promise<Outcome<EffectRequest>>;
     dispatchQueued(required: { context: CallContext; generationId: string; operationId: string; argumentsDigest: string }): Promise<Outcome<unknown>>;
     generate(required: { context: CallContext; input: CreativeToolInput; authorization: FrozenDispatchRequest; permit: DispatchPermit }): Promise<Outcome<unknown>>;
 }
@@ -55,7 +55,7 @@ export interface OmToolDefinition extends ToolDescriptor {
     readonly ownerRoute?: keyof typeof routes;
     /** Only server bindings provide verified financial requests; plugin metadata cannot do so. */
     readonly safety?: SafetyService;
-    prepareEffect?(required: { context: CallContext; call: ToolCall }): Promise<Outcome<EffectRequest>>;
+    prepareEffect?(required: { context: CallContext; call: ToolCall }, optional?: CallOptions): Promise<Outcome<EffectRequest>>;
     readonly unavailableReason?: string;
     readonly ownerOnly?: true;
     parse(required: { input: unknown }): Outcome<unknown>;

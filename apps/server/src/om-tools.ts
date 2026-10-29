@@ -327,17 +327,17 @@ export function createOmTools(required: Dependencies): OmTools {
      * The binding must review the same tool/input/operation; no model-supplied cost is trusted.
      * @complexity O(payload) time/space, bounded to the existing 64 KiB operation contract.
      */
-    async function prepareFinancial(input: { operation: Operation; definition: OmToolDefinition }): Promise<Outcome<void>> {
+    async function prepareFinancial(input: { operation: Operation; definition: OmToolDefinition; signal?: AbortSignal }): Promise<Outcome<void>> {
         const { operation } = input;
         if (operation.policy !== 'spend' && operation.policy !== 'generation') return { ok: true, value: undefined };
         try { return await verifiedFinancialRequest(input); }
         catch { return localFailure({ code: 'protocol_mismatch', message: 'Financial binding failed before dispatch; request fresh verified authority' }); }
     }
     /** Validate the binding against frozen tool arguments, then ask the owning quote verifier. */
-    async function verifiedFinancialRequest(input: { operation: Operation; definition: OmToolDefinition }): Promise<Outcome<void>> {
+    async function verifiedFinancialRequest(input: { operation: Operation; definition: OmToolDefinition; signal?: AbortSignal }): Promise<Outcome<void>> {
         const { operation, definition } = input;
         if (!definition.safety || !definition.prepareEffect) return localFailure({ code: 'not_implemented', message: 'NEEDS I-2: verified safety/backend binding is not connected' });
-        const prepared = await definition.prepareEffect({ context: operation.context, call: structuredClone(operation.call) });
+        const prepared = await definition.prepareEffect({ context: operation.context, call: structuredClone(operation.call) }, { signal: input.signal });
         if (!prepared.ok) return prepared;
         const request = prepared.value;
         const reviewed = financialToolInput({ request, operation });
@@ -424,7 +424,7 @@ export function createOmTools(required: Dependencies): OmTools {
         if (prior) return replay({ prior, context: input.context, digest: input.digest });
         operations.set(operationKey({ ...input, operationId: operation.call.operationId }), operation);
         if (!await persist({ operation })) return resultOf({ operation });
-        const prepared = await prepareFinancial({ operation, definition });
+        const prepared = await prepareFinancial({ operation, definition, signal: input.signal });
         if (!prepared.ok) {
             if (operation.state.status === 'pending') operation.state = unknownState({ operation, error: prepared.error });
             await persist({ operation });
