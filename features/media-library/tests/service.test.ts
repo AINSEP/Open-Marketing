@@ -1,6 +1,6 @@
 import { it, expect, vi } from 'vitest';
-import { createMediaLibrary, createMemoryMediaObserver } from '../index.js';
-import { context, foreignContext, digest, provenance, seedAsset, serviceFixture, value } from './fixtures.js';
+import { createJiniMediaAdapter, createMediaLibrary, createMemoryMediaObserver } from '../index.js';
+import { bytes, context, foreignContext, otherOwner, digest, provenance, seedAsset, serviceFixture, value } from './fixtures.js';
 
 it('factory is inert and accesses no ports until a call', () => {
   const dependencies = new Proxy({} as Parameters<typeof createMediaLibrary>[0], { get() { throw new Error('Factory accessed a dependency'); } });
@@ -46,13 +46,11 @@ it('rejects malformed input before any port or irreversible effect', async () =>
   expect(await service.list({ context, query: { limit: 101 } })).toMatchObject({ ok: false, error: { code: 'invalid_input' } });
   expect(await service.recordCost({ context, cost: { observationId: 'cost', operationId: 'operation', amount: { currency: 'USD', minorUnits: 1 }, kind: 'correction' } })).toMatchObject({ ok: false, error: { code: 'invalid_input' } });
 });
-it('partial import failure retains evidence and never deletes canonical blobs', async () => {
+it('partial import failure retains evidence', async () => {
   const { ports } = serviceFixture();
   ports.importer.import = vi.fn().mockResolvedValue({ ok: false, error: { code: 'unavailable', message: 'partial failure', retryable: false } });
-  ports.blobs.remove = vi.fn().mockRejectedValue(new Error('Unsafe compensation'));
   const service = createMediaLibrary(ports);
   expect(await service.importAsset({ context, request: { sourceUrl: 'https://example.com/image.png', operationId: 'operation', expectedDigest: digest, provenance } })).toMatchObject({ ok: false, error: { code: 'unavailable' } });
-  expect(ports.blobs.remove).not.toHaveBeenCalled();
   expect(value({ outcome: await ports.repo.evidence({ context, operationId: 'operation' }) }).provenance).toEqual([{ provenance }]);
 });
 it('audit failure is explicit and a retry keeps the same canonical binding', async () => {
@@ -78,4 +76,29 @@ it('dependency exceptions become explicit unavailable outcomes with no driver de
   const result = await createMediaLibrary(ports).list({ context, query: { limit: 1 } });
   expect(result).toMatchObject({ ok: false, error: { code: 'unavailable', retryable: false } });
   expect(JSON.stringify(result)).not.toContain('secret');
+});
+
+it.each(['adapter', 'memory'] as const)('reads only active scoped images within the requested bound / %s', async adapter => {
+  const { ports, deps } = serviceFixture();
+  const service = createMediaLibrary({ ...ports, media: adapter === 'adapter' ? createJiniMediaAdapter({ scope: context.scope, dependencies: deps }) : ports.media });
+  const asset = await seedAsset({ deps });
+  expect(value({ outcome: await service.readImage({ context, assetId: asset.record.id, maxBytes: 1048576 }) })).toEqual({ asset, bytes });
+  for (const denied of [foreignContext, otherOwner]) {
+    expect(await service.readImage({ context: denied, assetId: asset.record.id, maxBytes: 1048576 })).toMatchObject({ ok: false, error: { code: 'forbidden' } });
+  }
+  expect(await service.readImage({ context, assetId: asset.record.id, maxBytes: bytes.length - 1 })).toMatchObject({ ok: false, error: { code: 'limit_exceeded' } });
+  expect((await service.readImage({ context, assetId: 'missing', maxBytes: 1048576 })).ok).toBe(false);
+  await deps.mediaRepo.save({ ...asset.record, status: 'trashed' });
+  expect((await service.readImage({ context, assetId: asset.record.id, maxBytes: 1048576 })).ok).toBe(false);
+});
+it('uploadImage delegates admitted bytes to the canonical importer and observes no filenames', async () => {
+  const { ports, deps } = serviceFixture();
+  const asset = await seedAsset({ deps });
+  const observer = createMemoryMediaObserver({});
+  ports.importer.upload = vi.fn().mockResolvedValue({ ok: true, value: asset });
+  const service = createMediaLibrary(ports, { observer });
+  const input = { context, bytes, filename: 'private-name.png', contentTypes: ['image/png'] };
+  expect(await service.uploadImage(input)).toEqual({ ok: true, value: asset });
+  expect(ports.importer.upload).toHaveBeenCalledWith(input, undefined);
+  expect(JSON.stringify(observer.events({}))).not.toContain('private-name');
 });

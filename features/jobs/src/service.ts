@@ -1,5 +1,5 @@
 import type { CallContext, ClockPort, IdPort, ObserverPort, Outcome } from "@open-marketing/contracts";
-import type { JobRepoPort, JobDispatchPort, JobAuthorizationPort, JobObserverPort } from "./ports.js";
+import type { JobRepoPort, JobDispatchPort, JobAuthorizationPort } from "./ports.js";
 import type { JobService, ProcessResult, RetryPolicy, TransportResult } from "./types.js";
 import { createOutbox } from "./outbox.js";
 import { validateRetryPolicy } from "./retry.js";
@@ -38,7 +38,7 @@ export function observeJob(required: { observer?: ObserverPort; context: CallCon
 export function createJobService(required: {
     repo: JobRepoPort; dispatcher: JobDispatchPort; authorization: JobAuthorizationPort;
     clock: ClockPort; ids: IdPort; retryPolicy: RetryPolicy;
-}, optional?: { observer?: JobObserverPort }): JobService {
+}, optional?: { observer?: ObserverPort }): JobService {
     validateRetryPolicy(required.retryPolicy);
     const policy = Object.freeze({ ...required.retryPolicy });
     return {
@@ -61,6 +61,17 @@ export function createJobService(required: {
                     const result = await required.authorization.authorize(claimed, options);
                     if (!result.ok) throw new TypeError("Authorization unavailable");
                     return result.value.allowed === true;
+                },
+                /** Claim handlers settle the existing outbox; read once, never acknowledge again.
+                 * Failed/unsettled attempts remain stale until existing recovery reconciles them.
+                 * @complexity O(n) bounded claim parsing, O(1) space beyond that and one durable read. */
+                async dispatchClaim({ job: lease }) {
+                    if (!required.dispatcher.dispatchClaim) return null;
+                    const outcome = await required.dispatcher.dispatchClaim(decodeClaim({ lease }), options);
+                    if (outcome.ok && outcome.value === null) return null;
+                    const saved = await required.repo.outbox.get({ tenantId: lease.tenantId, id: lease.id });
+                    const result = processResultSchema.safeParse({ kind: "completed", state: saved?.state, jobId: lease.id });
+                    return result.success ? result.data : { kind: "stale" };
                 },
                 transport: {
                     // The existing dispatch port has no deduplication-horizon proof. Fail closed for unknown effects.

@@ -7,7 +7,7 @@ import { binding, ownerScope, connections, createIds, otherScope, sessions, unwr
 function createHarness(required: { identity?: IdentityPort; repo?: WorkspaceRepoPort } = {}) {
   let now = 100;
   const identity = required.identity ?? createMemoryIdentity({ sessions });
-  const storage = createMemoryWorkspaceRepo({ identity, ids: createIds({}), workspaces, connections });
+  const storage = createMemoryWorkspaceRepo({ workspaces, connections });
   const repo = required.repo ?? storage;
   const events: ObserverEvent[] = [];
   const service = createWorkspaceService({ repo, identity, ids: createIds({}), clock: { now() { return now; } } }, { observer: createMemoryWorkspaceObserver({ events }) });
@@ -78,12 +78,9 @@ describe("WorkspaceService authenticated account scope", () => {
     harness.setNow({ value: 300_099 });
     expect(await harness.service.bindAccount({ context, binding })).toEqual({ ok: true, value: binding });
   });
-  it("repo cannot return another owner's context or mismatched binding as success", async () => {
+  it("repo cannot return a mismatched binding as success", async () => {
     const identity = createMemoryIdentity({ sessions });
-    const base = createMemoryWorkspaceRepo({ identity, ids: createIds({}), workspaces, connections });
-    const repo: WorkspaceRepoPort = { ...base, async resolve(input) { const result = await base.resolve(input); return result.ok ? { ok: true, value: { ...result.value, scope: otherScope, principal: { kind: "owner", ownerId: "owner-b" } } } : result; } };
-    const forged = createHarness({ identity, repo });
-    expect(await forged.service.resolveContext({ session: { sessionId: "session-a" }, workspaceId: ownerScope.workspaceId })).toMatchObject({ ok: false, error: { code: "forbidden" } });
+    const base = createMemoryWorkspaceRepo({ workspaces, connections });
     const wrongBinding = createHarness({ identity, repo: { ...base, async bind() { return { ok: true, value: { ...binding, scope: otherScope } }; } } });
     const context = await resolve(wrongBinding);
     expect(await wrongBinding.service.bindAccount({ context, binding })).toMatchObject({ ok: false, error: { code: "unavailable" } });
@@ -91,7 +88,7 @@ describe("WorkspaceService authenticated account scope", () => {
   it("cancellation after a completed write does not hide its successful outcome", async () => {
     const controller = new AbortController();
     const identity = createMemoryIdentity({ sessions });
-    const repo = createMemoryWorkspaceRepo({ identity, ids: createIds({}), workspaces, connections });
+    const repo = createMemoryWorkspaceRepo({ workspaces, connections });
     const harness = createHarness({ identity, repo: { ...repo, async bind(input, options) {
       const result = await repo.bind(input, options);
       controller.abort();
@@ -101,17 +98,15 @@ describe("WorkspaceService authenticated account scope", () => {
     expect(await harness.service.bindAccount({ context, binding }, { signal: controller.signal })).toEqual({ ok: true, value: binding });
     expect(await repo.find({ context, externalAccountId: "vendor-42" })).toEqual({ ok: true, value: binding });
   });
-  it("run IDs from the trusted repository propagate through failures and observations", async () => {
+  it("verifies identity once on resolution, rechecks on bind, and denies another owner's workspace", async () => {
+    let calls = 0;
     const identity = createMemoryIdentity({ sessions });
-    const repo = createMemoryWorkspaceRepo({ identity, ids: createIds({}), workspaces, connections });
-    const harness = createHarness({ identity, repo: { ...repo, async resolve(input, options) {
-      const result = await repo.resolve(input, options);
-      return result.ok ? { ok: true, value: { ...result.value, runId: "trusted-run" } } : result;
-    } } });
+    const harness = createHarness({ identity: { verify(input, options) { calls += 1; return identity.verify(input, options); } } });
     const context = await resolve(harness);
-    identity.revoke({ sessionId: "session-a" });
-    expect(await harness.service.bindAccount({ context, binding })).toMatchObject({ ok: false, error: { code: "unauthenticated" } });
-    expect(harness.events.at(-1)).toEqual({ operation: "workspaces.bindAccount", outcome: "unauthenticated", correlationId: context.correlationId, traceId: context.traceId, runId: "trusted-run" });
+    expect(calls).toBe(1);
+    expect(await harness.service.bindAccount({ context, binding })).toEqual({ ok: true, value: binding });
+    expect(calls).toBe(2);
+    expect(await harness.service.resolveContext({ session: { sessionId: "session-a" }, workspaceId: otherScope.workspaceId })).toMatchObject({ ok: false, error: { code: "forbidden" } });
   });
   it("extra identity claims and oversized IDs are rejected before any authority call", async () => {
     let calls = 0;

@@ -1,6 +1,6 @@
 import { DomainIntentSuite } from "./contract/intent-suite.js";
 import { createDomainIntentTransaction, createMemoryTransactionalJobs, createSqlJobRepo, jobTenant } from "../index.js";
-import type { Outcome } from "../index.js";
+import type { Outcome } from "@open-marketing/contracts";
 import { clockFixture, idsFixture, policy } from "./fixtures.js";
 import { sqliteFixture } from "./sql-fixture.js";
 import { canonicalJson } from "../src/schema.js";

@@ -1,11 +1,10 @@
 import { z } from "zod";
 import { epochSchema, idSchema, parseBoundary } from "@open-marketing/contracts";
-import type { ClockPort, ObserverEvent, Outcome } from "@open-marketing/contracts";
-import type { AccountBindingLookupPort, IdentityPort, WorkspaceObserverPort } from "./ports.js";
+import type { ClockPort, ObserverEvent, ObserverPort, Outcome } from "@open-marketing/contracts";
+import type { IdentityPort } from "./ports.js";
 import type { VerifiedIdentity } from "./types.js";
 import { failure } from "./rules.js";
-import { callPort } from "./boundary.js";
-import { bindingSchema, identitySchema, sessionSchema } from "./schemas.js";
+import { identitySchema, sessionSchema } from "./schemas.js";
 
 /** Trusted test sessions; this double does not implement login, password hashing, or token minting. */
 export type MemorySession = VerifiedIdentity & { readonly expiresAt?: number; readonly revoked?: boolean };
@@ -55,22 +54,10 @@ function checkExpiration(required: { session: MemorySession; clock?: ClockPort }
   } catch { return failure({ code: "unavailable", message: "Identity clock unavailable" }); }
 }
 
-/** Share the repository's account index instead of maintaining a stale second copy. Empty
- * configuration has no records. @complexity O(1).
- * @example createMemoryAccountBindingLookup({ repo })
- */
-export function createMemoryAccountBindingLookup(required: { repo?: AccountBindingLookupPort }): AccountBindingLookupPort {
-  return { async find(input, optional) {
-    const repo = required.repo;
-    if (!repo) return failure({ code: "unavailable", message: "Account binding repository required" });
-    return callPort({ invoke: () => repo.find(input, optional), schema: bindingSchema.nullable() }, optional);
-  } };
-}
-
 /** Trace sink double; caller owns the event buffer. No runtime logging or singleton.
  * @example createMemoryWorkspaceObserver({ events: [] })
  * @complexity O(1) per observation; memory is owned/bounded by the caller's buffer lifecycle.
  */
-export function createMemoryWorkspaceObserver(required: { events: ObserverEvent[] }): WorkspaceObserverPort {
+export function createMemoryWorkspaceObserver(required: { events: ObserverEvent[] }): ObserverPort {
   return { observe(event) { required.events.push(structuredClone(event)); } };
 }

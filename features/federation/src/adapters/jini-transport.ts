@@ -2,8 +2,8 @@ import { once } from "node:events";
 import { connectMcpHttpSession, defaultFederationMessages } from "@jini-ai/mcp/federation";
 import type { McpBearerTokenSupplier, McpClientInfo, McpHttpExchange, McpHttpLaunchSpec, McpSessionPort, McpStdioChannel } from "@jini-ai/mcp/federation";
 import { connectMcpStdioSession } from "@jini-ai/mcp/federation/stdio";
-import type { CallOptions, Outcome } from "@open-marketing/contracts";
-import type { FederationObserverPort, McpTransportPort } from "../ports.js";
+import type { CallOptions, Outcome, ObserverPort } from "@open-marketing/contracts";
+import type { McpTransportPort } from "../ports.js";
 import type { ExternalToolResult } from "../types.js";
 import { boundary, failure, success } from "../outcomes.js";
 import { validateOutbound } from "../validation.js";
@@ -29,7 +29,7 @@ export type JiniStdioTransportDependencies = Binding & {
  * @complexity O(n) bounded wire/result work, <=100 active sessions per instance.
  * @tradeoffs A fresh session per call isolates metadata and credentials; two handshake exchanges per call.
  */
-export function createJiniHttpMcpTransport(required: JiniHttpTransportDependencies, optional?: { observer?: FederationObserverPort }): McpTransportPort {
+export function createJiniHttpMcpTransport(required: JiniHttpTransportDependencies, optional?: { observer?: ObserverPort }): McpTransportPort {
   const connect: Connect = async input => connectMcpHttpSession({
     exchange: guardHttpExchange({ exchange: required.exchange, state: input.state }),
     spec: required.spec, bearerToken: required.bearerToken, clientInfo: required.clientInfo,
@@ -45,7 +45,7 @@ export function createJiniHttpMcpTransport(required: JiniHttpTransportDependenci
  * @complexity O(n) bounded wire/result work, <=100 active sessions per instance.
  * @tradeoffs Each operation owns a child/session; composition chooses process isolation and cleanup.
  */
-export function createJiniStdioMcpTransport(required: JiniStdioTransportDependencies, optional?: { observer?: FederationObserverPort }): McpTransportPort {
+export function createJiniStdioMcpTransport(required: JiniStdioTransportDependencies, optional?: { observer?: ObserverPort }): McpTransportPort {
   const connect: Connect = async input => {
     const channel = await required.openChannel({ connectionId: required.connectionId, credentialReference: required.credentialReference }, { signal: input.signal });
     if (input.signal.aborted) { channel.close({}); throw new WireRejection({ code: "cancelled" }); }
@@ -117,7 +117,7 @@ function checkBinding(required: { binding: Binding; input: Outbound }): Outcome<
 }
 
 /** Redacted diagnostics are best effort; durable host audit remains required. */
-function observe(required: { observer?: FederationObserverPort; outbound: Outbound; result: Outcome<ExternalToolResult> }): void {
+function observe(required: { observer?: ObserverPort; outbound: Outbound; result: Outcome<ExternalToolResult> }): void {
   try { required.observer?.observe({ operation: "federation.transport.invoke", outcome: required.result.ok ? required.result.value.status : required.result.error.code,
     correlationId: required.outbound.context.correlationId, traceId: required.outbound.context.traceId, runId: required.outbound.context.runId }); }
   catch { /* Diagnostics cannot change a dispatched outcome. */ }
@@ -126,7 +126,7 @@ function observe(required: { observer?: FederationObserverPort; outbound: Outbou
 /** Per-instance lifecycle; dispose increments the epoch before awaiting close and cancels pending opens.
  * @complexity O(n) input/result copies; O(c) disposal, c<=100. Retain stalled opens until they settle.
  */
-function createTransport(required: { binding: Binding; connect: Connect; observer?: FederationObserverPort }): McpTransportPort {
+function createTransport(required: { binding: Binding; connect: Connect; observer?: ObserverPort }): McpTransportPort {
   const calls = new Set<ActiveCall>();
   let revision = 0;
   return {
@@ -156,7 +156,7 @@ function createTransport(required: { binding: Binding; connect: Connect; observe
 /** Absolute invocation deadline; caller abort listener and timer are always removed.
  * @complexity O(1) lifecycle plus the bounded execution; session close is handled by Jini's deadline.
  */
-async function invokeActive(required: { active: ActiveCall; state: WireCall; calls: Set<ActiveCall>; connect: Connect; binding: Binding; observer?: FederationObserverPort }, optional?: CallOptions): Promise<Outcome<ExternalToolResult>> {
+async function invokeActive(required: { active: ActiveCall; state: WireCall; calls: Set<ActiveCall>; connect: Connect; binding: Binding; observer?: ObserverPort }, optional?: CallOptions): Promise<Outcome<ExternalToolResult>> {
   const cancel = () => required.active.controller.abort();
   optional?.signal?.addEventListener("abort", cancel, { once: true });
   const timer = setTimeout(cancel, required.binding.timeoutMs);

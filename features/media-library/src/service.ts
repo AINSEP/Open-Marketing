@@ -1,21 +1,31 @@
 import { parseBoundary } from '@open-marketing/contracts';
-import type { ClockPort, IdPort, CallContext, CallOptions, Outcome } from '@open-marketing/contracts';
+import type { CallContext, CallOptions, Outcome, ObserverPort } from '@open-marketing/contracts';
 import type { Asset, AssetImportRequest, MediaLibrary, PlacementCrop, PlacementCropPreset, PlacementCropRequest } from './types.js';
-import type { MediaRepoPort, JiniMediaPort, BlobStorePort, GuardedAssetImportPort, ImageTransformPort, MediaAuditPort, MediaObserverPort } from './ports.js';
+import type { MediaRepoPort, JiniMediaPort, GuardedAssetImportPort, ImageTransformPort, MediaAuditPort } from './ports.js';
 import { boundary } from './boundary.js';
 import { assetSchema, checkContext, costSchema, cropRequestSchema, cropSchema, fail, importSchema, linkSchema, querySchema, success } from './validation.js';
 import { selectPreset } from './rules.js';
 import { PLACEMENT_CROP_PRESETS } from './presets.js';
 
-type Dependencies = { repo: MediaRepoPort; media: JiniMediaPort; blobs: BlobStorePort; importer: GuardedAssetImportPort;
-  transforms: ImageTransformPort; clock: ClockPort; ids: IdPort; audit: MediaAuditPort };
+type Dependencies = { repo: MediaRepoPort; media: JiniMediaPort; importer: GuardedAssetImportPort;
+  transforms: ImageTransformPort; audit: MediaAuditPort };
 /** Inert OM marketing orchestration with caller-owned effects. Every call validates before effects.
  * Import records evidence first, then canonical registration/association/audit; failed stages remain explicit and resumable.
  * Source blobs belong to Jini: this service never deletes them during error compensation.
- * @complexity O(1) calls per write; list inherits adapter bounds. @example createMediaLibrary({ repo, media, blobs, importer, transforms, clock, ids, audit })
+ * @complexity O(1) calls per write; list inherits adapter bounds. @example createMediaLibrary({ repo, media, importer, transforms, audit })
  */
-export function createMediaLibrary(required: Dependencies, optional?: { observer?: MediaObserverPort; placementPresets?: readonly PlacementCropPreset[] }): MediaLibrary {
+export function createMediaLibrary(required: Dependencies, optional?: { observer?: ObserverPort; placementPresets?: readonly PlacementCropPreset[] }): MediaLibrary {
   return {
+    async uploadImage(input, options) {
+      const context = checkContext({ context: input.context, options });
+      if (!context.ok) return context;
+      return boundary({ context: input.context, operation: 'media.uploadImage', run: () => required.importer.upload(input, options) }, optional);
+    },
+    async readImage(input, options) {
+      const context = checkContext({ context: input.context, options });
+      if (!context.ok) return context;
+      return boundary({ context: input.context, operation: 'media.readImage', run: () => required.media.read(input, options) }, optional);
+    },
     async importAsset(input, options) {
       const context = checkContext({ context: input.context, options });
       if (!context.ok) return context;

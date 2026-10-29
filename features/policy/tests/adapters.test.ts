@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createMemoryCanonicalIdentity, createMemoryPolicyRepo, createSqlPolicyRepo } from "../index.js";
+import { createMemoryPolicyRepo, createSqlPolicyRepo } from "../index.js";
 import type { PolicySqlClient, PolicySqlPool } from "../index.js";
 import { context, grant, merge, otherWorkspace, subject } from "./fixtures.js";
 import { sqliteFixture } from "./sql-fixture.js";
@@ -25,18 +25,13 @@ capacitySuite({ name: "SQLite", create: () => {
 } });
 
 describe("adapter defenses", () => {
-  it("validates fixture bounds, duplicate IDs, cyclic and cross-workspace seeds", () => {
+  it("validates fixture bounds and merge seeds while projecting a transitive merge chain", async () => {
+    const repo = createMemoryPolicyRepo({ evidence: [grant, merge, { ...merge, id: "second", subjectId: "survivor", target: { ...subject, subjectId: "final" } }] });
+    expect(await repo.snapshot({ context, subjectId: "final" })).toMatchObject({ ok: true, value: { consents: [grant.consent] } });
     expect(() => createMemoryPolicyRepo({ maxEvidence: 0 })).toThrow("Invalid policy evidence limit");
     expect(() => createMemoryPolicyRepo({ evidence: [grant, grant] })).toThrow("Duplicate seed evidence");
     expect(() => createMemoryPolicyRepo({ evidence: [merge, { ...merge, id: "cycle", subjectId: "survivor", target: subject }] })).toThrow("Invalid seed evidence graph or capacity");
     expect(() => createMemoryPolicyRepo({ evidence: [{ ...merge, target: { ...merge.target, scope: otherWorkspace.scope } }] })).toThrow("Invalid seed merge scope");
-  });
-  it("fails closed on ambiguous identifier bindings and follows a transitive merge chain", async () => {
-    const bindings = [{ identifier: "email:subject", subject }];
-    const ambiguous = createMemoryCanonicalIdentity({ bindings: [...bindings, ...bindings] });
-    expect(await ambiguous.resolve({ context, identifier: "email:subject" })).toMatchObject({ ok: false, error: { code: "unavailable" } });
-    const identity = createMemoryCanonicalIdentity({ bindings, evidence: [merge, { ...merge, id: "second", subjectId: "survivor", target: { ...subject, subjectId: "final" } }] });
-    expect(await identity.resolve({ context, identifier: "email:subject" })).toEqual({ ok: true, value: { ...subject, subjectId: "final" } });
   });
   it("rejects invalid and cross-workspace persisted evidence", async () => {
     const fixture = sqliteFixture();

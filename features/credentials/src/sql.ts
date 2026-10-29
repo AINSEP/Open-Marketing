@@ -34,6 +34,7 @@ export async function listCredentialConnections(required: {
       WHERE owner_id = $1 AND workspace_id = $2 AND ($3 IS NULL OR connection_id > $3)
       AND connection_id NOT LIKE 'oauth-client.%'
       AND connection_id NOT LIKE 'developer-token.%'
+      AND connection_id NOT LIKE 'plugin-secret.%'
       AND ($4 IS NULL OR plugin_id = $4) AND ($5 IS NULL OR status = $5)
       ORDER BY connection_id LIMIT $6`,
       values: [context.scope.ownerId, context.scope.workspaceId, query.cursor ?? null, query.pluginId ?? null, query.status ?? null, query.limit + 1] });

@@ -1,23 +1,12 @@
 import { z } from "zod";
 import {
-  approvalResponseSchema, approverRefSchema, appErrorSchema, callContextSchema, digestSchema, epochSchema, idSchema,
+  appErrorSchema, callContextSchema, epochSchema, idSchema,
   pageQuerySchema, parseBoundary,
 } from "@open-marketing/contracts";
 import type { AppError, CallContext, CallOptions, Outcome } from "@open-marketing/contracts";
 import type { AuditEntry, AuditQuery } from "./types.js";
+import { auditEntrySchema } from "./types.js";
 
-/** Bounded digest/reference evidence plus authenticated approval identity; raw arguments/secrets are rejected. */
-export const auditEntrySchema = z.strictObject({
-  operationId: idSchema,
-  kind: z.enum(["intent", "approval", "dispatch", "outcome", "correction"]),
-  argumentsDigest: digestSchema,
-  references: z.array(idSchema).max(64),
-  correctionOf: idSchema.optional(),
-  approval: z.strictObject({ response: approvalResponseSchema, approver: approverRefSchema }).optional(),
-}).refine(value => (value.kind === "correction") === (value.correctionOf !== undefined))
-  .refine(value => (value.kind === "approval") === (value.approval !== undefined))
-  .refine(value => !value.approval || (value.approval.response.operationId === value.operationId && value.approval.response.argumentsDigest === value.argumentsDigest))
-  .refine(value => JSON.stringify(value).length <= 32768);
 /** Receipts/cursors are operational identifiers; payload-shaped values cannot escape in output. */
 const operationalIdentifierSchema = idSchema.refine(value => operationalId({ value }) === value);
 /** Reject invalid injected IDs/clocks and malformed adapters before exposing a receipt. */

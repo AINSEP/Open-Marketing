@@ -1,7 +1,8 @@
 import type { CallContext, CallOptions, ClockPort, IdPort, Outcome } from "@open-marketing/contracts";
 import type { ErasureParticipantPort, ErasureParticipantRegistry, PrivacyProcessingBlockPort, PrivacyRepoPort } from "./ports.js";
 import type { ErasureRequest, ParticipantProgress, PrivacyService, RetainedSuppressionDigest } from "./types.js";
-import { blockOutcomeSchema, boundary, failure, parseRequest, participantOutcomeSchema, phases, progressStatus, sameRecord, scopeKey, validateInput } from "./validation.js";
+import { phases } from "./types.js";
+import { blockOutcomeSchema, boundary, failure, parseRequest, participantOutcomeSchema, progressStatus, sameRecord, scopeKey, validateInput } from "./validation.js";
 
 type Dependencies = { repo: PrivacyRepoPort; participants: ErasureParticipantRegistry; block: PrivacyProcessingBlockPort; clock: ClockPort; ids: IdPort };
 type Attempt = Dependencies & { context: CallContext; request: ErasureRequest; options?: CallOptions };

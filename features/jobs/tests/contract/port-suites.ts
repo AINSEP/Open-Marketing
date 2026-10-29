@@ -1,6 +1,6 @@
 import { afterEach, describe, it, expect } from "vitest";
-import type { JobRepoPort, JobDispatchPort, JobAuthorizationPort, JobObserverPort } from "../../index.js";
-import type { TransportResult } from "../../index.js";
+import type { ObserverPort } from "@open-marketing/contracts";
+import type { JobRepoPort, JobDispatchPort, JobAuthorizationPort, TransportResult } from "../../index.js";
 import { context, job } from "../fixtures.js";
 /** One behavioral repository suite, used unchanged by the double and durable adapter. */
 export function JobRepoPortSuite(required: { name: string; create: () => { port: JobRepoPort; close: () => void } }): void {
@@ -92,7 +92,7 @@ export function JobAuthorizationPortSuite(required: { create: (required: { allow
         });
     });
 }
-export function JobObserverPortSuite(required: { create: () => JobObserverPort & { snapshot(required: Record<string, never>): readonly unknown[]; reset(required: Record<string, never>): void } }): void {
+export function JobObserverPortSuite(required: { create: () => ObserverPort & { snapshot(required: Record<string, never>): readonly unknown[]; reset(required: Record<string, never>): void } }): void {
     describe("JobObserverPort double", () => {
         it("keeps detached trace events and resets", () => {
             const observer = required.create();

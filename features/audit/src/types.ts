@@ -1,6 +1,19 @@
+import { z } from "zod";
+import { approvalResponseSchema, approverRefSchema, digestSchema, idSchema } from "@open-marketing/contracts";
 import type { CallContext, CallOptions, Outcome, Page, PageQuery } from "@open-marketing/contracts";
-import type { z } from "zod";
-import type { auditEntrySchema } from "./validation.js";
+
+/** Bounded digest/reference evidence plus authenticated approval identity; raw arguments/secrets are rejected. */
+export const auditEntrySchema = z.strictObject({
+  operationId: idSchema,
+  kind: z.enum(["intent", "approval", "dispatch", "outcome", "correction"]),
+  argumentsDigest: digestSchema,
+  references: z.array(idSchema).max(64),
+  correctionOf: idSchema.optional(),
+  approval: z.strictObject({ response: approvalResponseSchema, approver: approverRefSchema }).optional(),
+}).refine(value => (value.kind === "correction") === (value.correctionOf !== undefined))
+  .refine(value => (value.kind === "approval") === (value.approval !== undefined))
+  .refine(value => !value.approval || (value.approval.response.operationId === value.operationId && value.approval.response.argumentsDigest === value.argumentsDigest))
+  .refine(value => JSON.stringify(value).length <= 32768);
 
 /** Schema-derived evidence. Approval entries include exact response and nonsecret approver reference.
  * References identify caller-secured evidence, never raw arguments.

@@ -1,18 +1,18 @@
-import type { CallContext, CallOptions, ClockPort, IdPort, Outcome } from "@open-marketing/contracts";
-import type { AuditObserverPort, AuditRedactorPort, AuditRepoPort } from "./ports.js";
+import type { CallContext, CallOptions, ObserverPort, Outcome } from "@open-marketing/contracts";
+import type { AuditRedactorPort, AuditRepoPort } from "./ports.js";
 import type { AuditEntry, AuditPage, AuditQuery, AuditReceipt, AuditService } from "./types.js";
-import { auditEntrySchema, auditPageSchema, auditReceiptSchema, failure, parseOutcome, validateAppend, validateList } from "./validation.js";
+import { auditEntrySchema } from "./types.js";
+import { auditPageSchema, auditReceiptSchema, failure, parseOutcome, validateAppend, validateList } from "./validation.js";
 import { observe } from "./observation.js";
 
 /** Inert orchestration: commit required evidence before success; redact only operational reads.
- * Clock/IDs remain in the accepted signature; repositories allocate receipts with those same ports.
- * @example createAuditService({ repo, clock, ids, redactor }, { observer });
+ * @example createAuditService({ repo, redactor }, { observer });
  * @returns Typed failures on invalid input, unavailable dependencies or invalid output; never starts effects.
  * @complexity O(r) record, O(p*r) list, p <=100, r <=64; no unbounded export buffer.
  */
 export function createAuditService(required: {
-  repo: AuditRepoPort; clock: ClockPort; ids: IdPort; redactor: AuditRedactorPort;
-}, optional?: { observer?: AuditObserverPort }): AuditService {
+  repo: AuditRepoPort; redactor: AuditRedactorPort;
+}, optional?: { observer?: ObserverPort }): AuditService {
   return {
     async record(input, options) {
       const parsed = validateAppend({ input }, options);

@@ -10,6 +10,15 @@ export type DeliveryInput = { context: ServiceContext; event: ConversionInput; g
 /** Transient send/reconciliation input; never write this payload to the inbox or ledger. */
 export type ResolvedDeliveryInput = Omit<DeliveryInput, "event"> & { event: ResolvedConversionInput };
 const deliveryInputSchema = z.strictObject({ context: serviceContextSchema, event: conversionSchema, grant: measureGrantSchema, deliveryId: idSchema });
+const reconciliationInputSchema = deliveryInputSchema.extend({ event: resolvedConversionSchema.partial({ identifiers: true }), receiptId: idSchema.optional() });
+/** Readback carries saved receipt evidence; identifiers are unnecessary. */
+type ReconciliationInput = z.infer<typeof reconciliationInputSchema>;
+
+/** Parse readback independently of the transient send payload. No identifier lookup.
+ * @complexity O(k), at most 16 optional identifier keys; no I/O. */
+export function parseReconciliationInput(required: { input: ReconciliationInput }): Outcome<ReconciliationInput> {
+  return parseBoundary({ schema: reconciliationInputSchema, input: required.input });
+}
 
 /** Optional delivery IDs at the port boundary are rejected before I/O.
  * @complexity O(k) time/space for a maximum of 16 identifier keys. */

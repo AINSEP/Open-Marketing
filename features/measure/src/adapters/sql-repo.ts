@@ -1,6 +1,6 @@
 import { callContextSchema, idSchema, parseBoundary } from "@open-marketing/contracts";
-import type { CallContext, CallOptions, Outcome } from "@open-marketing/contracts";
-import type { MeasurePrivacyPort, MeasureObserverPort, MeasureRepoPort, MeasureSqlDatabase, MeasureSqlQueryable, MeasureTransactionalJobPort } from "../ports.js";
+import type { CallContext, CallOptions, Outcome, ObserverPort } from "@open-marketing/contracts";
+import type { MeasurePrivacyPort, MeasureRepoPort, MeasureSqlDatabase, MeasureSqlQueryable, MeasureTransactionalJobPort } from "../ports.js";
 import type { AttributionResult, ConversionInput, ConversionReceipt, PlatformMetricSnapshot, VerifiedConversionSource } from "../types.js";
 import { attributionInputSchema, attributionSchema, eventIdentity, failure, ingestionContext, parseSourceEvent, querySchema, scopeKey, snapshotSchema, summarySchema } from "../rules.js";
 import { snapshotIdentity, validateLineage } from "../reporting/snapshot-rules.js";
@@ -12,7 +12,7 @@ type RepoDependencies = { database: MeasureSqlDatabase; jobs: MeasureTransaction
  * use the supplied transaction; row + job failures roll back together.
  * @example createSqlMeasureRepo({ database, jobs }, { observer })
  * @complexity Indexed event lookup/insert; reporting selects earliest subject/definition outcomes before period filters. */
-export function createSqlMeasureRepo(required: RepoDependencies, optional?: { observer?: MeasureObserverPort }): MeasureRepoPort & MeasurePrivacyPort {
+export function createSqlMeasureRepo(required: RepoDependencies, optional?: { observer?: ObserverPort }): MeasureRepoPort & MeasurePrivacyPort {
   return {
     async purgeSubject(input, options) {
       const parsed = parseBoundary({ schema: callContextSchema, input: input.context });

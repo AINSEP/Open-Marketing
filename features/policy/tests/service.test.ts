@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createMemoryPolicyRepo, createPolicyService } from "../index.js";
-import type { Outcome, PolicyEvidence, PolicyRepoPort } from "../index.js";
+import type { Outcome } from "@open-marketing/contracts";
+import type { PolicyEvidence, PolicyRepoPort } from "../index.js";
 import { context, grant, memoryObserver } from "./fixtures.js";
 
 const clock = { now: () => 50 };

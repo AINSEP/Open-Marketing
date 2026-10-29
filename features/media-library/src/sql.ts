@@ -1,7 +1,7 @@
-import type { SqlSession } from "@open-marketing/contracts";
+import type { SqlSession, ObserverPort } from "@open-marketing/contracts";
 import { z } from 'zod';
 import type { CallContext, Outcome, Scope } from '@open-marketing/contracts';
-import type { MediaObserverPort, MediaRepoPort } from './ports.js';
+import type { MediaRepoPort } from './ports.js';
 import type { EvidenceRow, EvidenceStore } from './evidence-repo.js';
 import { createEvidenceRepo } from './evidence-repo.js';
 import { fail, success } from './validation.js';
@@ -14,7 +14,7 @@ const selectColumns = 'kind, record_key AS "key", operation_id AS "operationId",
  * Apply migrations/0001_media_evidence.sql separately. @complexity O(1) append; O(e) evidence (cap 1,000).
  * @example createSqlMediaRepo({ db, scope: authenticatedScope })
  */
-export function createSqlMediaRepo(required: { db: MediaSqlPort; scope: Scope }, optional?: { observer?: MediaObserverPort }): MediaRepoPort {
+export function createSqlMediaRepo(required: { db: MediaSqlPort; scope: Scope }, optional?: { observer?: ObserverPort }): MediaRepoPort {
   const store: EvidenceStore = {
     async append(input) { return appendSql({ ...required, ...input }); },
     async read(input) {

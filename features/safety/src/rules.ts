@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { callContextSchema, digestSchema, effectEnvelopeSchema, idSchema, epochSchema, generationCostQuoteSchema, generationAllowanceSettingsSchema, moneySchema, timeWindowSchema } from "@open-marketing/contracts";
+import { callContextSchema, canonicalizeArguments, digestSchema, effectEnvelopeSchema, idSchema, epochSchema, generationCostQuoteSchema, generationAllowanceSettingsSchema, moneySchema, timeWindowSchema } from "@open-marketing/contracts";
 import type { Outcome, AppError, CallContext, ConfirmationCard, EffectEnvelope } from "@open-marketing/contracts";
 const generationInputSchema = z.strictObject({ operationId: idSchema, connectionId: idSchema, argumentsDigest: digestSchema, configurationDigest: digestSchema });
 const campaignCallSchema = z.strictObject({ envelope: effectEnvelopeSchema, arguments: z.record(z.string(), z.json()), pluginDigest: digestSchema, schemaFingerprint: digestSchema });
@@ -17,24 +17,11 @@ export function failure<T>(required: { code?: AppError["code"]; message: string 
 }
 /** Success constructor; no effects. @complexity O(1). */
 export function success<T>(required: { value: T }): Outcome<T> { return { ok: true, value: required.value }; }
-/** Bounded JSON canonicalization used for arguments, fingerprints and exact records. @complexity O(n log n), O(n) space; n <=64KiB. */
-function canonicalValue(required: { value: unknown; depth: number }): unknown {
- if (required.depth > 16) throw new Error("JSON depth exceeds 16");
- if (Array.isArray(required.value)) return required.value.map(value => canonicalValue({ value, depth: required.depth + 1 }));
- if (required.value === null || typeof required.value !== "object") return required.value;
- const record = required.value as Record<string, unknown>;
- return Object.fromEntries(Object.keys(record).sort().map(key => [key, canonicalValue({ value: record[key], depth: required.depth + 1 })]));
-}
-/** Digest one JSON object. Rejects non-JSON and oversized payloads before hashing. @example digestArguments({ arguments: { budget: 100 } }) @complexity O(n log n), O(n) space. */
+/** Digest bounded JSON using contracts' canonical string; returns validation failures unchanged, no I/O. @example digestArguments({ arguments: { budget: 100 } }) @complexity O(n log n), O(n) space. */
 export function digestArguments(required: { arguments: unknown }): Outcome<string> {
- try {
-  const serialized = JSON.stringify(required.arguments);
-  if (!serialized || serialized.length > 65_536) return failure({ code: "invalid_input", message: "Arguments exceed JSON bounds" });
-  const parsed = z.json().safeParse(required.arguments);
-  if (!parsed.success) return failure({ code: "invalid_input", message: "Arguments must be JSON" });
-  const canonical = JSON.stringify(canonicalValue({ value: parsed.data, depth: 0 }));
-  return success({ value: createHash("sha256").update(canonical).digest("hex") });
- } catch { return failure({ code: "invalid_input", message: "Arguments exceed JSON bounds" }); }
+ const canonical = canonicalizeArguments({ arguments: required.arguments });
+ if (!canonical.ok) return canonical;
+ return success({ value: createHash("sha256").update(canonical.value).digest("hex") });
 }
 /** Canonical equality for bounded trusted DTOs. @complexity O(n log n), O(n) space. */
 export function sameValue(required: { left: unknown; right: unknown }): boolean {

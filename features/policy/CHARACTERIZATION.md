@@ -13,8 +13,7 @@ Characterization tests are preserved and not executed under the 2026-10-02 overr
 - Subtraction avoids overflowing aggregate committed/reserved integer amounts.
 - Gates do not mutate snapshots, reserve money, or confer dispatch authority.
 
-Repository seams are tested through PolicyRepoPort, CanonicalIdentityPort and the
-public service. Adversarial cases: duplicate evidence IDs with changed payloads,
-concurrent duplicate appends, withdrawal on a merged identity, merge cycles,
+Repository seams are tested through PolicyRepoPort and the public service. Adversarial cases: duplicate evidence IDs with changed payloads,
+concurrent duplicate appends, withdrawal in merged subject snapshots, merge cycles,
 owner/workspace mismatch, and caller mutation after append. The same suite will
 exercise memory and injected SQL adapters using an isolated SQLite test database.

@@ -1,5 +1,5 @@
-import type { CallContext, ClockPort, IdPort, ObserverEvent, Outcome } from "@open-marketing/contracts";
-import type { AuditObserverPort, AuditRepoPort, AuditRedactorPort } from "./ports.js";
+import type { CallContext, ClockPort, IdPort, ObserverEvent, ObserverPort, Outcome } from "@open-marketing/contracts";
+import type { AuditRepoPort, AuditRedactorPort } from "./ports.js";
 import type { AuditEntry, AuditPage, AuditQuery, AuditReceipt } from "./types.js";
 import { allocateReceipt, correctionAllowed, scopeKey } from "./repository-rules.js";
 import { failure, validateAppend, validateList } from "./validation.js";
@@ -15,7 +15,7 @@ type MemoryScope = { rows: MemoryRow[]; byId: Map<string, MemoryRow> };
  * @complexity O(1) append, O(n) list for n <=maxEntries; O(n*r) retained evidence.
  */
 export function createMemoryAuditRepo(required: { clock: ClockPort; ids: IdPort }, optional?: {
-  observer?: AuditObserverPort; maxEntries?: number;
+  observer?: ObserverPort; maxEntries?: number;
 }): AuditRepoPort {
   const scopes = new Map<string, MemoryScope>();
   const allocatedIds = new Set<string>();
@@ -92,7 +92,7 @@ export function createMemoryAuditRedactor(required: Record<string, never>): Audi
  * @example const observer = createMemoryAuditObserver({}); observer.events({});
  * @complexity O(1) observe, O(n) snapshot, n <=10,000.
  */
-export function createMemoryAuditObserver(required: Record<string, never>): AuditObserverPort & {
+export function createMemoryAuditObserver(required: Record<string, never>): ObserverPort & {
   events(required: Record<string, never>): readonly ObserverEvent[];
 } {
   const events: ObserverEvent[] = [];

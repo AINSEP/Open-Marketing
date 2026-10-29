@@ -1,19 +1,21 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { callContextSchema, digestSchema, epochSchema, idSchema, moneySchema, parseBoundary, scopeSchema, timeWindowSchema } from "@open-marketing/contracts";
+import { appErrorSchema, callContextSchema, digestSchema, epochSchema, idSchema, measurementGrantSchema, moneySchema, parseBoundary, scopeSchema, timeWindowSchema } from "@open-marketing/contracts";
 import type { AppError, CallContext, IdPort, Outcome, Scope } from "@open-marketing/contracts";
 import type { ConversionInput, VerifiedConversionSource } from "./types.js";
+import { conversionDiagnosticsSchema, conversionDeliveryOutcomeSchema, conversionSchema, sourceSchema } from "./types.js";
+
+export { conversionSchema, sourceSchema } from "./types.js";
 
 const boundedString = z.string().min(1).max(1024);
 const identifierMap = z.record(z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,63}$/), boundedString).refine(value => Object.keys(value).length <= 16);
-const digestMap = z.record(z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,63}$/), digestSchema).refine(value => Object.keys(value).length <= 16);
-/** Local narrow grant schema deliberately does not depend on the closed shared event types. */
-export const measureGrantSchema = z.strictObject({ kind: z.literal("measurement"), grantId: idSchema, scope: scopeSchema, connectionId: idSchema, accountId: idSchema, definitionIds: z.array(idSchema).min(1).max(16), destination: idSchema, purpose: idSchema, payloadSchema: idSchema, payloadVersion: z.literal(1), expiresAt: epochSchema, revoked: z.boolean() });
+export const measureGrantSchema = measurementGrantSchema;
+/** Strict mutation inputs shared by memory and SQL grant stores. */
+export const grantInputSchema = z.strictObject({ context: callContextSchema, grant: measureGrantSchema });
+export const revokeInputSchema = z.strictObject({ context: callContextSchema, grantId: idSchema });
 /** Strict schemas reject extra authority and platform totals rather than stripping them. */
-export const conversionSchema = z.strictObject({ eventId: idSchema, definitionId: idSchema, subjectId: idSchema, occurredAt: epochSchema, destination: idSchema, purpose: idSchema, identifierDigests: digestMap, value: moneySchema.optional(), orderRef: idSchema.optional() });
 export const resolvedConversionSchema = conversionSchema.extend({ identifiers: identifierMap });
-export const identifierLookupSchema = z.strictObject({ subjectId: idSchema, identifiers: identifierMap, identifierDigests: digestMap });
-export const sourceSchema = z.strictObject({ sourceId: idSchema, scope: scopeSchema, authenticationRevision: epochSchema, context: callContextSchema.optional() });
+export const identifierLookupSchema = z.strictObject({ subjectId: idSchema, identifiers: identifierMap, identifierDigests: conversionSchema.shape.identifierDigests });
 export const linkRequestSchema = z.strictObject({ destinationUrl: z.string().min(1).max(4096), campaignId: idSchema, utm: z.record(z.string().regex(/^utm_(source|medium|campaign|term|content)$/), z.string().min(1).max(256)).refine(value => Object.keys(value).length <= 5) });
 export const linkInputSchema = z.strictObject({ context: callContextSchema, request: linkRequestSchema });
 export const querySchema = z.strictObject({ definitionId: idSchema, accountId: idSchema, attributionWindow: idSchema, window: timeWindowSchema, currency: z.string().regex(/^[A-Z]{3}$/), timezone: idSchema, attributionModel: idSchema });
@@ -23,14 +25,15 @@ export const attributionSchema = z.strictObject({ resultId: idSchema, eventId: i
 export const attributionInputSchema = z.strictObject({ context: callContextSchema, sourceId: idSchema, result: attributionSchema });
 export const summarySchema = z.strictObject({ conversions: epochSchema, modelVersion: idSchema, watermark: epochSchema });
 export const receiptSchema = z.strictObject({ eventId: idSchema, status: z.enum(["accepted", "duplicate"]), jobId: idSchema });
-export const dispatchRecordSchema = z.strictObject({ deliveryId: idSchema, subjectId: idSchema, eventId: idSchema, identity: digestSchema, status: z.enum(["dispatching", "delivered", "unknown"]), recordedAt: epochSchema });
+export const dispatchRecordSchema = z.strictObject({ deliveryId: idSchema, subjectId: idSchema, eventId: idSchema, identity: digestSchema, status: z.enum(["dispatching", "delivered", "unknown", "not_sent"]), recordedAt: epochSchema, diagnostics: conversionDiagnosticsSchema.optional(), reason: appErrorSchema.shape.code.optional(), receiptId: idSchema.optional() });
 export const auditInputSchema = z.strictObject({ context: callContextSchema, operationId: idSchema, outcome: idSchema });
 export const claimSchema = z.strictObject({ acquired: z.boolean(), record: dispatchRecordSchema });
-export const deliveryStatusSchema = z.strictObject({ status: z.enum(["delivered", "unknown"]) });
+export const deliveryStatusSchema = conversionDeliveryOutcomeSchema;
 export const assessmentSchema = z.strictObject({ allowed: z.boolean(), reason: z.string().max(256).optional() });
 export const authenticationSchema = z.strictObject({ authenticated: z.boolean() });
 export const verificationSchema = z.strictObject({ verified: z.boolean() });
 export const serviceContextSchema = z.strictObject({ scope: scopeSchema, serviceId: idSchema, correlationId: idSchema, traceId: idSchema });
+export const deliveryStateInputSchema = z.object({ context: serviceContextSchema, record: dispatchRecordSchema });
 /** Parse both halves before deriving context or performing I/O. Reject a source's
  * contradictory context at every repo/jobs boundary as well as at ingress.
  * @complexity O(k) time/space for the bounded identifier map. */

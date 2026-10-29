@@ -82,8 +82,6 @@ export type PolicyEvidence = EvidenceMetadata & (
     | { readonly kind: "suppression"; readonly suppression: Suppression }
     | { readonly kind: "merge"; readonly target: SubjectReference }
 );
-/** Ingress owns identifier normalization and authentication. */
-export type IdentifierBinding = { readonly identifier: string; readonly subject: SubjectReference };
 export interface PolicyService {
     snapshot(required: {
         context: CallContext;

@@ -1,8 +1,8 @@
 import { rollbackUploadedMedia, tombstoneBlobIfUnreferenced, uploadMedia } from '@jini-ai/cms/media';
 import type { AssetBlobRecord, AssetBlobRepoPort, BlobStorePort as JiniBlobStorePort, MediaRecord, MediaRepoPort as JiniMediaRepoPort } from '@jini-ai/cms/media';
-import type { CallContext, CallOptions, Outcome } from '@open-marketing/contracts';
+import type { CallContext, CallOptions, Outcome, ObserverPort } from '@open-marketing/contracts';
 import type { Asset } from './types.js';
-import type { JiniMediaDependencies, MediaObserverPort } from './ports.js';
+import type { JiniMediaDependencies } from './ports.js';
 import { boundary, MediaBoundaryFailure } from './boundary.js';
 import { createJiniBlobStore } from './blob-adapter.js';
 import { createJiniMediaAdapter } from './jini-media.js';
@@ -16,7 +16,7 @@ type Attempt = { media?: MediaRecord; blob?: AssetBlobRecord };
  * Failure before blob-row publication may leave orphan bytes: host reconciliation is still required.
  * @complexity O(bytes) upload; compensation inherits Jini's O(workspace assets) reference scan.
  */
-export async function uploadCanonical(required: Upload, optional?: { observer?: MediaObserverPort }): Promise<Outcome<Asset>> {
+export async function uploadCanonical(required: Upload, optional?: { observer?: ObserverPort }): Promise<Outcome<Asset>> {
   const attempt: Attempt = {};
   const deps = { ...required.deps, mediaRepo: trackedMediaRepo({ ...required, attempt }), blobRepo: trackedBlobRepo({ ...required, attempt }), blobStore: createOnlyStore(required, optional) };
   try {
@@ -79,7 +79,7 @@ function trackedBlobRepo(required: Upload & { attempt: Attempt }): AssetBlobRepo
 /** Jini's upload ABI throws on write failure; the owned byte port's explicit refusal survives unchanged.
  * A failed blob-row save leaves whole bytes for reconciliation, never an unsafe deletion of shared content.
  */
-function createOnlyStore(required: Upload, optional?: { observer?: MediaObserverPort }): JiniBlobStorePort {
+function createOnlyStore(required: Upload, optional?: { observer?: ObserverPort }): JiniBlobStorePort {
   const store = required.deps.blobStore;
   const port = createJiniBlobStore({ scope: required.context.scope, store }, optional);
   return {

@@ -1,12 +1,12 @@
 import { InMemoryMediaRepo, InMemoryAssetBlobRepo, InMemoryAssetRenditionRepo, InMemoryTransformDefinitionRepo, InMemoryBlobStore, InMemoryImageTransformer, sniffContentType } from '@jini-ai/cms/media';
 import { idSchema, notImplemented, parseBoundary } from '@open-marketing/contracts';
-import type { CallContext, ClockPort, IdPort, Outcome, ObserverEvent, Scope } from '@open-marketing/contracts';
+import type { CallContext, ClockPort, IdPort, Outcome, ObserverEvent, Scope, ObserverPort } from '@open-marketing/contracts';
 import type { EvidenceRow, EvidenceStore } from './evidence-repo.js';
 import { createEvidenceRepo } from './evidence-repo.js';
 import { createJiniMediaAdapter } from './jini-media.js';
 import { createJiniBlobStore } from './blob-adapter.js';
 import { createJiniImageTransform } from './transform-adapter.js';
-import type { MediaRepoPort, JiniMediaPort, JiniMediaDependencies, BlobStorePort, GuardedAssetImportPort, ImageInspectionPort, ImageTransformPort, MediaAuditPort, MediaObserverPort } from './ports.js';
+import type { MediaRepoPort, JiniMediaPort, JiniMediaDependencies, BlobStorePort, GuardedAssetImportPort, ImageInspectionPort, ImageTransformPort, MediaAuditPort } from './ports.js';
 import type { ImageInspection, PlacementCropPreset } from './types.js';
 import { createJiniGuardedAssetImport } from './import-adapter.js';
 import { createMemoryImageInspection } from './image-inspection.js';
@@ -30,7 +30,7 @@ function defaultDependencies(): JiniMediaDependencies {
 /** Scoped append-only marketing evidence double (no canonical assets). @complexity O(e), bounded reads.
  * @example createMemoryMediaRepo({ scope })
  */
-export function createMemoryMediaRepo(required: { scope?: Scope }, optional?: { observer?: MediaObserverPort }): MediaRepoPort {
+export function createMemoryMediaRepo(required: { scope?: Scope }, optional?: { observer?: ObserverPort }): MediaRepoPort {
   const rows = new Map<string, EvidenceRow>();
   const store: EvidenceStore = {
     async append(input) { return appendMemory({ rows, ...input }); },
@@ -72,6 +72,11 @@ export function createMemoryBlobStore(required: { scope?: Scope }): BlobStorePor
 export function createMemoryGuardedAssetImport(required: { scope?: Scope; dependencies?: JiniMediaDependencies; fixtures?: readonly { sourceUrl: string; bytes: Uint8Array; image: ImageInspection }[] }): GuardedAssetImportPort {
   if (required.fixtures?.length) return fixtureImporter(required);
   return {
+    async upload(input, options) {
+      const context = checkContext({ context: input.context, options, scope: required.scope ?? testScope });
+      if (!context.ok) return context;
+      return notImplemented({ operation: 'media-library.upload (no memory fixture configured)' });
+    },
     async import(input, options) {
       const context = checkContext({ context: input.context, options, scope: required.scope ?? testScope });
       if (!context.ok) return context;
@@ -122,7 +127,7 @@ export function createMemoryMediaAudit(required: { scope?: Scope }): MediaAuditP
 /** Bounded observer double for contract/telemetry assertions; callers can snapshot and clear recorded events.
  * @example createMemoryMediaObserver({}) @complexity O(1) append, O(n) snapshot, cap 1,000.
  */
-export function createMemoryMediaObserver(required: Record<string, never>): MediaObserverPort & { events(required: Record<string, never>): readonly ObserverEvent[]; reset(required: Record<string, never>): void } {
+export function createMemoryMediaObserver(required: Record<string, never>): ObserverPort & { events(required: Record<string, never>): readonly ObserverEvent[]; reset(required: Record<string, never>): void } {
   const events: ObserverEvent[] = [];
   return {
     observe(event) { if (events.length === 1000) events.shift(); events.push(structuredClone(event)); },

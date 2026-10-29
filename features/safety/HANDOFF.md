@@ -68,7 +68,7 @@ Function-quality assessment (tiny non-branching constructors/key helpers inherit
 
 | Units | Disposition | Findings and local fix |
 | --- | --- | --- |
-| digestArguments/canonicalValue/sameValue/freezeJson | NO_RECORDED_FINDINGS | Bounded JSON/depth; canonical stable values; frozen handoff; direct malformed/bounds tests. |
+| digestArguments (canonical JSON from contracts `canonicalizeArguments`)/sameValue/freezeJson | NO_RECORDED_FINDINGS | Bounded JSON/depth; canonical stable values; frozen handoff; direct malformed/bounds tests. |
 | validContext/serviceContext/asServiceContext | FIXED | Required:scope/trace — contradictory owner and dropped backend run IDs rejected/preserved; red/green retained. |
 | choices/classify/eligibleGeneration | NO_RECORDED_FINDINGS | Spend/destructive never downgraded; grantable tool scope required. |
 | matchesAuthority/matchesGrant/confirmation present-confirm-verify | FIXED | Required:authority — future matching grants supported without waiving exact spend; explicit responses/fingerprint/scope binding. |

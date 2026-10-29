@@ -1,5 +1,5 @@
-import type { CallContext, CallOptions, ClockPort, Outcome } from "@open-marketing/contracts";
-import type { CredentialRepoPort, SecretSealerPort, KeyringPort, OAuthClientPort, CredentialLockPort, CredentialAuditPort, CredentialObserverPort } from "./ports.js";
+import type { CallContext, CallOptions, ClockPort, Outcome, ObserverPort } from "@open-marketing/contracts";
+import type { CredentialRepoPort, SecretSealerPort, KeyringPort, OAuthClientPort, CredentialLockPort, CredentialAuditPort } from "./ports.js";
 import type { BrowserOAuthCallback, ConnectChallenge, ConnectRequest, ConnectStatus, ConnectionSummary, CredentialService, CredentialReference, SealedSecret, VerifiedOAuthCallback } from "./types.js";
 import { withCredentialLock } from "./locks.js";
 import { boundary, browserCallbackSchema, callbackSchema, challengeSchema, connectSchema, failure, lookupSchema, revocationSchema, sameScope, secretSchema, statusSchema, summarySchema } from "./rules.js";
@@ -27,7 +27,7 @@ export interface OAuthChallengeRules {
  * @complexity O(pending transactions) on begin/browser completion, O(1) on status/revocation; cap 256.
  * @example service.completeConnect({ callback: { state, code, redirectUri } })
  */
-export function createCredentialService(required: ServiceDependencies, optional?: { observer?: CredentialObserverPort }): CredentialService {
+export function createCredentialService(required: ServiceDependencies, optional?: { observer?: ObserverPort }): CredentialService {
   const challengeRules = new Map(Array.from(required.challengeRules ?? [], ([id, rules]) => [id, structuredClone(rules)]));
   const pending = new Map<string, PendingConnection>();
   let inFlight = 0;
@@ -159,14 +159,14 @@ async function persistConnection(required: { dependencies: ServiceDependencies; 
   return validateStoredSummary({ summary: stored.value, entry: required.entry });
 }
 /** Observer receives only fixed metadata; telemetry failure cannot affect lifecycle. @complexity O(1). */
-function observe(required: { observer?: CredentialObserverPort; context: CallContext; operation: string }): void {
+function observe(required: { observer?: ObserverPort; context: CallContext; operation: string }): void {
   try {
     required.observer?.observe({ operation: required.operation, outcome: "succeeded", correlationId: required.context.correlationId, traceId: required.context.traceId, runId: required.context.runId });
   } catch { /* Telemetry is non-authoritative. */ }
 }
 
 /** Reserve capacity before awaited authorization; bind a detached owner/request snapshot. @complexity O(1) plus provider work. */
-async function beginConnection(required: { dependencies: ServiceDependencies; pending: Map<string, PendingConnection>; input: { context: CallContext; request: ConnectRequest }; observer?: CredentialObserverPort }, optional?: CallOptions): Promise<Outcome<ConnectChallenge>> {
+async function beginConnection(required: { dependencies: ServiceDependencies; pending: Map<string, PendingConnection>; input: { context: CallContext; request: ConnectRequest }; observer?: ObserverPort }, optional?: CallOptions): Promise<Outcome<ConnectChallenge>> {
   const input = structuredClone(required.input);
   const begun = await required.dependencies.oauth.begin(input, optional);
   if (!begun.ok) return begun;

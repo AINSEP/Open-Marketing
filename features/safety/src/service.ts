@@ -1,10 +1,10 @@
-import type { Outcome, CallContext, CallOptions, ClockPort, IdPort, ConfirmationCard, ServiceContext, HaltStopPermit } from "@open-marketing/contracts";
+import type { Outcome, CallContext, CallOptions, ClockPort, IdPort, ObserverPort, ConfirmationCard, ServiceContext, HaltStopPermit } from "@open-marketing/contracts";
 import { confirmationCardSchema, effectEnvelopeSchema, haltStopRequestSchema, scopeSchema, idSchema } from "@open-marketing/contracts";
-import type { SafetyRepoPort, SpendPolicyPort, ConfirmationExchangePort, VerifiedEffectResolverPort, PlatformLimitEvidencePort, AccountDispatchLockPort, SafetyAuditPort, SafetyObserverPort } from "./ports.js";
+import type { SafetyRepoPort, SpendPolicyPort, ConfirmationExchangePort, VerifiedEffectResolverPort, PlatformLimitEvidencePort, AccountDispatchLockPort, SafetyAuditPort } from "./ports.js";
 import type { CampaignConstituent, EffectRequest, FrozenDispatchRequest, DispatchPermit, DispatchAdmission, SafetyService, GenerationAuthorization, GenerationReservation } from "./types.js";
 import { allowanceEditSchema, choices, classify, digestArguments, dispatchRequestSchema, effectRequestSchema, evidenceSchema, failure, freezeJson, generationAssessmentSchema, sameValue, settlementSchema, success, validContext } from "./rules.js";
 type Dependencies = { repo: SafetyRepoPort; policy: SpendPolicyPort; confirmations: ConfirmationExchangePort; effects: VerifiedEffectResolverPort; platformLimits: PlatformLimitEvidencePort; accountLocks: AccountDispatchLockPort; clock: ClockPort; ids: IdPort; audit: SafetyAuditPort };
-type Options = { observer?: SafetyObserverPort; policyRevision?: number; evidenceMaxAgeMs?: number; permitTtlMs?: number; haltServiceId?: string; costServiceId?: string };
+type Options = { observer?: ObserverPort; policyRevision?: number; evidenceMaxAgeMs?: number; permitTtlMs?: number; haltServiceId?: string; costServiceId?: string };
 const GENERATION_LOCK_KEY = "@om:generation-allowance";
 type Runtime = { dependencies: Dependencies; options: Options };
 /** Observe typed outcomes without raw payloads. Port exceptions become explicit unavailable values. @complexity O(1) plus injected bounded effect. */

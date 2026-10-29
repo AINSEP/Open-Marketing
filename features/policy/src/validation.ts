@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { callContextSchema, epochSchema, idSchema, scopeSchema } from "@open-marketing/contracts";
-import type { AppError, CallContext, CallOptions, Outcome } from "@open-marketing/contracts";
-import type { PolicyObserverPort } from "./ports.js";
+import type { AppError, CallContext, CallOptions, ObserverPort, Outcome } from "@open-marketing/contracts";
 import type { PolicyEvidence } from "./types.js";
 
 const label = idSchema.refine(value => value.trim().length > 0);
@@ -12,7 +11,6 @@ export const consentSchema = z.strictObject({ ...window, scope: z.enum(["channel
   status: z.enum(["granted", "withdrawn"]) }).refine(orderedWindow);
 export const suppressionSchema = z.strictObject({ ...window, channel: label }).refine(orderedWindow);
 export const referenceSchema = z.strictObject({ scope: scopeSchema, subjectId: label });
-export const bindingSchema = z.strictObject({ identifier: label, subject: referenceSchema });
 const metadata = { id: label, scope: scopeSchema, subjectId: label, recordedAt: epochSchema, sourceId: label };
 export const evidenceSchema = z.discriminatedUnion("kind", [
   z.strictObject({ ...metadata, kind: z.literal("consent"), consent: consentSchema.refine(value => value.status === "granted") }),
@@ -51,7 +49,7 @@ export function validateEvidence(required: { context: CallContext; evidence: Pol
 /** Map dependency throws to failures; observers cannot change storage outcomes.
  * Callback ABI is a deferred zero-argument operation. @complexity Work-dependent.
  */
-export async function boundary<T>(required: { context: CallContext; operation: string; observer?: PolicyObserverPort; work: () => Promise<Outcome<T>> }): Promise<Outcome<T>> {
+export async function boundary<T>(required: { context: CallContext; operation: string; observer?: ObserverPort; work: () => Promise<Outcome<T>> }): Promise<Outcome<T>> {
   let outcome: Outcome<T>;
   try { outcome = await required.work(); }
   catch { outcome = failure({ code: "unavailable", message: "Policy dependency unavailable" }); }
@@ -59,7 +57,7 @@ export async function boundary<T>(required: { context: CallContext; operation: s
   return outcome;
 }
 /** Metadata only; telemetry failure cannot invalidate a committed append. @complexity O(1). */
-function observe(required: { context: CallContext; operation: string; observer?: PolicyObserverPort; outcome: string }): void {
+function observe(required: { context: CallContext; operation: string; observer?: ObserverPort; outcome: string }): void {
   if (!required.observer || !callContextSchema.safeParse(required.context).success) return;
   try { required.observer.observe({ operation: required.operation, outcome: required.outcome, correlationId: required.context.correlationId, traceId: required.context.traceId, runId: required.context.runId }); }
   catch { /* Telemetry must not alter the decision. */ }

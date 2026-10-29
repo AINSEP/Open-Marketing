@@ -1,12 +1,12 @@
-import type { CallContext, CallOptions, ObserverPort, Outcome } from "@open-marketing/contracts";
+import type { CallContext, CallOptions, Outcome, Page, PageQuery, Scope } from "@open-marketing/contracts";
 import type { AccountBinding, SessionReference, VerifiedIdentity } from "./types.js";
 
-/** Trusted server storage boundary: resolve verifies session/workspace ownership. bind checks
+/** Trusted server storage boundary: hasWorkspace checks full owner/workspace scope. bind checks
  * current workspace/connection ownership and exact replay/uniqueness atomically. Transport callers
  * must use WorkspaceService; a serialized context or agent-supplied principal is not authority.
  */
 export interface WorkspaceRepoPort {
-  resolve(required: { session: SessionReference; workspaceId: string }, optional?: CallOptions): Promise<Outcome<CallContext>>;
+  hasWorkspace(required: { scope: Scope }, optional?: CallOptions): Promise<Outcome<boolean>>;
   bind(required: { context: CallContext; binding: AccountBinding }, optional?: CallOptions): Promise<Outcome<AccountBinding>>;
 }
 /** Verify an opaque server session reference using server-owned identity state. Never infer the
@@ -21,5 +21,10 @@ export interface IdentityPort {
 export interface AccountBindingLookupPort {
   find(required: { context: CallContext; externalAccountId: string }, optional?: CallOptions): Promise<Outcome<AccountBinding | null>>;
 }
-/** Best-effort trace sink; implementations must not expose sessions or credentials. */
-export type WorkspaceObserverPort = ObserverPort;
+/** Owner-only enumeration of workspace-owned rows, ordered by binding ID; no dispatch authority.
+ * Invalid input, forbidden scope, cancellation and storage failures return typed outcomes.
+ * @example await repo.listAccountBindings({ context, query: { limit: 25 } });
+ */
+export interface AccountBindingListPort {
+  listAccountBindings(required: { context: CallContext; query: PageQuery }, optional?: CallOptions): Promise<Outcome<Page<AccountBinding>>>;
+}

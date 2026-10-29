@@ -1,11 +1,11 @@
 import { generationApprovalRequirementSchema, idSchema, parseBoundary } from "@open-marketing/contracts";
-import type { CallContext, CallOptions, ClockPort, IdPort, Outcome } from "@open-marketing/contracts";
-import type { CreativeRepoPort, CreativeJobPort, CreativeSpendPort, GenerationCapabilityPort, CreativeAssetPort, CreativeAuditPort, CreativeObserverPort } from "./ports.js";
+import type { CallContext, CallOptions, ClockPort, IdPort, Outcome, ObserverPort } from "@open-marketing/contracts";
+import type { CreativeRepoPort, CreativeJobPort, CreativeSpendPort, GenerationCapabilityPort, CreativeAssetPort, CreativeAuditPort } from "./ports.js";
 import type { GenerationRequest, GenerationReceipt, GenerationStatus } from "./types.js";
 import { dispatchReceiptSchema, failure, freezeValue, parseGeneration, receipt, sameEvidence, success, validateQuote } from "./rules.js";
 
 /** Dependencies supplied by the server; core never constructs an adapter or scheduler. */
-export type CreativeDependencies = { repo: CreativeRepoPort; generation: GenerationCapabilityPort; assets: CreativeAssetPort; jobs: CreativeJobPort; safety: CreativeSpendPort; clock: ClockPort; ids: IdPort; audit: CreativeAuditPort; observer?: CreativeObserverPort };
+export type CreativeDependencies = { repo: CreativeRepoPort; generation: GenerationCapabilityPort; assets: CreativeAssetPort; jobs: CreativeJobPort; safety: CreativeSpendPort; clock: ClockPort; ids: IdPort; audit: CreativeAuditPort; observer?: ObserverPort };
 
 /** Prepare immutable intent and atomically enqueue through the ONE outbox adapter.
  * No vendor generation is performed here. A repeated operation binds the full original request.

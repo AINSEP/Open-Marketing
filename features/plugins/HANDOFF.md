@@ -10,14 +10,7 @@ and SQL metadata are deferred as detailed below.
 
 - Core: src/service.ts (audit/cleanup ordering and identity checks), src/admission.ts (duplicates,
   deterministic pins), src/extension.ts (host-derived digest), src/memory.ts (schema-pin parity).
-- Validation: src/validation.ts, src/skills.ts, src/filesystem-layout.ts (bounded steps and explicit
-  component-kind handling); src/package-types.ts reuses Jini's public MCP server type.
-- Jini: src/jini-adapter.ts uses exact published types/exception, validated output, cancellation and
-  trace observation; new src/archive-reader.ts reads bounded pinned archives without extraction.
-- Public surface: index.ts adds createJiniArchivePackageReader; existing core exports remain.
-- Tests: service.test.ts, contract/{port-suites,memory,adapters}.test.ts or .ts,
-  fixtures/{plugin,filesystem,jini}.ts; new validation.test.ts, admission.test.ts,
-  archive-reader.test.ts, filesystem.test.ts, jini-adapter.test.ts.
+Portable inspector (validation/portable/extension/skills/package-types/admission) removed in OE-INSPECTOR 2026-10-28; installation validation is the server upload boundary + Jini lifecycle.
 - README.md, PROGRESS.md, HANDOFF.md document usage, continuation, limitations and review needs.
 
 **TESTS**
@@ -115,7 +108,7 @@ disabled rules, weakened certified tests or excluded source were added.
 | Assessed units | Disposition | Findings / evidence | Local action |
 | --- | --- | --- | --- |
 | service verifySource, install, installVerified, setEnabled, disableCurrent | INCONCLUSIVE | Runtime evidence prohibited; order/identity regressions have direct tests | Audited retirement first; cleanup independent of persistence; validate identity |
-| descriptorSchema, matchesPluginIdentity, pluginSchemaFingerprint, checkAdmission | INCONCLUSIVE | Direct duplicate/drift/order tests written | Reject duplicates; deterministic sort; no execution grants |
+| descriptorSchema (fingerprint and retired admission helpers removed in R3) | INCONCLUSIVE | Direct duplicate/drift/order tests written | Reject duplicates; deterministic sort; no execution grants |
 | extension validateExtension, normalizeEnvelopes, resolveOne | INCONCLUSIVE | Byte pin must be host-derived; binding/identity tests written | Remove self-hash requirement; preserve closed declaration boundary |
 | archive factory, collectArchive, collectEntry, readContent, checkChunk | INCONCLUSIVE | Limits/cancellation/aggregate tests written; host stream deadlines required | Bound inventory/bytes/chunks before next stream allocation |
 | filesystem readDirectory, readChildren, readEntry, readRegularFile, contained | INCONCLUSIVE | Low:host-snapshot:ancestor races need immutable staging; direct disk tests written | Sequential bounded steps; lexical + disk containment |

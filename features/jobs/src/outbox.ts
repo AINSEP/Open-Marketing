@@ -53,10 +53,12 @@ export function createOutbox({ ports, inputPolicy }: {
             return complete(job, { state: "denied" });
         if (signal?.aborted)
             return complete(job, failureCompletion({ kind: "transient", attempt: job.attempts, now: now(), policy: policy, idempotent: false }));
-        return dispatchClaim({ job, signal });
+        const result = await ports.dispatchClaim?.({ job: structuredClone(job), signal });
+        if (result != null) return result;
+        return dispatchTransport({ job, signal });
     }
     /** Begin-dispatch fencing precedes the transport; thrown/in-flight outcomes remain unknown. */
-    async function dispatchClaim(required: {
+    async function dispatchTransport(required: {
         job: OutboxJob;
         signal?: AbortSignalPort;
     }): Promise<ProcessResult> {

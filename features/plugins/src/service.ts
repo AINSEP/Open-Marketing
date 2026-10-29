@@ -1,206 +1,188 @@
-import { parseBoundary } from "@open-marketing/contracts";
-import type { CallContext, CallOptions, Outcome } from "@open-marketing/contracts";
-import type { PluginAuditPort, PluginLifecyclePort, PluginObserverPort, PluginRepoPort,
-  AgentPluginLayoutPort, AgentPluginMcpProvisioningPort, PluginTrustPort } from "./ports.js";
-import type { InstalledPlugin, PluginService, PluginSource, UninstallReceipt } from "./types.js";
-import { descriptorSchema, matchesPluginIdentity, pluginSchemaFingerprint } from "./admission.js";
-import { attempt, failure } from "./results.js";
-import { enableSchema, installedSchema, installSchema, referenceSchema, removeSchema } from "./schemas.js";
+import { createHash } from 'node:crypto';
+import { addonListRequestSchema, addonListSchema, addonSummarySchema, addonUninstallReceiptSchema,
+    installAddonSchema, parseBoundary, setAddonEnabledSchema, uninstallAddonSchema } from '@open-marketing/contracts';
+import type { AddonKind, AddonList, AddonSummary, AddonUninstallReceipt, CallContext, CallOptions,
+    InstallAddon, Outcome, SetAddonEnabled, UninstallAddon } from '@open-marketing/contracts';
+import type { AddonDependencies, AddonRepository, PreparedAddon, PluginService } from './types.js';
+import { addonBoundary, addonFailure, attempt, reconciliationFailure } from './results.js';
 
-type Dependencies = {
-  repo: PluginRepoPort; lifecycle: PluginLifecyclePort; layout: AgentPluginLayoutPort;
-  provisioning: AgentPluginMcpProvisioningPort; trust: PluginTrustPort; audit: PluginAuditPort;
-};
-type Invocation = { context: CallContext; pluginId: string };
-
-/** Inert lifecycle orchestration. Install admits a catalog entry disabled; enable creates no grants.
- * Per-scope operations reject overlap, including update/enable races. Effects persist closed state
- * before cleanup; partial failures are explicit and leave the plugin disabled.
- * @example createPluginService({ repo, lifecycle, layout, provisioning, trust, audit })
- * @complexity O(1) service work/space per call, excluding bounded injected validation/adapters.
- * @tradeoffs One service instance per composition; durable cross-process locking belongs to adapters.
+/** Inert binding. Scope mutation overlap is refused, without another queue or outbox.
+ * Every failed enable persists closed state and unregisters runtime resources before returning.
+ * @example const addons = createPluginService({ repo, packages, archiveReader, observer });
+ * @complexity <=1000 retained summaries per scope; upload <=32 MiB. No vendor calls.
  */
-export function createPluginService(required: Dependencies, optional: { observer?: PluginObserverPort } = {}): PluginService {
-  const busy = new Set<string>();
+export function createPluginService(required: AddonDependencies): PluginService {
+    const busy = new Set<string>();
+    return {
+        list: (input, options) => addonBoundary({ ...input, dependencies: required, operation: 'addons.list', run: async () => {
+            const query = parseBoundary({ schema: addonListRequestSchema, input: input.query });
+            if (!query.ok) return query;
+            const rows = await required.repo.list(input);
+            const items = rows.filter(row => !query.value.kind || row.kind === query.value.kind).sort(compareAddons);
+            const offset = query.value.cursor ? items.findIndex(row => rowKey({ addon: row }) === query.value.cursor) + 1 : 0;
+            if (query.value.cursor && offset === 0) return addonFailure({ code: 'invalid_input' });
+            const page = items.slice(offset, offset + query.value.limit);
+            const cursor = offset + page.length < items.length ? rowKey({ addon: page[page.length - 1] }) : null;
+            return parseBoundary({ schema: addonListSchema, input: { items: page, cursor } });
+        } }, options),
+        install: (input, options) => mutate({ ...input, operation: 'addons.install', run: () => performInstall({ ...input, dependencies: required }, options) }, options),
+        setEnabled: (input, options) => mutate({ ...input, operation: 'addons.set_enabled', run: () => performSetEnabled({ ...input, dependencies: required }, options) }, options),
+        uninstall: (input, options) => mutate({ ...input, operation: 'addons.uninstall', run: () => performUninstall({ ...input, dependencies: required }, options) }, options),
+        describe: (input, options) => addonBoundary({ ...input, dependencies: required, operation: 'addons.describe', run: async () => {
+            const addon = await findAddon({ ...input, repo: required.repo });
+            if (!addon || !addon.enabled || addon.revision !== input.revision) return addonFailure({ code: 'conflict' });
+            const value = await required.packages[input.kind].describe({ ...input, addon });
+            // Instructions may await filesystem reads: recheck removal/disable after those awaits.
+            const current = await findAddon({ ...input, repo: required.repo });
+            if (!current?.enabled || current.revision !== input.revision) return addonFailure({ code: 'conflict' });
+            return { ok: true, value };
+        } }, options),
+    };
 
-  /** Trace-preserving boundary rejects overlapping scope operations. @complexity O(1). */
-  async function invoke<T>(input: { context: CallContext; operation: string; run: () => Promise<Outcome<T>> }, options?: CallOptions): Promise<Outcome<T>> {
-    if (options?.signal?.aborted) return failure({ code: "cancelled", message: "Plugin operation cancelled before effects" });
-    const key = JSON.stringify([input.context.scope.ownerId, input.context.scope.workspaceId]);
-    if (busy.has(key)) return failure({ code: "conflict", message: "A plugin lifecycle operation is already running in this scope" });
-    busy.add(key);
-    try {
-      const result = await attempt({ run: input.run });
-      observe({ context: input.context, operation: input.operation, result });
-      return result;
-    } finally { busy.delete(key); }
-  }
-
-  /** Telemetry cannot change an effect's result. @complexity O(1). */
-  function observe(input: { context: CallContext; operation: string; result: Outcome<unknown> }): void {
-    try {
-      optional.observer?.observe({ operation: input.operation, outcome: input.result.ok ? "ok" : input.result.error.code,
-        correlationId: input.context.correlationId, traceId: input.context.traceId, runId: input.context.runId });
-    } catch { /* Observation failure cannot turn completed effects into a retry signal. */ }
-  }
-
-  /** Cleanup revokes resources even if metadata reads/writes fail. @complexity O(1). */
-  async function close(input: Invocation, options?: CallOptions): Promise<Outcome<void>> {
-    const metadata = await attempt({ run: () => closeMetadata(input, options) });
-    const disposed = await attempt({ run: () => required.provisioning.dispose(input, options) });
-    if (!disposed.ok) return disposed;
-    return metadata;
-  }
-
-  /** Persist disabled/non-admitted state before unregistering. @complexity O(1). */
-  async function closeMetadata(input: Invocation, options?: CallOptions): Promise<Outcome<void>> {
-    const current = await required.repo.get({ context: input.context, pluginId: input.pluginId }, options);
-    if (!current.ok) return current;
-    if (!current.value) return { ok: true, value: undefined };
-    const saved = await required.repo.save({ context: input.context, plugin: { ...current.value, enabled: false, admitted: false } }, options);
-    if (!saved.ok) return saved;
-    return { ok: true, value: undefined };
-  }
-
-  /** Update refuses busy jobs, invalidates old admission, then disposes. @complexity O(1). */
-  async function retirePrevious(input: Invocation, options?: CallOptions): Promise<Outcome<void>> {
-    const idle = await required.lifecycle.checkIdle(input, options);
-    if (!idle.ok) return idle;
-    const closed = await close(input, options);
-    if (!closed.ok) return closed;
-    const disposed = await required.lifecycle.dispose(input, options);
-    if (!disposed.ok) return disposed;
-    if (disposed.value.status === "pending") return failure({ code: "conflict", message: "Plugin disposal is pending; update refused" });
-    return required.repo.remove(input, options);
-  }
-
-  /** Inspect/trust are separate injected boundaries; identities and schemas are locally parsed. @complexity O(n+b). */
-  async function verifySource(input: { source: PluginSource }, options?: CallOptions): Promise<Outcome<{ pluginId: string; schemaFingerprint: string }>> {
-    const layout = await required.layout.validate(input, options);
-    if (!layout.ok) return layout;
-    const descriptor = parseBoundary({ schema: descriptorSchema, input: layout.value });
-    if (!descriptor.ok) return descriptor;
-    const trusted = await required.trust.verify(input, options);
-    if (!trusted.ok) return trusted;
-    const reference = parseBoundary({ schema: referenceSchema, input: trusted.value });
-    if (!reference.ok) return reference;
-    if (reference.value.digest !== input.source.expectedDigest) return failure({ code: "forbidden", message: "Verified plugin digest differs from source pin" });
-    if (!matchesPluginIdentity({ reference: reference.value, descriptor: descriptor.value })) return failure({ code: "forbidden", message: "Plugin declarations differ from verified identity" });
-    return { ok: true, value: { pluginId: reference.value.pluginId, schemaFingerprint: pluginSchemaFingerprint({ descriptor: descriptor.value }) } };
-  }
-
-  /** Validate before replacing bytes; replay of an identical admitted install is idempotent. @complexity O(1) plus validation. */
-  async function install(input: { context: CallContext; source: PluginSource }, options?: CallOptions): Promise<Outcome<InstalledPlugin>> {
-    const verified = await verifySource({ source: input.source }, options);
-    if (!verified.ok) return verified;
-    const invocation = { context: input.context, pluginId: verified.value.pluginId };
-    const previous = await required.repo.get(invocation, options);
-    if (!previous.ok) return previous;
-    if (sameAdmission({ plugin: previous.value, source: input.source, schemaFingerprint: verified.value.schemaFingerprint })) {
-      return { ok: true, value: previous.value! };
+    /** Instance-local guard prevents enable/install/uninstall races; read paths remain available. */
+    function mutate<T>(input: { context: CallContext; operation: string; run: () => Promise<Outcome<T>> }, options?: CallOptions): Promise<Outcome<T>> {
+        return addonBoundary({ ...input, dependencies: required, run: async () => {
+            const key = JSON.stringify([input.context.scope.ownerId, input.context.scope.workspaceId]);
+            if (busy.has(key)) return addonFailure({ code: 'conflict' });
+            busy.add(key);
+            try { return await attempt({ run: input.run }); } finally { busy.delete(key); }
+        } }, options);
     }
-    const audited = await required.audit.record({ ...invocation, operation: "install.requested" }, options);
-    if (!audited.ok) return audited;
-    if (previous.value) {
-      const retired = await retirePrevious(invocation, options);
-      if (!retired.ok) return retired;
-    }
-    return installVerified({ ...input, ...verified.value }, options);
-  }
-
-  /** All three pins must match before replay can preserve current state. @complexity O(1). */
-  function sameAdmission(input: { plugin: InstalledPlugin | null; source: PluginSource; schemaFingerprint: string }): boolean {
-    if (!input.plugin?.admitted) return false;
-    return input.plugin.digest === input.source.expectedDigest && input.plugin.schemaFingerprint === input.schemaFingerprint;
-  }
-
-  /** After audited intent, installs start disabled regardless of adapter claims. @complexity O(1). */
-  async function installVerified(input: { context: CallContext; source: PluginSource; pluginId: string; schemaFingerprint: string }, options?: CallOptions): Promise<Outcome<InstalledPlugin>> {
-    const result = await required.lifecycle.install({ context: input.context, source: input.source }, options);
-    if (!result.ok) return result;
-    const parsed = parseBoundary({ schema: installedSchema, input: result.value });
-    if (!parsed.ok) return parsed;
-    if (parsed.value.digest !== input.source.expectedDigest || parsed.value.pluginId !== input.pluginId) {
-      return failure({ code: "forbidden", message: "Installed identity differs from verified identity" });
-    }
-    const plugin = { ...parsed.value, enabled: false, admitted: true, schemaFingerprint: input.schemaFingerprint };
-    const saved = await required.repo.save({ context: input.context, plugin }, options);
-    if (!saved.ok) return saved;
-    const completed = await required.audit.record({ context: input.context, pluginId: input.pluginId, operation: "install.completed" }, options);
-    if (!completed.ok) return completed;
-    return saved;
-  }
-
-  /** Provisioning rechecks bytes/schema; disabling persists closed state before cleanup. @complexity O(1). */
-  async function setEnabled(input: Invocation & { enabled: boolean }, options?: CallOptions): Promise<Outcome<InstalledPlugin>> {
-    const current = await required.repo.get({ context: input.context, pluginId: input.pluginId }, options);
-    if (!current.ok) return current;
-    if (!current.value) return failure({ code: "invalid_input", message: "Plugin is not installed" });
-    if (input.enabled && !current.value.admitted) return failure({ code: "forbidden", message: "Plugin must be reinstalled and verified before enabling" });
-    const audited = await required.audit.record({ context: input.context, pluginId: input.pluginId, operation: input.enabled ? "enable.requested" : "disable.requested" }, options);
-    if (!audited.ok) return audited;
-    if (input.enabled) return enableAdmitted({ ...input, plugin: current.value }, options);
-    return disableCurrent({ ...input, plugin: current.value }, options);
-  }
-
-  /** Always unregister on disable; failed persistence must not preserve runtime dispatch.
-   * Returns the cleanup failure first, otherwise the metadata outcome. @complexity O(1).
-   */
-  async function disableCurrent(input: Invocation & { plugin: InstalledPlugin }, options?: CallOptions): Promise<Outcome<InstalledPlugin>> {
-    const disabled = await attempt({ run: () => required.repo.save({ context: input.context, plugin: { ...input.plugin, enabled: false } }, options) });
-    const disposed = await attempt({ run: () => required.provisioning.dispose(input, options) });
-    if (!disposed.ok) return disposed;
-    return disabled;
-  }
-
-  /** Publishes enabled state last; failure revokes admission and cleans resources. @complexity O(1). */
-  async function enableAdmitted(input: Invocation & { plugin: InstalledPlugin }, options?: CallOptions): Promise<Outcome<InstalledPlugin>> {
-    const prepared = await required.repo.save({ context: input.context, plugin: { ...input.plugin, enabled: false } }, options);
-    if (!prepared.ok) return prepared;
-    const provisioned = await attempt({ run: () => required.provisioning.provision({ context: input.context, plugin: input.plugin }, options) });
-    if (!provisioned.ok) {
-      const cleaned = await close(input, options);
-      if (!cleaned.ok) return cleaned;
-      return provisioned;
-    }
-    const saved = await attempt({ run: () => required.repo.save({ context: input.context, plugin: { ...input.plugin, enabled: true } }, options) });
-    if (saved.ok) return saved;
-    const cleaned = await close(input, options);
-    if (!cleaned.ok) return cleaned;
-    return saved;
-  }
-
-  /** Running jobs block removal; pending disposal retains closed metadata for retry. @complexity O(1). */
-  async function uninstall(input: Invocation, options?: CallOptions): Promise<Outcome<UninstallReceipt>> {
-    const audited = await required.audit.record({ ...input, operation: "uninstall.requested" }, options);
-    if (!audited.ok) return audited;
-    const idle = await required.lifecycle.checkIdle(input, options);
-    if (!idle.ok) return idle;
-    const closed = await close(input, options);
-    if (!closed.ok) return closed;
-    const disposed = await required.lifecycle.dispose(input, options);
-    if (!disposed.ok) return disposed;
-    if (disposed.value.status === "pending") return disposed;
-    const removed = await required.repo.remove(input, options);
-    if (!removed.ok) return removed;
-    return disposed;
-  }
-
-  return {
-    async install(input, options) {
-      const parsed = parseBoundary({ schema: installSchema, input });
-      if (!parsed.ok) return parsed;
-      return invoke({ context: parsed.value.context, operation: "plugins.install", run: () => install(parsed.value, options) }, options);
-    },
-    async setEnabled(input, options) {
-      const parsed = parseBoundary({ schema: enableSchema, input });
-      if (!parsed.ok) return parsed;
-      return invoke({ context: parsed.value.context, operation: "plugins.setEnabled", run: () => setEnabled(parsed.value, options) }, options);
-    },
-    async uninstall(input, options) {
-      const parsed = parseBoundary({ schema: removeSchema, input });
-      if (!parsed.ok) return parsed;
-      return invoke({ context: parsed.value.context, operation: "plugins.uninstall", run: () => uninstall(parsed.value, options) }, options);
-    },
-  };
 }
+
+/** Replay validated upload digests before package preparation, which can reject existing version folders.
+ * New versions retain Jini's validation/publication rules; only successful commits update the catalog.
+ * @complexity O(upload bytes + paths log paths + catalog rows), bounded by upload/catalog limits.
+ */
+async function performInstall(required: { context: CallContext; request: InstallAddon; dependencies: AddonDependencies }, optional?: CallOptions): Promise<Outcome<AddonSummary>> {
+    const parsed = parseBoundary({ schema: installAddonSchema, input: required.request });
+    if (!parsed.ok) return parsed;
+    const decoded = await required.dependencies.decodeUpload({ upload: parsed.value.upload }, optional);
+    if (!decoded.ok) return decoded;
+    if (parsed.value.kind && parsed.value.kind !== decoded.value.kind) return addonFailure({ code: 'invalid_input' });
+    const rows = await required.dependencies.repo.list(required);
+    const replay = rows.find(row => row.kind === decoded.value.kind && row.revision === decoded.value.revision);
+    if (replay) return { ok: true, value: replay };
+    const backend = required.dependencies.packages[decoded.value.kind];
+    const prepared = await backend.prepare({ context: required.context, ...decoded.value }).catch(() => undefined);
+    if (!prepared) return addonFailure({ code: 'conflict' });
+    const summary = parseBoundary({ schema: addonSummarySchema, input: { ...prepared.summary, enabled: false } });
+    if (!summary.ok) return summary;
+    if (summary.value.kind !== decoded.value.kind || summary.value.revision !== decoded.value.revision) return addonFailure({ code: 'conflict' });
+    return publishInstall({ ...required, rows, prepared, addon: summary.value }, optional);
+}
+
+/** Audited publication uses the existing commit seam; replacement closes the prior runtime first.
+ * @complexity O(n) catalog lookup, n <=1000; constant adapter calls and no new durable state.
+ */
+async function publishInstall(required: { context: CallContext; dependencies: AddonDependencies; rows: AddonSummary[]; prepared: PreparedAddon; addon: AddonSummary }, optional?: CallOptions): Promise<Outcome<AddonSummary>> {
+    const { prepared, addon } = required;
+    const previous = required.rows.find(row => row.kind === addon.kind && row.id === addon.id);
+    if (previous?.revision === addon.revision) return { ok: true, value: previous };
+    if (!previous && required.rows.length >= 1000) return addonFailure({ code: 'limit_exceeded' });
+    if (optional?.signal?.aborted) return addonFailure({ code: 'cancelled' });
+    const operationId = required.dependencies.ids.next({});
+    const audited = await required.dependencies.audit.record({ context: required.context, pluginId: addon.id, operationId, operation: 'install.requested' }, optional);
+    if (!audited.ok) return audited;
+    if (previous) {
+        const retired = await closeIdle({ context: required.context, addon: previous, dependencies: required.dependencies }, optional);
+        if (!retired.ok) return retired;
+    }
+    if (optional?.signal?.aborted) return addonFailure({ code: 'cancelled' });
+    return attempt({ run: async () => {
+        await prepared.commit({ previous });
+        await required.dependencies.repo.save({ context: required.context, addon });
+        const completed = await required.dependencies.audit.record({ context: required.context, pluginId: addon.id, operationId, operation: 'install.completed' }, optional);
+        return completed.ok ? { ok: true, value: addon } : reconciliationFailure();
+    } });
+}
+
+/** Audit precedes activation; disable closes runtime even when audit or persistence fails.
+ * @complexity Constant adapter calls plus one bounded catalog read (<=1000 rows).
+ */
+async function performSetEnabled(required: { context: CallContext; request: SetAddonEnabled; dependencies: AddonDependencies }, optional?: CallOptions): Promise<Outcome<AddonSummary>> {
+    const parsed = parseBoundary({ schema: setAddonEnabledSchema, input: required.request });
+    if (!parsed.ok) return parsed;
+    const current = await findAddon({ context: required.context, ...parsed.value, repo: required.dependencies.repo });
+    if (!current) return addonFailure({ code: 'invalid_input' });
+    const operationId = required.dependencies.ids.next({});
+    const audited = await required.dependencies.audit.record({ context: required.context, pluginId: current.id, operationId, operation: parsed.value.enabled ? 'enable.requested' : 'disable.requested' }, optional);
+    if (!audited.ok && parsed.value.enabled) return audited;
+    return attempt({ run: async () => {
+        await closeRuntime({ ...required, addon: current });
+        if (!audited.ok) return reconciliationFailure();
+        if (optional?.signal?.aborted) return addonFailure({ code: 'cancelled' });
+        if (!parsed.value.enabled) return { ok: true, value: { ...current, enabled: false } };
+        return enableCurrent({ ...required, addon: current });
+    } });
+}
+
+/** Publish enabled metadata last. Any partial enable or save failure unregisters again. */
+async function enableCurrent(required: { context: CallContext; addon: AddonSummary; dependencies: AddonDependencies }): Promise<Outcome<AddonSummary>> {
+    try {
+        await required.dependencies.packages[required.addon.kind].setEnabled({ ...required, enabled: true });
+        const addon = { ...required.addon, enabled: true };
+        await required.dependencies.repo.save({ context: required.context, addon });
+        return { ok: true, value: addon };
+    } catch {
+        await closeRuntime(required);
+        return reconciliationFailure();
+    }
+}
+
+/** Always attempt runtime cleanup, including when persisting closed metadata throws. */
+async function closeRuntime(required: { context: CallContext; addon: AddonSummary; dependencies: AddonDependencies }): Promise<void> {
+    const addon = { ...required.addon, enabled: false };
+    try { await required.dependencies.repo.save({ context: required.context, addon }); }
+    finally { await required.dependencies.packages[addon.kind].setEnabled({ context: required.context, addon, enabled: false }); }
+}
+
+/** Activity is checked on both sides of closing admission. A racing job retains bytes/metadata. */
+async function closeIdle(required: { context: CallContext; addon: AddonSummary; dependencies: AddonDependencies }, optional?: CallOptions): Promise<Outcome<void>> {
+    const idle = await checkIdle(required, optional);
+    if (!idle.ok) return idle;
+    const closed = await attempt({ run: async () => { await closeRuntime(required); return { ok: true, value: undefined }; } });
+    return closed.ok ? checkIdle(required, optional) : closed;
+}
+
+/** Invalid or unresolved activity never becomes permission to delete. */
+async function checkIdle(required: { context: CallContext; addon: AddonSummary; dependencies: AddonDependencies }, optional?: CallOptions): Promise<Outcome<void>> {
+    const activity = await required.dependencies.runningJobs({ context: required.context, kind: required.addon.kind, id: required.addon.id }, optional);
+    if (!activity.ok) return activity;
+    if (!Number.isSafeInteger(activity.value) || activity.value < 0) return reconciliationFailure();
+    return activity.value === 0 ? { ok: true, value: undefined } : addonFailure({ code: 'conflict' });
+}
+
+/** Audit, check activity, close admission, recheck activity, then remove bytes and metadata. */
+async function performUninstall(required: { context: CallContext; request: UninstallAddon; dependencies: AddonDependencies }, optional?: CallOptions): Promise<Outcome<AddonUninstallReceipt>> {
+    const parsed = parseBoundary({ schema: uninstallAddonSchema, input: required.request });
+    if (!parsed.ok) return parsed;
+    const addon = await findAddon({ context: required.context, ...parsed.value, repo: required.dependencies.repo });
+    if (!addon) return parseBoundary({ schema: addonUninstallReceiptSchema, input: { ...parsed.value, removed: true } });
+    const operationId = required.dependencies.ids.next({});
+    const audited = await required.dependencies.audit.record({ context: required.context, pluginId: addon.id, operationId, operation: 'uninstall.requested' }, optional);
+    if (!audited.ok) return audited;
+    const closed = await closeIdle({ ...required, addon }, optional);
+    if (!closed.ok) return closed;
+    if (optional?.signal?.aborted) return addonFailure({ code: 'cancelled' });
+    return attempt({ run: async () => {
+        await required.dependencies.packages[addon.kind].remove({ context: required.context, addon });
+        await required.dependencies.repo.remove({ context: required.context, ...parsed.value });
+        const completed = await required.dependencies.audit.record({ context: required.context, pluginId: addon.id, operationId, operation: 'uninstall.completed' }, optional);
+        return completed.ok ? parseBoundary({ schema: addonUninstallReceiptSchema, input: { ...parsed.value, removed: true } }) : reconciliationFailure();
+    } });
+}
+
+async function findAddon(required: { context: CallContext; kind: AddonKind; id: string; repo: AddonRepository }): Promise<AddonSummary | undefined> {
+    return (await required.repo.list(required)).find(row => row.kind === required.kind && row.id === required.id);
+}
+
+function rowKey(required: { addon: AddonSummary }): string {
+    return required.addon.kind + ':' + createHash('sha256').update(required.addon.id).digest('hex');
+}
+/** Foreign Array.sort ABI: lexical order is stable across locale and restart. */
+function compareAddons(left: AddonSummary, right: AddonSummary): number {
+    const a = rowKey({ addon: left }); const b = rowKey({ addon: right });
+    return a < b ? -1 : Number(a > b);
+}
+

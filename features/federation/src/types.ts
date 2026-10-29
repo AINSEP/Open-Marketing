@@ -43,14 +43,6 @@ export type FederatedApproval = {
   readonly expiresAt: number;
   readonly revoked: boolean;
 };
-/** Feature limits are hard caps, independent of tool/vendor-supplied metadata. */
-export type FederationLimits = {
-  readonly argumentBytes: number;
-  readonly resultBytes: number;
-  readonly maxContent: number;
-  readonly timeoutMs: number;
-  readonly maxConnections: number;
-};
 /** Server-only invocation surface. @example host.invoke({ context, call }) */
 export interface FederationHost {
   invoke(required: { context: CallContext; call: ExternalToolCall }, optional?: CallOptions): Promise<Outcome<ExternalToolResult>>;

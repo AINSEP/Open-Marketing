@@ -1,10 +1,88 @@
-import type { Completion, EnqueueResult, LeaseFence, OutboxEvent, OutboxJob } from "./types.js";
+import { boundedJsonSchema, callContextSchema, idSchema } from "@open-marketing/contracts";
+import type { CallContext, ClockPort, IdPort, Outcome } from "@open-marketing/contracts";
+import type { Completion, EnqueueResult, JobRequest, LeaseFence, OutboxEvent, OutboxJob } from "./types.js";
 import type { ManagedOutboxStore } from "./store.js";
 import type { JobsSqlDatabase, JobsSqlSession } from "./sql-types.js";
 import { validateClaim, validateCompletion, validateFence, validateResolution, validateTime, validateSubjectCancellation } from "./store.js";
 import { appendTransition, enqueueSqlJob, sqlJob } from "./sql-queries.js";
-import { JobStoreError } from "./errors.js";
+import { jobFailure, JobStoreError } from "./errors.js";
+import { jobTenant, prepareJob, storeFailure } from "./repository.js";
 import { validateStoredJob } from "./schema.js";
+
+/** Enqueue and reserve only a new inline intent in one transaction, joining a supplied session.
+ * Existing/conflicting requests never receive another claim. Failures roll back both journal rows.
+ * @example enqueueInlineJob({ database, clock, ids, context, job, leaseMs: 60000 })
+ * @complexity Bounded payload validation and capacity count (<=10000 jobs), then indexed writes.
+ */
+export async function enqueueInlineJob(required: { database: JobsSqlDatabase; clock: ClockPort; ids: IdPort; context: CallContext; job: JobRequest; leaseMs: number }): Promise<Outcome<EnqueueResult>> {
+    let job: OutboxJob;
+    let token: string;
+    try {
+        if (!Number.isSafeInteger(required.leaseMs) || required.leaseMs < 1) throw new TypeError("Invalid inline lease");
+        job = prepareJob(required);
+        token = required.ids.next({});
+        validateClaim({ now: job.createdAt, leaseToken: token, leaseExpiresAt: job.createdAt + required.leaseMs, maxAttempts: 1 });
+    } catch { return jobFailure({ code: "invalid_input", message: "Invalid inline job request" }); }
+    try {
+        return await required.database.transaction({ work: async ({ session }): Promise<Outcome<EnqueueResult>> => {
+            const queued = await enqueueSqlJob({ session, job, maxJobs: 10000 });
+            if (queued.kind !== "inserted") return { ok: true, value: queued };
+            const now = required.clock.now({});
+            const leaseExpiresAt = now + required.leaseMs;
+            validateClaim({ now, leaseToken: token, leaseExpiresAt, maxAttempts: 1 });
+            const duplicate = await session.query({ text: "SELECT id FROM job WHERE lease_token = $1", values: [token] });
+            if (duplicate.rows.length) throw new JobStoreError({ code: "conflict", message: "Lease token already active" });
+            const reserved = await session.query({ text: "UPDATE job SET state='leased', attempts=1, lease_token=$1, lease_expires_at=$2 WHERE id=$3 AND tenant_id=$4 AND state='pending' AND attempts=0 RETURNING *",
+                values: [token, leaseExpiresAt, job.id, job.tenantId] });
+            if (reserved.rows.length !== 1) throw new JobStoreError({ code: "conflict", message: "Inline job reservation lost" });
+            const leased = sqlJob({ row: reserved.rows[0] });
+            await appendTransition({ session, job: leased, event: "claim", now });
+            return { ok: true, value: { kind: "inserted", job: leased } };
+        } });
+    } catch (error) { return storeFailure({ error }); }
+}
+
+/** Append bounded scoped evidence; duplicate dispatch steps and expired/ended claims fail closed.
+ * Observations remain appendable after completion. No evidence append acquires execution authority.
+ * @example appendJobEvidence({ database, clock, context, jobId, event: "step", evidence: { phase: "dispatch" } })
+ * @complexity One indexed job read/append; dispatch checks <=128 prior bounded records for this event.
+ */
+export async function appendJobEvidence(required: { database: JobsSqlDatabase; clock: ClockPort; context: CallContext; jobId: string; event: string; evidence: Record<string, unknown> }): Promise<Outcome<void>> {
+    const evidence = boundedJsonSchema.safeParse(required.evidence);
+    if (!evidence.success) return jobFailure({ code: "limit_exceeded", message: "Job evidence exceeds bounds" });
+    if (!callContextSchema.safeParse(required.context).success || !idSchema.safeParse(required.jobId).success || !idSchema.safeParse(required.event).success)
+        return jobFailure({ code: "invalid_input", message: "Invalid job evidence key" });
+    const evidenceId = JSON.stringify(evidence.data);
+    const tenantId = jobTenant(required);
+    const { jobId, event } = required;
+    const dispatch = required.evidence.phase === "dispatch";
+    try {
+        return await required.database.transaction({ work: async ({ session }): Promise<Outcome<void>> => {
+            const found = await session.query({ text: "SELECT * FROM job WHERE id=$1 AND tenant_id=$2", values: [jobId, tenantId] });
+            if (!found.rows.length) return jobFailure({ code: "forbidden", message: "Owning job unavailable" });
+            const job = sqlJob({ row: found.rows[0] });
+            const checked = dispatch ? await validateDispatchEvidence({ session, job, event, clock: required.clock }) : { ok: true as const, value: required.clock.now({}) };
+            if (!checked.ok) return checked;
+            const now = checked.value;
+            validateTime({ now });
+            await appendTransition({ session, job, event, now, evidenceId });
+            return { ok: true, value: undefined };
+        } });
+    } catch (error) { return storeFailure({ error }); }
+}
+/** Validate the dispatch fence inside the evidence transaction and return its timestamp.
+ * O(n) time/space for <=129 prior rows; one bounded query, no writes. */
+async function validateDispatchEvidence(required: { session: JobsSqlSession; job: OutboxJob; event: string; clock: ClockPort }): Promise<Outcome<number>> {
+    const { session, job, event } = required;
+    const prior = await session.query({ text: "SELECT evidence_id FROM job_attempt WHERE job_id=$1 AND tenant_id=$2 AND event_type=$3 LIMIT 129", values: [job.id, job.tenantId, event] });
+    if (prior.rows.length >= 128 || prior.rows.some(row => JSON.parse(String(row.evidence_id)).phase === "dispatch"))
+        return jobFailure({ code: "conflict", message: "Job step already dispatched" });
+    const now = required.clock.now({});
+    validateTime({ now });
+    if (job.state !== "dispatching" || job.leaseExpiresAt === null || job.leaseExpiresAt <= now)
+        return jobFailure({ code: "conflict", message: "Job dispatch claim ended or expired" });
+    return { ok: true, value: now };
+}
 /** Serialized durable outbox adapter, driver-free and timer-free. Migration application belongs to server composition.
  * @example createSqlOutboxStore({ database })
  * @complexity Indexed transitions/claims plus bounded recovery (<=1000 rows); capacity check O(n), n <=maxJobs.

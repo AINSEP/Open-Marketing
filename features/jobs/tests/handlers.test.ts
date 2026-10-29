@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createJobHandlerRegistry } from "../index.js";
 import type { TransportResult } from "../index.js";
-import { context, job } from "./fixtures.js";
+import { context, job, storedJob } from "./fixtures.js";
 function pendingAttempt(required: Record<string, never>) {
     const { promise: result, resolve: resolve } = Promise.withResolvers<TransportResult>();
     const { promise: started, resolve: entered } = Promise.withResolvers<void>();
@@ -10,6 +10,21 @@ function pendingAttempt(required: Record<string, never>) {
     return { handler, started, dispose, resolve };
 }
 describe("handler lifecycle", () => {
+    it("distinguishes a claim handler's null diagnostic from no claim handler", async () => {
+        const registry = createJobHandlerRegistry({});
+        const handle = vi.fn(async (): Promise<TransportResult> => ({ kind: "success" }));
+        const handleClaim = vi.fn(async () => ({ ok: true as const, value: null }));
+        registry.register({ name: "write", handler: { handle, handleClaim, async dispose() {} } });
+        const claimed = { context, job, lease: storedJob({}) };
+        expect(await registry.dispatchClaim!(claimed)).toEqual({ ok: true, value: { settled: null } });
+        expect(handleClaim).toHaveBeenCalledTimes(1);
+        expect(handle).not.toHaveBeenCalled();
+        await registry.unregister({ name: "write" });
+        registry.register({ name: "write", handler: { handle, async dispose() {} } });
+        expect(await registry.dispatchClaim!(claimed)).toEqual({ ok: true, value: null });
+        expect(handle).not.toHaveBeenCalled();
+        await registry.dispose({});
+    });
     it("unregister removes admission immediately, drains the active effect and disposes once", async () => {
         const registry = createJobHandlerRegistry({});
         const attempt = pendingAttempt({});

@@ -1,10 +1,10 @@
 import { z } from "zod";
-import { callContextSchema, epochSchema, idSchema, parseBoundary } from "@open-marketing/contracts";
-import type { CallContext, CallOptions, ClockPort, IdPort, Outcome } from "@open-marketing/contracts";
-import type { IdentityPort, WorkspaceObserverPort, WorkspaceRepoPort } from "./ports.js";
+import { epochSchema, idSchema, parseBoundary } from "@open-marketing/contracts";
+import type { CallContext, CallOptions, ClockPort, IdPort, ObserverPort, Outcome } from "@open-marketing/contracts";
+import type { IdentityPort, WorkspaceRepoPort } from "./ports.js";
 import type { AccountBinding, SessionReference, WorkspaceService } from "./types.js";
 import { callPort, observe } from "./boundary.js";
-import { failure, ownsContext, sameBinding, sameContext, sameScope } from "./rules.js";
+import { failure, sameBinding, sameContext, sameScope } from "./rules.js";
 import { bindSchema, bindingSchema, identitySchema, resolveSchema } from "./schemas.js";
 
 type IssuedContext = { readonly session: SessionReference; readonly snapshot: CallContext; readonly issuedAt: number };
@@ -15,7 +15,7 @@ type IssuedContext = { readonly session: SessionReference; readonly snapshot: Ca
  * @example const result = await service.resolveContext({ session: { sessionId: "server-session" }, workspaceId: "workspace" });
  * @complexity O(1) per call plus injected ports; weak keys allow unused contexts to be collected.
  */
-export function createWorkspaceService(required: { repo: WorkspaceRepoPort; identity: IdentityPort; ids: IdPort; clock: ClockPort }, optional?: { observer?: WorkspaceObserverPort }): WorkspaceService {
+export function createWorkspaceService(required: { repo: WorkspaceRepoPort; identity: IdentityPort; ids: IdPort; clock: ClockPort }, optional?: { observer?: ObserverPort }): WorkspaceService {
   const issued = new WeakMap<CallContext, IssuedContext>();
   return {
     async resolveContext(input, options) {
@@ -51,17 +51,19 @@ export function createWorkspaceService(required: { repo: WorkspaceRepoPort; iden
   };
 }
 
-/** Verify identity before resolving, then reject mismatched repository authority. @complexity O(1), two port calls. */
-async function resolveAuthenticated(required: { repo: WorkspaceRepoPort; identity: IdentityPort; input: Parameters<WorkspaceService["resolveContext"]>[0] }, optional?: CallOptions): Promise<Outcome<CallContext>> {
+/** Verify identity once, check scoped existence, and derive owner authority; failures stay typed.
+ * @complexity O(1) space and two port calls for bounded identifiers.
+ */
+async function resolveAuthenticated(required: { repo: WorkspaceRepoPort; identity: IdentityPort; input: Parameters<WorkspaceService["resolveContext"]>[0] }, optional?: CallOptions): Promise<Outcome<Pick<CallContext, "scope" | "principal">>> {
   const input = required.input;
   const identity = await callPort({ invoke: () => required.identity.verify({ session: input.session }, optional), schema: identitySchema }, optional);
   if (!identity.ok) return identity;
   if (identity.value.sessionId !== input.session.sessionId) return failure({ code: "unauthenticated", message: "Identity session mismatch" });
-  const context = await callPort({ invoke: () => required.repo.resolve(input, optional), schema: callContextSchema }, optional);
-  if (!context.ok) return context;
-  const expectedScope = { ownerId: identity.value.ownerId, workspaceId: input.workspaceId };
-  if (!ownsContext({ context: context.value }) || !sameScope({ left: context.value.scope, right: expectedScope })) return failure({ code: "forbidden", message: "Repository identity or workspace mismatch" });
-  return context;
+  const scope = { ownerId: identity.value.ownerId, workspaceId: input.workspaceId };
+  const exists = await callPort({ invoke: () => required.repo.hasWorkspace({ scope }, optional), schema: z.boolean() }, optional);
+  if (!exists.ok) return exists;
+  if (!exists.value) return failure({ code: "forbidden", message: "Workspace is not owned by this identity" });
+  return { ok: true, value: { scope, principal: { kind: "owner", ownerId: scope.ownerId } } };
 }
 
 /** Recheck the live session and immutable scope immediately before binding. Five-minute context lifetime.

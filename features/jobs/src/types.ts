@@ -97,6 +97,9 @@ export interface OutboxPorts {
     readonly transport: Transport;
     /** Refresh permission/halt state immediately before each outbound attempt; no gate duplication. */
     readonly authorize: (job: OutboxJob) => Promise<boolean>;
+    /** Offer an authorized lease to a handler owning dispatch-start/completion; null uses transport.
+     * TODO(R1): Remove this handoff when published Jini supplies outbox fencing. */
+    dispatchClaim?(required: { job: OutboxJob; signal?: AbortSignalPort }): Promise<ProcessResult | null>;
     /** Best-effort observer: exceptions cannot alter delivery or manufacture a retry. */
     readonly observe?: (event: OutboxEvent) => void;
 }
@@ -124,13 +127,6 @@ export type JobReceipt = {
 /** WorkerIdentity domain value; validation belongs at the boundary. */
 export type WorkerIdentity = {
     readonly workerId: string;
-};
-/** Enqueue in the caller's transaction; optional timing is validated before persistence. */
-export type TransactionalEnqueue = {
-    enqueue(required: {
-        context: CallContext;
-        job: JobRequest;
-    } & z.infer<typeof enqueueTimingSchema>, optional?: CallOptions): Promise<Outcome<JobReceipt>>;
 };
 /** Commit intent and job atomically; optional timing never changes the domain payload/digest. */
 export type DomainIntentTransactionPort = {

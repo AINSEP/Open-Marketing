@@ -1,49 +1,35 @@
 # plugins
 
-Public entry: `@open-marketing/plugins` only.
-
-This feature validates portable v1.1 packages, verifies host trust and byte pins, and coordinates
-install, enable, disable, update (install a replacement), and uninstall. Installation is disabled
-by default. Admission is a catalog decision; it creates no write or spend grants.
+`@open-marketing/plugins` owns the running add-on lifecycle for executable plugins,
+Agent Plugins and skills. Server composition injects the existing repository and
+package adapters, upload decoder, append-only audit, job activity and observer.
 
 ```ts
-const service = createPluginService({ repo, lifecycle, layout, provisioning, trust, audit });
-const installed = await service.install({ context, source });
+const service = createPluginService({ repo, packages, decodeUpload, audit, runningJobs, observer });
+const installed = await service.install({ context, request: { upload } });
 if (installed.ok) {
-  await service.setEnabled({ context, pluginId: installed.value.pluginId, enabled: true });
+  await service.setEnabled({ context, request: {
+    kind: installed.value.kind, id: installed.value.id, enabled: true,
+  } });
 }
 ```
 
-The app composition root supplies every dependency. `source.expectedDigest` is a verified
-lowercase SHA-256 pin, and directory sources must be immutable for the complete operation.
-Running jobs block update/removal. Disabling and removal unregister bindings; partial failures
-return explicit outcomes and require reconciliation rather than blind retries.
+Installations and replacements start disabled. Identical uploads preserve activation.
+Audit intent precedes publication, activation and removal. Disable still closes the
+runtime when intent audit fails and returns reconciliation guidance. Replacement and removal
+check durable activity, close admission, then check activity again. Running or
+uncertain work retains bytes and metadata; failed enablement closes runtime resources.
+Partial effects return reconciliation guidance without authorizing blind retries.
+Instruction reads recheck the installed revision and activation after awaiting bytes.
 
-`createJiniArchivePackageReader({ archiveReader, readArchive })` projects the published Jini
-streaming archive API into the filesystem layout adapter's `readArchive` callback. Reads are
-bounded to 32 MiB/archive, 16 MiB/file, 64 MiB total, 4096 entries, and 65536 chunks/file.
-The host bounds I/O duration and decompression buffers and supplies cancellation through a signal.
-Directory inspection limits depth to 32 and rejects links. Archive inspection never extracts.
+Server adapters reuse published Jini 0.6.12 lifecycle/update, executable-plugin and
+skill APIs. Agent Plugin updates pin the resolved old digest; server startup calls
+Jini update reconciliation before seeding or restoring runtimes. Recovery failure stops boot. No new journal, registry or approval flow is introduced.
+Generation/conversion work without a resolvable plugin identity conservatively blocks
+cleanup until it finishes or is reconciled. The server owns SQL, filesystem effects,
+credential custody and safety; installation grants no write or spend authority.
 
-`exportAgentPluginInstructions({ inspection })` returns only plugin identity and screened skill
-text. MCP configuration, extension metadata and server credentials are excluded. Trusted package
-authors must still avoid embedding secrets in arbitrary prose; the content screen is not a secret
-detector.
-
-OM extension declarations use `io.github.ainsep.openmarketing`, version 1. Array declarations
-carry capability ID, version, plugin ID, schema fingerprint and shared contract effects. A mapping
-can instead reference a capability JSON declaration under the namespace directory and a valid
-MCP server. Package declarations may omit `pluginDigest` and `admitted`; the host derives the byte
-pin and always returns `admitted: false`. Bound declarations fingerprint their actual JSON bytes.
-Author admission/default-tool/risk hints never grant execution.
-
-Published `@jini-ai/agent-plugins` 0.4.3 is reused through `./lifecycle` and `./manifest` exports.
-Its installer still requires v1.0, so real OM v1.1 installation is deferred pending upstream support.
-The adapter returns `invalid_input` for that unsupported format; it does not rewrite package bytes.
-Jini workspace keys must encode both owner and workspace in a lowercase safe segment, for example
-SHA-256 of the scope tuple. OM metadata and server safety remain the activation/authority source.
-
-Behavioral B1 suites cover memory, filesystem metadata/layout, archive layout, and lifecycle
-adapters. Published Jini lifecycle tests use v1.0 solely to exercise its physical behavior; a separate
-test asserts its v1.1 rejection. Tests, builds and `om:check` were not run under the owner override.
-See [HANDOFF.md](./HANDOFF.md) for verification status, risks and integration needs.
+Tests cover the lifecycle through fixture and composed Jini/SQL adapters, including
+activity races and partial failures. They were written but not run for R2-oe3 B1.
+Federation consolidation is deferred to its own run; this change does not replace
+the existing running federation host.

@@ -1,4 +1,27 @@
 import type { CallContext, CallOptions, Outcome, Scope, TimeWindow } from "@open-marketing/contracts";
+import { epochSchema } from "@open-marketing/contracts";
+import { z } from "zod";
+const clickIdentifierSchema = z.string().min(1).max(2048).regex(/^[A-Za-z0-9._-]+$/).refine(value => value.trim() === value);
+
+/** Visitor-controlled attribution claims; ordinary UTMs never establish paid attribution.
+ * Ingress supplies authenticated identity/scope separately. Raw page URLs are never persisted. */
+export const landingPropertiesSchema = z.strictObject({
+  linkId: z.string().min(1).max(256).regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/).refine(value => value.trim() === value).optional(),
+  campaignId: z.string().max(256).optional(),
+  utm_source: z.string().max(256).optional(), utm_medium: z.string().max(256).optional(),
+  om_a: z.string().max(256).optional(), utm_id: z.string().max(256).optional(),
+  pageUrl: z.url({ protocol: /^https$/ }).max(2048).refine(value => {
+    if (!URL.canParse(value)) return false;
+    const url = new URL(value);
+    return !url.username && !url.password;
+  }).optional(),
+  gclid: clickIdentifierSchema.optional(), gbraid: clickIdentifierSchema.optional(),
+  wbraid: clickIdentifierSchema.optional(), fbclid: clickIdentifierSchema.optional(),
+});
+export type LandingProperties = z.infer<typeof landingPropertiesSchema>;
+/** Collector evidence only: ready means an accepted landing within the last seven days. */
+export const destinationReadinessSchema = z.strictObject({ status: z.enum(["missing", "stale", "ready"]), heartbeatAt: epochSchema.nullable() });
+export type DestinationReadiness = z.infer<typeof destinationReadinessSchema>;
 
 /** One envelope for collection, attribution and later event consumers.
  * Ingress limits: properties <=32 keys, each string <=2048 chars, total JSON <=16 KiB.
@@ -33,4 +56,6 @@ export interface WebEventService {
   recordTouch(required: { context: CallContext; event: WebEvent }, optional?: CallOptions): Promise<Outcome<AttributionTouch>>;
   bindVisitor(required: { context: CallContext; visitToken: string; subjectId: string }, optional?: CallOptions): Promise<Outcome<Visit>>;
   touchesFor(required: { context: CallContext; subjectId: string; window: TimeWindow; limit: number }, optional?: CallOptions): Promise<Outcome<readonly AttributionTouch[]>>;
+  /** Exact HTTPS origin/path; does not prove reachability or vendor delivery. */
+  destinationReadiness(required: { context: CallContext; destinationUrl: string }, optional?: CallOptions): Promise<Outcome<DestinationReadiness>>;
 }

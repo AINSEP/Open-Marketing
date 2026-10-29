@@ -1,7 +1,8 @@
+import type { ObserverPort } from "@open-marketing/contracts";
 import { describe, it, expect } from "vitest";
 import type {
   FederationConnectionRepoPort, McpTransportPort, FederationCredentialPort, FederatedToolPermissionGate,
-  FederatedCallConfirmation, ExternalMcpToolApprovalRepoPort, FederatedDispatchGatePort, FederationAuditPort, ToolRegistryPort, FederationObserverPort,
+  FederatedCallConfirmation, ExternalMcpToolApprovalRepoPort, FederatedDispatchGatePort, FederationAuditPort, ToolRegistryPort,
 } from "../../index.js";
 import { context, call, connection, descriptor, echoResult } from "../fixtures/domain.js";
 
@@ -82,7 +83,7 @@ export function McpTransportPortSuite(required: { name: string; create: () => Pr
 }
 
 /** Diagnostics preserve operation/trace identity as independent redacted snapshots. */
-export function FederationObserverPortSuite(required: { create: () => FederationObserverPort; read: (required: { port: FederationObserverPort }) => readonly unknown[] }): void {
+export function FederationObserverPortSuite(required: { create: () => ObserverPort; read: (required: { port: ObserverPort }) => readonly unknown[] }): void {
   describe("FederationObserverPort", () => {
     it("retains independent observations in order", () => {
       const port = required.create();

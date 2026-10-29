@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { CallContext, DomainIntentTransactionPort, JobReceipt, JobRepoPort, Outcome } from "../../index.js";
+import type { CallContext, Outcome } from "@open-marketing/contracts";
+import type { DomainIntentTransactionPort, JobReceipt, JobRepoPort } from "../../index.js";
 import { jobTenant } from "../../index.js";
 import { clockFixture, context, job } from "../fixtures.js";
 export interface IntentFixture {

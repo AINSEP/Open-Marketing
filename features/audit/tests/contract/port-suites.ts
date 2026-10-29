@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
-import type { AuditRepoPort, AuditRedactorPort, AuditObserverPort, AuditEntry, AuditSqlDatabase, AuditSqlSession } from "../../index.js";
+import type { ObserverPort } from "@open-marketing/contracts";
+import type { AuditRepoPort, AuditRedactorPort, AuditEntry, AuditSqlDatabase, AuditSqlSession } from "../../index.js";
 import { context, entry, value } from "../fixtures.js";
 
 type RepoFixture = { repo: AuditRepoPort; dispose(required: Record<string, never>): void };
@@ -184,7 +185,7 @@ export function AuditRedactorPortSuite(required: { name: string; create(required
 
 /** Observer ABI shared by the capture double and a composition-owned forwarding adapter. */
 export function AuditObserverPortSuite(required: {
-  name: string; create(required: Record<string, never>): { observer: AuditObserverPort; events(required: Record<string, never>): readonly unknown[] };
+  name: string; create(required: Record<string, never>): { observer: ObserverPort; events(required: Record<string, never>): readonly unknown[] };
 }): void {
   describe(`AuditObserverPort: ${required.name}`, () => {
     it("propagates operation/outcome and run/correlation/trace IDs", () => {

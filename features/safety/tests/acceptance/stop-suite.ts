@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { digestArguments } from "../../index.js";
-import type { HaltStopRequest } from "../../index.js";
+import type { HaltStopRequest } from "@open-marketing/contracts";
 import { context, createHarness, pluginDigest, unwrap } from "../fixtures.js";
 /** Typed halt-stop capability cannot inflate into arbitrary mutations. */
 export function stopSuite(required: { backend: "memory" | "sql" }) {

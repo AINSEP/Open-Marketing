@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { parseBoundary } from '@open-marketing/contracts';
-import type { CallContext, CallOptions, Outcome, Scope } from '@open-marketing/contracts';
-import type { ImageInspectionPort, MediaObserverPort } from './ports.js';
+import type { CallContext, CallOptions, Outcome, Scope, ObserverPort } from '@open-marketing/contracts';
+import type { ImageInspectionPort } from './ports.js';
 import type { ImageInspection, ImageInspectionLimits } from './types.js';
 import { boundary } from './boundary.js';
 import { checkContext, fail, success } from './validation.js';
@@ -21,7 +21,7 @@ export const imageLimitsSchema = z.strictObject({ maxEdge: z.number().int().posi
  * No codec is constructed here. @complexity O(bytes + decoded pixels), input cap 25 MB.
  * @example createImageInspectionAdapter({ scope, decode: hostImageDecoder })
  */
-export function createImageInspectionAdapter(required: { scope: Scope; decode: (required: { bytes: Uint8Array; contentType: string; maxPixels: number }, optional?: CallOptions) => Promise<unknown> }, optional?: { observer?: MediaObserverPort }): ImageInspectionPort {
+export function createImageInspectionAdapter(required: { scope: Scope; decode: (required: { bytes: Uint8Array; contentType: string; maxPixels: number }, optional?: CallOptions) => Promise<unknown> }, optional?: { observer?: ObserverPort }): ImageInspectionPort {
   return {
     async inspect(input, options) {
       const context = checkContext({ context: input.context, options, scope: required.scope });

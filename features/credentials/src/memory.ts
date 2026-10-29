@@ -66,7 +66,7 @@ export function createMemoryCredentialRefresh(required: { sealer: SecretSealerPo
 }
 
 /** Redacted observer double; exposes only metadata snapshots. @complexity O(1) append, bounded to 10000 events. */
-export function createMemoryCredentialObserver(required: Record<string, never>): import("./ports.js").CredentialObserverPort & { events(required: Record<string, never>): readonly import("@open-marketing/contracts").ObserverEvent[] } {
+export function createMemoryCredentialObserver(required: Record<string, never>): import("@open-marketing/contracts").ObserverPort & { events(required: Record<string, never>): readonly import("@open-marketing/contracts").ObserverEvent[] } {
   const events: import("@open-marketing/contracts").ObserverEvent[] = [];
   return {
     observe(input) {

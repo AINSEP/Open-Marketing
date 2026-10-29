@@ -1,135 +1,46 @@
-import { describe, it, expect } from "vitest";
-import type { PluginRepoPort, PluginLifecyclePort, AgentPluginLayoutPort, AgentPluginMcpProvisioningPort, PluginTrustPort, PluginAuditPort, PluginObserverPort, PluginSource, InstalledPlugin, PluginPackage } from "../../index.js";
-import type { ObserverEvent } from "@open-marketing/contracts";
-import { pluginSchemaFingerprint } from "../../index.js";
-import { context, descriptor, plugin, packageFixture } from "../fixtures/plugin.js";
-
+import { describe, it, expect } from 'vitest';
+import type { AddonRepository, PluginAuditPort, PluginService } from '../../index.js';
+import type { AddonSummary, AddonUpload, CallContext, ObserverEvent, ObserverPort } from '@open-marketing/contracts';
+import { context } from '../fixtures/plugin.js';
 type Factory<T> = () => T | Promise<T>;
-/** Shared behavioral metadata contract; memory and atomic filesystem adapters use this suite. */
-export function PluginRepoPortSuite(required: { create: Factory<PluginRepoPort> }) {
-  describe("PluginRepoPort behavior", () => {
-    it("stores, replaces and removes scoped metadata", async () => {
-      const port = await required.create();
-      expect(await port.get({ context, pluginId: plugin.pluginId })).toEqual({ ok: true, value: null });
-      expect(await port.save({ context, plugin })).toEqual({ ok: true, value: plugin });
-      expect(await port.get({ context, pluginId: plugin.pluginId })).toEqual({ ok: true, value: plugin });
-      const updated = { ...plugin, enabled: true };
-      expect(await port.save({ context, plugin: updated })).toEqual({ ok: true, value: updated });
-      expect(await port.remove({ context, pluginId: plugin.pluginId })).toEqual({ ok: true, value: undefined });
-      expect(await port.remove({ context, pluginId: plugin.pluginId })).toEqual({ ok: true, value: undefined });
-      expect(await port.get({ context, pluginId: plugin.pluginId })).toEqual({ ok: true, value: null });
-    });
-    it("isolates owner and workspace and returns independent copies", async () => {
-      const port = await required.create();
-      const original = structuredClone(plugin);
-      await port.save({ context, plugin: original });
-      (original as { version: string }).version = "mutated";
-      const otherOwner = { ...context, scope: { ...context.scope, ownerId: "other" } };
-      const otherWorkspace = { ...context, scope: { ...context.scope, workspaceId: "other" } };
-      expect(await port.get({ context: otherOwner, pluginId: plugin.pluginId })).toEqual({ ok: true, value: null });
-      expect(await port.get({ context: otherWorkspace, pluginId: plugin.pluginId })).toEqual({ ok: true, value: null });
-      expect(await port.get({ context, pluginId: plugin.pluginId })).toEqual({ ok: true, value: plugin });
-      const result = await port.get({ context, pluginId: plugin.pluginId });
-      if (result.ok && result.value) (result.value as { version: string }).version = "read-mutated";
-      expect(await port.get({ context, pluginId: plugin.pluginId })).toEqual({ ok: true, value: plugin });
-    });
-    it("rejects invalid persisted authority fields", async () => {
-      const port = await required.create();
-      const outcome = await port.save({ context, plugin: { ...plugin, digest: "wrong" } });
-      expect(outcome.ok).toBe(false);
-      expect(await port.get({ context, pluginId: plugin.pluginId })).toEqual({ ok: true, value: null });
-    });
+/** Memory catalog reference; server tests run shared memory/SQL scenarios. */
+export function AddonRepositorySuite(required: { create: Factory<{ repo: AddonRepository; dispose(): void }> }) {
+  it('catalog isolates scope, clones values, replaces revisions and removes idempotently', async () => {
+    const { repo, dispose } = await required.create();
+    const addon: AddonSummary = { id: 'demo', kind: 'skill', name: 'Demo', version: '1', description: '', revision: 'revision1', enabled: false };
+    try {
+      await repo.save({ context, addon });
+      addon.enabled = true;
+      expect(await repo.list({ context })).toEqual([{ ...addon, enabled: false }]);
+      expect(await repo.list({ context: { ...context, scope: { ...context.scope, ownerId: 'other' } } })).toEqual([]);
+      expect(await repo.list({ context: { ...context, scope: { ...context.scope, workspaceId: 'other' } } })).toEqual([]);
+      const [read] = await repo.list({ context }); read.name = 'mutated';
+      expect((await repo.list({ context }))[0].name).toBe('Demo');
+      expect((await repo.list({ context: { ...context, scope: { workspaceId: context.scope.workspaceId, ownerId: context.scope.ownerId } } }))[0].name).toBe('Demo');
+      await repo.save({ context, addon });
+      expect(await repo.list({ context })).toEqual([addon]);
+      await repo.remove({ context, kind: addon.kind, id: addon.id });
+      await repo.remove({ context, kind: addon.kind, id: addon.id });
+      expect(await repo.list({ context })).toEqual([]);
+    } finally { dispose(); }
   });
 }
-
-export function PluginLifecyclePortSuite(required: { create: Factory<{ port: PluginLifecyclePort; source: PluginSource }> }) {
-  describe("PluginLifecyclePort behavior", () => {
-    it("installs disabled without tool/write/spend authority", async () => {
-      const fixture = await required.create();
-      const installed = await fixture.port.install({ context, source: fixture.source });
-      expect(installed).toMatchObject({ ok: true, value: { pluginId: "demo", digest: fixture.source.expectedDigest, enabled: false, admitted: false } });
-    });
-    it("refuses a mismatched source pin", async () => {
-      const fixture = await required.create();
-      const outcome = await fixture.port.install({ context, source: { ...fixture.source, expectedDigest: "f".repeat(64) } });
-      expect(outcome).toMatchObject({ ok: false, error: { code: "forbidden" } });
-    });
-    it("checks idle and removes idempotently", async () => {
-      const fixture = await required.create();
-      await fixture.port.install({ context, source: fixture.source });
-      expect(await fixture.port.checkIdle({ context, pluginId: "demo" })).toEqual({ ok: true, value: undefined });
-      expect(await fixture.port.dispose({ context, pluginId: "demo" })).toEqual({ ok: true, value: { pluginId: "demo", status: "removed" } });
-      expect(await fixture.port.dispose({ context, pluginId: "demo" })).toEqual({ ok: true, value: { pluginId: "demo", status: "removed" } });
-    });
-  });
-}
-
-export function AgentPluginLayoutPortSuite(required: { create(required: { package?: PluginPackage }): { port: AgentPluginLayoutPort; source: PluginSource } | Promise<{ port: AgentPluginLayoutPort; source: PluginSource }> }) {
-  describe("AgentPluginLayoutPort behavior", () => {
-    it("accepts v1.1 and returns the exact OM namespace with inert capabilities", async () => {
-      const fixture = await required.create({});
-      expect(await fixture.port.validate({ source: fixture.source })).toEqual({ ok: true, value: descriptor });
-    });
-    it("refuses malformed digest pins", async () => {
-      const fixture = await required.create({});
-      expect(await fixture.port.validate({ source: { ...fixture.source, expectedDigest: "invalid" } })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
-    });
-    it.each(["1.1.0", "2.0.0"])("rejects unsupported manifest schema %s in both memory and disk", async version => {
-      const fixture = await required.create({ package: packageFixture({}, { manifest: { $schema: `https://agent-plugins.org/schemas/${version}/plugin.schema.json` } }) });
-      expect(await fixture.port.validate({ source: fixture.source })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
-    });
-    it("unknown extensions remain inert while an invalid OM extension fails", async () => {
-      const unknown = await required.create({ package: packageFixture({}, { manifest: { extensions: { "com.example.other": { admitted: true } } } }) });
-      expect(await unknown.port.validate({ source: unknown.source })).toEqual({ ok: true, value: descriptor });
-      const invalid = await required.create({ package: packageFixture({}, { manifest: { extensions: { [descriptor.namespace]: { version: 99 } } } }) });
-      expect(await invalid.port.validate({ source: invalid.source })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
-    });
-    it("invalid MCP siblings do not block valid portable package inspection", async () => {
-      const fixture = await required.create({ package: packageFixture({}, { mcp: { $schema: "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json", mcpServers: { valid: { type: "stdio", command: "node" }, invalid: { type: "stdio", command: "../escape" } } } }) });
-      expect(await fixture.port.validate({ source: fixture.source })).toEqual({ ok: true, value: descriptor });
-    });
-  });
-}
-
-export function AgentPluginMcpProvisioningPortSuite(required: { create: Factory<{ port: AgentPluginMcpProvisioningPort; bindings: () => readonly InstalledPlugin[] }> }) {
-  describe("AgentPluginMcpProvisioningPort behavior", () => {
-    it("registers once, scopes bindings, unregisters/disposes idempotently", async () => {
-      const fixture = await required.create();
-      const admitted = { ...plugin, schemaFingerprint: pluginSchemaFingerprint({ descriptor }) };
-      const other = { ...context, scope: { ...context.scope, workspaceId: "other" } };
-      expect(await fixture.port.provision({ context, plugin: admitted })).toEqual({ ok: true, value: undefined });
-      expect(await fixture.port.provision({ context, plugin: admitted })).toEqual({ ok: true, value: undefined });
-      expect(await fixture.port.provision({ context: other, plugin: admitted })).toEqual({ ok: true, value: undefined });
-      expect(fixture.bindings()).toHaveLength(2);
-      await fixture.port.dispose({ context, pluginId: plugin.pluginId });
-      expect(fixture.bindings()).toHaveLength(1);
-      await fixture.port.dispose({ context, pluginId: plugin.pluginId });
-      await fixture.port.dispose({ context: other, pluginId: plugin.pluginId });
-      expect(fixture.bindings()).toHaveLength(0);
-    });
-    it("rejects unadmitted metadata without registration", async () => {
-      const fixture = await required.create();
-      expect(await fixture.port.provision({ context, plugin: { ...plugin, admitted: false } })).toMatchObject({ ok: false, error: { code: "forbidden" } });
-      expect(fixture.bindings()).toHaveLength(0);
-    });
-    it("requires a schema pin for admitted metadata", async () => {
-      const fixture = await required.create();
-      expect(await fixture.port.provision({ context, plugin })).toMatchObject({ ok: false, error: { code: "forbidden" } });
-      expect(fixture.bindings()).toHaveLength(0);
-    });
-  });
-}
-
-export function PluginTrustPortSuite(required: { create: Factory<{ port: PluginTrustPort; source: PluginSource }> }) {
-  describe("PluginTrustPort behavior", () => {
-    it("returns verified host-trusted identity", async () => {
-      const fixture = await required.create();
-      expect(await fixture.port.verify({ source: fixture.source })).toEqual({ ok: true, value: { pluginId: "demo", digest: fixture.source.expectedDigest } });
-    });
-    it("denies digest mismatch", async () => {
-      const fixture = await required.create();
-      expect(await fixture.port.verify({ source: { ...fixture.source, expectedDigest: "f".repeat(64) } })).toMatchObject({ ok: false, error: { code: "forbidden" } });
-    });
+/** Fixture lifecycle acceptance; server tests share scenarios with composed Jini adapters. */
+export function PluginServiceSuite(required: { create: Factory<{ service: PluginService; context: CallContext; upload: AddonUpload; dispose(): Promise<void> }> }) {
+  it('installs disabled, enables explicitly, replays unchanged, scopes and removes', async () => {
+    const f = await required.create();
+    try {
+      const installed = await f.service.install({ context: f.context, request: { upload: f.upload } });
+      expect(installed).toMatchObject({ ok: true, value: { enabled: false } });
+      if (!installed.ok) throw new Error('Expected installation');
+      const request = { kind: installed.value.kind, id: installed.value.id, enabled: true };
+      const enabled = await f.service.setEnabled({ context: f.context, request });
+      expect(enabled).toMatchObject({ ok: true, value: { enabled: true } });
+      expect(await f.service.install({ context: f.context, request: { upload: f.upload } })).toEqual(enabled);
+      expect(await f.service.setEnabled({ context: { ...f.context, scope: { ...f.context.scope, ownerId: 'other' } }, request })).toMatchObject({ ok: false });
+      expect(await f.service.uninstall({ context: f.context, request: { kind: request.kind, id: request.id } })).toMatchObject({ ok: true, value: { removed: true } });
+      expect(await f.service.list({ context: f.context, query: { limit: 100 } })).toEqual({ ok: true, value: { items: [], cursor: null } });
+    } finally { await f.dispose(); }
   });
 }
 
@@ -137,16 +48,16 @@ export function PluginAuditPortSuite(required: { create: Factory<{ port: PluginA
   describe("PluginAuditPort behavior", () => {
     it("appends independent records preserving scope/run/correlation/trace IDs", async () => {
       const fixture = await required.create();
-      const entry = { context: structuredClone(context), pluginId: "demo", operation: "install.requested" };
+      const entry = { context: structuredClone(context), pluginId: "demo", operationId: "fixture-operation", operation: "install.requested" };
       expect(await fixture.port.record(entry)).toEqual({ ok: true, value: undefined });
       entry.context.traceId = "changed";
-      await fixture.port.record({ context, pluginId: "demo", operation: "install.completed" });
-      expect(fixture.entries()).toEqual([{ context, pluginId: "demo", operation: "install.requested" }, { context, pluginId: "demo", operation: "install.completed" }]);
+      await fixture.port.record({ context, pluginId: "demo", operationId: "fixture-operation", operation: "install.completed" });
+      expect(fixture.entries()).toEqual([{ context, pluginId: "demo", operationId: "fixture-operation", operation: "install.requested" }, { context, pluginId: "demo", operationId: "fixture-operation", operation: "install.completed" }]);
     });
   });
 }
 
-export function PluginObserverPortSuite(required: { create: Factory<{ port: PluginObserverPort; events: () => readonly ObserverEvent[] }> }) {
+export function PluginObserverPortSuite(required: { create: Factory<{ port: ObserverPort; events: () => readonly ObserverEvent[] }> }) {
   describe("PluginObserverPort behavior", () => {
     it("records redacted lifecycle context", async () => {
       const fixture = await required.create();

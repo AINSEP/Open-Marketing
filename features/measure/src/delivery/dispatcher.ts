@@ -1,21 +1,23 @@
 import { parseBoundary } from "@open-marketing/contracts";
-import type { CallContext, CallOptions, ClockPort, Outcome, ServiceContext } from "@open-marketing/contracts";
-import type { ConversionIdentifiersPort, ConversionDeliveryPort, ConversionDeliveryStatePort, ConversionVerificationPort, MeasureAuditPort, MeasurementGrantPort, MeasurementShareabilityPort, MeasureObserverPort } from "../ports.js";
+import type { CallContext, CallOptions, ClockPort, Outcome, ServiceContext, ObserverPort } from "@open-marketing/contracts";
+import type { ConversionIdentifiersPort, ConversionDeliveryPort, ConversionDeliveryStatePort, ConversionVerificationPort, MeasureAuditPort, MeasurementGrantPort, MeasurementShareabilityPort } from "../ports.js";
 import type { ConversionDispatcher, ConversionDispatchRecord, ConversionInput, MeasureGrant } from "../types.js";
 import { runBoundary } from "../boundary.js";
 import { assessmentSchema, claimSchema, deliveryStatusSchema, dispatchRecordSchema, eventIdentity, failure, identifierLookupSchema, measureGrantSchema, sameScope, verificationSchema } from "../rules.js";
+import { mergeDeliveryDiagnostics } from "./ledger-rules.js";
 import { deliveryIdentity, parseDeliveryInput, parseResolvedDeliveryInput } from "./input.js";
 
 import type { ResolvedDeliveryInput } from "./input.js";
+import type { ConversionDeliveryOutcome } from "../types.js";
 
 type DispatchInput = { context: ServiceContext; event: ConversionInput; grant: MeasureGrant; deliveryId: string };
 type Dependencies = { identifiers: ConversionIdentifiersPort; delivery: ConversionDeliveryPort; ledger: ConversionDeliveryStatePort; verification: ConversionVerificationPort; policy: MeasurementShareabilityPort; grants: MeasurementGrantPort; audit: MeasureAuditPort; clock: ClockPort; runtimeMode: "production-server" | "local-sandbox" | "read-only"; payloadSchema: string };
 /** Independent typed server worker. No agent/studio grant, generic export or MCP path.
  * Claims persist before egress; interrupted/unknown claims only reconcile. Audit and
- * current consent/grant gates run immediately before every capability call.
+ * current consent/grant gates run immediately before each send/recovery call.
  * @example createConversionDispatcher({ identifiers, delivery, ledger, verification, policy, grants, audit, clock, runtimeMode: "production-server", payloadSchema: "om.conversion" })
  * @complexity O(k) bounded payload; O(1) ledger calls, no internal retries. */
-export function createConversionDispatcher(required: Dependencies, optional?: { observer?: MeasureObserverPort }): ConversionDispatcher {
+export function createConversionDispatcher(required: Dependencies, optional?: { observer?: ObserverPort }): ConversionDispatcher {
   return {
     async dispatch(input, options) {
       const parsed = parseDeliveryInput({ input });
@@ -23,9 +25,35 @@ export function createConversionDispatcher(required: Dependencies, optional?: { 
       const context = auditContext({ context: parsed.value.context });
       return runBoundary({ operation: "measure.dispatchConversion", context, observer: optional?.observer, work: () => dispatchOnce({ dependencies: required, input: parsed.value }, options) }, options);
     },
+    async reconcile(input, options) {
+      const parsed = parseDeliveryInput({ input });
+      if (!parsed.ok) return parsed;
+      const context = auditContext({ context: parsed.value.context });
+      return runBoundary({ operation: "measure.reconcileConversion", context, observer: optional?.observer, work: () => reconcileOnce({ dependencies: required, input: parsed.value }, options) }, options);
+    },
   };
 }
-async function dispatchOnce(required: { dependencies: Dependencies; input: DispatchInput }, optional?: CallOptions): Promise<Outcome<{ status: "delivered" | "unknown" }>> {
+/** Read saved accepted receipts. Failed reads cannot erase a send; identity is
+ * checked before invoking the port without resolving visitor identifiers.
+ * @complexity O(k) bounded identity, one ledger read, at most one GET and append. */
+async function reconcileOnce(required: { dependencies: Dependencies; input: DispatchInput }, optional?: CallOptions): Promise<Outcome<ConversionDeliveryOutcome>> {
+  const deps = required.dependencies;
+  if (deps.runtimeMode !== "production-server") return failure({ code: "forbidden", message: "Production conversion readback requires the always-on server" });
+  const saved = await deps.ledger.read({ context: required.input.context, deliveryId: required.input.deliveryId }, optional);
+  if (!saved.ok) return saved;
+  const parsed = parseBoundary({ schema: dispatchRecordSchema, input: saved.value });
+  if (!parsed.ok) return parsed;
+  const record = parsed.value;
+  if (record.deliveryId !== required.input.deliveryId || record.identity !== deliveryIdentity({ input: required.input })) return failure({ code: "conflict", message: "Delivery readback identity mismatch" });
+  if (record.status !== "delivered" || !record.receiptId) return settledOutcome({ record });
+  const result = await invokeCapability({ ...required, input: { ...required.input, receiptId: record.receiptId }, action: "reconcile" }, optional);
+  if (!result.ok || result.value.status !== "delivered") return settledOutcome({ record });
+  const outcome = { ...result.value, receiptId: result.value.receiptId ?? record.receiptId, diagnostics: mergeDeliveryDiagnostics({ before: record.diagnostics, after: result.value.diagnostics }) };
+  const appended = await deps.ledger.append({ context: required.input.context, record: { ...record, ...outcome, recordedAt: deps.clock.now({}) } });
+  if (!appended.ok) return appended;
+  return settledOutcome({ record: appended.value });
+}
+async function dispatchOnce(required: { dependencies: Dependencies; input: DispatchInput }, optional?: CallOptions): Promise<Outcome<ConversionDeliveryOutcome>> {
   const deps = required.dependencies;
   if (deps.runtimeMode !== "production-server") return failure({ code: "forbidden", message: "Production conversion delivery requires the always-on server" });
   const verified = await verifyConversion({ dependencies: deps, input: required.input }, optional);
@@ -37,11 +65,27 @@ async function dispatchOnce(required: { dependencies: Dependencies; input: Dispa
   const record: ConversionDispatchRecord = { deliveryId: required.input.deliveryId, subjectId: required.input.event.subjectId, eventId: required.input.event.eventId, identity: deliveryIdentity({ input: required.input }), status: "dispatching", recordedAt: deps.clock.now({}) };
   const claimed = await claimDelivery({ dependencies: deps, input: required.input, record }, optional);
   if (!claimed.ok) return claimed;
-  if (!claimed.value.acquired && claimed.value.record.status === "delivered") return { ok: true, value: { status: "delivered" } };
+  if (!claimed.value.acquired && ["delivered", "not_sent"].includes(claimed.value.record.status)) return settledOutcome({ record: claimed.value.record });
   const action = claimed.value.acquired ? "dispatch" : "reconcile";
   const authorized = await authorizeEgress({ ...required, record, action }, optional);
-  if (!authorized.ok) return authorized;
-  return perform({ dependencies: deps, input: resolved.value, record, action }, optional);
+  if (!authorized.ok) return recordRefusal({ ...required, record: claimed.value.record, action, refusal: authorized });
+  return perform({ dependencies: deps, input: resolved.value, record: claimed.value.record, action }, optional);
+}
+/** A fresh claim with failed final gates proves zero egress; recovery claims do not.
+ * @complexity O(1), at most one append; no capability call. */
+async function recordRefusal(required: { dependencies: Dependencies; input: DispatchInput; record: ConversionDispatchRecord; action: "dispatch" | "reconcile"; refusal: Extract<Outcome<void>, { ok: false }> }): Promise<Outcome<ConversionDeliveryOutcome>> {
+  if (required.action === "reconcile") return required.refusal;
+  const saved = await required.dependencies.ledger.append({ context: required.input.context, record: { ...required.record, status: "not_sent", reason: required.refusal.error.code, recordedAt: required.dependencies.clock.now({}) } });
+  if (!saved.ok) return saved;
+  return settledOutcome({ record: saved.value });
+}
+/** Project stored evidence without visitor data; interrupted claims remain uncertain.
+ * @complexity O(1), pure, with schema validation and no I/O. */
+function settledOutcome(required: { record: ConversionDispatchRecord }): Outcome<ConversionDeliveryOutcome> {
+  const record = required.record;
+  if (record.status === "not_sent") return parseBoundary({ schema: deliveryStatusSchema, input: { status: record.status, reason: record.reason } });
+  if (record.status === "delivered") return parseBoundary({ schema: deliveryStatusSchema, input: { status: record.status, diagnostics: record.diagnostics, receiptId: record.receiptId } });
+  return { ok: true, value: { status: "unknown", diagnostics: record.diagnostics } };
 }
 /** Resolve current contacts evidence before final gates. Contacts alone normalizes/hashes;
  * measure compares committed digests and never persists the resolved identifiers.
@@ -118,21 +162,24 @@ function grantFingerprint(required: { grant: MeasureGrant }): string {
   const grant = required.grant;
   return JSON.stringify([grant.kind, grant.grantId, grant.scope.ownerId, grant.scope.workspaceId, grant.connectionId, grant.accountId, [...grant.definitionIds].sort(), grant.destination, grant.purpose, grant.payloadSchema, grant.payloadVersion, grant.expiresAt, grant.revoked]);
 }
-/** Any thrown/failed/malformed capability outcome is uncertain after possible egress. */
-async function perform(required: { dependencies: Dependencies; input: ResolvedDeliveryInput; record: ConversionDispatchRecord; action: "dispatch" | "reconcile" }, optional?: CallOptions): Promise<Outcome<{ status: "delivered" | "unknown" }>> {
+/** Any thrown/failed/malformed capability outcome is uncertain after possible egress.
+ * Append merged diagnostics, preserving confirmed stages despite vendor disagreement.
+ * @complexity O(1) bounded evidence, one ledger append and one audit. */
+async function perform(required: { dependencies: Dependencies; input: ResolvedDeliveryInput; record: ConversionDispatchRecord; action: "dispatch" | "reconcile" }, optional?: CallOptions): Promise<Outcome<ConversionDeliveryOutcome>> {
   const result = await invokeCapability(required, optional);
   const status = result.ok ? result.value.status : "unknown";
+  const outcome = result.ok ? result.value : { status: "unknown" as const };
   // Cancellation stops egress, but cannot discard evidence after possible egress.
-  const recorded = await required.dependencies.ledger.append({ context: required.input.context, record: { ...required.record, status, recordedAt: required.dependencies.clock.now({}) } });
+  const recorded = await required.dependencies.ledger.append({ context: required.input.context, record: { ...required.record, ...outcome, recordedAt: required.dependencies.clock.now({}) } });
   if (!recorded.ok) return recorded;
   const evidence = parseBoundary({ schema: dispatchRecordSchema, input: recorded.value });
   if (!evidence.ok) return evidence;
   if (evidence.value.deliveryId !== required.record.deliveryId || evidence.value.identity !== required.record.identity || evidence.value.status !== status || evidence.value.subjectId !== required.record.subjectId || evidence.value.eventId !== required.record.eventId) return failure({ code: "conflict", message: "Delivery outcome evidence mismatch" });
   const audit = await required.dependencies.audit.record({ context: auditContext({ context: required.input.context }), operationId: required.record.deliveryId, outcome: required.action + "_" + status });
   if (!audit.ok) return audit;
-  return { ok: true, value: { status } };
+  return settledOutcome({ record: evidence.value });
 }
-async function invokeCapability(required: { dependencies: Dependencies; input: ResolvedDeliveryInput; action: "dispatch" | "reconcile" }, optional?: CallOptions): Promise<Outcome<{ status: "delivered" | "unknown" }>> {
+async function invokeCapability(required: { dependencies: Dependencies } & ({ input: ResolvedDeliveryInput; action: "dispatch" | "reconcile" } | { input: Parameters<NonNullable<ConversionDeliveryPort["reconcile"]>>[0]; action: "reconcile" }), optional?: CallOptions): Promise<Outcome<ConversionDeliveryOutcome>> {
   try {
     const port = required.dependencies.delivery;
     if (required.action === "reconcile" && !port.reconcile) return { ok: true, value: { status: "unknown" } };

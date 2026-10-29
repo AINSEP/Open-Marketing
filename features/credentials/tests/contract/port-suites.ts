@@ -1,5 +1,6 @@
+import type { ObserverPort } from "@open-marketing/contracts";
 import { describe, it, expect } from "vitest";
-import type { CredentialRepoPort, SecretSealerPort, KeyringPort, OAuthClientPort, CredentialLockPort, CredentialAuditPort, CredentialBrokerPort, CredentialRefreshPort, CredentialObserverPort } from "../../index.js";
+import type { CredentialRepoPort, SecretSealerPort, KeyringPort, OAuthClientPort, CredentialLockPort, CredentialAuditPort, CredentialBrokerPort, CredentialRefreshPort } from "../../index.js";
 import type { CredentialRecord, CredentialReference } from "../../index.js";
 import { context, hostContext, reference, configuration, request, storedSecret, value } from "../fixtures.js";
 
@@ -188,7 +189,7 @@ export function CredentialRefreshPortSuite(required: { create: () => Promise<{ p
 }
 
 /** Observer doubles capture trace metadata without producing effects. */
-export function CredentialObserverPortSuite(required: { create: () => CredentialObserverPort }) {
+export function CredentialObserverPortSuite(required: { create: () => ObserverPort }) {
   describe("CredentialObserverPort", () => {
     it("accepts the host event ABI", () => {
       expect(() => required.create().observe({ operation: "credentials.beginConnect", outcome: "succeeded", correlationId: "c", traceId: "t" })).not.toThrow();

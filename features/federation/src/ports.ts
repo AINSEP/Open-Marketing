@@ -1,4 +1,4 @@
-import type { Outcome, CallContext, CallOptions, EffectEnvelope, ObserverPort } from "@open-marketing/contracts";
+import type { Outcome, CallContext, CallOptions, EffectEnvelope } from "@open-marketing/contracts";
 import type { ExternalToolCall, ExternalToolResult, FederationConnection, FederatedToolDescriptor, FederatedApproval } from "./types.js";
 
 /** Caller-owned server connection lookup; cross-scope and revoked connections must deny. */
@@ -49,5 +49,3 @@ export interface ToolRegistryPort {
   reset(required: Record<string, never>, optional?: CallOptions): Promise<Outcome<void>>;
   dispose(required: Record<string, never>, optional?: CallOptions): Promise<Outcome<void>>;
 }
-/** Redacted observation sink; no arguments, credentials or raw provider output. */
-export type FederationObserverPort = ObserverPort;

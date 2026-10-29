@@ -1,25 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { createMemoryIdentity, createMemoryWorkspaceRepo, createMemoryAccountBindingLookup, createSqlAccountBindingLookup, createSqlWorkspaceRepo, createWorkspaceService, createWorkspaceRecord } from "../index.js";
+import { createMemoryIdentity, createMemoryWorkspaceRepo, createSqlWorkspaceRepo, createWorkspaceService, createWorkspaceRecord } from "../index.js";
 import type { WorkspaceSqlDatabase } from "../index.js";
-import { binding, ownerScope, otherScope, connections, createIds, resolveOwner, sessions, unwrap, workspaces } from "./fixtures.js";
+import { binding, ownerScope, otherScope, connections, createIds, ownerContext, sessions, unwrap, workspaces } from "./fixtures.js";
 import { createSqlHarness } from "./sql-fixture.js";
 
 describe("adapter failure boundaries", () => {
   it("empty doubles fail explicitly and cannot grant authority", async () => {
     expect(await createMemoryIdentity({}).verify({ session: { sessionId: "missing" } })).toMatchObject({ ok: false, error: { code: "unauthenticated" } });
-    expect(await createMemoryWorkspaceRepo({}).resolve({ session: { sessionId: "missing" }, workspaceId: ownerScope.workspaceId })).toMatchObject({ ok: false, error: { code: "unavailable" } });
-    expect(await createMemoryWorkspaceRepo({}).resolve({ session: { sessionId: "missing" }, workspaceId: "missing" })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
-    const context = { scope: binding.scope, principal: { kind: "owner" as const, ownerId: binding.scope.ownerId }, correlationId: "correlation", traceId: "trace" };
-    expect(await createMemoryAccountBindingLookup({}).find({ context, externalAccountId: "vendor-42" })).toMatchObject({ ok: false, error: { code: "unavailable" } });
-  });
-  it("lookup adapters map thrown and malformed injected responses to typed failures", async () => {
-    const context = { scope: binding.scope, principal: { kind: "owner" as const, ownerId: binding.scope.ownerId }, correlationId: "c", traceId: "t" };
-    const throwing = { async find(): Promise<never> { throw new Error("secret-adapter-error"); } };
-    expect(await createMemoryAccountBindingLookup({ repo: throwing }).find({ context, externalAccountId: "vendor-42" })).toMatchObject({ ok: false, error: { code: "unavailable" } });
-    expect(await createSqlAccountBindingLookup({ repo: throwing }).find({ context, externalAccountId: "vendor-42" })).toMatchObject({ ok: false, error: { code: "unavailable" } });
-    const malformed = { async find() { return { ok: true as const, value: { ...binding, externalAccountId: "" } }; } };
-    expect(await createMemoryAccountBindingLookup({ repo: malformed }).find({ context, externalAccountId: "vendor-42" })).toMatchObject({ ok: false, error: { code: "unavailable" } });
-    expect(await createSqlAccountBindingLookup({ repo: malformed }).find({ context, externalAccountId: "vendor-42" })).toMatchObject({ ok: false, error: { code: "unavailable" } });
+    expect(await createMemoryWorkspaceRepo({}).hasWorkspace({ scope: ownerScope })).toEqual({ ok: true, value: false });
+    expect(await createMemoryWorkspaceRepo({}).hasWorkspace({ scope: { ...ownerScope, workspaceId: "missing" } })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
   });
   it("invalid and duplicated seed configuration is rejected", () => {
     expect(() => createMemoryIdentity({ sessions: [sessions[0], sessions[0]] })).toThrow("Duplicate identity session seed");
@@ -36,14 +25,15 @@ describe("adapter failure boundaries", () => {
   });
   it("SQL exceptions and malformed database rows return typed unavailable", async () => {
     const db: WorkspaceSqlDatabase = { async query() { throw new Error("secret-db-detail"); }, async transaction({ work }) { return work({ session: this }); } };
-    const repo = createSqlWorkspaceRepo({ db, identity: createMemoryIdentity({ sessions }), ids: createIds({}) });
-    expect(await repo.resolve({ session: { sessionId: "session-a" }, workspaceId: ownerScope.workspaceId })).toMatchObject({ ok: false, error: { code: "unavailable" } });
+    const repo = createSqlWorkspaceRepo({ db });
+    expect(await repo.hasWorkspace({ scope: ownerScope })).toMatchObject({ ok: false, error: { code: "unavailable" } });
     const malformed: WorkspaceSqlDatabase = { async query<Row extends Record<string, unknown>>() { return { rows: [{ found: "unexpected" }] as unknown as Row[], rowCount: null }; }, async transaction({ work }) { return work({ session: this }); } };
-    const invalid = createSqlWorkspaceRepo({ db: malformed, identity: createMemoryIdentity({ sessions }), ids: createIds({}) });
-    expect(await invalid.resolve({ session: { sessionId: "session-a" }, workspaceId: ownerScope.workspaceId })).toMatchObject({ ok: false, error: { code: "unavailable" } });
+    const invalid = createSqlWorkspaceRepo({ db: malformed });
+    expect(await invalid.hasWorkspace({ scope: ownerScope })).toMatchObject({ ok: false, error: { code: "unavailable" } });
     const context = { scope: binding.scope, principal: { kind: "owner" as const, ownerId: binding.scope.ownerId }, correlationId: "c", traceId: "t" };
     expect(await repo.bind({ context, binding })).toMatchObject({ ok: false, error: { code: "unavailable" } });
     expect(await repo.find({ context, externalAccountId: "vendor-42" })).toMatchObject({ ok: false, error: { code: "unavailable" } });
+    expect(await invalid.find({ context, externalAccountId: "vendor-42" })).toMatchObject({ ok: false, error: { code: "unavailable" } });
   });
   it("SQL foreign keys prevent assigning an account to an unowned connection", () => {
     const harness = createSqlHarness({});
@@ -55,7 +45,7 @@ describe("adapter failure boundaries", () => {
   it("SQL account identity contains full scope and stores suspicious IDs as literal data", async () => {
     const harness = createSqlHarness({});
     try {
-      const context = await resolveOwner({ repo: harness.repo });
+      const context = ownerContext({ scope: ownerScope });
       const literal = { ...binding, externalAccountId: "x'; DROP TABLE workspace; --" };
       expect(await harness.repo.bind({ context, binding: literal })).toEqual({ ok: true, value: literal });
       expect(await harness.repo.find({ context, externalAccountId: literal.externalAccountId })).toEqual({ ok: true, value: literal });
@@ -65,16 +55,16 @@ describe("adapter failure boundaries", () => {
   it("reconstructing the SQL adapter preserves persisted bindings", async () => {
     const harness = createSqlHarness({});
     try {
-      const context = await resolveOwner({ repo: harness.repo });
+      const context = ownerContext({ scope: ownerScope });
       expect(await harness.repo.bind({ context, binding })).toEqual({ ok: true, value: binding });
-      const rebuilt = createSqlWorkspaceRepo({ db: harness.db, identity: createMemoryIdentity({ sessions }), ids: createIds({}) });
-      const restoredContext = await resolveOwner({ repo: rebuilt });
+      const rebuilt = createSqlWorkspaceRepo({ db: harness.db });
+      const restoredContext = ownerContext({ scope: ownerScope });
       expect(await rebuilt.find({ context: restoredContext, externalAccountId: "vendor-42" })).toEqual({ ok: true, value: binding });
     } finally { harness.dispose(); }
   });
   it("observer errors cannot turn a committed write into a failure", async () => {
     const identity = createMemoryIdentity({ sessions });
-    const repo = createMemoryWorkspaceRepo({ identity, ids: createIds({}), workspaces, connections });
+    const repo = createMemoryWorkspaceRepo({ workspaces, connections });
     const service = createWorkspaceService({ repo, identity, ids: createIds({}), clock: { now() { return 10; } } }, { observer: { observe() { throw new Error("observer-down"); } } });
     const context = unwrap({ result: await service.resolveContext({ session: { sessionId: "session-a" }, workspaceId: ownerScope.workspaceId }) });
     expect(await service.bindAccount({ context, binding })).toEqual({ ok: true, value: binding });
@@ -103,11 +93,11 @@ describe("global workspace identity", () => {
       expect(harness.database.prepare("SELECT COUNT(*) AS count FROM workspace").get()).toEqual({ count: 3 });
     } finally { harness.dispose(); }
   });
-  it("canonicalizes resolution UUIDs and rejects legacy literals before lookup", async () => {
+  it("canonicalizes workspace UUIDs and rejects legacy literals before lookup", async () => {
     const harness = createSqlHarness({});
     try {
-      expect(await harness.repo.resolve({ session: { sessionId: "session-a" }, workspaceId: ownerScope.workspaceId.toUpperCase() })).toMatchObject({ ok: true, value: { scope: ownerScope } });
-      expect(await harness.repo.resolve({ session: { sessionId: "session-a" }, workspaceId: "old-id" })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+      expect(await harness.repo.hasWorkspace({ scope: { ...ownerScope, workspaceId: ownerScope.workspaceId.toUpperCase() } })).toEqual({ ok: true, value: true });
+      expect(await harness.repo.hasWorkspace({ scope: { ...ownerScope, workspaceId: "old-id" } })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
     } finally { harness.dispose(); }
   });
 });

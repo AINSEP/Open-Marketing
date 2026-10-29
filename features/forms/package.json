@@ -19,12 +19,12 @@
   },
   "dependencies": {
     "@open-marketing/contracts": "workspace:*",
-    "@jini-ai/cms": "0.6.12",
+    "@jini-ai/cms": "0.6.15-rc.2",
     "zod": "4.1.13",
     "@open-marketing/om-clock": "workspace:*"
   },
   "devDependencies": {
-    "@jini-ai/db": "0.6.12",
+    "@jini-ai/db": "0.6.15-rc.2",
     "@open-marketing/om-db": "workspace:*",
     "@types/better-sqlite3": "9.6.0",
     "better-sqlite3": "13.0.3",

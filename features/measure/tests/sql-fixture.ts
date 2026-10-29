@@ -3,6 +3,7 @@ import { createSqliteFixture } from "@open-marketing/om-db/testing";
 import { readFileSync } from "node:fs";
 import { afterEach } from "vitest";
 import type { MeasureSqlDatabase, MeasureTransactionalJobPort } from "../index.js";
+import type { MeasurementGrant } from "@open-marketing/contracts";
 import { eventIdentity, scopeKey } from "../src/rules.js";
 import { createIds } from "./fixtures.js";
 const handles: Database.Database[] = [];
@@ -17,18 +18,28 @@ export interface SqlFixture {
   handle: Database.Database;
   failNextInboxInsert(): void;
   failNextEnqueue(): void;
+  raceNextGrantInsert(row: MeasurementGrant): void;
   counts(): { events: number; jobs: number };
 }
 
 export function createSqlFixture(required: Record<string, never>): SqlFixture {
   let failInsert = false;
   let failEnqueue = false;
+  let competingGrant: MeasurementGrant | null = null;
   const fixture = createSqliteFixture({ migrations: [
     readFileSync(new URL("../migrations/0001_measure.sql", import.meta.url), "utf8"),
     readFileSync(new URL("../migrations/0002_attribution_account.sql", import.meta.url), "utf8"),
+    readFileSync(new URL("../migrations/0003_metrics.sql", import.meta.url), "utf8"),
+    readFileSync(new URL("../migrations/0004_metrics_membership.sql", import.meta.url), "utf8"),
+    readFileSync(new URL("../migrations/0005_measurement_grants.sql", import.meta.url), "utf8"),
     "CREATE TABLE fixture_jobs (scope_key TEXT NOT NULL, source_id TEXT NOT NULL, event_id TEXT NOT NULL, job_id TEXT NOT NULL, identity TEXT NOT NULL, context_json TEXT NOT NULL, PRIMARY KEY(scope_key,source_id,event_id))",
   ] }, { beforeQuery(input) {
     if (failInsert && input.text.startsWith("INSERT INTO measure_conversion_event")) { failInsert = false; throw new Error("Injected inbox insert failure"); }
+    if (competingGrant && input.text.startsWith("INSERT INTO measure_grant")) {
+      const row = competingGrant; competingGrant = null;
+      handle.prepare("INSERT INTO measure_grant (scope_key,grant_id,grant_json,created_at) VALUES (?,?,?,?)")
+        .run(scopeKey({ scope: row.scope }), row.grantId, JSON.stringify(row), 300);
+    }
   } });
   const { native: handle, database } = fixture;
   handles.push(handle);
@@ -51,6 +62,7 @@ export function createSqlFixture(required: Record<string, never>): SqlFixture {
     database, jobs, handle,
     failNextInboxInsert() { failInsert = true; },
     failNextEnqueue() { failEnqueue = true; },
+    raceNextGrantInsert(row) { competingGrant = row; },
     counts() { return { events: Number((handle.prepare("SELECT COUNT(*) AS count FROM measure_conversion_event").get() as { count: number }).count), jobs: Number((handle.prepare("SELECT COUNT(*) AS count FROM fixture_jobs").get() as { count: number }).count) }; },
   };
 }

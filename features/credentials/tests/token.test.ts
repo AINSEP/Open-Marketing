@@ -1,7 +1,7 @@
 /** Written-only paste-token acceptance; shared cases exercise memory and native SQLite repositories. */
 import { describe, expect, it } from "vitest";
 import { connectCredentialToken, createAesGcmSecretSealer, createCredentialKeyring, createMemoryCredentialAudit,
-  createMemoryCredentialLock, createMemoryCredentialRepo, createSqlCredentialRepo, listCredentialConnections, createCredentialBroker, readCredentialDeveloperToken, readCredentialAccess, readCredentialOAuthClient } from "../index.js";
+  createMemoryCredentialLock, createMemoryCredentialRepo, createSqlCredentialRepo, listCredentialConnections, createCredentialBroker, readCredentialAccess, readCredentialOAuthClient, setCredentialPluginSecret, readCredentialPluginSecrets, credentialPluginSecretStatus } from "../index.js";
 import type { CredentialRepoPort } from "../index.js";
 import { clock, configuration, context, hostContext, value } from "./fixtures.js";
 import { createSqlFixture } from "./sql-fixture.js";
@@ -19,52 +19,83 @@ function fixture(required: { kind: "memory" | "sql" }) {
 }
 const request = { context, connectionId: "token-connection", pluginId: "test-plugin", plaintext: "fixture-token-never-live" };
 
-describe.each(["memory", "sql"] as const)("Meta OAuth client configuration via %s", kind => {
-  it("seals configId under the existing purpose, replaces/clears it and never exposes it in owner DTOs", async () => {
+describe.each(["memory", "sql"] as const)("declared OAuth client configuration via %s", kind => {
+  it("seals declared extras under the existing purpose, replaces/clears and returns secret-free DTOs", async () => {
     const f = fixture({ kind }); const broker = createCredentialBroker(f);
-    const client = { clientId: "fixture-client", clientSecret: "sensitive-client-secret", configId: "123456789" };
-    const write = { ...f, context, connectionId: "oauth-client.meta-ads", pluginId: "meta-ads", purpose: "oauth-client" as const, plaintext: JSON.stringify(client) };
-    const read = { ...f, broker, context: hostContext, pluginId: "meta-ads" };
+    const client = { clientId: "fixture-client", clientSecret: "sensitive-client-secret", configId: "fixture-config" };
+    const write = { ...f, context, connectionId: "oauth-client.test-plugin", pluginId: "test-plugin", purpose: "oauth-client" as const, clientFields: ["configId"], plaintext: JSON.stringify(client) };
+    const read = { ...f, broker, context: hostContext, pluginId: "test-plugin", clientFields: ["configId"] };
     try {
       const summary = value({ outcome: await connectCredentialToken(write) });
       const record = value({ outcome: await f.repo.getSecret({ context: hostContext, connectionId: write.connectionId }) })!;
-      expect(value({ outcome: await f.sealer.open({ reference: record.reference, secret: record.secret }) })).toBe("om.oauth.client.v1:" + JSON.stringify(client));
-      expect(JSON.stringify([summary, record.secret, f.audit.entries({})])).not.toMatch(/123456789|sensitive-client-secret/);
+      const opened = value({ outcome: await f.sealer.open({ reference: record.reference, secret: record.secret }) });
+      expect(opened.startsWith("om.oauth.client.v1:")).toBe(true);
+      expect(JSON.parse(opened.slice("om.oauth.client.v1:".length))).toEqual(client);
+      expect(JSON.stringify([summary, record.secret, f.audit.entries({})])).not.toMatch(/fixture-config|sensitive-client-secret/);
       expect(await readCredentialOAuthClient(read)).toEqual({ ok: true, value: client });
       expect((await readCredentialOAuthClient({ ...read, context })).ok).toBe(false);
       expect(await readCredentialOAuthClient({ ...read, context: { ...hostContext, scope: { ...hostContext.scope, workspaceId: "other" } } })).toEqual({ ok: true, value: null });
-      value({ outcome: await connectCredentialToken({ ...write, plaintext: JSON.stringify({ ...client, configId: "987654321" }) }) });
-      expect(await readCredentialOAuthClient(read)).toEqual({ ok: true, value: { ...client, configId: "987654321" } });
+      value({ outcome: await connectCredentialToken({ ...write, plaintext: JSON.stringify({ ...client, configId: "replacement" }) }) });
+      expect(await readCredentialOAuthClient(read)).toEqual({ ok: true, value: { ...client, configId: "replacement" } });
+      value({ outcome: await connectCredentialToken({ ...write, plaintext: JSON.stringify({ clientId: "client" }) }) });
+      expect(await readCredentialOAuthClient(read)).toEqual({ ok: true, value: { clientId: "client" } });
       value({ outcome: await connectCredentialToken({ ...write, plaintext: "null" }) });
       expect(await readCredentialOAuthClient(read)).toEqual({ ok: true, value: null });
       if (f.sql) expect(value({ outcome: await listCredentialConnections({ db: f.sql.db, context, query: { limit: 10 } }) }).items).toEqual([]);
     } finally { f.dispose(); }
   });
-  it.each([undefined, "", "0", "not-an-id", "1".repeat(129), 1234])("rejects invalid Meta configId %s before audit/storage", async configId => {
-    const f = fixture({ kind });
-    try {
-      expect(await connectCredentialToken({ ...f, context, connectionId: "oauth-client.meta-ads", pluginId: "meta-ads", purpose: "oauth-client", plaintext: JSON.stringify({ clientId: "client", configId }) })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
-      expect(f.audit.entries({})).toEqual([]);
-      expect(await f.repo.get({ context, connectionId: "oauth-client.meta-ads" })).toEqual({ ok: true, value: null });
-    } finally { f.dispose(); }
-  });
-  it.each(["google-ads", "linkedin-ads", "tiktok-ads"])("preserves %s config and rejects Meta-only fields on write/read", async pluginId => {
+  it("drops undeclared fields on write and on read, including old stored extra keys", async () => {
     const f = fixture({ kind }); const broker = createCredentialBroker(f);
-    const write = { ...f, context, connectionId: "oauth-client." + pluginId, pluginId, purpose: "oauth-client" as const, plaintext: JSON.stringify({ clientId: "client", clientSecret: "fixture-secret" }) };
+    const client = { clientId: "client", configId: "fixture-extra", ignored: 42 };
+    const write = { ...f, context, connectionId: "oauth-client.test-plugin", pluginId: "test-plugin", purpose: "oauth-client" as const, plaintext: JSON.stringify(client) };
+    const read = { ...f, broker, context: hostContext, pluginId: "test-plugin" };
     try {
       value({ outcome: await connectCredentialToken(write) });
-      expect(await readCredentialOAuthClient({ ...f, broker, context: hostContext, pluginId })).toEqual({ ok: true, value: { clientId: "client", clientSecret: "fixture-secret" } });
-      const client = { clientId: "client", configId: "1234" };
-      expect(await connectCredentialToken({ ...write, plaintext: JSON.stringify(client) })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
-      const reference = { scope: context.scope, connectionId: write.connectionId, version: 2 };
+      const record = value({ outcome: await f.repo.getSecret({ context: hostContext, connectionId: write.connectionId }) })!;
+      expect(value({ outcome: await f.sealer.open({ reference: record.reference, secret: record.secret }) })).toBe('om.oauth.client.v1:{"clientId":"client"}');
+      expect(await readCredentialOAuthClient({ ...read, clientFields: ["configId"] })).toEqual({ ok: true, value: { clientId: "client" } });
+      const reference = { ...record.reference, version: record.reference.version + 1 };
       const secret = value({ outcome: await f.sealer.seal({ reference, plaintext: "om.oauth.client.v1:" + JSON.stringify(client) }) });
-      value({ outcome: await f.repo.store({ context, reference, secret, pluginId }) });
-      expect(await readCredentialOAuthClient({ ...f, broker, context: hostContext, pluginId })).toMatchObject({ ok: false, error: { code: "protocol_mismatch" } });
+      value({ outcome: await f.repo.store({ context, reference, secret, pluginId: write.pluginId }) });
+      expect(await readCredentialOAuthClient(read)).toEqual({ ok: true, value: { clientId: "client" } });
+      expect(await readCredentialOAuthClient({ ...read, clientFields: ["configId"] })).toEqual({ ok: true, value: { clientId: "client", configId: "fixture-extra" } });
+    } finally { f.dispose(); }
+  });
+  it("bounds declared fields and retained values, refusing base-field collisions", async () => {
+    const f = fixture({ kind }); const broker = createCredentialBroker(f);
+    const write = { ...f, context, connectionId: "oauth-client.test-plugin", pluginId: "test-plugin", purpose: "oauth-client" as const, clientFields: ["extra"], plaintext: '{"clientId":"client"}' };
+    try {
+      for (const extra of ["", "x".repeat(2049), 1234]) {
+        expect(await connectCredentialToken({ ...write, plaintext: JSON.stringify({ clientId: "client", extra }) })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+      }
+      for (const clientFields of [["clientId"], ["clientSecret"], Array(33).fill("extra")]) {
+        expect(await connectCredentialToken({ ...write, clientFields })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+        expect(await readCredentialOAuthClient({ ...f, broker, context: hostContext, pluginId: "test-plugin", clientFields })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+      }
+      expect(f.audit.entries({})).toEqual([]);
+      value({ outcome: await connectCredentialToken({ ...write, plaintext: JSON.stringify({ clientId: "client", extra: "x".repeat(2048), clientSecret: "s".repeat(8192) }) }) });
+      const clientFields = Array.from({ length: 32 }, (_, index) => "field" + index);
+      const client = { clientId: "client", ...Object.fromEntries(clientFields.map(field => [field, "é".repeat(2048)])) };
+      expect(await connectCredentialToken({ ...write, clientFields, plaintext: JSON.stringify(client) })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
     } finally { f.dispose(); }
   });
 });
 
 describe.each(["memory", "sql"] as const)("paste-token via %s", kind => {
+  it("reserves every purpose ID and secret payload tag against ordinary paste", async () => {
+    const f = fixture({ kind });
+    try {
+      for (const prefix of ["oauth-client", "developer-token", "plugin-secret"]) {
+        expect(await connectCredentialToken({ ...f, ...request, connectionId: prefix + ".test-plugin" })).toMatchObject({ ok: false, error: { code: "forbidden" } });
+      }
+      for (const plaintext of ["om.oauth.client.v1:null", "om.developer-token.v1:null", "om.plugin-secret.v1:null", "om.plugin-secret.v2:null"]) {
+        expect(await connectCredentialToken({ ...f, ...request, plaintext })).toMatchObject({ ok: false, error: { code: "forbidden" } });
+        expect(readCredentialAccess({ plaintext }).ok).toBe(false);
+      }
+      expect(f.audit.entries({})).toEqual([]);
+    } finally { f.dispose(); }
+  });
+
   it("seals at rest, binds AAD and returns no plaintext or ciphertext", async () => {
     const f = fixture({ kind });
     try {
@@ -174,58 +205,122 @@ it("fails the whole list on malformed or foreign-scope storage rows", async () =
   expect(await listCredentialConnections({ db, context, query: { limit: 2 } })).toMatchObject({ ok: false, error: { code: "protocol_mismatch" } });
 });
 
-describe.each(["memory", "sql"] as const)("Google developer-token purpose via %s", kind => {
-  it("denies a populated developer token after revocation without decrypting it", async () => {
+describe.each(["memory", "sql"] as const)("plugin-secret purpose via %s", kind => {
+  it("denies populated secrets after revocation without decrypting or restoring them", async () => {
     const f = fixture({ kind }); const broker = createCredentialBroker(f);
-    const write = { ...f, context, connectionId: "developer-token.google-ads", pluginId: "google-ads", purpose: "developer-token" as const, plaintext: JSON.stringify("abcdefghijklmnopqrstuv") };
-    const read = { ...f, broker, context: hostContext, pluginId: "google-ads" };
+    const write = { ...f, context, request: { pluginId: "test-plugin", values: { apiKey: "fixture-secret" } } };
+    const read = { ...f, broker, context: hostContext, pluginId: "test-plugin", secretFields: ["apiKey"] };
     try {
-      value({ outcome: await connectCredentialToken(write) });
-      expect(await readCredentialDeveloperToken(read)).toEqual({ ok: true, value: "abcdefghijklmnopqrstuv" });
-      const reference = value({ outcome: await f.repo.getSecret({ context: hostContext, connectionId: write.connectionId }) })!.reference;
-      value({ outcome: await f.repo.revoke({ context, connectionId: write.connectionId }) });
+      value({ outcome: await setCredentialPluginSecret(write) });
+      expect(await readCredentialPluginSecrets(read)).toEqual({ ok: true, value: write.request.values });
+      const connectionId = "plugin-secret.test-plugin";
+      const reference = value({ outcome: await f.repo.getSecret({ context: hostContext, connectionId }) })!.reference;
+      value({ outcome: await f.repo.revoke({ context, connectionId }) });
       f.sealer.open = async () => { throw new Error("Revoked credentials must never be decrypted"); };
-      expect(await readCredentialDeveloperToken(read)).toMatchObject({ ok: false, error: { code: "forbidden" } });
-      expect(await f.repo.getSecret({ context: hostContext, connectionId: write.connectionId })).toEqual({ ok: true, value: null });
-      expect(await broker.use({ context: hostContext, reference, operationId: "after-revoke" })).toMatchObject({ ok: false });
-      expect((await connectCredentialToken(write)).ok).toBe(false);
+      expect(await readCredentialPluginSecrets(read)).toMatchObject({ ok: false, error: { code: "forbidden" } });
+      expect((await credentialPluginSecretStatus(read)).ok).toBe(false);
+      expect(await f.repo.getSecret({ context: hostContext, connectionId })).toEqual({ ok: true, value: null });
+      expect((await broker.use({ context: hostContext, reference, operationId: "after-revoke" })).ok).toBe(false);
+      expect((await setCredentialPluginSecret(write)).ok).toBe(false);
     } finally { f.dispose(); }
   });
-  it("seals, replaces and clears independently, skips OAuth refresh and excludes ordinary listing/access", async () => {
+  it("seals, replaces, clears and sets again, skips refresh and excludes ordinary listing/access", async () => {
     const f = fixture({ kind }); let refreshes = 0;
     try {
       const broker = createCredentialBroker({ ...f, refresh: { async refresh() { refreshes++; return { ok: true, value: null }; } } });
-      const write = { ...f, context, connectionId: "developer-token.google-ads", pluginId: "google-ads", purpose: "developer-token" as const, plaintext: JSON.stringify("abcdefghijklmnopqrstuv") };
-      const read = { ...f, broker, context: hostContext, pluginId: "google-ads" };
-      expect(await readCredentialDeveloperToken(read)).toEqual({ ok: true, value: null });
-      const summary = value({ outcome: await connectCredentialToken(write) }); expect(JSON.stringify(summary)).not.toContain("abcdefghijklmnopqrstuv");
-      const record = value({ outcome: await f.repo.getSecret({ context: hostContext, connectionId: write.connectionId }) }); if (!record) throw new Error("Missing sealed config");
-      expect(record.secret.ciphertext).not.toContain("abcdefghijklmnopqrstuv");
-      const opened = value({ outcome: await f.sealer.open({ reference: record.reference, secret: record.secret }) }); expect(readCredentialAccess({ plaintext: opened }).ok).toBe(false);
-      expect(await readCredentialDeveloperToken(read)).toEqual({ ok: true, value: "abcdefghijklmnopqrstuv" });
-      value({ outcome: await connectCredentialToken({ ...write, plaintext: JSON.stringify("1234567890123456789012") }) });
-      expect(await readCredentialDeveloperToken(read)).toEqual({ ok: true, value: "1234567890123456789012" });
-      value({ outcome: await connectCredentialToken({ ...write, plaintext: "null" }) }); expect(await readCredentialDeveloperToken(read)).toEqual({ ok: true, value: null });
-      expect(refreshes).toBe(0); expect(JSON.stringify(f.audit.entries({}))).not.toMatch(/abcdefghijklmnopqrstuv|1234567890123456789012/);
+      const write = { ...f, context, request: { pluginId: "test-plugin", values: { apiKey: "fixture-first", extraKey: "fixture-second" } } };
+      const read = { ...f, broker, context: hostContext, pluginId: "test-plugin", secretFields: ["apiKey", "missing", "toString"] };
+      expect(await readCredentialPluginSecrets(read)).toEqual({ ok: true, value: null });
+      expect(await credentialPluginSecretStatus(read)).toEqual({ ok: true, value: { configured: false } });
+      const status = value({ outcome: await setCredentialPluginSecret(write) });
+      expect(status).toEqual({ configured: true });
+      const record = value({ outcome: await f.repo.getSecret({ context: hostContext, connectionId: "plugin-secret.test-plugin" }) })!;
+      expect(record.secret.ciphertext).not.toContain("fixture-first");
+      // Follow the host's current broker -> decrypt -> access decoder chain.
+      const used = value({ outcome: await broker.use({ context: hostContext, reference: record.reference, operationId: "ordinary-access" }) });
+      const opened = value({ outcome: await f.sealer.open({ reference: record.reference, secret: used }) });
+      expect(readCredentialAccess({ plaintext: opened })).toMatchObject({ ok: false, error: { code: "protocol_mismatch" } });
+      expect(await readCredentialPluginSecrets(read)).toEqual({ ok: true, value: { apiKey: "fixture-first" } });
+      expect(await readCredentialPluginSecrets({ ...read, pluginId: "other-plugin" })).toEqual({ ok: true, value: null });
+      expect(await credentialPluginSecretStatus(read)).toEqual({ ok: true, value: { configured: true } });
+      value({ outcome: await setCredentialPluginSecret({ ...write, request: { pluginId: "test-plugin", values: { apiKey: "replacement" } } }) });
+      expect(await readCredentialPluginSecrets({ ...read, secretFields: ["apiKey", "extraKey"] })).toEqual({ ok: true, value: { apiKey: "replacement" } });
+      const replacement = value({ outcome: await f.repo.getSecret({ context: hostContext, connectionId: record.reference.connectionId }) })!;
+      expect(replacement.reference.version).toBe(record.reference.version + 1);
+      value({ outcome: await setCredentialPluginSecret({ ...write, request: { pluginId: "test-plugin", values: null } }) });
+      expect(await readCredentialPluginSecrets(read)).toEqual({ ok: true, value: null });
+      expect(await credentialPluginSecretStatus(read)).toEqual({ ok: true, value: { configured: false } });
+      value({ outcome: await setCredentialPluginSecret(write) });
+      expect(await readCredentialPluginSecrets(read)).toEqual({ ok: true, value: { apiKey: "fixture-first" } });
+      expect(refreshes).toBe(0);
+      expect(JSON.stringify([status, f.audit.entries({})])).not.toMatch(/fixture-first|fixture-second|replacement/);
       if (f.sql) expect(value({ outcome: await listCredentialConnections({ db: f.sql.db, context, query: { limit: 10 } }) }).items).toEqual([]);
-      value({ outcome: await f.repo.revoke({ context, connectionId: write.connectionId }) });
-      expect((await readCredentialDeveloperToken(read)).ok).toBe(false); expect((await connectCredentialToken(write)).ok).toBe(false);
     } finally { f.dispose(); }
   });
-  it("reserves purpose ID/prefix, denies foreign plugins/owners/scopes and ordinary decoding", async () => {
+  it("denies non-owner writes, non-service reads, foreign records and scopes", async () => {
     const f = fixture({ kind }); const broker = createCredentialBroker(f);
+    const write = { ...f, context, request: { pluginId: "test-plugin", values: { apiKey: "bad\r\nheader" } } };
+    const read = { ...f, broker, context: hostContext, pluginId: "test-plugin", secretFields: ["apiKey"] };
     try {
-      const write = { ...f, context, connectionId: "developer-token.google-ads", pluginId: "google-ads", purpose: "developer-token" as const, plaintext: JSON.stringify("abcdefghijklmnopqrstuv") };
-      expect((await connectCredentialToken({ ...write, purpose: undefined })).ok).toBe(false);
-      expect((await connectCredentialToken({ ...write, pluginId: "meta-ads" })).ok).toBe(false);
-      expect((await connectCredentialToken({ ...write, plaintext: JSON.stringify("bad\r\nheader") })).ok).toBe(false);
-      expect((await connectCredentialToken({ ...write, context: hostContext })).ok).toBe(false);
-      value({ outcome: await connectCredentialToken(write) });
-      expect((await readCredentialDeveloperToken({ ...f, broker, context: hostContext, pluginId: "meta-ads" })).ok).toBe(false);
-      expect((await readCredentialDeveloperToken({ ...f, broker, context, pluginId: "google-ads" })).ok).toBe(false);
-      expect(await readCredentialDeveloperToken({ ...f, broker, context: { ...hostContext, scope: { ...context.scope, workspaceId: "other" } }, pluginId: "google-ads" })).toEqual({ ok: true, value: null });
-      expect((await connectCredentialToken({ ...f, ...request, plaintext: "om.developer-token.v1:null" })).ok).toBe(false);
-      expect(readCredentialAccess({ plaintext: "om.developer-token.v2:null" }).ok).toBe(false);
+      for (const deniedContext of [hostContext, { ...context, principal: { kind: "owner" as const, ownerId: "other-owner" } }]) {
+        expect(await setCredentialPluginSecret({ ...write, context: deniedContext })).toMatchObject({ ok: false, error: { code: "forbidden" } });
+      }
+      expect(f.audit.entries({})).toEqual([]);
+      // Value formats belong to the declaring plugin; storage accepts the contract's strings.
+      value({ outcome: await setCredentialPluginSecret(write) });
+      expect(await readCredentialPluginSecrets(read)).toEqual({ ok: true, value: write.request.values });
+      expect(await readCredentialPluginSecrets({ ...read, context })).toMatchObject({ ok: false, error: { code: "forbidden" } });
+      expect(await readCredentialPluginSecrets({ ...read, secretFields: Array(33).fill("apiKey") })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+      expect(await readCredentialPluginSecrets({ ...read, context: { ...hostContext, scope: { ...context.scope, workspaceId: "other" } } })).toEqual({ ok: true, value: null });
+      const repo: CredentialRepoPort = { ...f.repo, async getSecret(input, options) {
+        const loaded = await f.repo.getSecret(input, options);
+        return loaded.ok && loaded.value ? { ok: true, value: { ...loaded.value, summary: { ...loaded.value.summary, pluginId: "other-plugin" } } } : loaded;
+      } };
+      expect(await readCredentialPluginSecrets({ ...read, repo })).toMatchObject({ ok: false, error: { code: "forbidden" } });
+      const oversized = Object.fromEntries(Array.from({ length: 9 }, (_, index) => ["field" + index, "é".repeat(8192)]));
+      expect(await setCredentialPluginSecret({ ...write, request: { pluginId: "oversized", values: oversized } })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
     } finally { f.dispose(); }
   });
+  it("rejects the removed purpose and keeps historical developer-token rows reserved", async () => {
+    const f = fixture({ kind }); const broker = createCredentialBroker(f);
+    const legacy = { ...f, context, connectionId: "developer-token.test-plugin", pluginId: "test-plugin", purpose: "developer-token" as never, plaintext: JSON.stringify("legacy-fixture-secret") };
+    const read = { ...f, broker, context: hostContext, pluginId: "test-plugin", secretFields: ["apiKey"] };
+    try {
+      const rejected = await connectCredentialToken(legacy);
+      expect(rejected).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+      expect(JSON.stringify(rejected)).not.toContain("legacy-fixture-secret");
+      expect(await f.repo.get({ context, connectionId: legacy.connectionId })).toEqual({ ok: true, value: null });
+      expect(f.audit.entries({})).toEqual([]);
+      // Historical rows never supply the generic plugin-secret reader or public connection list.
+      const reference = { scope: context.scope, connectionId: legacy.connectionId, version: 1 };
+      const secret = value({ outcome: await f.sealer.seal({ reference, plaintext: 'om.developer-token.v1:"old-fixture"' }) });
+      value({ outcome: await f.repo.store({ context, reference, secret, pluginId: legacy.pluginId }) });
+      expect(await readCredentialPluginSecrets(read)).toEqual({ ok: true, value: null });
+      if (f.sql) expect(value({ outcome: await listCredentialConnections({ db: f.sql.db, context, query: { limit: 10 } }) }).items).toEqual([]);
+    } finally { f.dispose(); }
+  });
+  it.each(["throw", "return"] as const)("never echoes secret-bearing dependency failures (%s) or malformed JSON", async mode => {
+    const f = fixture({ kind }); const broker = createCredentialBroker(f);
+    const sentinel = "sentinel-plugin-secret-value";
+    const write = { ...f, context, request: { pluginId: "test-plugin", values: { apiKey: sentinel } } };
+    const read = { ...f, broker, context: hostContext, pluginId: "test-plugin" };
+    async function fail() {
+      if (mode === "throw") throw new Error(sentinel);
+      return { ok: false as const, error: { code: "unavailable" as const, message: sentinel, retryable: false } };
+    }
+    try {
+      const outcome = await setCredentialPluginSecret({ ...write, sealer: { ...f.sealer, seal: fail } });
+      expect(outcome).toMatchObject({ ok: false, error: { code: "unavailable" } });
+      const saved = await setCredentialPluginSecret(write);
+      expect(saved).toEqual({ ok: true, value: { configured: true } });
+      const status = await credentialPluginSecretStatus({ ...read, sealer: { ...f.sealer, open: fail } });
+      expect(status).toMatchObject({ ok: false, error: { code: "unavailable" } });
+      const configured = await credentialPluginSecretStatus(read);
+      expect(configured).toEqual({ ok: true, value: { configured: true } });
+      const malformed = await credentialPluginSecretStatus({ ...read, sealer: { ...f.sealer, async open() { return { ok: true, value: "om.plugin-secret.v1:" + sentinel + "{" }; } } });
+      expect(malformed).toMatchObject({ ok: false, error: { code: "unavailable" } });
+      expect(JSON.stringify([outcome, status, configured, saved, malformed, f.audit.entries({})])).not.toContain(sentinel);
+    } finally { f.dispose(); }
+  });
+
 });

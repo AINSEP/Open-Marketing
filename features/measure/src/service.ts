@@ -1,18 +1,19 @@
 import { parseBoundary } from "@open-marketing/contracts";
-import type { ClockPort, IdPort } from "@open-marketing/contracts";
-import type { ConversionSourceAuthenticationPort, MeasureRepoPort, MeasurementShareabilityPort, ConversionDeliveryPort, PlatformReportingPort, MeasureJobPort, TrackedLinkPort, MeasureAuditPort, MeasureObserverPort } from "./ports.js";
+import type { ClockPort, ObserverPort } from "@open-marketing/contracts";
+import type { ConversionSourceAuthenticationPort, MeasureRepoPort, MeasurementShareabilityPort, PlatformReportingPort, TrackedLinkPort } from "./ports.js";
 import type { MeasureService } from "./types.js";
 import { runBoundary } from "./boundary.js";
 import { ingest } from "./ingestion/ingest.js";
 import { reportCac } from "./reporting/report.js";
-import { ingestionContext, linkInputSchema, parseSourceEvent, reportInputSchema } from "./rules.js";
+import { failure, ingestionContext, linkInputSchema, parseSourceEvent, reportInputSchema } from "./rules.js";
+import { leadOutcomeInputSchema } from "./types.js";
 
 /** Inert feature factory; work starts only on method calls. repo.appendConversion
- * owns atomic job composition; jobs/conversions remain compatibility dependencies.
+ * owns atomic job composition.
  * Server workers use createConversionDispatcher separately from interactive sessions.
- * @example createMeasureService({ repo, policy, conversions, reports, jobs, links, clock, ids, audit }, { authentication })
+ * @example createMeasureService({ repo, policy, reports, links, clock }, { authentication })
  * @complexity O(1) construction; operations inherit bounded port behavior. */
-export function createMeasureService(required: { repo: MeasureRepoPort; policy: MeasurementShareabilityPort; conversions: ConversionDeliveryPort; reports: PlatformReportingPort; jobs: MeasureJobPort; links: TrackedLinkPort; clock: ClockPort; ids: IdPort; audit: MeasureAuditPort }, optional?: { observer?: MeasureObserverPort; authentication?: ConversionSourceAuthenticationPort }): MeasureService {
+export function createMeasureService(required: { repo: MeasureRepoPort; policy: MeasurementShareabilityPort; reports: PlatformReportingPort; links: TrackedLinkPort; clock: ClockPort }, optional?: { observer?: ObserverPort; authentication?: ConversionSourceAuthenticationPort }): MeasureService {
   return {
     async createTrackedLink(input, options) {
       const parsed = parseBoundary({ schema: linkInputSchema, input });
@@ -22,7 +23,17 @@ export function createMeasureService(required: { repo: MeasureRepoPort; policy: 
     async ingestConversion(input, options) {
       const parsed = parseSourceEvent({ input });
       if (!parsed.ok) return parsed;
+      if (["qualified", "won"].includes(parsed.value.event.definitionId)) return failure({ code: "invalid_input", message: "Lead outcomes require ingestLeadOutcome" });
       return runBoundary({ operation: "measure.ingestConversion", context: ingestionContext(parsed.value), observer: optional?.observer, work: () => ingest({ input: parsed.value, repo: required.repo, policy: required.policy, authentication: optional?.authentication, clock: required.clock }, options) }, options);
+    },
+    /** Derive the bounded lead identity, then reuse authenticated atomic ingestion. */
+    async ingestLeadOutcome(input, options) {
+      const outcome = parseBoundary({ schema: leadOutcomeInputSchema, input });
+      if (!outcome.ok) return outcome;
+      const { source, leadId, event } = outcome.value;
+      const parsed = parseSourceEvent({ input: { source, event: { ...event, eventId: leadId + ":" + event.definitionId } } });
+      if (!parsed.ok) return parsed;
+      return runBoundary({ operation: "measure.ingestLeadOutcome", context: ingestionContext(parsed.value), observer: optional?.observer, work: () => ingest({ input: parsed.value, repo: required.repo, policy: required.policy, authentication: optional?.authentication, clock: required.clock }, options) }, options);
     },
     async reportCac(input, options) {
       const parsed = parseBoundary({ schema: reportInputSchema, input });

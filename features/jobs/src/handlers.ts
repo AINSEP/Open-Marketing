@@ -1,11 +1,13 @@
 import type { CallContext, CallOptions, Outcome } from "@open-marketing/contracts";
-import type { JobDispatchPort } from "./ports.js";
+import type { ClaimedJob, JobDispatchPort } from "./ports.js";
 import type { JobRequest, ProcessResult, TransportResult } from "./types.js";
 import { parseJobCall, parseTransportResult } from "./schema.js";
 import { jobFailure } from "./errors.js";
 /** Handler executes exactly one attempt. It owns vendor-specific result validation and the authority/transport barrier. */
 export interface JobHandler {
     handle(required: { context: CallContext; job: JobRequest }, optional?: CallOptions): Promise<TransportResult>;
+    /** Own dispatch-start and completion on the claimed outbox; result is diagnostic only. */
+    handleClaim?(required: ClaimedJob, optional?: CallOptions): Promise<Outcome<unknown>>;
     dispose(required: Record<string, never>): Promise<void>;
 }
 /** Instances are composed by the server. Removal rejects new attempts and waits for in-flight effects before disposal. */
@@ -30,6 +32,20 @@ export function createJobHandlerRegistry(required: { maxHandlers?: number; maxAc
     let disposed = false;
     let resetting = false;
     let active = 0;
+    /** Apply the same admission/draining rules to ordinary and claim-owning attempts.
+     * Handler throws become unavailable; no alternative dispatch follows. @complexity O(1) time/space plus work. */
+    async function runBinding<T>(input: { binding?: Binding; optional?: CallOptions; work(): Promise<Outcome<T>> }): Promise<Outcome<T>> {
+        if (input.optional?.signal?.aborted) return jobFailure({ code: "cancelled", message: "Dispatch cancelled before effect" });
+        const binding = input.binding;
+        if (!binding || disposed || resetting) return jobFailure({ code: "unavailable", message: "Job handler unavailable" });
+        if (active >= maxActive) return jobFailure({ code: "limit_exceeded", message: "Active attempt capacity reached" });
+        active++;
+        const { promise: attempt, resolve: release } = Promise.withResolvers<void>();
+        binding.active.add(attempt);
+        try { return await input.work(); }
+        catch { return jobFailure({ code: "unavailable", message: "Job handler attempt failed" }); }
+        finally { active--; binding.active.delete(attempt); release(); }
+    }
     /** Unpublish first, then drain. Cleanup cannot hide a possible remote effect. @complexity O(a) active calls. */
     async function unregister(input: { name: string }): Promise<Outcome<{ readonly removed: boolean }>> {
         const retirement = retiring.get(input.name);
@@ -67,13 +83,19 @@ export function createJobHandlerRegistry(required: { maxHandlers?: number; maxAc
         async dispatch(input, optional): Promise<Outcome<ProcessResult>> {
             const parsed = parseJobCall(input);
             if (!parsed.ok) return parsed;
-            if (optional?.signal?.aborted) return jobFailure({ code: "cancelled", message: "Dispatch cancelled before effect" });
             const binding = bindings.get(parsed.value.job.handler);
-            if (!binding || disposed || resetting) return jobFailure({ code: "unavailable", message: "Job handler unavailable" });
-            if (active >= maxActive) return jobFailure({ code: "limit_exceeded", message: "Active attempt capacity reached" });
-            active++;
-            try { return await dispatchBinding({ binding, input: parsed.value, optional }); }
-            finally { active--; }
+            return runBinding({ binding, optional, work: () => dispatchBinding({ binding: binding!, input: parsed.value, optional }) });
+        },
+        async dispatchClaim(input, optional): Promise<Outcome<{ readonly settled: unknown } | null>> {
+            const parsed = parseJobCall(input);
+            if (!parsed.ok) return parsed;
+            const binding = bindings.get(parsed.value.job.handler);
+            const handleClaim = binding?.handler.handleClaim;
+            if (!handleClaim) return { ok: true, value: null };
+            return runBinding({ binding, optional, work: async () => {
+                const result = await handleClaim({ ...input, ...parsed.value }, optional);
+                return result.ok ? { ok: true, value: { settled: result.value } } : result;
+            } });
         },
         unregister,
         reset,
@@ -85,19 +107,14 @@ export function createJobHandlerRegistry(required: { maxHandlers?: number; maxAc
         },
     };
 }
-/** Track the whole attempt, including rejection, so unregister never disposes a handler mid-effect. @complexity O(1) plus handler work. */
+/** Map ordinary handler output; thrown attempts stay uncertain. @complexity O(1) plus handler work. */
 async function dispatchBinding(required: { binding: Binding; input: { context: CallContext; job: JobRequest }; optional?: CallOptions }): Promise<Outcome<ProcessResult>> {
     const operationId = required.input.job.operationId;
-    const { promise: active, resolve: release } = Promise.withResolvers<void>();
-    required.binding.active.add(active);
     try {
         const result = parseTransportResult({ value: await required.binding.handler.handle(required.input, required.optional) });
         return { ok: true, value: { kind: "completed", jobId: operationId, state: handlerState({ result }) } };
     } catch {
         return { ok: true, value: { kind: "completed", jobId: operationId, state: "reconcile" } };
-    } finally {
-        required.binding.active.delete(active);
-        release();
     }
 }
 /** Classification is a trusted handler seam; malformed output remains uncertain. @complexity O(1). */

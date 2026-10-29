@@ -1,4 +1,4 @@
-import type { CallContext, CallOptions, ObserverPort, Outcome } from "@open-marketing/contracts";
+import type { CallContext, CallOptions, Outcome } from "@open-marketing/contracts";
 import type { JobRequest, JobReceipt, WorkerIdentity, OutboxJob, ProcessResult } from "./types.js";
 import type { ManagedOutboxStore } from "./store.js";
 import type { z } from "zod";
@@ -19,13 +19,15 @@ export interface JobRepoPort {
 /** Dispatch performs one attempt only. A returned retry means known transient failure; reconcile means uncertain effect.
  * Implementations must preserve the stable operation/key/digest and recheck authority through their dispatch barrier.
  * A completed dispatch's jobId is the request's operationId; the worker reports the persisted outbox ID to its caller.
- * The jobs worker owns persistence/retries; adapters cannot implement another queue.
+ * The jobs worker owns persistence/retries unless a claim handler settles the same fenced outbox.
+ * Adapters cannot implement another queue.
  */
 export interface JobDispatchPort {
     dispatch(required: { context: CallContext; job: JobRequest }, optional?: CallOptions): Promise<Outcome<ProcessResult>>;
+    /** Optional claim owner; null means no claim handler; a handler's own result is always wrapped. Durable state determines completion. */
+    dispatchClaim?(required: ClaimedJob, optional?: CallOptions): Promise<Outcome<{ readonly settled: unknown } | null>>;
 }
 /** Fresh caller-owned authority/halt decision immediately before each attempt. Failure grants no authority. */
 export interface JobAuthorizationPort {
     authorize(required: { context: CallContext; job: JobRequest }, optional?: CallOptions): Promise<Outcome<{ readonly allowed: boolean }>>;
 }
-export type JobObserverPort = ObserverPort;

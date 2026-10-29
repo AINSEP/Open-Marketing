@@ -1,10 +1,23 @@
 import { describe, it, expect } from "vitest";
 import type { ConversionIdentifiersPort, ConversionDeliveryPort, ConversionDeliveryStatePort, ConversionSourceAuthenticationPort, ConversionVerificationPort, MeasureAuditPort, MeasureJobPort, MeasureRepoPort, MeasurePrivacyPort, MeasurementGrantPort, MeasurementShareabilityPort, PlatformReportingPort, TrackedLinkPort } from "../../index.js";
-import { context, event, grant, query, resolvedEvent, serviceContext, snapshot, source } from "../fixtures.js";
+import { context, event, grant, leadOutcomes, query, resolvedEvent, serviceContext, snapshot, source } from "../fixtures.js";
 
 /** B1 behavioral suite: runs unchanged against memory and real SQL repositories. */
 export function MeasureRepoPortSuite(required: { create: () => MeasureRepoPort }) {
   describe("MeasureRepoPort", () => {
+    it("keeps qualified and won lead identities distinct while deduplicating retries", async () => {
+      const port = required.create();
+      const jobs = new Set<string>();
+      for (const event of leadOutcomes) {
+        const accepted = await port.appendConversion({ source, event });
+        const duplicate = await port.appendConversion({ source, event });
+        expect(accepted).toMatchObject({ ok: true, value: { status: "accepted", eventId: event.eventId } });
+        expect(duplicate).toMatchObject({ ok: true, value: { status: "duplicate" } });
+        if (accepted.ok && duplicate.ok) { expect(duplicate.value.jobId).toBe(accepted.value.jobId); jobs.add(accepted.value.jobId); }
+        expect(await port.appendConversion({ source, event: { ...event, definitionId: "changed" } })).toMatchObject({ ok: false, error: { code: "conflict" } });
+      }
+      expect(jobs.size).toBe(2);
+    });
     it("accepts and deduplicates one intent/job identity", async () => {
       const port = required.create();
       const first = await port.appendConversion({ source, event });
@@ -180,6 +193,12 @@ export function MeasurementShareabilityPortSuite(required: { create: () => Measu
 }
 export function ConversionDeliveryPortSuite(required: { create: () => ConversionDeliveryPort | Promise<ConversionDeliveryPort> }) {
   describe("ConversionDeliveryPort", () => {
+    it("does not infer vendor diagnostics from successful transport", async () => {
+      const port = await required.create();
+      const result = await port.deliver({ context: serviceContext, event: resolvedEvent, grant, deliveryId: "transport-only" });
+      expect(result).toMatchObject({ ok: true, value: { status: "delivered" } });
+      if (result.ok && result.value.status !== "not_sent") expect(result.value.diagnostics).toBeUndefined();
+    });
     it("uses stable delivery identity and rejects payload conflicts", async () => {
       const port = await required.create();
       const input = { context: serviceContext, event: resolvedEvent, grant, deliveryId: "delivery-1" };
@@ -289,13 +308,159 @@ export function MeasurementGrantPortSuite(required: { create: () => MeasurementG
   describe("MeasurementGrantPort", () => {
     it("reads only a scoped measurement grant", async () => {
       const port = required.create();
+      const custom = { ...grant, definitionIds: ["qualified_lead", "custom-definition"] };
+      expect(await port.grant({ context, grant: custom })).toEqual({ ok: true, value: custom });
+      expect(await port.current({ context: serviceContext, grantId: grant.grantId })).toEqual({ ok: true, value: custom });
+      expect(await port.current({ context: { ...serviceContext, scope: { ...serviceContext.scope, workspaceId: "other" } }, grantId: grant.grantId })).toMatchObject({ ok: false, error: { code: "forbidden" } });
+    });
+    it("returns an identical grant retry and rejects changed content", async () => {
+      const port = required.create();
+      expect(await port.grant({ context, grant })).toEqual({ ok: true, value: grant });
+      // Property insertion order is not part of the immutable content.
+      const { revoked, ...content } = grant;
+      expect(await port.grant({ context, grant: { revoked, ...content } })).toEqual({ ok: true, value: grant });
+      expect(await port.grant({ context, grant: { ...grant, definitionIds: ["other-definition"] } })).toMatchObject({ ok: false, error: { code: "conflict" } });
       expect(await port.current({ context: serviceContext, grantId: grant.grantId })).toEqual({ ok: true, value: grant });
-      expect(await port.current({ context: { ...serviceContext, scope: { ...serviceContext.scope, workspaceId: "other" } }, grantId: grant.grantId })).toMatchObject({ ok: false });
+    });
+    it("denies context/grant scope mismatches and revoked creation input", async () => {
+      const port = required.create();
+      expect(await port.grant({ context: { ...context, scope: { ...context.scope, workspaceId: "other" } }, grant })).toMatchObject({ ok: false, error: { code: "forbidden" } });
+      expect(await port.grant({ context, grant: { ...grant, revoked: true } })).toMatchObject({ ok: false, error: { code: "forbidden" } });
+      expect(await port.current({ context: serviceContext, grantId: grant.grantId })).toMatchObject({ ok: false, error: { code: "forbidden" } });
+    });
+    it("revokes idempotently and never resurrects a revoked grant ID", async () => {
+      const port = required.create();
+      await port.grant({ context, grant });
+      const revoked = { ok: true, value: { ...grant, revoked: true } };
+      expect(await port.revoke({ context, grantId: grant.grantId })).toEqual(revoked);
+      expect(await port.current({ context: serviceContext, grantId: grant.grantId })).toEqual(revoked);
+      expect(await port.revoke({ context, grantId: grant.grantId })).toEqual(revoked);
+      expect(await port.grant({ context, grant })).toEqual(revoked);
+      expect(await port.grant({ context, grant: { ...grant, expiresAt: grant.expiresAt + 1 } })).toMatchObject({ ok: false, error: { code: "conflict" } });
+      expect(await port.current({ context: serviceContext, grantId: grant.grantId })).toEqual(revoked);
+    });
+    it("denies missing and foreign-scope revocation without affecting authority", async () => {
+      const port = required.create();
+      await port.grant({ context, grant });
+      expect(await port.revoke({ context, grantId: "missing" })).toMatchObject({ ok: false, error: { code: "forbidden" } });
+      expect(await port.revoke({ context: { ...context, scope: { ...context.scope, workspaceId: "other" } }, grantId: grant.grantId })).toMatchObject({ ok: false, error: { code: "forbidden" } });
+      expect(await port.current({ context: serviceContext, grantId: grant.grantId })).toEqual({ ok: true, value: grant });
+    });
+    it("keeps the same grant ID independent across scopes", async () => {
+      const port = required.create();
+      const otherContext = { ...context, scope: { ...context.scope, workspaceId: "other" } };
+      const other = { ...grant, scope: otherContext.scope, definitionIds: ["other-definition"] };
+      await port.grant({ context, grant });
+      expect(await port.grant({ context: otherContext, grant: other })).toEqual({ ok: true, value: other });
+      await port.revoke({ context: otherContext, grantId: grant.grantId });
+      expect(await port.current({ context: serviceContext, grantId: grant.grantId })).toEqual({ ok: true, value: grant });
+    });
+    it("detaches input and returned authority from stored state", async () => {
+      const port = required.create();
+      const input = structuredClone(grant);
+      const created = await port.grant({ context, grant: input });
+      expect(created.ok).toBe(true);
+      input.definitionIds.push("caller-added");
+      if (created.ok) created.value.definitionIds.push("result-added");
+      const read = await port.current({ context: serviceContext, grantId: grant.grantId });
+      expect(read).toEqual({ ok: true, value: grant });
+      if (read.ok) read.value.revoked = true;
+      expect(await port.current({ context: serviceContext, grantId: grant.grantId })).toEqual({ ok: true, value: grant });
+      const revoked = await port.revoke({ context, grantId: grant.grantId });
+      expect(revoked.ok).toBe(true);
+      if (revoked.ok) revoked.value.revoked = false;
+      expect(await port.current({ context: serviceContext, grantId: grant.grantId })).toEqual({ ok: true, value: { ...grant, revoked: true } });
     });
   });
 }
 export function ConversionDeliveryStatePortSuite(required: { create: () => ConversionDeliveryStatePort }) {
   describe("ConversionDeliveryStatePort", () => {
+    it("requires a not-sent reason and makes that evidence terminal", async () => {
+      const port = required.create();
+      const record = { deliveryId: "not-sent", subjectId: event.subjectId, eventId: event.eventId, identity: "a".repeat(64), status: "dispatching" as const, recordedAt: 300 };
+      expect(await port.begin({ context: serviceContext, record })).toMatchObject({ ok: true });
+      expect(await port.append({ context: serviceContext, record: { ...record, status: "not_sent" } })).toMatchObject({ ok: false, error: { code: "conflict" } });
+      expect(await port.append({ context: serviceContext, record: { ...record, status: "unknown", reason: "forbidden" } })).toMatchObject({ ok: false, error: { code: "conflict" } });
+      const refused = { ...record, status: "not_sent" as const, reason: "forbidden" as const };
+      expect(await port.append({ context: serviceContext, record: refused })).toMatchObject({ ok: true, value: refused });
+      expect(await port.begin({ context: serviceContext, record })).toMatchObject({ ok: true, value: { acquired: false, record: refused } });
+      for (const status of ["not_sent", "unknown", "delivered"] as const) {
+        expect(await port.append({ context: serviceContext, record: { ...refused, status } })).toMatchObject({ ok: false, error: { code: "conflict" } });
+      }
+      expect(await port.read({ context: serviceContext, deliveryId: record.deliveryId })).toMatchObject({ ok: true, value: refused });
+    });
+    it("preserves receipts across reads and rejects replacement or removal", async () => {
+      const port = required.create();
+      const record = { deliveryId: "receipt", subjectId: event.subjectId, eventId: event.eventId, identity: "a".repeat(64), status: "dispatching" as const, recordedAt: 300 };
+      expect(await port.begin({ context: serviceContext, record })).toMatchObject({ ok: true });
+      const sent = { ...record, status: "delivered" as const, receiptId: "receipt-1" };
+      expect(await port.append({ context: serviceContext, record: sent })).toMatchObject({ ok: true, value: sent });
+      for (const receiptId of [undefined, "replacement"]) {
+        expect(await port.append({ context: serviceContext, record: { ...sent, receiptId, recordedAt: 301 } })).toMatchObject({ ok: false, error: { code: "conflict" } });
+      }
+      expect(await port.read({ context: serviceContext, deliveryId: sent.deliveryId })).toMatchObject({ ok: true, value: sent });
+    });
+    it.each(["accepted", "processed", "attributed"] as const)("records delivery without clearing confirmed %s evidence", async field => {
+      const port = required.create();
+      const record = { deliveryId: "confirmed", subjectId: event.subjectId, eventId: event.eventId, identity: "a".repeat(64), status: "dispatching" as const, recordedAt: 300 };
+      const diagnostics = { accepted: true, processed: true, attributed: true, observedAt: 301 };
+      await port.begin({ context: serviceContext, record });
+      expect(await port.append({ context: serviceContext, record: { ...record, status: "unknown", recordedAt: 301, diagnostics } })).toMatchObject({ ok: true });
+      for (const value of [false, null]) {
+        const merged = { ...diagnostics, observedAt: 302 };
+        expect(await port.append({ context: serviceContext, record: { ...record, status: "delivered", recordedAt: 302, diagnostics: { ...diagnostics, [field]: value, observedAt: 302 } } })).toMatchObject({ ok: true, value: { status: "delivered", diagnostics: merged } });
+        expect(await port.read({ context: serviceContext, deliveryId: record.deliveryId })).toMatchObject({ ok: true, value: { status: "delivered", recordedAt: 302, diagnostics: merged } });
+      }
+    });
+    it("merges older confirmations without regressing observation time", async () => {
+      const port = required.create();
+      const record = { deliveryId: "observations", subjectId: event.subjectId, eventId: event.eventId, identity: "a".repeat(64), status: "dispatching" as const, recordedAt: 300 };
+      const diagnostics = { accepted: false, processed: null, attributed: null, observedAt: 301 };
+      await port.begin({ context: serviceContext, record });
+      expect(await port.append({ context: serviceContext, record: { ...record, status: "unknown", recordedAt: 301, diagnostics } })).toMatchObject({ ok: true });
+      expect(await port.append({ context: serviceContext, record: { ...record, status: "delivered", recordedAt: 302, diagnostics: { ...diagnostics, accepted: true, observedAt: 300 } } })).toMatchObject({ ok: true, value: { status: "delivered", diagnostics: { ...diagnostics, accepted: true } } });
+      expect(await port.read({ context: serviceContext, deliveryId: record.deliveryId })).toMatchObject({ ok: true, value: { status: "delivered", diagnostics: { ...diagnostics, accepted: true } } });
+      expect(await port.append({ context: serviceContext, record: { ...record, status: "delivered", recordedAt: 302, diagnostics: { ...diagnostics, accepted: true, observedAt: 302 } } })).toMatchObject({ ok: true, value: { diagnostics: { accepted: true, observedAt: 302 } } });
+    });
+    it.each([
+      { after: { accepted: null, processed: false, attributed: null, observedAt: 302 }, expected: { accepted: false, processed: false, attributed: false, observedAt: 302 } },
+      { after: { accepted: null, processed: false, attributed: null, observedAt: 300 }, expected: { accepted: false, processed: false, attributed: false, observedAt: 301 } },
+      { after: { accepted: false, processed: null, attributed: false, observedAt: 300 }, expected: { accepted: false, processed: null, attributed: false, observedAt: 301 } },
+    ])("retains non-null observations and takes newer unconfirmed values: %j", async ({ after, expected }) => {
+      const port = required.create();
+      const record = { deliveryId: "non-null", subjectId: event.subjectId, eventId: event.eventId, identity: "a".repeat(64), status: "dispatching" as const, recordedAt: 300 };
+      await port.begin({ context: serviceContext, record });
+      await port.append({ context: serviceContext, record: { ...record, status: "unknown", recordedAt: 301,
+        diagnostics: { accepted: false, processed: null, attributed: false, observedAt: 301 } } });
+      expect(await port.append({ context: serviceContext, record: { ...record, status: "delivered", recordedAt: 302, diagnostics: after } }))
+        .toMatchObject({ ok: true, value: { status: "delivered", diagnostics: expected } });
+    });
+    it("reads latest detached diagnostic evidence only within the requested scope", async () => {
+      const port = required.create();
+      const input = { context: serviceContext, deliveryId: "diagnostic-read" };
+      const record = { deliveryId: input.deliveryId, subjectId: event.subjectId, eventId: event.eventId, identity: "a".repeat(64), status: "dispatching" as const, recordedAt: 300 };
+      const diagnostics = { accepted: true, processed: false, attributed: null, observedAt: 301 };
+      expect(await port.read(input)).toEqual({ ok: true, value: null });
+      await port.begin({ context: serviceContext, record });
+      expect(await port.append({ context: serviceContext, record: { ...record, status: "unknown", recordedAt: 301, diagnostics } })).toMatchObject({ ok: true, value: { diagnostics } });
+      await port.append({ context: serviceContext, record: { ...record, status: "unknown", recordedAt: 302 } });
+      const latest = await port.read(input);
+      expect(latest).toMatchObject({ ok: true, value: { status: "unknown", recordedAt: 302, diagnostics } });
+      if (latest.ok) Object.assign(latest.value?.diagnostics ?? {}, { accepted: false });
+      expect(await port.read(input)).toMatchObject({ ok: true, value: { diagnostics } });
+      for (const scope of [{ ...serviceContext.scope, ownerId: "other" }, { ...serviceContext.scope, workspaceId: "other" }]) {
+        expect(await port.read({ ...input, context: { ...serviceContext, scope } })).toEqual({ ok: true, value: null });
+      }
+      expect(await port.read({ ...input, deliveryId: "" })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+      expect(await port.read({ ...input, context: { ...serviceContext, traceId: "" } })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+    });
+    it("rejects malformed diagnostics before appending evidence", async () => {
+      const port = required.create();
+      const record = { deliveryId: "malformed-diagnostics", subjectId: event.subjectId, eventId: event.eventId, identity: "a".repeat(64), status: "dispatching" as const, recordedAt: 300 };
+      await port.begin({ context: serviceContext, record });
+      expect(await port.append({ context: serviceContext, record: { ...record, status: "delivered", diagnostics: { accepted: true, processed: null, attributed: null, observedAt: -1 } } })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+      expect(await port.read({ context: serviceContext, deliveryId: record.deliveryId })).toEqual({ ok: true, value: record });
+    });
     it("claims once, preserves unknown evidence and cannot regress delivered", async () => {
       const port = required.create();
       const record = { deliveryId: "delivery-1", subjectId: event.subjectId, eventId: event.eventId, identity: "a".repeat(64), status: "dispatching" as const, recordedAt: 300 };

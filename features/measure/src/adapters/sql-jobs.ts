@@ -1,11 +1,12 @@
-import type { MeasureJobPort, MeasureObserverPort, MeasureSqlDatabase, MeasureTransactionalJobPort } from "../ports.js";
+import type { ObserverPort } from "@open-marketing/contracts";
+import type { MeasureJobPort, MeasureSqlDatabase, MeasureTransactionalJobPort } from "../ports.js";
 import { ingestionContext, parseSourceEvent } from "../rules.js";
 import { sqlBoundary, unwrap } from "./sql-boundary.js";
 
 /** Standalone jobs boundary adapter. Ingestion uses createSqlMeasureRepo's transaction
  * binding instead; this adapter never creates a feature-owned jobs table.
  * @example createSqlMeasureJob({ database, jobs }) */
-export function createSqlMeasureJob(required: { database: MeasureSqlDatabase; jobs: MeasureTransactionalJobPort }, optional?: { observer?: MeasureObserverPort }): MeasureJobPort {
+export function createSqlMeasureJob(required: { database: MeasureSqlDatabase; jobs: MeasureTransactionalJobPort }, optional?: { observer?: ObserverPort }): MeasureJobPort {
   return {
     async enqueue(input, options) {
       const parsed = parseSourceEvent({ input });

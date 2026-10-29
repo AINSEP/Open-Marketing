@@ -43,6 +43,22 @@ The repository receives `clock`, `ids`, and the owner's **explicit local IANA ti
 
 The memory doubles are deterministic test adapters, not production identity, plugin admission, platform evidence, persistent confirmation, or distributed-lock implementations. `CallContext`/`ServiceContext` must come from server authentication, never client or agent JSON. The production confirmation bridge must display the complete frozen effect, including financial exposure and window, before collecting the owner's response.
 
+## Paid sending
+
+Paid sending has a separate default USD $5/day allowance per owner/workspace in the injected local timezone.
+Use `createMemoryPaidSendingAllowances` for a double or `createSqlPaidSendingAllowances` for durable accounting:
+
+- `reserve` holds the exact quote's upper bound atomically; `operationId` is the jobs-outbox operation key.
+- An unsettled replay returns the same reservation and frozen dispatch day; a settled key returns `conflict`.
+- `settle` with the actual cost is the accounting commit. Receipt `observationId` deduplicates evidence.
+- A definite provider failure settles USD zero against its failure receipt, releasing the held exposure.
+- Unknown outcome → keep the reservation and reconcile; never release or retry the send.
+- Later corrections append a new observation linked by `correctsObservationId` and charge the original dispatch day.
+
+Both factories accept a second options object `{ accountingServiceId }`. Only that authenticated server service or the scope owner may reserve/settle; get/set remain owner-only. An omitted ID admits no services. Context must come from server authentication.
+Accounting grants no dispatch authority: owner sends still need the exact approval card and dispatch-time consent; unattended workflows need a future ServiceGrant. Ad spend always needs an exact card per call.
+Dispatch wiring and plugin sends remain follow-up work through the existing jobs outbox. Until a shared micros migration, producers must round quotes and actual costs up to whole USD cents.
+
 ## Persistence and integration
 
 `createSqlSafetyRepo` injects `SafetySqlDatabase`; it constructs no driver and applies no migrations. The adapter uses portable parameterized SQL, a scope snapshot, CAS versioning and an append-only financial journal. Snapshot updates are projections; original reservation/cost/setting evidence remains in the journal. State and journal commit in one transaction.

@@ -1,14 +1,12 @@
-import type { IdPort } from "@open-marketing/contracts";
-import type { IdentityPort, WorkspaceObserverPort } from "../ports.js";
 import type { WorkspaceRepository } from "../store.js";
 import { createRepository } from "../repository.js";
 import { z } from "zod";
 import { idSchema } from "@open-marketing/contracts";
-import type { Outcome, Scope } from "@open-marketing/contracts";
+import type { ObserverPort, Outcome, Scope } from "@open-marketing/contracts";
 import type { AccountBinding } from "../types.js";
 import type { WorkspaceConnectionRecord, WorkspaceRecord, WorkspaceStore } from "../store.js";
 import { bindingSchema, workspaceScopeSchema } from "../schemas.js";
-import { failure, sameBinding } from "../rules.js";
+import { failure, sameBinding, sameScope } from "../rules.js";
 
 /** Tuple encoding avoids delimiter collisions in opaque identifiers. @complexity O(1) bounded IDs. */
 function scopeKey(required: { scope: Scope; id?: string }): string {
@@ -18,7 +16,8 @@ function scopeKey(required: { scope: Scope; id?: string }): string {
 /** In-memory storage uses three constant-time indexes and copies at read/write boundaries.
  * Trusted seed configuration is bounded to 10,000 records per collection and throws on invalid
  * references/duplicates. Bind has no awaits between checking and insertion, so concurrent calls
- * cannot overwrite a winner. @complexity O(n) initialization; O(1) operations; O(n) storage.
+ * cannot overwrite a winner. @complexity O(n) initialization/storage; O(1) lookup/write;
+ * listing scans n bindings and sorts k scoped matches in O(n + k log k) time, O(n) space.
  */
 export function createMemoryStore(required: { workspaces?: readonly WorkspaceRecord[]; connections?: readonly WorkspaceConnectionRecord[]; bindings?: readonly AccountBinding[] }): WorkspaceStore {
   const seed = z.strictObject({ workspaces: z.array(workspaceScopeSchema).max(10_000), connections: z.array(z.strictObject({ scope: workspaceScopeSchema, connectionId: idSchema })).max(10_000), bindings: z.array(bindingSchema).max(10_000) }).parse({ workspaces: required.workspaces ?? [], connections: required.connections ?? [], bindings: required.bindings ?? [] });
@@ -51,15 +50,21 @@ export function createMemoryStore(required: { workspaces?: readonly WorkspaceRec
     async hasWorkspace({ scope }) { return workspaces.has(scopeKey({ scope })); },
     async bind(input) { return bind(input); },
     async find({ scope, externalAccountId }) { return structuredClone(byAccount.get(scopeKey({ scope, id: externalAccountId })) ?? null); },
+    /** Match SQL keyset ordering and clone results so callers cannot mutate storage. */
+    async list({ scope, after, limit }) {
+      const rows = [...byId.values()].filter(row => sameScope({ left: row.scope, right: scope }) && row.id > (after ?? ""));
+      rows.sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
+      return structuredClone(rows.slice(0, limit));
+    },
   };
 }
 
-/** Repository double over trusted server seeds. Missing identity/IDs fails closed rather than
- * fabricating authority. Bind/find are trusted server storage operations; use WorkspaceService
- * to authenticate transport callers. @complexity O(n) seed construction; O(1) operations.
- * @example createMemoryWorkspaceRepo({ identity, ids, workspaces: [{ ownerId: "owner", workspaceId: "workspace" }] })
+/** Repository double over trusted server seeds. Bind/find are trusted server storage operations; use WorkspaceService
+ * to authenticate transport callers. @complexity O(n) seed construction; O(1) lookup/write;
+ * O(n + k log k) listing for n stored bindings and k scoped matches.
+ * @example createMemoryWorkspaceRepo({ workspaces: [{ ownerId: "owner", workspaceId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }] })
  */
-export function createMemoryWorkspaceRepo(required: { identity?: IdentityPort; ids?: IdPort; workspaces?: readonly WorkspaceRecord[]; connections?: readonly WorkspaceConnectionRecord[]; bindings?: readonly import("../types.js").AccountBinding[] }, optional?: { observer?: WorkspaceObserverPort }): WorkspaceRepository {
+export function createMemoryWorkspaceRepo(required: { workspaces?: readonly WorkspaceRecord[]; connections?: readonly WorkspaceConnectionRecord[]; bindings?: readonly import("../types.js").AccountBinding[] }, optional?: { observer?: ObserverPort }): WorkspaceRepository {
   const store = createMemoryStore(required);
-  return createRepository({ store, identity: required.identity ?? { async verify() { return failure({ code: "unavailable", message: "Identity adapter required" }); } }, ids: required.ids ?? { next() { return ""; } } }, optional);
+  return createRepository({ store }, optional);
 }

@@ -1,7 +1,8 @@
+import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ClockPort } from "@open-marketing/contracts";
 import type { WebEventRepoPort } from "../index.js";
-import { clockFixture, context, event, otherOwner, otherWorkspace, touch, visit } from "./fixtures.js";
+import { clockFixture, context, destinationUrl, event, otherOwner, otherWorkspace, touch, visit } from "./fixtures.js";
 
 type Harness = { repo: WebEventRepoPort; close?: () => void };
 /** Same behavioral assertions for instance-owned memory and actual SQLite adapters. */
@@ -11,6 +12,38 @@ export function webEventRepoSuite(required: { name: string; create: (required: {
     let time: { now: number };
     beforeEach(() => { const clock = clockFixture(); time = clock.time; fixture = required.create(clock); });
     afterEach(() => fixture.close?.());
+    it("persists link-backed OM campaign IDs and preserves them on replay and scoped read", async () => {
+      const landing = event({ subjectId: "subject", properties: { linkId: "link", campaignId: "om-campaign" } });
+      const saved = { ...touch({ event: landing }), campaignId: "om-campaign" };
+      const input = { context, event: landing, touch: saved };
+      expect(await fixture.repo.recordTouch(input)).toEqual({ ok: true, value: saved });
+      expect(await fixture.repo.recordTouch({ ...input, touch: { ...saved, touchId: "retry" } })).toEqual({ ok: true, value: saved });
+      const query = { context, subjectId: "subject", window: { start: 0, end: 500 }, limit: 100 };
+      expect(await fixture.repo.touchesFor(query)).toEqual({ ok: true, value: [saved] });
+      expect(await fixture.repo.touchesFor({ ...query, context: otherWorkspace })).toEqual({ ok: true, value: [] });
+      const changed = event({ ...landing, properties: { linkId: "link", campaignId: "different-campaign" } });
+      expect(await fixture.repo.recordTouch({ context, event: changed, touch: touch({ event: changed }) }))
+        .toMatchObject({ ok: false, error: { code: "conflict" } });
+    });
+    it("isolates destination receipts, preserves replay age and detects destination changes", async () => {
+      const destinationId = createHash("sha256").update(destinationUrl).digest("hex");
+      const query = { context, destinationId };
+      expect(await fixture.repo.lastHeartbeat(query)).toEqual({ ok: true, value: null });
+      const landing = event({ properties: { pageUrl: destinationUrl + "?private=discard#fragment" } });
+      const input = { context, event: landing, touch: touch({ event: landing }) };
+      expect((await fixture.repo.recordTouch(input)).ok).toBe(true);
+      time.now = 2000;
+      expect((await fixture.repo.recordTouch(input)).ok).toBe(true);
+      expect(await fixture.repo.lastHeartbeat(query)).toEqual({ ok: true, value: 1000 });
+      for (const alternate of [otherOwner, otherWorkspace]) expect(await fixture.repo.lastHeartbeat({ ...query, context: alternate })).toEqual({ ok: true, value: null });
+      const changed = event({ properties: { pageUrl: destinationUrl + "/different" } });
+      expect(await fixture.repo.recordTouch({ context, event: changed, touch: touch({ event: changed }) })).toMatchObject({ ok: false, error: { code: "conflict" } });
+      const second = event({ eventId: "second", properties: { pageUrl: destinationUrl } });
+      expect((await fixture.repo.recordTouch({ context, event: second, touch: touch({ event: second, touchId: "second" }) })).ok).toBe(true);
+      expect(await fixture.repo.lastHeartbeat(query)).toEqual({ ok: true, value: 2000 });
+      expect(await fixture.repo.lastHeartbeat({ context, destinationId: "not-a-digest" })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+      expect(await fixture.repo.lastHeartbeat(query, { signal: AbortSignal.abort() })).toMatchObject({ ok: false, error: { code: "cancelled" } });
+    });
     it("replays the original touch and rejects changed click or event content", async () => {
       const input = { context, event: event(), touch: touch() };
       expect(await fixture.repo.recordTouch(input)).toEqual({ ok: true, value: touch() });
@@ -40,7 +73,7 @@ export function webEventRepoSuite(required: { name: string; create: (required: {
       expect(await fixture.repo.saveVisit({ context, visit: { ...visit, visitId: "duplicate-anonymous" } })).toMatchObject({ ok: false, error: { code: "conflict" } });
       expect(await fixture.repo.saveVisit({ context: otherWorkspace, visit })).toMatchObject({ ok: false, error: { code: "forbidden" } });
     });
-    it("uses current binding and [start,end), occurrence/ID order and limit", async () => {
+    it("uses current binding and [start,end), newest-first occurrence/ID order and limit", async () => {
       await fixture.repo.saveVisit({ context, visit });
       for (const [eventId, occurredAt, touchId] of [["late", 200, "z"], ["tie-z", 100, "b"], ["tie-a", 100, "a"], ["end", 300, "end"]] as const) {
         const input = event({ eventId, occurredAt });
@@ -51,7 +84,7 @@ export function webEventRepoSuite(required: { name: string; create: (required: {
       await fixture.repo.bindVisitor({ context, visitId: visit.visitId, subjectId: "subject" });
       time.now = 3000;
       const result = await fixture.repo.touchesFor({ ...query, limit: 2 });
-      expect(result.ok && result.value.map(item => item.touchId)).toEqual(["a", "b"]);
+      expect(result.ok && result.value.map(item => item.touchId)).toEqual(["z", "b"]);
       expect(await fixture.repo.bindVisitor({ context, visitId: visit.visitId, subjectId: "subject" })).toMatchObject({ ok: false, error: { code: "expired" } });
       expect(await fixture.repo.touchesFor({ ...query, context: otherWorkspace })).toEqual({ ok: true, value: [] });
     });

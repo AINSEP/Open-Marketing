@@ -1,6 +1,6 @@
 import type { z } from "zod";
-import type { CallContext, CallOptions, Outcome } from "@open-marketing/contracts";
-import type { CampaignCapabilityPort, CampaignObserverPort } from "../ports.js";
+import type { CallContext, CallOptions, Outcome, ObserverPort } from "@open-marketing/contracts";
+import type { CampaignCapabilityPort } from "../ports.js";
 import { capabilityCreateSchema, capabilityLaunchSchema, capabilityReadSchema } from "../capability-schemas.js";
 import { checkCancelled } from "../repo-rules.js";
 import { exactMatch, fail, launchReceiptSchema, parseBoundary, readbackSchema, receiptSchema } from "../rules.js";
@@ -12,13 +12,13 @@ import { exactMatch, fail, launchReceiptSchema, parseBoundary, readbackSchema, r
 export interface CampaignBackendPort {
   invoke(required: { context: CallContext; operation: "create-paused" | "launch" | "read-state"; operationId: string; payload: unknown; timeoutMs: number }, optional?: CallOptions): Promise<Outcome<unknown>>;
 }
-interface Dependencies { backend: CampaignBackendPort; observer?: CampaignObserverPort; timeoutMs: number }
+interface Dependencies { backend: CampaignBackendPort; observer?: ObserverPort; timeoutMs: number }
 /** Validated generic capability adapter. Bounded input/output and injected federation
  * timeout; thrown transport failures remain typed unavailable, never success/retry.
  * @example createCampaignCapabilityAdapter({ backend }, { timeoutMs: 15000, observer });
  * @complexity O(n) bounded DTO traversal, one backend call, no retries.
  */
-export function createCampaignCapabilityAdapter(required: { backend: CampaignBackendPort }, optional: { timeoutMs?: number; observer?: CampaignObserverPort } = {}): CampaignCapabilityPort {
+export function createCampaignCapabilityAdapter(required: { backend: CampaignBackendPort }, optional: { timeoutMs?: number; observer?: ObserverPort } = {}): CampaignCapabilityPort {
   const timeoutMs = optional.timeoutMs ?? 15000;
   const dependencies: Dependencies = { ...required, observer: optional.observer, timeoutMs };
   return {

@@ -1,4 +1,4 @@
-import type { Outcome, CallContext, CallOptions, ObserverPort } from "@open-marketing/contracts";
+import type { Outcome, CallContext, CallOptions } from "@open-marketing/contracts";
 import type { ConnectRequest, ConnectChallenge, VerifiedOAuthCallback, ConnectionSummary, RevocationReceipt, SealedSecret, KeyringConfiguration, CredentialReference, CredentialRecord } from "./types.js";
 
 /** Server-owned repository. Stores advance one version; revocation is terminal for an ID. */
@@ -40,4 +40,3 @@ export interface CredentialBrokerPort {
 export interface CredentialRefreshPort {
   refresh(required: { context: CallContext; record: CredentialRecord }, optional?: CallOptions): Promise<Outcome<SealedSecret | null>>;
 }
-export type CredentialObserverPort = ObserverPort;

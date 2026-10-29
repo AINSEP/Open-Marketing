@@ -1,10 +1,8 @@
-import type { IdPort } from "@open-marketing/contracts";
-import type { IdentityPort, WorkspaceObserverPort } from "../ports.js";
 import type { WorkspaceRepository } from "../store.js";
 import { createRepository } from "../repository.js";
 import { z } from "zod";
 import { idSchema } from "@open-marketing/contracts";
-import type { Scope } from "@open-marketing/contracts";
+import type { ObserverPort, Scope } from "@open-marketing/contracts";
 import type { AccountBinding } from "../types.js";
 import type { WorkspaceStore } from "../store.js";
 import { failure, sameBinding } from "../rules.js";
@@ -13,11 +11,17 @@ import type { WorkspaceSqlDatabase, WorkspaceSqlSession } from "../sql.js";
 const bindingRowSchema = z.strictObject({ id: idSchema, owner_id: idSchema, workspace_id: idSchema, connection_id: idSchema, external_account_id: idSchema });
 const existsRowSchema = z.strictObject({ found: z.literal(1) });
 
-/** Decode bounded SQL output; bad driver/row shapes throw into the typed repository boundary. @complexity O(1). */
+/** Decode bounded SQL output; bad driver/row shapes throw into the typed repository boundary.
+ * @complexity O(p) time/space for p <= max rows (at most 101 for listing).
+ */
+function readBindings(required: { rows: readonly unknown[]; max: number }): AccountBinding[] {
+  const rows = z.array(bindingRowSchema).max(required.max).parse(required.rows);
+  return rows.map(row => ({ id: row.id, scope: { ownerId: row.owner_id, workspaceId: row.workspace_id }, connectionId: row.connection_id, externalAccountId: row.external_account_id }));
+}
+
+/** Decode at most one binding; malformed SQL output throws to the repository boundary. @complexity O(1). */
 function readBinding(required: { rows: readonly unknown[] }): AccountBinding | null {
-  const rows = z.array(bindingRowSchema).max(1).parse(required.rows);
-  const row = rows[0];
-  return row ? { id: row.id, scope: { ownerId: row.owner_id, workspaceId: row.workspace_id }, connectionId: row.connection_id, externalAccountId: row.external_account_id } : null;
+  return readBindings({ rows: required.rows, max: 1 })[0] ?? null;
 }
 
 /** Parameterized account lookup, always qualified by full scope. @complexity O(log n) with indexes. */
@@ -52,13 +56,18 @@ export function createSqlStore(required: { db: WorkspaceSqlDatabase }): Workspac
       return required.db.transaction({ work: ({ session }) => bindTransaction({ db: session, binding }) });
     },
     async find(input) { return findBinding({ db: required.db, ...input }); },
+    /** Scope-qualified primary-key seek; decode at most limit rows. @complexity O(log n + p), p <=101. */
+    async list({ scope, after, limit }) {
+      const result = await required.db.query({ text: "SELECT id, owner_id, workspace_id, connection_id, external_account_id FROM workspace_account_binding WHERE owner_id = $1 AND workspace_id = $2 AND ($3 IS NULL OR id > $3) ORDER BY id LIMIT $4", values: [scope.ownerId, scope.workspaceId, after ?? null, limit] });
+      return readBindings({ rows: result.rows, max: limit });
+    },
   };
 }
 
 /** Persistent adapter for both repository and scoped lookup. Factory is inert; migrations are
- * never applied here. @example createSqlWorkspaceRepo({ db: serverDbAdapter, identity, ids })
+ * never applied here. @example createSqlWorkspaceRepo({ db: serverDbAdapter })
  * @complexity O(1) construction, fixed indexed SQL queries per operation.
  */
-export function createSqlWorkspaceRepo(required: { db: WorkspaceSqlDatabase; identity: IdentityPort; ids: IdPort }, optional?: { observer?: WorkspaceObserverPort }): WorkspaceRepository {
-  return createRepository({ store: createSqlStore({ db: required.db }), identity: required.identity, ids: required.ids }, optional);
+export function createSqlWorkspaceRepo(required: { db: WorkspaceSqlDatabase }, optional?: { observer?: ObserverPort }): WorkspaceRepository {
+  return createRepository({ store: createSqlStore({ db: required.db }) }, optional);
 }

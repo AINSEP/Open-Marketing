@@ -1,9 +1,12 @@
-import { getMediaById, listMedia, parseMediaHtmlAttributes } from '@jini-ai/cms/media';
+import { getMediaById, listMedia, parseMediaHtmlAttributes, sniffContentType } from '@jini-ai/cms/media';
 import type { MediaRecord } from '@jini-ai/cms/media';
+import { z } from 'zod';
 import { digestSchema, idSchema, parseBoundary } from '@open-marketing/contracts';
-import type { CallContext, Outcome, Scope } from '@open-marketing/contracts';
+import type { CallContext, Outcome, Scope, ObserverPort } from '@open-marketing/contracts';
 import type { Asset, AssetPage, AssetQuery } from './types.js';
-import type { JiniMediaDependencies, JiniMediaPort, MediaObserverPort } from './ports.js';
+import type { JiniMediaDependencies, JiniMediaPort } from './ports.js';
+import { createJiniBlobStore } from './blob-adapter.js';
+import { IMAGE_CONTENT_TYPES } from './image-inspection.js';
 import { boundary } from './boundary.js';
 import { assetSchema, blobSchema, checkContext, fail, querySchema, recordSchema, success } from './validation.js';
 
@@ -12,9 +15,27 @@ import { assetSchema, blobSchema, checkContext, fail, querySchema, recordSchema,
  * @complexity O(n log n) listing, bounded to 1,000 loaded records (Jini currently materializes upstream list).
  * @example createJiniMediaAdapter({ scope, dependencies })
  */
-export function createJiniMediaAdapter(required: { scope: Scope; dependencies: JiniMediaDependencies }, optional?: { observer?: MediaObserverPort }): JiniMediaPort {
+export function createJiniMediaAdapter(required: { scope: Scope; dependencies: JiniMediaDependencies }, optional?: { observer?: ObserverPort }): JiniMediaPort {
   const { dependencies: deps } = required;
   return {
+    /** Refuse missing/trashed records before reading bytes; verify stored digest and the requested byte bound on read.
+     * @complexity O(bytes), existing blob reader caps reads at 25 MB; oversized results are refused, never returned.
+     */
+    async read(input, options) {
+      const parsed = parseBoundary({ schema: z.object({ assetId: idSchema, maxBytes: z.number().int().positive().max(25_000_000) }), input });
+      if (!parsed.ok) return parsed;
+      const media = createJiniMediaAdapter(required, optional);
+      const asset = await media.get({ context: input.context, assetId: parsed.value.assetId }, options);
+      if (!asset.ok) return asset;
+      if (asset.value.record.status !== 'active') return fail({ code: 'forbidden', message: 'Asset is absent or inaccessible' });
+      const blobs = createJiniBlobStore({ scope: required.scope, store: deps.blobStore }, optional);
+      const bytes = await blobs.read({ context: input.context, storageKey: asset.value.blob.storageKey }, options);
+      if (!bytes.ok) return bytes;
+      if (bytes.value.byteLength > parsed.value.maxBytes) return fail({ code: 'limit_exceeded', message: 'Image exceeds byte limit' });
+      const contentType = sniffContentType({ bytes: bytes.value });
+      if (!IMAGE_CONTENT_TYPES.some(type => type === contentType)) return fail({ code: 'invalid_input', message: 'Unsupported image format' });
+      return success({ value: { asset: asset.value, bytes: bytes.value } });
+    },
     async save(input, options) {
       const context = checkContext({ context: input.context, options, scope: required.scope });
       if (!context.ok) return context;

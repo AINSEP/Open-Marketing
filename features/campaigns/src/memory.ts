@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { callContextSchema, idSchema } from "@open-marketing/contracts";
-import type { CallContext, ObserverEvent } from "@open-marketing/contracts";
-import type { CampaignAuditPort, CampaignObserverPort } from "./ports.js";
+import type { CallContext, ObserverEvent, ObserverPort } from "@open-marketing/contracts";
+import type { CampaignAuditPort } from "./ports.js";
 import { checkCancelled } from "./repo-rules.js";
 import { fail, parseBoundary, success } from "./rules.js";
 export { createMemoryCampaignRepo } from "./memory-repo.js";
@@ -32,7 +32,7 @@ export function createMemoryCampaignAudit(required: { maxEntries?: number }): Me
   };
 }
 /** Snapshot access for the injected observer double; events retain run/correlation/trace IDs. */
-export interface MemoryCampaignObserver extends CampaignObserverPort {
+export interface MemoryCampaignObserver extends ObserverPort {
   events(required: Record<string, never>): readonly ObserverEvent[];
 }
 /** Bounded observer double. Invalid events/capacity throw because the shared observer

@@ -1,8 +1,8 @@
 import { effectEnvelopeSchema, idSchema, parseBoundary } from "@open-marketing/contracts";
-import type { CallContext, CallOptions, EffectCategory, ObserverEvent, Outcome } from "@open-marketing/contracts";
+import type { CallContext, CallOptions, EffectCategory, ObserverEvent, Outcome, ObserverPort } from "@open-marketing/contracts";
 import type {
   FederationConnectionRepoPort, McpTransportPort, FederationCredentialPort, FederatedToolPermissionGate,
-  FederatedCallConfirmation, ExternalMcpToolApprovalRepoPort, FederatedDispatchGatePort, FederationAuditPort, FederationObserverPort,
+  FederatedCallConfirmation, ExternalMcpToolApprovalRepoPort, FederatedDispatchGatePort, FederationAuditPort,
 } from "./ports.js";
 import type { ExternalToolCall, ExternalToolResult, FederationConnection, FederatedApproval } from "./types.js";
 import { failure, success } from "./outcomes.js";
@@ -266,7 +266,7 @@ async function respondSafely(required: { respond: NonNullable<Parameters<typeof 
 }
 
 /** Redacted bounded observation double; diagnostics have no authority and may drop at capacity. */
-export interface MemoryFederationObserver extends FederationObserverPort {
+export interface MemoryFederationObserver extends ObserverPort {
   entries(required: Record<string, never>): readonly ObserverEvent[];
 }
 

@@ -32,7 +32,8 @@ composition must authenticate and resolve the session server-side per request;
 never accept client-supplied `CallContext` as authority.
 
 The repository and account lookup ports are trusted server storage boundaries.
-Their context arguments are already authenticated by composition/service. They
+The service owns authentication; the repository checks scoped workspace existence.
+Bind/find context arguments are already authenticated by composition/service. They
 validate shape, consistent owner principal, current workspace ownership and full
 binding scope; they do not independently authenticate arbitrary serialized
 contexts because the contracts provide no session/proof on bind or lookup.
@@ -40,12 +41,17 @@ contexts because the contracts provide no session/proof on bind or lookup.
 Memory constructors accept trusted `workspaces`, `connections`, and optional
 `bindings` seeds (up to 10,000 each). `createMemoryIdentity` accepts trusted session
 seeds and an injected clock for expiring sessions; it is a test double, not a login
-system. `createMemoryAccountBindingLookup({ repo })` shares the repository index.
-Empty identity/repository/lookup configuration fails explicitly.
+system. Empty identity configuration fails explicitly.
+Each repository (`createMemoryWorkspaceRepo` / `createSqlWorkspaceRepo`) is itself
+the `AccountBindingLookupPort`.
 
-`createSqlWorkspaceRepo({ db, identity, ids })` implements repository and lookup
-against an injected `WorkspaceSqlDatabase`. `createSqlAccountBindingLookup({ repo })`
-wraps its lookup. The factory performs no I/O or startup. The server must adapt its
+`repo.listAccountBindings({ context, query: { limit: 25, cursor } }, options?)` returns `Outcome<Page<AccountBinding>>` for an authenticated owner context only; agents are forbidden and limits are 1–100.
+Pages use a keyset ordered by binding ID; a non-null cursor is the last returned ID, and `null` means no more rows.
+There is no snapshot across pages, and listing grants no dispatch authority.
+
+`createSqlWorkspaceRepo({ db })` implements repository and lookup
+against an injected `WorkspaceSqlDatabase`. The factory performs no I/O or startup.
+The server must adapt its
 SQLite/@jini-ai/db-shaped shim, enable foreign keys, serialize write transactions
 with `BEGIN IMMEDIATE`, supervise timeouts, and handle connection lifecycle.
 Numbered `$n` placeholders and `ON CONFLICT DO NOTHING` keep SQL portable to

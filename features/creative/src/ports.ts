@@ -1,4 +1,4 @@
-import type { Outcome, CallContext, CallOptions, ObserverPort, GenerationCostQuote, GenerationApprovalRequirement } from "@open-marketing/contracts";
+import type { Outcome, CallContext, CallOptions, GenerationCostQuote, GenerationApprovalRequirement } from "@open-marketing/contracts";
 import type { PollDueStats, RecoverResult, AsyncOperationStore } from "@jini-ai/integrations/media-providers";
 import type { GenerationRequest, GenerationReceipt, GenerationStatus, GenerationCostObservation, GenerationProvenance, GenerationOutput, GenerationPollRequest } from "./types.js";
 
@@ -51,5 +51,3 @@ export interface CreativeAuditPort {
   record(required: { context: CallContext; operationId: string; outcome: string }, optional?: CallOptions): Promise<Outcome<void>>;
 }
 
-/** Injected observer must not throw or affect authority. */
-export type CreativeObserverPort = ObserverPort;

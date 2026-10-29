@@ -1,19 +1,19 @@
 import type { Scope } from "@open-marketing/contracts";
-import type { CanonicalIdentityPort, PolicyRepoPort } from "./ports.js";
-import type { IdentifierBinding, PolicyEvidence } from "./types.js";
-import { bindingSchema, evidenceSchema, evidenceLimit, PolicyConfigurationError, failure, sameScope, validateEvidence, validateRequest } from "./validation.js";
+import type { PolicyRepoPort } from "./ports.js";
+import type { PolicyEvidence } from "./types.js";
+import { evidenceSchema, evidenceLimit, PolicyConfigurationError, sameScope, validateEvidence, validateRequest } from "./validation.js";
 import { checkAppend, projectSnapshot, rootsFor } from "./projection.js";
 
-export type MemoryPolicyOptions = { readonly bindings?: readonly IdentifierBinding[]; readonly evidence?: readonly PolicyEvidence[]; readonly maxEvidence?: number };
+export type MemoryPolicyOptions = { readonly evidence?: readonly PolicyEvidence[]; readonly maxEvidence?: number };
 
-/** Isolated append-only double with shared canonical identity view; no global state.
+/** Isolated append-only evidence double; no global state.
  * Invalid seed/config throws before exposure; operations return typed failures.
- * @example const repo = createMemoryPolicyRepo({}); createPolicyService({ repo, clock, ids })
+ * @example const repo = createMemoryPolicyRepo({}); createPolicyService({ repo, clock })
  * @complexity O(n) reads/append checks; bounded per-scope evidence, O(n) retained state.
  */
-export function createMemoryPolicyRepo(required: MemoryPolicyOptions): PolicyRepoPort & CanonicalIdentityPort {
+export function createMemoryPolicyRepo(required: MemoryPolicyOptions): PolicyRepoPort {
   const maxEvidence = evidenceLimit({ value: required.maxEvidence });
-  const { records, bindings } = parseSeeds(required);
+  const records = parseSeeds(required);
   validateSeeds({ records, maxEvidence });
   return {
     async snapshot(input, options) {
@@ -31,23 +31,7 @@ export function createMemoryPolicyRepo(required: MemoryPolicyOptions): PolicyRep
       records.push(evidence);
       return { ok: true, value: structuredClone(evidence) };
     },
-    async resolve(input, options) {
-      const invalid = validateRequest({ context: input.context, subjectId: input.identifier, options });
-      if (invalid) return invalid;
-      const matches = bindings.filter(binding => binding.identifier === input.identifier && sameScope({ left: binding.subject.scope, right: input.context.scope }));
-      if (matches.length !== 1) return failure({ code: "unavailable", message: "Canonical identifier missing or ambiguous" });
-      const roots = rootsFor({ evidence: scopedRecords({ records, scope: input.context.scope }) });
-      if (!roots.ok) return roots;
-      return { ok: true, value: { scope: structuredClone(input.context.scope), subjectId: roots.value.get(matches[0].subject.subjectId) ?? matches[0].subject.subjectId } };
-    },
   };
-}
-/** Resolve prebound identifiers without manufacturing identities or merging workspaces.
- * @example createMemoryCanonicalIdentity({ bindings: [{ identifier, subject }] })
- * @complexity O(n) bounded evidence and identifier scan.
- */
-export function createMemoryCanonicalIdentity(required: MemoryPolicyOptions): CanonicalIdentityPort {
-  return createMemoryPolicyRepo(required);
 }
 /** Tenant filter before all projection and retry lookup. @complexity O(n). */
 function scopedRecords(required: { records: readonly PolicyEvidence[]; scope: Scope }): PolicyEvidence[] {
@@ -79,9 +63,8 @@ function validateSeedScope(required: { evidence: PolicyEvidence }): void {
 }
 
 /** Bound and validate external fixture data before exposing mutable state. @complexity O(n). */
-function parseSeeds(required: MemoryPolicyOptions): { records: PolicyEvidence[]; bindings: IdentifierBinding[] } {
+function parseSeeds(required: MemoryPolicyOptions): PolicyEvidence[] {
   const evidence = evidenceSchema.array().max(100_000).safeParse(required.evidence ?? []);
-  const identifiers = bindingSchema.array().max(100_000).safeParse(required.bindings ?? []);
-  if (!evidence.success || !identifiers.success) throw new PolicyConfigurationError({ message: "Invalid policy seed data" });
-  return { records: evidence.data, bindings: identifiers.data };
+  if (!evidence.success) throw new PolicyConfigurationError({ message: "Invalid policy seed data" });
+  return evidence.data;
 }

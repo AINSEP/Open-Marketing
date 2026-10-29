@@ -1,38 +1,110 @@
-import type { Outcome } from "@open-marketing/contracts";
+import { trackingTagOutputSchema } from "@open-marketing/contracts";
+import type { Outcome, TrackingTagOutput } from "@open-marketing/contracts";
+import { z } from "zod";
 import { clickKeys, failure } from "./rules.js";
 
-/** Inert script expression: host invokes it with { now, nextId, location, fetch }.
- * POST carries observed event metadata and allowlisted query values only. Server ingress
- * authenticates the visit, verifies link/campaign, and supplies scope, trace, receipt/cursor.
- * No token issuance, cookies, listeners, retries or storage are embedded here.
- * @example webEventSnippetSource({ collectionPath: "/c" })
- * @complexity O(q), query string capped at 16 KiB; six bounded properties, one fetch.
+/** Inert expression invoked with { now, nextId, location, fetch, document, consent }.
+ * Host supplies admitted plugin tags and visitor consent (true or a promise resolving true).
+ * Captured landing data stays in page memory; POST and tags wait for literal true consent.
+ * POST contains bounded claims and a query/fragment-free page URL. Ingress authenticates
+ * visit, origin and scope. No vendor bootstrap, cookies, listeners or retry queue lives here.
+ * @example webEventSnippetSource({ collectionPath: "/c", tags })
+ * @complexity O(q+s), query <=16 KiB, <=2 tag snippets of <=32 KiB; one collection fetch.
  */
-export function webEventSnippetSource(required: { collectionPath: string }): Outcome<string> {
+export function webEventSnippetSource(required: { collectionPath: string; tags?: readonly TrackingTagOutput[] }): Outcome<string> {
   if (typeof required.collectionPath !== "string" || required.collectionPath.length > 256 || required.collectionPath.trim() !== required.collectionPath || !/^\/(?!\/)[A-Za-z0-9/_-]+$/.test(required.collectionPath)) return failure({ code: "invalid_input" });
-  const path = JSON.stringify(required.collectionPath);
-  const keys = JSON.stringify(["linkId", "campaignId", ...clickKeys]);
-  return { ok: true, value: `(async function({ now, nextId, location, fetch }) {
+  const parsed = z.array(trackingTagOutputSchema).max(2).safeParse(required.tags ?? []);
+  if (!parsed.success) return failure({ code: "invalid_input" });
+  // Safe to embed inside a host script element even if plugin text contains </script>.
+  const tags = JSON.stringify(parsed.data.map(tag => tag.snippet)).replace(/</g, "\\u003c");
+  const keys = JSON.stringify(["linkId", ...clickKeys]);
+  return { ok: true, value: `(async function({ now, nextId, location, fetch, document, consent }) {
   if (typeof location.search !== "string" || location.search.length > 16384) return;
   const params = new URLSearchParams(location.search);
   const properties = {};
   function validProperty({ key, value }) {
-    const isId = key === "linkId" || key === "campaignId";
+    const isId = key === "linkId";
     const limit = isId ? 256 : 2048;
     const pattern = isId ? /^[A-Za-z0-9][A-Za-z0-9._:-]*$/ : /^[A-Za-z0-9._-]+$/;
     return value.length <= limit && value.trim() === value && pattern.test(value);
   }
-  for (const key of ${keys}) {
-    const value = params.get(key);
-    if (value === null) continue;
-    if (!validProperty({ key, value })) return;
-    properties[key] = value;
+  function captureClicks() {
+    for (const key of ${keys}) {
+      const values = params.getAll(key);
+      if (values.length === 0) continue;
+      if (values.length !== 1 || !validProperty({ key, value: values[0] })) return false;
+      properties[key] = values[0];
+    }
+    return true;
   }
+  if (!captureClicks()) return;
+  const claimKeys = ["campaignId", "utm_source", "utm_medium", "om_a", "utm_id"];
+  function singleClaim({ key }) { return params.getAll(key).length <= 1 && (params.get(key) || "").length <= 256; }
+  function captureClaims() {
+    if (!claimKeys.every(key => singleClaim({ key }))) return;
+    for (const key of claimKeys) {
+      const value = params.get(key);
+      if (value !== null) properties[key] = value;
+    }
+  }
+  captureClaims();
+  function capturePage() {
+    if (typeof location.href !== "string") return true;
+    if (location.href.length > 16384) return false;
+    if (!URL.canParse(location.href)) return false;
+    const page = new URL(location.href);
+    if (page.protocol === "http:") return true;
+    if (page.protocol !== "https:" || page.username || page.password) return false;
+    const pageUrl = page.origin + page.pathname;
+    if (pageUrl.length > 2048) return false;
+    properties.pageUrl = pageUrl;
+    return true;
+  }
+  if (!capturePage()) return;
   const occurredAt = now({});
   const eventId = nextId({});
   if (!Number.isSafeInteger(occurredAt) || occurredAt < 0) return;
   if (typeof eventId !== "string" || eventId.trim() !== eventId || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(eventId)) return;
-  const body = JSON.stringify({ eventId, schema: "om.web.landing", version: 1, source: "first-party", name: "landing", properties, occurredAt });
-  return fetch(${path}, { method: "POST", mode: "same-origin", credentials: "same-origin", referrerPolicy: "no-referrer", headers: { "Content-Type": "application/json" }, body });
+  const body = JSON.stringify({ eventId, schema: "om.web.landing", version: 1, source: "first-party", name: "landing", properties, occurredAt, consent: true });
+  async function activate({ snippet }) {
+    const template = document.createElement("template");
+    template.innerHTML = snippet;
+    for (const source of template.content.querySelectorAll("script")) {
+      const script = document.createElement("script");
+      for (const attribute of source.attributes) script.setAttribute(attribute.name, attribute.value);
+      script.async = false;
+      script.textContent = source.textContent;
+      const loaded = script.src ? new Promise((resolve, reject) => { script.onload = resolve; script.onerror = reject; }) : Promise.resolve();
+      document.head.appendChild(script);
+      await loaded;
+    }
+  }
+  async function activateTags() {
+    for (const snippet of ${tags}) await activate({ snippet });
+  }
+  if (await consent !== true) return;
+  const collection = fetch(${JSON.stringify(required.collectionPath)}, { method: "POST", mode: "same-origin", credentials: "same-origin", referrerPolicy: "no-referrer", headers: { "Content-Type": "application/json" }, body });
+  void activateTags().catch(() => {});
+  return collection;
 })` };
+}
+
+/** Browser installer: collection and tags wait for window.omConsent===true at load or
+ * window.omGrantConsent(). Captured landing data stays in page memory until that grant.
+ * Repeated grants resolve the same signal once.
+ * Returns invalid_input for an unsafe path or tags; never executes on the server.
+ * @example webEventInstallSource({ collectionPath: "/c", tags })
+ * @complexity O(source bytes), bounded by the expression generator's two-tag limit.
+ */
+export function webEventInstallSource(required: { collectionPath: string; tags?: readonly TrackingTagOutput[] }): Outcome<string> {
+  const source = webEventSnippetSource(required);
+  if (!source.ok) return source;
+  return { ok: true, value: `(() => {
+  // The visitor page calls window.omGrantConsent() only after its consent UI grants permission.
+  let grant;
+  const consent = window.omConsent === true ? true : new Promise(resolve => { grant = resolve; });
+  window.omGrantConsent = () => { window.omConsent = true; if (grant) { grant(true); grant = undefined; } };
+  return ${source.value}({ now: () => Date.now(), nextId: () => crypto.randomUUID(), location: window.location,
+    fetch: window.fetch.bind(window), document: window.document, consent }).catch(() => {});
+})();` };
 }

@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { createFakeClock } from "@open-marketing/om-clock";
-import { ConversionVerificationPortSuite, MeasureRepoPortSuite, MeasurePrivacyPortSuite, ConversionDeliveryStatePortSuite, MeasureAuditPortSuite, TrackedLinkPortSuite, MeasureJobPortSuite } from "./port-suites.js";
-import { createSqlConversionVerification, createSqlMeasureRepo, createSqlConversionDeliveryState, createSqlMeasureAudit, createSqlTrackedLink, createSqlMeasureJob } from "../../index.js";
+import { ConversionVerificationPortSuite, MeasureRepoPortSuite, MeasurePrivacyPortSuite, MeasurementGrantPortSuite, ConversionDeliveryStatePortSuite, MeasureAuditPortSuite, TrackedLinkPortSuite, MeasureJobPortSuite } from "./port-suites.js";
+import { createSqlConversionVerification, createSqlMeasurementGrant, createSqlMeasureRepo, createSqlConversionDeliveryState, createSqlMeasureAudit, createSqlTrackedLink, createSqlMeasureJob } from "../../index.js";
 import { createSqlFixture } from "../sql-fixture.js";
-import { createIds, event, resolvedEvent, serviceContext, source } from "../fixtures.js";
+import { context, createIds, event, grant, resolvedEvent, serviceContext, source } from "../fixtures.js";
 MeasureRepoPortSuite({ create: () => { const fixture = createSqlFixture({}); return createSqlMeasureRepo({ database: fixture.database, jobs: fixture.jobs }); } });
 ConversionDeliveryStatePortSuite({ create: () => createSqlConversionDeliveryState({ database: createSqlFixture({}).database }) });
+MeasurementGrantPortSuite({ create: () => createSqlMeasurementGrant({ database: createSqlFixture({}).database, clock: createFakeClock({ initial: 300 }) }) });
 MeasureAuditPortSuite({ create: () => createSqlMeasureAudit({ database: createSqlFixture({}).database, ids: createIds({}), clock: createFakeClock({ initial: 300 }) }) });
 TrackedLinkPortSuite({ create: () => createSqlTrackedLink({ database: createSqlFixture({}).database, ids: createIds({}), baseUrl: "https://om.example/l/", allowedOrigins: ["https://shop.example"], allowedQueryKeys: ["click_id"] }) });
 MeasureJobPortSuite({ create: () => { const fixture = createSqlFixture({}); return createSqlMeasureJob({ database: fixture.database, jobs: fixture.jobs }); } });
@@ -15,6 +16,38 @@ ConversionVerificationPortSuite({ create: async () => {
   await createSqlMeasureRepo(fixture).appendConversion({ source, event });
   return createSqlConversionVerification({ database: fixture.database });
 } });
+
+describe("SQL measurement grant insert arbitration and listing", () => {
+  it("returns the identical competing insert instead of a driver failure", async () => {
+    const fixture = createSqlFixture({});
+    const port = createSqlMeasurementGrant({ database: fixture.database, clock: createFakeClock({ initial: 300 }) });
+    fixture.raceNextGrantInsert(grant);
+    expect(await port.grant({ context, grant })).toEqual({ ok: true, value: grant });
+    expect((await fixture.database.query({ text: "SELECT grant_id FROM measure_grant" })).rows).toHaveLength(1);
+  });
+  it("reports conflict when the competing insert binds different content", async () => {
+    const fixture = createSqlFixture({});
+    const port = createSqlMeasurementGrant({ database: fixture.database, clock: createFakeClock({ initial: 300 }) });
+    const winner = { ...grant, definitionIds: ["other-definition"] };
+    fixture.raceNextGrantInsert(winner);
+    expect(await port.grant({ context, grant })).toMatchObject({ ok: false, error: { code: "conflict" } });
+  });
+  it("pages only the requested scope and includes revoked grants through the final cursor", async () => {
+    const fixture = createSqlFixture({});
+    const port = createSqlMeasurementGrant({ database: fixture.database, clock: createFakeClock({ initial: 300 }) });
+    const first = { ...grant, grantId: "a" }, second = { ...grant, grantId: "b" };
+    const foreign = { ...context, scope: { ...context.scope, workspaceId: "foreign" } };
+    await port.grant({ context, grant: first });
+    await port.grant({ context, grant: second });
+    await port.grant({ context: foreign, grant: { ...grant, scope: foreign.scope, grantId: "aa" } });
+    await port.revoke({ context, grantId: first.grantId });
+    expect(await port.list({ context, query: { limit: 1 } })).toEqual({ ok: true, value: { items: [{ ...first, revoked: true }], cursor: "a" } });
+    expect(await port.list({ context, query: { limit: 1, cursor: "a" } })).toEqual({ ok: true, value: { items: [second], cursor: null } });
+    expect(await port.list({ context: foreign, query: { limit: 1 } })).toEqual({ ok: true, value: { items: [{ ...grant, scope: foreign.scope, grantId: "aa" }], cursor: null } });
+    fixture.handle.prepare("UPDATE measure_grant SET grant_json=? WHERE grant_id=?").run("x".repeat(65537), first.grantId);
+    expect(await port.list({ context, query: { limit: 1 } })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+  });
+});
 
 describe("measure subject lookup schema and immutable evidence", () => {
   it("declares non-null typed subjects/definitions/events and both scoped indexes", async () => {

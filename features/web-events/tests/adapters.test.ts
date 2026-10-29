@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { Outcome, SqlSession, UnitOfWork } from "@open-marketing/contracts";
 import { createMemoryWebEventRepo, createSqlWebEventRepo } from "../index.js";
-import { clockFixture, context, event, otherWorkspace, sqliteFixture, touch, visit } from "./fixtures.js";
+import { clockFixture, context, destinationUrl, encodedCampaign, event, otherWorkspace, sqliteFixture, touch, visit } from "./fixtures.js";
 import { webEventRepoSuite } from "./port-suite.js";
 
 webEventRepoSuite({ name: "memory", create: ({ clock }) => ({ repo: createMemoryWebEventRepo({ clock }) }) });
@@ -20,10 +20,30 @@ describe("SQL storage and transactions", () => {
     await repo.recordTouch({ context: otherWorkspace, event: event(), touch: touch() });
     const rows = fixture.db.prepare("SELECT cursor, payload, semantic_digest FROM web_event WHERE workspace_id = ? ORDER BY cursor").all(context.scope.workspaceId) as { cursor: number; payload: string; semantic_digest: string }[];
     expect(rows.map(row => row.cursor)).toEqual([1, 2]);
-    expect(JSON.parse(rows[0].payload)).toMatchObject({ properties: { linkId: "link", campaignId: "campaign" }, receivedAt: 1000, cursor: 1, traceId: "trace" });
+    expect(JSON.parse(rows[0].payload)).toMatchObject({ properties: { linkId: "link", campaignId: encodedCampaign() }, receivedAt: 1000, cursor: 1, traceId: "trace" });
     expect(rows[0].payload).not.toContain("google-click");
     expect(rows[0].payload).not.toContain("meta-click");
     expect(rows[0].semantic_digest).toMatch(/^[a-f0-9]{64}$/);
+  });
+  it("persists only the destination digest, retaining heartbeat evidence across repository restart", async () => {
+    const fixture = setup();
+    const repo = createSqlWebEventRepo(fixture);
+    const landing = event({ properties: { campaignId: encodedCampaign(), pageUrl: destinationUrl + "?email=secret#private" } });
+    const input = { context, event: landing, touch: touch({ event: landing }) };
+    expect((await repo.recordTouch(input)).ok).toBe(true);
+    const row = fixture.db.prepare("SELECT payload FROM web_event").get() as { payload: string };
+    const stored = JSON.parse(row.payload);
+    expect(stored.properties).toEqual({ campaignId: encodedCampaign(), destinationId: expect.stringMatching(/^[a-f0-9]{64}$/) });
+    expect(row.payload).not.toContain("site.example.test");
+    expect(row.payload).not.toContain("secret");
+    const restarted = createSqlWebEventRepo(fixture);
+    fixture.time.now = 9999;
+    expect((await restarted.recordTouch(input)).ok).toBe(true);
+    const query = { context, destinationId: stored.properties.destinationId as string };
+    expect(await restarted.lastHeartbeat(query)).toEqual({ ok: true, value: 1000 });
+    fixture.db.prepare("UPDATE web_event SET payload = ?").run(JSON.stringify({ ...stored, properties: { ...stored.properties, pageUrl: destinationUrl } }));
+    expect(await restarted.lastHeartbeat(query)).toMatchObject({ ok: false, error: { code: "unavailable" } });
+    expect(await restarted.recordTouch(input)).toMatchObject({ ok: false, error: { code: "unavailable" } });
   });
   it("rolls back an envelope and cursor if its touch insert fails", async () => {
     const fixture = setup();
@@ -67,7 +87,7 @@ describe("SQL storage and transactions", () => {
     await repo.recordTouch({ context, event: event(), touch: touch() });
     fixture.db.prepare("UPDATE web_event SET payload = ?").run("{bad-json");
     expect(await repo.recordTouch({ context, event: event(), touch: touch() })).toMatchObject({ ok: false, error: { code: "unavailable" } });
-    fixture.db.prepare("UPDATE web_event SET payload = ?, occurred_at = 999").run(JSON.stringify({ ...event(), properties: { linkId: "link", campaignId: "campaign" }, cursor: 1, receivedAt: 1000 }));
+    fixture.db.prepare("UPDATE web_event SET payload = ?, occurred_at = 999").run(JSON.stringify({ ...event(), properties: { linkId: "link", campaignId: encodedCampaign() }, cursor: 1, receivedAt: 1000 }));
     expect(await repo.recordTouch({ context, event: event(), touch: touch() })).toMatchObject({ ok: false, error: { code: "unavailable" } });
   });
   it("physically purges mutable click values and visits while preserving immutable envelopes", async () => {

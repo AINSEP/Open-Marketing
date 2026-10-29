@@ -1,17 +1,19 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { callContextSchema, digestSchema, epochSchema, idSchema, scopeSchema, timeWindowSchema } from "@open-marketing/contracts";
+import { callContextSchema, campaignKeySchema, encodeCampaignKey, parseCampaignKey, digestSchema, epochSchema, idSchema, scopeSchema, timeWindowSchema } from "@open-marketing/contracts";
 import type { AppError, CallContext, CallOptions, Outcome, Scope, TimeWindow } from "@open-marketing/contracts";
 import type { AttributionTouch, Visit, WebEvent } from "./types.js";
+import { landingPropertiesSchema } from "./types.js";
 
 type Failure = Extract<Outcome<never>, { ok: false }>;
 const opaqueId = idSchema.regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/).refine(value => value.trim() === value);
-const clickId = z.string().min(1).max(2048).regex(/^[A-Za-z0-9._-]+$/).refine(value => value.trim() === value);
+const clickId = landingPropertiesSchema.shape.gclid.unwrap();
 /** MVP click keys shared by collection mapping and the emitted browser source. */
 export const clickKeys = ["gclid", "gbraid", "wbraid", "fbclid"] as const;
-const propertiesSchema = z.strictObject({ linkId: opaqueId.optional(), campaignId: opaqueId.optional(), gclid: clickId.optional(), gbraid: clickId.optional(), wbraid: clickId.optional(), fbclid: clickId.optional() });
 /** One landing schema/version; authority-bearing scope is supplied separately by ingress. */
-export const eventSchema = z.strictObject({ eventId: opaqueId, schema: z.literal("om.web.landing"), version: z.literal(1), source: z.literal("first-party"), subjectId: opaqueId.optional(), anonymousId: opaqueId.optional(), name: z.literal("landing"), properties: propertiesSchema, occurredAt: epochSchema, receivedAt: epochSchema, cursor: epochSchema, traceId: opaqueId }).refine(value => value.subjectId !== undefined || value.anonymousId !== undefined);
+export const eventSchema = z.strictObject({ eventId: opaqueId, schema: z.literal("om.web.landing"), version: z.literal(1), source: z.literal("first-party"), subjectId: opaqueId.optional(), anonymousId: opaqueId.optional(), name: z.literal("landing"), properties: landingPropertiesSchema, occurredAt: epochSchema, receivedAt: epochSchema, cursor: epochSchema, traceId: opaqueId }).refine(value => value.subjectId !== undefined || value.anonymousId !== undefined);
+/** Storage accepts only sanitized identifiers, never raw URLs or macro metadata. */
+export const storedEventSchema = eventSchema.safeExtend({ properties: z.strictObject({ linkId: opaqueId.optional(), campaignId: opaqueId.optional(), destinationId: digestSchema.optional() }) });
 /** Authenticator/storage outputs remain tainted until these strict schemas accept them. */
 export const visitSchema = z.strictObject({ visitId: opaqueId, scope: scopeSchema, anonymousId: opaqueId, subjectId: opaqueId.nullable(), expiresAt: epochSchema });
 export const touchSchema = z.strictObject({ touchId: opaqueId, eventId: opaqueId, occurredAt: epochSchema, linkId: opaqueId.nullable(), campaignId: opaqueId.nullable(), clickIdentifiers: z.strictObject({ gclid: clickId.optional(), gbraid: clickId.optional(), wbraid: clickId.optional(), fbclid: clickId.optional() }) });
@@ -33,17 +35,47 @@ export function sameScope(required: { left: Scope; right: Scope }): boolean {
   return required.left.ownerId === required.right.ownerId && required.left.workspaceId === required.right.workspaceId;
 }
 /** Parse the one bounded landing envelope; exclude arbitrary properties and raw PII.
- * The six-key ASCII mapping fits below A5's 32-key/16-KiB limits by construction.
- * @complexity O(p) for at most six properties, each string capped at 2048.
+ * @complexity O(p) for eleven properties, each string capped at 2048; JSON <=16 KiB.
  */
 export function validateEvent(required: { event: WebEvent }): Outcome<WebEvent> {
   const parsed = eventSchema.safeParse(required.event);
   if (!parsed.success) return failure({ code: "invalid_input" });
   const properties = parsed.data.properties;
   if (Object.values(properties).some(value => typeof value !== "string")) return failure({ code: "invalid_input" });
+  if (new TextEncoder().encode(JSON.stringify(properties)).length > 16384) return failure({ code: "invalid_input" });
   return { ok: true, value: parsed.data as WebEvent };
 }
-/** Derive only the approved mapping; host ingress must verify link/campaign association. */
+/** Normalize a claim, never authority. Ingress verifies ordinary OM IDs in scope.
+ * The caller-owned observed port decides vendor-key membership.
+ * Mixed canonical/macro claims must agree; unresolved vendor macros stay unattributed. O(1). */
+export function campaignClaim(required: { properties: WebEvent["properties"] }): string | null {
+  const p = required.properties;
+  const canonical = parseCampaignKey({ value: p.campaignId });
+  const ordinary = typeof p.campaignId === "string" && !p.campaignId.startsWith("ck1:") && opaqueId.safeParse(p.campaignId).success;
+  const fallback = canonical.ok || ordinary ? p.campaignId as string : null;
+  if (p.utm_medium !== "paid") return fallback;
+  const key = campaignKeySchema.safeParse({ pluginId: p.utm_source, accountId: p.om_a, vendorCampaignId: p.utm_id });
+  if (!key.success || Object.values(key.data).some(value => /[{}]/.test(value))) return fallback;
+  const encoded = encodeCampaignKey({ key: key.data });
+  if (!encoded.ok) return null;
+  if (p.campaignId !== undefined && p.campaignId !== encoded.value) return null;
+  return encoded.value;
+}
+/** Query/fragment-free HTTPS origin/path identity; invalid inputs return a typed error.
+ * O(u) time/space for a URL bounded to 2048 characters. */
+export function destinationIdentity(required: { destinationUrl: string }): Outcome<string> {
+  const parsed = landingPropertiesSchema.shape.pageUrl.unwrap().safeParse(required.destinationUrl);
+  if (!parsed.success) return failure({ code: "invalid_input" });
+  const url = new URL(parsed.data);
+  return { ok: true, value: createHash("sha256").update(url.origin + url.pathname).digest("hex") };
+}
+/** Missing page metadata yields no heartbeat; ingress validates any supplied URL first. */
+function eventDestination(required: { event: WebEvent }): string | null {
+  if (typeof required.event.properties.pageUrl !== "string") return null;
+  const identity = destinationIdentity({ destinationUrl: required.event.properties.pageUrl });
+  return identity.ok ? identity.value : null;
+}
+/** Derive the allowlisted mapping; campaign IDs remain untrusted claims in storage. */
 export function mapTouch(required: { event: WebEvent; touchId: string }): AttributionTouch {
   const properties = required.event.properties;
   const clickIdentifiers: Record<string, string> = {};
@@ -51,7 +83,7 @@ export function mapTouch(required: { event: WebEvent; touchId: string }): Attrib
     const value = properties[key];
     if (typeof value === "string") clickIdentifiers[key] = value;
   }
-  return { touchId: required.touchId, eventId: required.event.eventId, occurredAt: required.event.occurredAt, linkId: typeof properties.linkId === "string" ? properties.linkId : null, campaignId: typeof properties.campaignId === "string" ? properties.campaignId : null, clickIdentifiers };
+  return { touchId: required.touchId, eventId: required.event.eventId, occurredAt: required.event.occurredAt, linkId: typeof properties.linkId === "string" ? properties.linkId : null, campaignId: campaignClaim({ properties }), clickIdentifiers };
 }
 /** Repository ingress checks event/touch agreement; adapters own receipt time and cursor. */
 export function validateRecord(required: { context: CallContext; event: WebEvent; touch: AttributionTouch; options?: CallOptions }): Failure | undefined {
@@ -80,16 +112,17 @@ function canonicalClicks(required: { clicks: Readonly<Record<string, string>> })
 export function replayDigest(required: { event: WebEvent }): string {
   const event = required.event;
   const touch = mapTouch({ event, touchId: "digest" });
-  const semantic = { eventId: event.eventId, schema: event.schema, version: event.version, source: event.source, name: event.name, subjectId: event.subjectId ?? null, anonymousId: event.anonymousId ?? null, occurredAt: event.occurredAt, linkId: touch.linkId, campaignId: touch.campaignId, clicks: canonicalClicks({ clicks: touch.clickIdentifiers }) };
+  const semantic = { eventId: event.eventId, schema: event.schema, version: event.version, source: event.source, name: event.name, subjectId: event.subjectId ?? null, anonymousId: event.anonymousId ?? null, occurredAt: event.occurredAt, linkId: touch.linkId, campaignId: touch.campaignId, destinationId: eventDestination(required), clicks: canonicalClicks({ clicks: touch.clickIdentifiers }) };
   return createHash("sha256").update(JSON.stringify(semantic)).digest("hex");
 }
 /** Immutable envelope contains IDs only; click values live solely in mutable touches. */
 export function storedEvent(required: { event: WebEvent; receivedAt: number; cursor: number }): WebEvent {
   const properties: Record<string, string> = {};
-  for (const key of ["linkId", "campaignId"]) {
-    const value = required.event.properties[key];
-    if (typeof value === "string") properties[key] = value;
-  }
+  const touch = mapTouch({ event: required.event, touchId: "stored" });
+  if (touch.linkId !== null) properties.linkId = touch.linkId;
+  if (touch.campaignId !== null) properties.campaignId = touch.campaignId;
+  const destinationId = eventDestination(required);
+  if (destinationId !== null) properties.destinationId = destinationId;
   return { ...required.event, properties, receivedAt: required.receivedAt, cursor: required.cursor };
 }
 /** Validate visit metadata, scope and expiry at issuer and authenticator boundaries. */

@@ -1,5 +1,5 @@
-import type { ClockPort, IdPort } from "@open-marketing/contracts";
-import type { CampaignRepoPort, CampaignCapabilityPort, CampaignAssetPort, CampaignSafetyPort, CampaignJobPort, CampaignAuditPort, CampaignObserverPort } from "./ports.js";
+import type { ClockPort, IdPort, ObserverPort } from "@open-marketing/contracts";
+import type { CampaignRepoPort, CampaignCapabilityPort, CampaignAssetPort, CampaignSafetyPort, CampaignJobPort, CampaignAuditPort } from "./ports.js";
 /** Factory dependencies are supplied by server composition, never constructed here. */
 export interface CampaignDependencies {
   repo: CampaignRepoPort;
@@ -11,4 +11,4 @@ export interface CampaignDependencies {
   ids: IdPort;
   audit: CampaignAuditPort;
 }
-export interface CampaignInstrumentation { observer?: CampaignObserverPort }
+export interface CampaignInstrumentation { observer?: ObserverPort }

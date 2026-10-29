@@ -1,4 +1,39 @@
 import type { Outcome, CallContext, CallOptions, Scope, Money, TimeWindow, ServiceContext, MeasurementGrant } from "@open-marketing/contracts";
+import { appErrorSchema, callContextSchema, digestSchema, epochSchema, idSchema, moneySchema, scopeSchema } from "@open-marketing/contracts";
+import type { dispatchRecordSchema } from "./rules.js";
+import { z } from "zod";
+
+/** Shared strict conversion/source schemas stay outside reporting's delivery boundary. */
+const digestMap = z.record(z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,63}$/), digestSchema).refine(value => Object.keys(value).length <= 16);
+export const conversionSchema = z.strictObject({ eventId: idSchema, definitionId: idSchema, subjectId: idSchema, occurredAt: epochSchema, destination: idSchema, purpose: idSchema, identifierDigests: digestMap, value: moneySchema.optional(), orderRef: idSchema.optional() });
+export const sourceSchema = z.strictObject({ sourceId: idSchema, scope: scopeSchema, authenticationRevision: epochSchema, context: callContextSchema.optional() });
+/** Intake owns leadId + ":" + definitionId, never a stage-occurrence event ID.
+ * Submit the first qualifying transition's evidence; retries retain its time/value.
+ * Re-qualification cannot send again; spam corrections send no vendor adjustment.
+ * @example leadOutcomeInputSchema.parse({ source, leadId: "lead-1", event }) */
+export const leadOutcomeInputSchema = z.strictObject({ source: sourceSchema, leadId: idSchema,
+  event: conversionSchema.omit({ eventId: true }).extend({ definitionId: z.enum(["qualified", "won"]) }) });
+/** Strict leads-facing intent; callers cannot choose their own event ID. */
+export type LeadOutcomeInput = z.input<typeof leadOutcomeInputSchema>;
+
+/** Verified vendor evidence; null means unknown, independently for each stage.
+ * Transport success and local inbox acceptance establish none of these fields. */
+export const conversionDiagnosticsSchema = z.strictObject({
+  accepted: z.boolean().nullable(),
+  processed: z.boolean().nullable(),
+  attributed: z.boolean().nullable(),
+  observedAt: epochSchema,
+});
+/** Bounded transport outcome with optional, explicit vendor evidence. */
+export const conversionDeliveryOutcomeSchema = z.discriminatedUnion("status", [
+  z.strictObject({ status: z.literal("delivered"), diagnostics: conversionDiagnosticsSchema.optional(), receiptId: idSchema.optional() }),
+  z.strictObject({ status: z.literal("unknown"), diagnostics: conversionDiagnosticsSchema.optional() }),
+  z.strictObject({ status: z.literal("not_sent"), reason: appErrorSchema.shape.code }),
+]);
+/** Vendor stages are observations, never inferred from transport status. */
+export type ConversionDiagnostics = z.infer<typeof conversionDiagnosticsSchema>;
+/** Unknown outcomes reconcile under the original delivery identity. */
+export type ConversionDeliveryOutcome = z.infer<typeof conversionDeliveryOutcomeSchema>;
 /** TrackedLinkRequest domain value; validation belongs at the boundary. */
 export type TrackedLinkRequest = { readonly destinationUrl: string; readonly campaignId: string; readonly utm: Readonly<Record<string, string>> };
 /** TrackedLink domain value; validation belongs at the boundary. */
@@ -10,8 +45,8 @@ export type VerifiedConversionSource = { readonly sourceId: string; readonly sco
 export type ConversionInput = { readonly eventId: string; readonly definitionId: string; readonly subjectId: string; readonly occurredAt: number; readonly destination: string; readonly purpose: string; readonly identifierDigests: Readonly<Record<string, string>>; readonly value?: Money; readonly orderRef?: string };
 /** Identifiers exist only in transient plugin payloads, never immutable evidence. */
 export type ResolvedConversionInput = ConversionInput & { readonly identifiers: Readonly<Record<string, string>> };
-/** Local definition-bound authority until shared contracts are amended by step0a. */
-export type MeasureGrant = Omit<MeasurementGrant, "eventTypes"> & { readonly definitionIds: readonly string[] };
+/** Canonical definition-bound measurement authority. */
+export type MeasureGrant = MeasurementGrant;
 /** Generic backend conversion capability; adjustments are reserved, not implemented. */
 export const CONVERSION_EVENT_CAPABILITY = "conversion.event.v1";
 /** Bounded first-party touches supplied by the caller; measure owns no touch store. */
@@ -31,10 +66,13 @@ export type AttributionResult = { readonly resultId: string; readonly eventId: s
 /** First verified acquisition per canonical subject/definition; watermark uses event time. */
 export type AttributionSummary = { readonly conversions: number; readonly modelVersion: string; readonly watermark: number };
 /** Immutable evidence; uncertain/interrupted attempts require reconciliation. */
-export type ConversionDispatchRecord = { readonly deliveryId: string; readonly subjectId: string; readonly eventId: string; readonly identity: string; readonly status: "dispatching" | "delivered" | "unknown"; readonly recordedAt: number };
+export type ConversionDispatchRecord = z.infer<typeof dispatchRecordSchema>;
 /** Server-only workflow, never registered as an arbitrary agent tool. */
 export interface ConversionDispatcher {
-  dispatch(required: { context: ServiceContext; event: ConversionInput; grant: MeasureGrant; deliveryId: string }, optional?: CallOptions): Promise<Outcome<{ readonly status: "delivered" | "unknown" }>>;
+  dispatch(required: { context: ServiceContext; event: ConversionInput; grant: MeasureGrant; deliveryId: string }, optional?: CallOptions): Promise<Outcome<ConversionDeliveryOutcome>>;
+  /** Refresh saved receipts without sending or resolving visitor identifiers.
+   * @example dispatcher.reconcile({ context, event, grant, deliveryId }) */
+  reconcile(required: { context: ServiceContext; event: ConversionInput; grant: MeasureGrant; deliveryId: string }, optional?: CallOptions): Promise<Outcome<ConversionDeliveryOutcome>>;
 }
 export interface MeasureService {
   createTrackedLink(
@@ -42,8 +80,19 @@ export interface MeasureService {
     optional?: CallOptions,
   ): Promise<Outcome<TrackedLink>>;
 
+  /** Generic events only; qualified/won require the lead-level identity path.
+   * Reserved definitions return invalid_input before authentication or storage. */
   ingestConversion(
     required: { source: VerifiedConversionSource; event: ConversionInput },
+    optional?: CallOptions,
+  ): Promise<Outcome<ConversionReceipt>>;
+
+  /** Share the first qualifying transition's immutable evidence once per lead/definition.
+   * Exact retries reuse the job; changed evidence conflicts. Corrections/spam send
+   * no vendor adjustment. Caller-owned sink: Pick<MeasureService, "ingestLeadOutcome">.
+   * @example service.ingestLeadOutcome({ source, leadId, event }) */
+  ingestLeadOutcome(
+    required: LeadOutcomeInput,
     optional?: CallOptions,
   ): Promise<Outcome<ConversionReceipt>>;
 

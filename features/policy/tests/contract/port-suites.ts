@@ -1,10 +1,10 @@
 import { describe, it, expect } from "vitest";
-import type { CanonicalIdentityPort, PolicyRepoPort, PolicyEvidence, PolicyObserverPort } from "../../index.js";
+import type { ObserverPort } from "@open-marketing/contracts";
+import type { PolicyRepoPort, PolicyEvidence } from "../../index.js";
 import { shareability } from "../../index.js";
 import { context, grant, withdrawal, merge, otherOwner, otherWorkspace, subject } from "../fixtures.js";
 
-type RepoHarness = { port: PolicyRepoPort & CanonicalIdentityPort; close?: () => void };
-type IdentityHarness = { port: CanonicalIdentityPort; repo?: PolicyRepoPort; close?: () => void };
+type RepoHarness = { port: PolicyRepoPort; close?: () => void };
 
 /** One behavioral suite against memory and actual SQL; each test owns its state. */
 export function PolicyRepoPortSuite(required: { name: string; create: () => RepoHarness }) {
@@ -91,10 +91,11 @@ export function PolicyRepoPortSuite(required: { name: string; create: () => Repo
       try {
         expect(await fixture.port.appendEvidence({ context, evidence: { ...merge, target: { ...merge.target, scope: otherWorkspace.scope } } })).toMatchObject({ ok: false, error: { code: "forbidden" } });
         expect(await fixture.port.appendEvidence({ context, evidence: { ...merge, target: subject } })).toMatchObject({ ok: false, error: { code: "conflict" } });
+        expect((await fixture.port.appendEvidence({ context, evidence: grant })).ok).toBe(true);
         expect((await fixture.port.appendEvidence({ context, evidence: merge })).ok).toBe(true);
         expect(await fixture.port.appendEvidence({ context, evidence: { ...merge, id: "another-merge" } })).toMatchObject({ ok: false, error: { code: "conflict" } });
         expect(await fixture.port.appendEvidence({ context, evidence: { ...merge, id: "cycle", subjectId: "survivor", target: subject } })).toMatchObject({ ok: false, error: { code: "conflict" } });
-        expect(await fixture.port.resolve({ context, identifier: "email:subject" })).toEqual({ ok: true, value: merge.target });
+        expect(await fixture.port.snapshot({ context, subjectId: merge.target.subjectId })).toMatchObject({ ok: true, value: { consents: [grant.consent] } });
       } finally { fixture.close?.(); }
     });
     it("copies both ingress data and snapshot output", async () => {
@@ -125,31 +126,6 @@ export function PolicyRepoPortSuite(required: { name: string; create: () => Repo
   });
 }
 
-/** Resolve exactly bound identifiers and observe merges through the same storage. */
-export function CanonicalIdentityPortSuite(required: { name: string; create: () => IdentityHarness }) {
-  describe(required.name + " CanonicalIdentityPort", () => {
-    it("resolves only the exact identifier in the bound scope", async () => {
-      const fixture = required.create();
-      try {
-        expect(await fixture.port.resolve({ context, identifier: "email:subject" })).toEqual({ ok: true, value: subject });
-        expect(await fixture.port.resolve({ context, identifier: "EMAIL:subject" })).toMatchObject({ ok: false, error: { code: "unavailable" } });
-        expect(await fixture.port.resolve({ context: otherWorkspace, identifier: "email:subject" })).toMatchObject({ ok: false, error: { code: "unavailable" } });
-        expect(await fixture.port.resolve({ context: otherOwner, identifier: "email:subject" })).toMatchObject({ ok: false, error: { code: "unavailable" } });
-        expect(await fixture.port.resolve({ context, identifier: "" })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
-      } finally { fixture.close?.(); }
-    });
-    it("does not return mutable internal scope references", async () => {
-      const fixture = required.create();
-      try {
-        const result = await fixture.port.resolve({ context, identifier: "email:subject" });
-        if (!result.ok) throw new Error("Resolution failed");
-        Object.assign(result.value.scope, { ownerId: "changed" });
-        expect(await fixture.port.resolve({ context, identifier: "email:subject" })).toEqual({ ok: true, value: subject });
-      } finally { fixture.close?.(); }
-    });
-  });
-}
-
 /** Assert merged output through the actual gate, keeping nested fixture loops shallow. */
 async function expectWithdrawal(required: { port: PolicyRepoPort; subjectId: string }): Promise<void> {
   const snapshot = await required.port.snapshot({ context, subjectId: required.subjectId });
@@ -158,7 +134,7 @@ async function expectWithdrawal(required: { port: PolicyRepoPort; subjectId: str
 }
 
 /** Shared observer contract for the double and any future concrete metadata sink. */
-export function PolicyObserverPortSuite(required: { create: () => PolicyObserverPort & { events: Parameters<PolicyObserverPort["observe"]>[0][] } }) {
+export function PolicyObserverPortSuite(required: { create: () => ObserverPort & { events: Parameters<ObserverPort["observe"]>[0][] } }) {
   describe("PolicyObserverPort", () => {
     it("retains operation and correlation metadata without input aliasing", () => {
       const observer = required.create();

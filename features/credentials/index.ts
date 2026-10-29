@@ -1,7 +1,7 @@
 export { createCredentialService } from "./src/service.js";
 export type { OAuthChallengeRules } from "./src/service.js";
 export type { ConnectRequest, ConnectChallenge, VerifiedOAuthCallback, ConnectionSummary, RevocationReceipt, SealedSecret, KeyringConfiguration, CredentialReference, CredentialService } from "./src/types.js";
-export type { CredentialRepoPort, SecretSealerPort, KeyringPort, OAuthClientPort, CredentialLockPort, CredentialAuditPort, CredentialBrokerPort, CredentialObserverPort } from "./src/ports.js";
+export type { CredentialRepoPort, SecretSealerPort, KeyringPort, OAuthClientPort, CredentialLockPort, CredentialAuditPort, CredentialBrokerPort } from "./src/ports.js";
 export { createMemoryCredentialRepo, createMemorySecretSealer, createMemoryKeyring, createMemoryOAuthClient, createMemoryCredentialLock, createMemoryCredentialAudit, createMemoryCredentialBroker } from "./src/memory.js";
 export type { Outcome, CallContext, CallOptions, ClockPort, IdPort, Scope, ConfirmationCard, HaltStopRequest, HaltStopPermit, GenerationAllowanceSettings, GenerationCostQuote, GenerationApprovalRequirement, MeasurementGrant } from "@open-marketing/contracts";
 export { createAesGcmSecretSealer, createCredentialKeyring } from "./src/sealer.js";
@@ -10,7 +10,8 @@ export { createBoundOAuthClient } from "./src/oauth.js";
 export type { OAuthHostBindings } from "./src/oauth.js";
 export { createSqlCredentialRepo, createSqlCredentialAudit } from "./src/sql.js";
 export { listCredentialConnections } from "./src/sql.js";
-export { connectCredentialToken, readCredentialOAuthClient, readCredentialDeveloperToken } from "./src/token.js";
+export { connectCredentialToken, readCredentialOAuthClient } from "./src/token.js";
+export { setCredentialPluginSecret, readCredentialPluginSecrets, credentialPluginSecretStatus } from "./src/token.js";
 export type { CredentialSqlPort } from "./src/sql.js";
 export { createMemoryCredentialRefresh } from "./src/memory.js";
 export type { CredentialRefreshPort } from "./src/ports.js";

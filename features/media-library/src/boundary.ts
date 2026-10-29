@@ -1,7 +1,6 @@
-import type { AppError, CallContext, Outcome } from '@open-marketing/contracts';
+import type { AppError, CallContext, Outcome, ObserverPort } from '@open-marketing/contracts';
 import { MediaConflictError, MediaNotFoundError, MediaValidationError, TransformValidationError } from '@jini-ai/cms/media';
 import { MediaImportValidationError } from '@jini-ai/cms/media/import';
-import type { MediaObserverPort } from './ports.js';
 import { fail } from './validation.js';
 
 /** Preserve an OM port refusal when a foreign exception-based ABI needs a thrown failure. */
@@ -13,7 +12,7 @@ export class MediaBoundaryFailure extends Error {
 /** Contain opaque dependency errors and emit bounded correlation telemetry. No retries or authority grants.
  * @complexity O(1) wrapper overhead. @example boundary({ context, operation: 'media.list', run: async () => result })
  */
-export async function boundary<T>(required: { context: CallContext; operation: string; run: () => Promise<Outcome<T>> }, optional?: { observer?: MediaObserverPort }): Promise<Outcome<T>> {
+export async function boundary<T>(required: { context: CallContext; operation: string; run: () => Promise<Outcome<T>> }, optional?: { observer?: ObserverPort }): Promise<Outcome<T>> {
   let outcome: Outcome<T>;
   try { outcome = await required.run(); } catch (error) { outcome = dependencyFailure<T>({ error }); }
   observe({ context: required.context, operation: required.operation, outcome, observer: optional?.observer });
@@ -31,7 +30,7 @@ function isValidationFailure(required: { error: unknown }): boolean {
   return required.error instanceof MediaValidationError || required.error instanceof TransformValidationError || required.error instanceof MediaImportValidationError;
 }
 /** Observer failure cannot change committed effects; prompts, URLs and driver details are not emitted. */
-function observe<T>(required: { context: CallContext; operation: string; outcome: Outcome<T>; observer?: MediaObserverPort }): void {
+function observe<T>(required: { context: CallContext; operation: string; outcome: Outcome<T>; observer?: ObserverPort }): void {
   if (!required.observer || !required.context?.correlationId) return;
   try {
     required.observer.observe({ operation: required.operation, outcome: required.outcome.ok ? 'ok' : required.outcome.error.code,

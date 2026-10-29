@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { parseBoundary, scopeSchema } from "@open-marketing/contracts";
-import type { Scope } from "@open-marketing/contracts";
-import type { ConversionVerificationPort, MeasureObserverPort, MeasureSqlDatabase } from "../ports.js";
+import type { Scope, ObserverPort } from "@open-marketing/contracts";
+import type { ConversionVerificationPort, MeasureSqlDatabase } from "../ports.js";
 import type { ConversionInput } from "../types.js";
 import { clone, conversionSchema, eventIdentity, sameScope, scopeKey, serviceContextSchema } from "../rules.js";
 import { sqlBoundary } from "./sql-boundary.js";
@@ -29,7 +29,7 @@ export function createMemoryConversionVerification(required: { events?: readonly
 
 /** Reads the committed inbox using the same DB as ingestion. No mutable verification
  * cache or second outbox is created. @complexity Indexed event lookup O(log n); one query. */
-export function createSqlConversionVerification(required: { database: MeasureSqlDatabase }, optional?: { observer?: MeasureObserverPort }): ConversionVerificationPort {
+export function createSqlConversionVerification(required: { database: MeasureSqlDatabase }, optional?: { observer?: ObserverPort }): ConversionVerificationPort {
   return {
     async verify(input, options) {
       const parsed = parseBoundary({ schema: verificationInputSchema, input });

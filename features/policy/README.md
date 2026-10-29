@@ -2,13 +2,11 @@
 
 Public imports use `@open-marketing/policy`. This package owns the preserved pure
 sendability, shareability and spendability gates, append-only subject evidence,
-and scoped canonical identifier resolution. Factories perform no I/O.
+and merge-aware snapshots. Contacts owns identifier resolution. Factories perform no I/O.
 
 ```ts
-const repo = createMemoryPolicyRepo({
-  bindings: [{ identifier: "email:customer", subject: { scope, subjectId: "customer" } }],
-});
-const policy = createPolicyService({ repo, clock, ids });
+const repo = createMemoryPolicyRepo({});
+const policy = createPolicyService({ repo, clock });
 await policy.appendEvidence({ context, evidence: {
   id: "ingress-event-1", scope, subjectId: "customer", kind: "consent",
   recordedAt: clock.now({}), sourceId: "authenticated-signup",
@@ -46,18 +44,14 @@ Every evidence kind requires its exact payload (`consent`, `suppression` or
 `target`). Ingress supplies a stable evidence ID and authenticated source ID.
 Retries with identical canonical content return the existing row; changed content
 conflicts. The service rejects future recordedAt values using injected time and
-never replaces IDs. The retained ids dependency is unused because the contract
-requires an ingress-owned ID. Ownership authentication happens upstream; this
+never replaces IDs. Ownership authentication happens upstream; this
 package additionally rejects owner-principal/scope mismatches.
 
-Use `createSqlPolicyRepo({ pool, observer })` with a server-owned pool compatible
-with the DB shim's `connect`, object-shaped `query`, and `release`. Set dialect to
-`sqlite` or `postgres`; SQLite writes use BEGIN IMMEDIATE. PostgreSQL uses
-serializable writes and maps serialization failures to unavailable; retry the
-same evidence ID. The feature imports no driver, server source or sibling repo.
-The application owns pool timeouts, lifecycle and migration execution. Read
-transactions use a consistent evidence statement; identity lookup and evidence
-resolution use one connection. Pass an observer for trace/correlation/run metadata.
+Use `createSqlPolicyRepo({ pool, observer })` with a server-owned UnitOfWork.
+A supplied session joins the caller's transaction. The application owns timeouts,
+lifecycle and migration execution. Reads refresh bounded evidence; pass an
+observer for trace/correlation/run metadata. The feature imports no driver,
+server source or sibling repository.
 
 Migration `migrations/0001_policy.sql` is additive and has not been applied. It
 creates feature-prefixed identifier and evidence tables; typed JSON represents
@@ -75,8 +69,8 @@ mutation and projection, explicit re-consent/supersession, and erasure/retention
 workflows. The existing ports expose none of these writes. Unknown subjects have
 no grants; current evidence projection has holdout false and no frequency cap.
 Merged evidence is conservative and irreversible; conflicting source merges and
-cycles fail. The standalone memory identity factory accepts seeds; the memory
-repository also implements resolve to share live merge state.
+cycles fail. Memory seed options contain only evidence and maxEvidence; policy
+no longer reads or seeds the legacy identifier table. Applied migrations remain unchanged.
 
 B1 behavioral suites are written for memory and real in-memory SQLite fixtures.
 The approved gate characterization remains unchanged. Tests, builds and om:check

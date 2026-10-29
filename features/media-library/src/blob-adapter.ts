@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
 import { computeBlobStorageKey, withSha256Lock } from '@jini-ai/cms/media';
 import type { BlobStorePort as JiniBlobStorePort } from '@jini-ai/cms/media';
-import type { Scope } from '@open-marketing/contracts';
+import type { Scope, ObserverPort } from '@open-marketing/contracts';
 import { digestSchema } from '@open-marketing/contracts';
-import type { BlobStorePort, MediaObserverPort } from './ports.js';
+import type { BlobStorePort } from './ports.js';
 import { boundary } from './boundary.js';
 import { checkContext, checkStorageKey, fail, success } from './validation.js';
 
@@ -11,7 +11,7 @@ import { checkContext, checkStorageKey, fail, success } from './validation.js';
  * Host owns the injected store, filesystem root and GC authority. @complexity O(bytes), max 25 MB.
  * @example createJiniBlobStore({ scope, store: new LocalFsBlobStore({ rootDir }) })
  */
-export function createJiniBlobStore(required: { scope: Scope; store: JiniBlobStorePort }, optional?: { observer?: MediaObserverPort }): BlobStorePort {
+export function createJiniBlobStore(required: { scope: Scope; store: JiniBlobStorePort }, optional?: { observer?: ObserverPort }): BlobStorePort {
   return {
     async put(input, options) {
       const context = checkContext({ context: input.context, options, scope: required.scope });

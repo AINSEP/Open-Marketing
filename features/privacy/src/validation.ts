@@ -1,17 +1,9 @@
 import { z } from "zod";
-import { appErrorSchema, callContextSchema, digestSchema, epochSchema, idSchema, scopeSchema } from "@open-marketing/contracts";
+import { appErrorSchema, callContextSchema, epochSchema, idSchema, scopeSchema } from "@open-marketing/contracts";
 import type { AppError, CallContext, CallOptions, Outcome, Scope } from "@open-marketing/contracts";
 import type { ErasurePhase, ErasureRequest, ParticipantProgress } from "./types.js";
+import { phases, requestSchema, suppressionSchema } from "./types.js";
 
-/** Fixed phase order; at most 100 participants and 400 checkpoints. */
-export const phases = ["plan", "externalRemoval", "purgeLocal", "attest"] as const;
-const phaseSchema = z.enum(phases);
-const statusSchema = z.enum(["pending", "complete", "failed"]);
-/** Tombstones contain keyed digests and bounded metadata, never raw identifiers. */
-export const suppressionSchema = z.strictObject({ identifierDigest: digestSchema, keyVersion: idSchema, purpose: idSchema, topic: idSchema, reason: idSchema });
-const progressSchema = z.strictObject({ participantId: idSchema, phase: phaseSchema, status: statusSchema, removedCount: epochSchema });
-/** Persisted records are tainted until both their shape and phase invariants pass. */
-export const requestSchema = z.strictObject({ scope: scopeSchema, requestId: idSchema, subjectId: idSchema, requestedAt: epochSchema, phase: phaseSchema, status: statusSchema, participants: progressSchema.array().min(1).max(400), retainedSuppression: suppressionSchema.array().max(1000) });
 /** Participant success and failure envelopes are strict; unknown outcomes cannot permit purge. */
 export const participantOutcomeSchema = z.discriminatedUnion("ok", [
   z.strictObject({ ok: z.literal(true), value: z.strictObject({ complete: z.boolean(), removedCount: epochSchema, retainedSuppression: suppressionSchema.array().max(1000).optional() }) }),

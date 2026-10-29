@@ -3,9 +3,11 @@ import { callContextSchema, epochSchema, idSchema, scopeSchema, parseBoundary } 
 import type { CallContext, ClockPort, IdPort, Outcome, Scope } from "@open-marketing/contracts";
 import type { ConversionDeliveryPort, ConversionDeliveryStatePort, ConversionSourceAuthenticationPort, MeasureAuditPort, MeasureJobPort, MeasurementGrantPort, MeasurementShareabilityPort, PlatformReportingPort } from "./ports.js";
 import type { ConversionDispatchRecord, MeasureGrant, PlatformMetricSnapshot, VerifiedConversionSource } from "./types.js";
-import { validateDeliveryTransition } from "./delivery/ledger-rules.js";
-import { auditInputSchema, clone, conversionKey, conversionSchema, dispatchRecordSchema, eventIdentity, failure, measureGrantSchema, nextId, parseSourceEvent, querySchema, sameScope, serviceContextSchema, scopeKey, snapshotSchema, sourceSchema, storageLimit } from "./rules.js";
-import { deliveryIdentity, parseResolvedDeliveryInput } from "./delivery/input.js";
+import { mergeDeliveryDiagnostics, validateDeliveryTransition } from "./delivery/ledger-rules.js";
+import { auditInputSchema, clone, conversionKey, conversionSchema, deliveryStateInputSchema, eventIdentity, failure, grantInputSchema, measureGrantSchema, nextId, parseSourceEvent, querySchema, revokeInputSchema, sameScope, serviceContextSchema, scopeKey, snapshotSchema, sourceSchema, storageLimit } from "./rules.js";
+import { deliveryIdentity, parseReconciliationInput, parseResolvedDeliveryInput } from "./delivery/input.js";
+import { conversionDeliveryOutcomeSchema } from "./types.js";
+import type { ConversionDeliveryOutcome, ConversionDiagnostics } from "./types.js";
 export { createMemoryTrackedLink } from "./links/links.js";
 
 /** Test evidence is exact-purpose/destination-bound. No evidence means denial. */
@@ -103,10 +105,11 @@ export function createMemoryPlatformReporting(required: { snapshot?: PlatformMet
 }
 /** Local backend fixture with stable delivery identity. Unknown outcomes remain unknown
  * until reconcileStatus is explicitly supplied; no automatic resend.
+ * Vendor diagnostics must be seeded explicitly; transport status never invents them.
  * @complexity O(1) map calls, bounded at maxRecords. */
-export function createMemoryConversionDelivery(required: { status?: "delivered" | "unknown"; reconcileStatus?: "delivered" | "unknown"; maxRecords?: number }): ConversionDeliveryPort & { calls(required: Record<string, never>): number } {
+export function createMemoryConversionDelivery(required: { status?: "delivered" | "unknown"; diagnostics?: ConversionDiagnostics; reconcileStatus?: "delivered" | "unknown"; reconcileDiagnostics?: ConversionDiagnostics; maxRecords?: number }): ConversionDeliveryPort & { calls(required: Record<string, never>): number } {
   const limit = storageLimit(required);
-  const records = new Map<string, { identity: string; status: "delivered" | "unknown" }>();
+  const records = new Map<string, ConversionDeliveryOutcome & { identity: string }>();
   let calls = 0;
   return {
     async deliver(input) {
@@ -118,79 +121,125 @@ export function createMemoryConversionDelivery(required: { status?: "delivered" 
       if (previous) return deliveryDuplicate({ previous, identity });
       if (records.size >= limit) return failure({ code: "limit_exceeded", message: "Delivery storage limit" });
       const status = required.status ?? "delivered";
-      records.set(key, { identity, status });
+      const outcome = parseBoundary({ schema: conversionDeliveryOutcomeSchema, input: { status, diagnostics: required.diagnostics } });
+      if (!outcome.ok) return outcome;
+      records.set(key, clone({ value: { identity, ...outcome.value } }));
       calls++;
-      return { ok: true, value: { status } };
+      return outcome;
     },
     async reconcile(input) {
-      const parsed = parseResolvedDeliveryInput({ input });
+      const parsed = parseReconciliationInput({ input });
       if (!parsed.ok) return parsed;
       const key = JSON.stringify([scopeKey({ scope: parsed.value.context.scope }), parsed.value.deliveryId]);
       const previous = records.get(key);
       if (!previous) return failure({ code: "unavailable", message: "No delivery evidence" });
       const checked = deliveryDuplicate({ previous, identity: deliveryIdentity({ input: parsed.value }) });
       if (!checked.ok) return checked;
+      if (previous.status === "not_sent") return checked;
       const status = previous.status === "delivered" ? "delivered" : required.reconcileStatus ?? previous.status;
-      records.set(key, { ...previous, status });
-      return { ok: true, value: { status } };
+      const outcome = parseBoundary({ schema: conversionDeliveryOutcomeSchema, input: { status, diagnostics: required.reconcileDiagnostics ?? previous.diagnostics } });
+      if (!outcome.ok) return outcome;
+      records.set(key, clone({ value: { ...previous, ...outcome.value } }));
+      return outcome;
     },
     calls() { return calls; },
   };
 }
-function deliveryDuplicate(required: { previous: { identity: string; status: "delivered" | "unknown" }; identity: string }): Outcome<{ status: "delivered" | "unknown" }> {
+function deliveryDuplicate(required: { previous: ConversionDeliveryOutcome & { identity: string }; identity: string }): Outcome<ConversionDeliveryOutcome> {
   if (required.previous.identity !== required.identity) return failure({ code: "conflict", message: "Conflicting delivery payload" });
-  return { ok: true, value: { status: required.previous.status } };
+  const { identity: _identity, ...outcome } = required.previous;
+  return parseBoundary({ schema: conversionDeliveryOutcomeSchema, input: outcome });
 }
-/** Grant registry permits explicit revocation in tests; never grants a generic tool scope. */
+/** Bounded scoped authority; identical grants cannot revive a revoked ID.
+ * replace remains a fault-injection seam. Results are detached from stored state.
+ * @example createMemoryMeasurementGrant({}).grant({ context, grant })
+ * @complexity O(n) time/space per operation for at most 1000 grants. */
 export function createMemoryMeasurementGrant(required: { grants?: readonly MeasureGrant[] }): MeasurementGrantPort & { replace(required: { grants: readonly MeasureGrant[] }): void } {
   let grants = clone({ value: required.grants?.slice(0, 1001) ?? [] });
+  function registry(): Outcome<MeasureGrant[]> {
+    if (grants.length > 1000) return failure({ code: "limit_exceeded", message: "Grant registry limit" });
+    return parseBoundary({ schema: z.array(measureGrantSchema).max(1000), input: grants });
+  }
   return {
     replace(input) { grants = clone({ value: input.grants.slice(0, 1001) }); },
     async current(input) {
       const parsed = parseBoundary({ schema: z.strictObject({ context: serviceContextSchema, grantId: idSchema }), input });
       if (!parsed.ok) return parsed;
-      if (grants.length > 1000) return failure({ code: "limit_exceeded", message: "Grant registry limit" });
-      const registry = parseBoundary({ schema: z.array(measureGrantSchema).max(1000), input: grants });
-      if (!registry.ok) return registry;
-      const grant = registry.value.find(item => item.grantId === input.grantId && sameScope({ left: item.scope, right: input.context.scope }));
+      const stored = registry();
+      if (!stored.ok) return stored;
+      const grant = stored.value.find(item => item.grantId === parsed.value.grantId && sameScope({ left: item.scope, right: parsed.value.context.scope }));
       if (!grant) return failure({ code: "forbidden", message: "Measurement grant not found" });
       return parseBoundary({ schema: measureGrantSchema, input: grant });
     },
+    async grant(input) {
+      const parsed = parseBoundary({ schema: grantInputSchema, input });
+      if (!parsed.ok) return parsed;
+      const { context, grant } = parsed.value;
+      if (grant.revoked || !sameScope({ left: grant.scope, right: context.scope })) return failure({ code: "forbidden", message: "Measurement grant scope or state mismatch" });
+      const stored = registry();
+      if (!stored.ok) return stored;
+      const previous = stored.value.find(item => item.grantId === grant.grantId && sameScope({ left: item.scope, right: context.scope }));
+      if (previous) {
+        // Strict schema parsing fixes property order before JSON comparison.
+        if (JSON.stringify({ ...previous, revoked: false }) !== JSON.stringify(grant)) return failure({ code: "conflict", message: "Measurement grant ID already binds different content" });
+        return { ok: true, value: previous };
+      }
+      if (stored.value.length >= 1000) return failure({ code: "limit_exceeded", message: "Grant registry limit" });
+      grants = [...stored.value, grant];
+      return { ok: true, value: clone({ value: grant }) };
+    },
+    async revoke(input) {
+      const parsed = parseBoundary({ schema: revokeInputSchema, input });
+      if (!parsed.ok) return parsed;
+      const stored = registry();
+      if (!stored.ok) return stored;
+      const grant = stored.value.find(item => item.grantId === parsed.value.grantId && sameScope({ left: item.scope, right: parsed.value.context.scope }));
+      if (!grant) return failure({ code: "forbidden", message: "Measurement grant not found" });
+      grant.revoked = true;
+      grants = stored.value;
+      return { ok: true, value: clone({ value: grant }) };
+    },
   };
 }
-/** Atomic dispatch claim and immutable history double; duplicate claims cannot send again. */
+/** Atomic dispatch claim and immutable history double; duplicate claims cannot send again.
+ * Scoped reads return detached evidence; appends merge diagnostics and preserve confirmed stages.
+ * @example createMemoryConversionDeliveryState({}).read({ context, deliveryId })
+ * @complexity O(1) bounded map operations; history is capped by maxRecords. */
 export function createMemoryConversionDeliveryState(required: { maxRecords?: number }): ConversionDeliveryStatePort & { history(required: Record<string, never>): readonly ConversionDispatchRecord[] } {
   const limit = storageLimit(required);
   const latest = new Map<string, ConversionDispatchRecord>();
   const history: ConversionDispatchRecord[] = [];
   return {
-    async begin(input) {
-      const context = parseBoundary({ schema: serviceContextSchema, input: input.context });
-      if (!context.ok) return context;
-      const parsed = parseBoundary({ schema: dispatchRecordSchema, input: input.record });
+    async read(input) {
+      const parsed = parseBoundary({ schema: z.strictObject({ context: serviceContextSchema, deliveryId: idSchema }), input });
       if (!parsed.ok) return parsed;
-      if (parsed.value.status !== "dispatching") return failure({ code: "invalid_input", message: "Claim must begin dispatching" });
-      const key = JSON.stringify([scopeKey({ scope: input.context.scope }), parsed.value.deliveryId]);
+      const key = JSON.stringify([scopeKey({ scope: parsed.value.context.scope }), parsed.value.deliveryId]);
+      return { ok: true, value: clone({ value: latest.get(key) ?? null }) };
+    },
+    async begin(input) {
+      const parsed = parseBoundary({ schema: deliveryStateInputSchema, input });
+      if (!parsed.ok) return parsed;
+      if (parsed.value.record.status !== "dispatching") return failure({ code: "invalid_input", message: "Claim must begin dispatching" });
+      const key = JSON.stringify([scopeKey({ scope: parsed.value.context.scope }), parsed.value.record.deliveryId]);
       const previous = latest.get(key);
-      if (previous) return existingClaim({ previous, record: parsed.value });
+      if (previous) return existingClaim({ previous, record: parsed.value.record });
       if (history.length >= limit) return failure({ code: "limit_exceeded", message: "Delivery ledger limit" });
-      latest.set(key, clone({ value: parsed.value }));
-      history.push(clone({ value: parsed.value }));
-      return { ok: true, value: { acquired: true, record: parsed.value } };
+      latest.set(key, clone({ value: parsed.value.record }));
+      history.push(clone({ value: parsed.value.record }));
+      return { ok: true, value: { acquired: true, record: parsed.value.record } };
     },
     async append(input) {
-      const context = parseBoundary({ schema: serviceContextSchema, input: input.context });
-      if (!context.ok) return context;
-      const parsed = parseBoundary({ schema: dispatchRecordSchema, input: input.record });
+      const parsed = parseBoundary({ schema: deliveryStateInputSchema, input });
       if (!parsed.ok) return parsed;
-      const key = JSON.stringify([scopeKey({ scope: input.context.scope }), parsed.value.deliveryId]);
+      const key = JSON.stringify([scopeKey({ scope: parsed.value.context.scope }), parsed.value.record.deliveryId]);
       const previous = latest.get(key);
-      const valid = validateDeliveryTransition({ previous, record: parsed.value });
+      const valid = validateDeliveryTransition({ previous, record: parsed.value.record });
       if (!valid.ok) return valid;
       if (history.length >= limit) return failure({ code: "limit_exceeded", message: "Delivery ledger limit" });
-      latest.set(key, clone({ value: parsed.value }));
-      history.push(clone({ value: parsed.value }));
-      return parsed;
+      const record = clone({ value: { ...parsed.value.record, diagnostics: mergeDeliveryDiagnostics({ before: previous?.diagnostics, after: parsed.value.record.diagnostics }) } });
+      latest.set(key, clone({ value: record }));
+      history.push(clone({ value: record }));
+      return { ok: true, value: record };
     },
     history() { return clone({ value: history }); },
   };

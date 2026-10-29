@@ -4,7 +4,7 @@ export type { NeutralCampaignLaunch, NeutralCampaignRecord } from "@open-marketi
 export { createCampaignService } from "./src/service.js";
 export type { CampaignDependencies } from "./src/dependencies.js";
 export type { CampaignDraft, CampaignReceipt, FlightProposal, LaunchArguments, LaunchProposal, ApprovedLaunchRequest, LaunchReceipt, ObservedCampaignState, CampaignReadback, CampaignRecord, CampaignIntent, CampaignJob, CampaignService } from "./src/types.js";
-export type { CampaignRepoPort, CampaignCapabilityPort, CampaignAssetPort, CampaignSafetyPort, CampaignJobPort, CampaignAuditPort, CampaignObserverPort, CampaignSqlPort } from "./src/ports.js";
+export type { CampaignRepoPort, CampaignCapabilityPort, CampaignAssetPort, CampaignSafetyPort, CampaignJobPort, CampaignAuditPort, CampaignSqlPort } from "./src/ports.js";
 export { createMemoryCampaignRepo, createMemoryCampaignCapability, createMemoryCampaignAsset, createMemoryCampaignSafety, createMemoryCampaignJob, createMemoryCampaignAudit, createMemoryCampaignObserver } from "./src/memory.js";
 export type { MemoryCampaignCapability } from "./src/memory-capability.js";
 export type { MemoryCampaignAsset } from "./src/memory-assets.js";

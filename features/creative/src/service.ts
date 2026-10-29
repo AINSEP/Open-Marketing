@@ -1,8 +1,7 @@
 import { parseBoundary } from "@open-marketing/contracts";
-import type { CallContext, CallOptions, Outcome } from "@open-marketing/contracts";
+import type { CallContext, CallOptions, Outcome, ObserverPort } from "@open-marketing/contracts";
 import type { CreativeService, GenerationPollRequest, GenerationStatus } from "./types.js";
 import type { CreativeDependencies } from "./lifecycle.js";
-import type { CreativeObserverPort } from "./ports.js";
 import { dispatchGeneration, recordOutcome, requestGeneration } from "./lifecycle.js";
 import { ingestVerifiedCompletion, reconcilePage, refreshJob } from "./reconciliation.js";
 import { failure, pollRequestSchema, success, validContext } from "./rules.js";
@@ -13,7 +12,7 @@ import { failure, pollRequestSchema, success, validContext } from "./rules.js";
  * @example createCreativeService({ repo, generation, assets, jobs, safety, clock, ids, audit })
  * @complexity O(1) construction; bounded work per method.
  */
-export function createCreativeService(required: Omit<CreativeDependencies, "observer">, optional?: { observer?: CreativeObserverPort }): CreativeService {
+export function createCreativeService(required: Omit<CreativeDependencies, "observer">, optional?: { observer?: ObserverPort }): CreativeService {
   const deps: CreativeDependencies = { ...required, observer: optional?.observer };
   return {
     async ingestVerifiedCompletion(input, options) {

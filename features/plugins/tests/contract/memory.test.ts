@@ -1,19 +1,5 @@
-import { PluginRepoPortSuite, PluginLifecyclePortSuite, AgentPluginLayoutPortSuite, AgentPluginMcpProvisioningPortSuite, PluginTrustPortSuite, PluginAuditPortSuite, PluginObserverPortSuite } from "./port-suites.js";
-import { createMemoryPluginRepo, createMemoryPluginLifecycle, createMemoryAgentPluginLayout, createMemoryAgentPluginMcpProvisioning, createMemoryPluginTrust, createMemoryPluginAudit, createMemoryPluginObserver } from "../../index.js";
-import { memoryFixture, source } from "../fixtures/plugin.js";
-PluginRepoPortSuite({ create: () => createMemoryPluginRepo({}) });
-PluginLifecyclePortSuite({ create: () => ({ port: createMemoryPluginLifecycle({}, { packages: [memoryFixture({})] }), source }) });
-AgentPluginLayoutPortSuite({ create: input => ({ port: createMemoryAgentPluginLayout({}, { packages: [memoryFixture({}, { package: input.package })] }), source }) });
-AgentPluginMcpProvisioningPortSuite({ create: () => {
-  const port = createMemoryAgentPluginMcpProvisioning({});
-  return { port, bindings: () => port.bindings({}).map(binding => binding.plugin) };
-} });
-PluginTrustPortSuite({ create: () => ({ port: createMemoryPluginTrust({}, { packages: [memoryFixture({})] }), source }) });
-PluginAuditPortSuite({ create: () => {
-  const port = createMemoryPluginAudit({});
-  return { port, entries: () => port.entries({}) };
-} });
-PluginObserverPortSuite({ create: () => {
-  const port = createMemoryPluginObserver({});
-  return { port, events: () => port.events({}) };
-} });
+import { AddonRepositorySuite, PluginAuditPortSuite, PluginObserverPortSuite } from './port-suites.js';
+import { createMemoryPluginRepo, createMemoryPluginAudit, createMemoryPluginObserver } from '../../index.js';
+AddonRepositorySuite({ create: () => ({ repo: createMemoryPluginRepo({}), dispose() {} }) });
+PluginAuditPortSuite({ create: () => { const port = createMemoryPluginAudit({}); return { port, entries: () => port.entries({}) }; } });
+PluginObserverPortSuite({ create: () => { const port = createMemoryPluginObserver({}); return { port, events: () => port.events({}) }; } });

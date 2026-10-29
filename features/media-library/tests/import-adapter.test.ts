@@ -1,6 +1,6 @@
 import { it, expect, vi } from 'vitest';
 import { MediaImportValidationError } from '@jini-ai/cms/media/import';
-import { createImageInspectionAdapter, createJiniGuardedAssetImport, createJiniMediaAdapter, createMemoryImageInspection, createMediaLibrary } from '../index.js';
+import { createImageInspectionAdapter, createJiniGuardedAssetImport, createJiniMediaAdapter, createMemoryImageInspection, createMemoryGuardedAssetImport, createMediaLibrary } from '../index.js';
 import { bytes, context, digest, foreignContext, provenance, serviceFixture, value } from './fixtures.js';
 import { imageResponse, importFixture, sourceUrl } from './import-fixture.js';
 
@@ -119,4 +119,33 @@ it('service evidence survives rejected ingress and later successful association'
   fixture.reply({ response: imageResponse });
   const asset = value({ outcome: await service.importAsset({ context, request }) });
   expect(value({ outcome: await ports.repo.evidence({ context, operationId: 'operation' }) }).provenance).toEqual([{ provenance, assetId: asset.record.id }]);
+});
+
+const chatTypes = ['image/png', 'image/jpeg', 'image/webp'];
+it('direct image uploads reject ZIP, GIF, oversize and unsafe names before storage', async () => {
+  const fixture = importFixture();
+  for (const input of [
+    { bytes: new Uint8Array([80, 75, 3, 4]), filename: 'archive.zip' },
+    { bytes: new TextEncoder().encode('GIF89a'), filename: 'image.gif' },
+    { bytes: new Uint8Array(1048577), filename: 'large.png' },
+    { bytes, filename: 'bad\0name.png' },
+  ]) expect((await fixture.port.upload({ context, contentTypes: chatTypes, ...input })).ok).toBe(false);
+  expect(await fixture.config.dependencies.mediaRepo.list({ workspaceId: 'workspace' })).toEqual([]);
+  expect(await fixture.config.dependencies.blobRepo.list({ workspaceId: 'workspace' })).toEqual([]);
+  expect(fixture.requests).toEqual([]);
+});
+it.each(['adapter', 'memory'] as const)('direct image admission rejects animation/over-edge inputs and deduplicates concurrent uploads / %s', async adapter => {
+  const fixture = importFixture();
+  for (const image of [{ width: 8001, height: 1, frames: 1 }, { width: 1, height: 1, frames: 2 }]) {
+    const inspection = createMemoryImageInspection({ scope: context.scope, fixtures: [{ bytes, contentType: 'image/png', image }] });
+    const port = createJiniGuardedAssetImport({ ...fixture.config, inspection });
+    expect(await port.upload({ context, bytes, filename: 'image.png', contentTypes: chatTypes })).toMatchObject({ ok: false, error: { code: 'limit_exceeded' } });
+  }
+  expect(await fixture.config.dependencies.mediaRepo.list({ workspaceId: 'workspace' })).toEqual([]);
+  const port = adapter === 'adapter' ? fixture.port : createMemoryGuardedAssetImport({ scope: context.scope, dependencies: fixture.config.dependencies, fixtures: [{ sourceUrl, bytes, image: { width: 1, height: 1, frames: 1 } }] });
+  const results = await Promise.all(['one.png', 'two.png'].map(filename => port.upload({ context, bytes, filename, contentTypes: chatTypes })));
+  const assets = results.map(outcome => value({ outcome }));
+  expect(assets[0].record.id).toBe(assets[1].record.id);
+  expect(await fixture.config.dependencies.mediaRepo.list({ workspaceId: 'workspace' })).toHaveLength(1);
+  expect(fixture.requests).toEqual([]);
 });

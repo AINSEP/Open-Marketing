@@ -114,7 +114,18 @@ export function projectIdentifiers(required: { subjectId: string; identifiers: r
     identifierDigests[field] = item.identifierDigest;
   }
   if (!Object.keys(identifiers).length) return failure({ code: "unavailable", message: "No supported destination identifiers" });
+  addPhoneDigits({ ordered, identifiers, identifierDigests });
   return { ok: true, value: { subjectId: required.subjectId, identifiers, identifierDigests } };
+}
+/** Add the first phone's digits-only hash and original HMAC to transient maps; stored identity stays intact.
+ * Invalid/absent plus-form phones add nothing. O(n) scan of <=1000 retained identifiers; no I/O. */
+function addPhoneDigits(required: { ordered: readonly Identifier[]; identifiers: Record<string, string>; identifierDigests: Record<string, string> }): void {
+  const item = required.ordered.find(identifier => identifier.kind === "phone");
+  if (!item || !item.normalizedValue.startsWith("+")) return;
+  const hash = destinationIdentifierHash({ normalizedValue: item.normalizedValue.slice(1) });
+  if (!hash.ok) return;
+  required.identifiers.phone_digits = hash.value;
+  required.identifierDigests.phone_digits = item.identifierDigest;
 }
 /** Array.sort comparator ABI; code-unit ordering is independent of machine locale. */
 function compareIdentifiers(left: Identifier, right: Identifier): number {

@@ -2,7 +2,7 @@ import type { CallContext, CallOptions, Outcome } from "@open-marketing/contract
 import type { CredentialAuditPort, CredentialBrokerPort, CredentialLockPort, CredentialRefreshPort, CredentialRepoPort, SecretSealerPort } from "./ports.js";
 import type { CredentialRecord, CredentialReference, SealedSecret } from "./types.js";
 import { withCredentialLock } from "./locks.js";
-import { boundary, brokerSchema, failure, recordSchema, sameScope, secretSchema } from "./rules.js";
+import { boundary, brokerSchema, failure, recordSchema, reservedPurposeId, sameScope, secretSchema } from "./rules.js";
 
 interface BrokerDependencies { repo: CredentialRepoPort; locks: CredentialLockPort; audit: CredentialAuditPort; sealer: SecretSealerPort; refresh?: CredentialRefreshPort }
 interface BrokerUse { context: CallContext; reference: CredentialReference; operationId: string }
@@ -61,7 +61,7 @@ async function readCurrent(required: { repo: CredentialRepoPort; input: BrokerUs
  * Successful refresh must return sealed next-version data. @complexity O(1) writes plus provider work.
  */
 async function maybeRefresh(required: { dependencies: BrokerDependencies; input: BrokerUse; record: CredentialRecord }, optional?: CallOptions): Promise<Outcome<CredentialRecord>> {
-  if (!required.dependencies.refresh || /^(oauth-client|developer-token)\./.test(required.record.reference.connectionId)) return { ok: true, value: required.record };
+  if (!required.dependencies.refresh || reservedPurposeId.test(required.record.reference.connectionId)) return { ok: true, value: required.record };
   const refreshed = await required.dependencies.refresh.refresh({ context: required.input.context, record: required.record }, optional);
   if (!refreshed.ok) {
     const marked = await markFailedRefresh({ dependencies: required.dependencies, context: required.input.context, record: required.record, code: refreshed.error.code });

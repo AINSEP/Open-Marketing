@@ -1,4 +1,4 @@
-import type { CallContext, CallOptions, ObserverPort, Outcome, SqlSession, UnitOfWork } from "@open-marketing/contracts";
+import type { CallContext, CallOptions, Outcome, SqlSession, UnitOfWork } from "@open-marketing/contracts";
 import type { AuditEntry, AuditPage, AuditQuery, AuditReceipt } from "./types.js";
 
 /** Trusted server repository. Corrections require an existing same-scope, same-operation receipt.
@@ -15,9 +15,6 @@ export interface AuditRepoPort {
 export interface AuditRedactorPort {
   redact(required: { context: CallContext; entry: AuditEntry }, optional?: CallOptions): Promise<Outcome<AuditEntry>>;
 }
-/** Diagnostics carry fixed labels and injected correlation IDs, never entries. */
-export type AuditObserverPort = ObserverPort;
-
 /** Canonical leased SQL session; audit validates tainted rows before use. */
 export type AuditSqlSession = SqlSession;
 /** Server owns serialized transactions, rollback and session lifetime. */

@@ -1,11 +1,11 @@
 import { z } from "zod";
 import { appErrorSchema, callContextSchema, parseBoundary } from "@open-marketing/contracts";
-import type { CallOptions, ClockPort, Outcome } from "@open-marketing/contracts";
+import type { CallOptions, ClockPort, Outcome, ObserverPort } from "@open-marketing/contracts";
 import { dispatchDecision } from "@open-marketing/policy";
 import type { DispatchInput } from "@open-marketing/policy";
-import type { ConversionDeliveryPort, ConversionSourceAuthenticationPort, MeasurementShareabilityPort, MeasureObserverPort, PlatformReportingPort } from "../ports.js";
+import type { ConversionDeliveryPort, ConversionSourceAuthenticationPort, MeasurementShareabilityPort, PlatformReportingPort } from "../ports.js";
 import { runBoundary } from "../boundary.js";
-import { parseResolvedDeliveryInput } from "../delivery/input.js";
+import { parseReconciliationInput, parseResolvedDeliveryInput } from "../delivery/input.js";
 import { authenticationSchema, conversionSchema, deliveryStatusSchema, querySchema, snapshotSchema, sourceSchema } from "../rules.js";
 
 /** Parse the entire outcome, including failures, before trusting plugin output.
@@ -22,7 +22,7 @@ async function capabilityOutcome<T>(required: { schema: z.ZodType<T>; work: () =
  * and tainted outcomes; thrown effects are unavailable/uncertain, never retried here.
  * @example createConversionDeliveryAdapter({ capability }, { observer })
  * @complexity O(k) bounded payload; one capability call and no internal retry. */
-export function createConversionDeliveryAdapter(required: { capability: ConversionDeliveryPort }, optional?: { observer?: MeasureObserverPort }): ConversionDeliveryPort {
+export function createConversionDeliveryAdapter(required: { capability: ConversionDeliveryPort }, optional?: { observer?: ObserverPort }): ConversionDeliveryPort {
   return {
     async deliver(input, options) {
       const parsed = parseResolvedDeliveryInput({ input });
@@ -31,7 +31,7 @@ export function createConversionDeliveryAdapter(required: { capability: Conversi
       return runBoundary({ context, operation: "measure.capability.deliver", observer: optional?.observer, work: () => capabilityOutcome({ schema: deliveryStatusSchema, work: () => required.capability.deliver(parsed.value, options) }) }, options);
     },
     async reconcile(input, options) {
-      const parsed = parseResolvedDeliveryInput({ input });
+      const parsed = parseReconciliationInput({ input });
       if (!parsed.ok) return parsed;
       const context = deliveryContext({ input: parsed.value });
       return runBoundary({ context, operation: "measure.capability.reconcile", observer: optional?.observer, work: async () => {
@@ -41,14 +41,14 @@ export function createConversionDeliveryAdapter(required: { capability: Conversi
     },
   };
 }
-function deliveryContext(required: { input: Parameters<ConversionDeliveryPort["deliver"]>[0] }) {
+function deliveryContext(required: { input: Pick<Parameters<ConversionDeliveryPort["deliver"]>[0], "context"> }) {
   const context = required.input.context;
   return { scope: context.scope, principal: { kind: "service" as const, serviceId: context.serviceId }, correlationId: context.correlationId, traceId: context.traceId };
 }
 
 /** Provider normalization stays outside measure; extra platform totals reject.
  * @complexity O(1) observation; one injected capability call. */
-export function createPlatformReportingAdapter(required: { capability: PlatformReportingPort }, optional?: { observer?: MeasureObserverPort }): PlatformReportingPort {
+export function createPlatformReportingAdapter(required: { capability: PlatformReportingPort }, optional?: { observer?: ObserverPort }): PlatformReportingPort {
   return {
     async snapshot(input, options) {
       const parsed = parseBoundary({ schema: z.strictObject({ context: callContextSchema, query: querySchema }), input });
@@ -60,7 +60,7 @@ export function createPlatformReportingAdapter(required: { capability: PlatformR
 
 /** Trusted transport adapter authenticates scope/revision; this wrapper validates
  * its output and redacts thrown messages. @complexity One bounded source/port call. */
-export function createConversionSourceAuthenticationAdapter(required: { capability: ConversionSourceAuthenticationPort }, optional?: { observer?: MeasureObserverPort }): ConversionSourceAuthenticationPort {
+export function createConversionSourceAuthenticationAdapter(required: { capability: ConversionSourceAuthenticationPort }, optional?: { observer?: ObserverPort }): ConversionSourceAuthenticationPort {
   return {
     async verify(input, options) {
       const parsed = parseBoundary({ schema: z.strictObject({ source: sourceSchema }), input });
@@ -82,7 +82,7 @@ export function createConversionSourceAuthenticationAdapter(required: { capabili
 export function createMeasurementShareabilityAdapter(required: {
   clock: ClockPort;
   loadEvidence(required: Parameters<MeasurementShareabilityPort["assess"]>[0], optional?: CallOptions): Promise<Outcome<Pick<DispatchInput, "policy" | "lineage">>>;
-}, optional?: { observer?: MeasureObserverPort }): MeasurementShareabilityPort {
+}, optional?: { observer?: ObserverPort }): MeasurementShareabilityPort {
   return {
     async assess(input, options) {
       const parsed = parseBoundary({ schema: z.strictObject({ context: callContextSchema, event: conversionSchema }), input });

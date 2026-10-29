@@ -1,10 +1,11 @@
 import { z } from "zod";
-import type { AppError, CallContext, CallOptions, ClockPort, IdPort, Outcome } from "@open-marketing/contracts";
+import type { AppError, CallContext, CallOptions, ClockPort, IdPort, ObserverPort, Outcome } from "@open-marketing/contracts";
 import { callContextSchema, epochSchema, idSchema } from "@open-marketing/contracts";
-import type { AuditObserverPort, AuditRepoPort, AuditSqlDatabase, AuditSqlSession } from "./ports.js";
+import type { AuditRepoPort, AuditSqlDatabase, AuditSqlSession } from "./ports.js";
 import type { AuditEntry, AuditPage, AuditQuery, AuditReceipt } from "./types.js";
 import { allocateReceipt, correctionAllowed, scopeKey } from "./repository-rules.js";
-import { auditEntrySchema, auditReceiptSchema, failure, validateAppend, validateList } from "./validation.js";
+import { auditEntrySchema } from "./types.js";
+import { auditReceiptSchema, failure, validateAppend, validateList } from "./validation.js";
 import { observe } from "./observation.js";
 
 const storedRowSchema = z.strictObject({
@@ -15,7 +16,7 @@ const storedRowSchema = z.strictObject({
 });
 const queryResultSchema = z.object({ rows: z.array(z.record(z.string(), z.unknown())).max(101) });
 type StoredRow = { entry: AuditEntry; receipt: AuditReceipt; sequence: number; context: CallContext };
-type SqlDependencies = { db: AuditSqlDatabase; clock: ClockPort; ids: IdPort; observer: AuditObserverPort };
+type SqlDependencies = { db: AuditSqlDatabase; clock: ClockPort; ids: IdPort; observer: ObserverPort };
 const columns = "entry_id, recorded_at, sequence, owner_id, workspace_id, operation_id, kind, arguments_digest, correction_of, payload, context_json";
 
 /** Internal validation exception rolls the injected transaction back, then becomes a typed outcome. */
@@ -57,7 +58,7 @@ export function createSqlAuditRepo(required: SqlDependencies): AuditRepoPort {
  * @complexity One injected transaction; body bounded by adapter operations.
  */
 async function transaction<T>(required: {
-  db: AuditSqlDatabase; observer: AuditObserverPort; context: CallContext; operation: string;
+  db: AuditSqlDatabase; observer: ObserverPort; context: CallContext; operation: string;
   execute(required: { session: AuditSqlSession }): Promise<Outcome<T>>;
 }, optional?: CallOptions): Promise<Outcome<T>> {
   let result: Outcome<T>;

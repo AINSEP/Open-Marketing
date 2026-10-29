@@ -1,5 +1,4 @@
-import type { CallContext, CallOptions, Outcome } from "@open-marketing/contracts";
-import type { MeasureObserverPort } from "../ports.js";
+import type { CallContext, CallOptions, Outcome, ObserverPort } from "@open-marketing/contracts";
 import { runBoundary } from "../boundary.js";
 
 /** A typed domain failure still throws INSIDE a transaction so jobs roll back too.
@@ -14,7 +13,7 @@ export function unwrap<T>(required: { outcome: Outcome<T> }): T {
 }
 /** Restore typed denials only after successful body rollback. Commit/rollback/release failures
  * remain unavailable, preserving uncertainty. @complexity O(1) wrapper around bounded injected work. */
-export async function sqlBoundary<T>(required: { context: CallContext; operation: string; observer?: MeasureObserverPort; work: () => Promise<T> }, optional?: CallOptions): Promise<Outcome<T>> {
+export async function sqlBoundary<T>(required: { context: CallContext; operation: string; observer?: ObserverPort; work: () => Promise<T> }, optional?: CallOptions): Promise<Outcome<T>> {
   return runBoundary<T>({ ...required, work: async (): Promise<Outcome<T>> => {
     try { return { ok: true, value: await required.work() }; }
     catch (error) {

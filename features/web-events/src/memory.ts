@@ -1,4 +1,4 @@
-import { epochSchema } from "@open-marketing/contracts";
+import { digestSchema, epochSchema } from "@open-marketing/contracts";
 import type { CallContext, ClockPort, Outcome } from "@open-marketing/contracts";
 import type { WebEventRepoPort } from "./ports.js";
 import type { AttributionTouch, Visit, WebEvent } from "./types.js";
@@ -14,6 +14,13 @@ export function createMemoryWebEventRepo(required: { clock: ClockPort }): WebEve
   const visits = new Map<string, Visit>();
   const cursors = new Map<string, number>();
   return {
+    async lastHeartbeat(input, options) {
+      const invalid = validateContext({ context: input.context, options });
+      if (invalid) return invalid;
+      if (!digestSchema.safeParse(input.destinationId).success) return failure({ code: "invalid_input" });
+      const receipts = scopedRecords({ records, context: input.context }).filter(record => record.event.properties.destinationId === input.destinationId).map(record => record.event.receivedAt);
+      return { ok: true, value: receipts.reduce<number | null>((latest, receipt) => latest === null ? receipt : Math.max(latest, receipt), null) };
+    },
     async recordTouch(input, options) {
       const invalid = validateRecord({ ...input, options });
       if (invalid) return invalid;
@@ -88,8 +95,8 @@ function matchesSubject(required: { event: WebEvent; subjectId: string; anonymou
 }
 /** Foreign Array.sort ABI; explicit lexical ordering matches SQLite BINARY collation. */
 function compareTouches(left: AttributionTouch, right: AttributionTouch): number {
-  if (left.occurredAt !== right.occurredAt) return left.occurredAt - right.occurredAt;
-  return left.touchId < right.touchId ? -1 : Number(left.touchId > right.touchId);
+  if (left.occurredAt !== right.occurredAt) return right.occurredAt - left.occurredAt;
+  return left.touchId > right.touchId ? -1 : Number(left.touchId < right.touchId);
 }
 /** No state mutation occurs until uniqueness, clock and cursor checks pass.
  * @complexity O(e) touch-ID uniqueness scan, then constant-size append. */

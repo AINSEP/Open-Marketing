@@ -2,8 +2,8 @@ import { OAuthError } from "@jini-ai/oauth";
 import type { OAuthClient, OAuthFetch, OAuthProviderDescriptor, OAuthTokenSet, OAuthUrlGuard } from "@jini-ai/oauth";
 import { z } from "zod";
 import { appErrorSchema } from "@open-marketing/contracts";
-import type { CallContext, CallOptions, ClockPort, Outcome } from "@open-marketing/contracts";
-import type { CredentialBrokerPort, CredentialRepoPort, CredentialObserverPort, SecretSealerPort } from "./ports.js";
+import type { CallContext, CallOptions, ClockPort, Outcome, ObserverPort } from "@open-marketing/contracts";
+import type { CredentialBrokerPort, CredentialRepoPort, SecretSealerPort } from "./ports.js";
 import { readCredentialOAuthClient } from "./token.js";
 import { failure } from "./rules.js";
 
@@ -23,7 +23,7 @@ export interface JiniOAuthDependencies {
   readonly clock: ClockPort;
   readonly sealer: SecretSealerPort;
   readonly timeoutMs?: number;
-  readonly observer?: CredentialObserverPort;
+  readonly observer?: ObserverPort;
   readonly clientCredentials?: { readonly repo: CredentialRepoPort; readonly broker: CredentialBrokerPort };
 }
 
@@ -55,7 +55,7 @@ export function readCredentialAccess(required: { plaintext: string }): Outcome<{
 /** A reserved prefix separates OAuth records from arbitrary pasted strings/JSON. @complexity O(payload bytes), cap 64 KiB. */
 export function readStoredTokens(required: { plaintext: string }): Outcome<StoredOAuthTokens | null> {
   if (!required.plaintext || Buffer.byteLength(required.plaintext) > 65536) return failure({ code: "protocol_mismatch" });
-  if (required.plaintext.startsWith("om.developer-token.")) return failure({ code: "protocol_mismatch" });
+  if (required.plaintext.startsWith("om.developer-token.") || required.plaintext.startsWith("om.plugin-secret.")) return failure({ code: "protocol_mismatch" });
   if (!required.plaintext.startsWith("om.oauth.")) return { ok: true, value: null };
   if (!required.plaintext.startsWith(oauthPayloadPrefix)) return failure({ code: "protocol_mismatch" });
   try { return parseTokens({ value: JSON.parse(required.plaintext.slice(oauthPayloadPrefix.length)) }); }

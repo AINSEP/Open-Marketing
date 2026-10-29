@@ -1,8 +1,7 @@
-import { PolicyRepoPortSuite, CanonicalIdentityPortSuite, PolicyObserverPortSuite } from "./port-suites.js";
-import { createMemoryPolicyRepo, createMemoryCanonicalIdentity } from "../../index.js";
-import { subject, memoryObserver } from "../fixtures.js";
+import { PolicyRepoPortSuite, PolicyObserverPortSuite } from "./port-suites.js";
+import { createMemoryPolicyRepo } from "../../index.js";
+import { memoryObserver } from "../fixtures.js";
 
-PolicyRepoPortSuite({ name: "memory", create: () => ({ port: createMemoryPolicyRepo({ bindings: [{ identifier: "email:subject", subject }] }) }) });
-CanonicalIdentityPortSuite({ name: "memory", create: () => ({ port: createMemoryCanonicalIdentity({ bindings: [{ identifier: "email:subject", subject }] }) }) });
+PolicyRepoPortSuite({ name: "memory", create: () => ({ port: createMemoryPolicyRepo({}) }) });
 
 PolicyObserverPortSuite({ create: memoryObserver });

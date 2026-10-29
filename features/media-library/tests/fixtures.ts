@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { uploadMedia } from '@jini-ai/cms/media';
 import type { CallContext } from '@open-marketing/contracts';
 import type { Asset, AssetProvenance, JiniMediaDependencies, MediaLibrary, Outcome } from '../index.js';
-import { createMemoryJiniDependencies, createMemoryJiniMedia, createMemoryMediaRepo, createMemoryGuardedAssetImport, createMemoryImageTransform, createMemoryBlobStore, createMemoryMediaAudit, createMediaLibrary } from '../index.js';
+import { createMemoryJiniDependencies, createMemoryJiniMedia, createMemoryMediaRepo, createMemoryGuardedAssetImport, createMemoryImageTransform, createMemoryMediaAudit, createMediaLibrary } from '../index.js';
 
 export const context: CallContext = { scope: { ownerId: 'owner', workspaceId: 'workspace' }, principal: { kind: 'owner', ownerId: 'owner' }, correlationId: 'correlation', traceId: 'trace' };
 export const foreignContext: CallContext = { ...context, scope: { ...context.scope, workspaceId: 'foreign' } };
@@ -32,8 +32,7 @@ export function value<T>(required: { outcome: Outcome<T> }): T {
 export function serviceFixture(): { service: MediaLibrary; deps: JiniMediaDependencies; ports: Parameters<typeof createMediaLibrary>[0] } {
   const deps = dependencies();
   const ports = { media: createMemoryJiniMedia({ scope: context.scope, dependencies: deps }), repo: createMemoryMediaRepo({ scope: context.scope }),
-    blobs: createMemoryBlobStore({ scope: context.scope }), importer: createMemoryGuardedAssetImport({ scope: context.scope }),
-    transforms: createMemoryImageTransform({ scope: context.scope, dependencies: deps }), clock,
-    ids: { next() { return 'unused-service-id'; } }, audit: createMemoryMediaAudit({ scope: context.scope }) };
+    importer: createMemoryGuardedAssetImport({ scope: context.scope }),
+    transforms: createMemoryImageTransform({ scope: context.scope, dependencies: deps }), audit: createMemoryMediaAudit({ scope: context.scope }) };
   return { service: createMediaLibrary(ports), deps, ports };
 }

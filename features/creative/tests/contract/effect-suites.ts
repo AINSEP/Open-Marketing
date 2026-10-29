@@ -1,5 +1,6 @@
+import type { ObserverPort } from "@open-marketing/contracts";
 import { describe, it, expect } from "vitest";
-import type { CreativeAssetPort, CreativeJobPort, CreativeRepoPort, CreativeSpendPort, CreativeAuditPort, CreativeObserverPort } from "../../index.js";
+import type { CreativeAssetPort, CreativeJobPort, CreativeRepoPort, CreativeSpendPort, CreativeAuditPort } from "../../index.js";
 import { context, otherContext, generationRequest, intentFor, quoteFor, value } from "../support/fixtures.js";
 import { costFor } from "../support/cost.js";
 import { provenance } from "../../src/rules.js";
@@ -72,7 +73,7 @@ export function CreativeAuditPortSuite(required: { create: () => CreativeAuditPo
   });
 }
 /** Passive observer has no asynchronous authority effects. */
-export function CreativeObserverPortSuite(required: { create: () => CreativeObserverPort }) {
+export function CreativeObserverPortSuite(required: { create: () => ObserverPort }) {
   describe("CreativeObserverPort behavior", () => {
     it("accepts correlation, trace and run identity", () => {
       expect(required.create().observe({ operation: "creative.refreshJob", outcome: "ok", correlationId: context.correlationId, traceId: context.traceId, runId: context.runId })).toBeUndefined();

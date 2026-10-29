@@ -1,4 +1,4 @@
-import type { ApproverRef, Outcome, CallContext, CallOptions, ObserverPort, ConfirmationCard, ApprovalResponse, EffectEnvelope, GenerationAllowanceSettings, GenerationCostQuote, GenerationApprovalRequirement, HaltStopRequest, ServiceContext, Page, PageQuery, Money } from "@open-marketing/contracts";
+import type { ApproverRef, Outcome, CallContext, CallOptions, ConfirmationCard, ApprovalResponse, EffectEnvelope, GenerationAllowanceSettings, GenerationCostQuote, GenerationApprovalRequirement, HaltStopRequest, ServiceContext, Page, PageQuery, Money } from "@open-marketing/contracts";
 import type { EffectRequest, FrozenDispatchRequest, DispatchPermit, HaltReceipt, FrozenGenerationRequest, PlatformLimitEvidence, SafetySnapshot, DispatchAdmission, GenerationReservation, GenerationSettlement } from "./types.js";
 /** Durable atomic financial state. All mutations and their accounting journal commit together. */
 export interface SafetyRepoPort {
@@ -47,4 +47,3 @@ export interface AccountDispatchLockPort {
 export interface SafetyAuditPort {
  record(required: { context: CallContext; operationId: string; outcome: string }, optional?: CallOptions): Promise<Outcome<void>>;
 }
-export type SafetyObserverPort = ObserverPort;

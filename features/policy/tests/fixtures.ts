@@ -1,5 +1,5 @@
-import type { CallContext } from "@open-marketing/contracts";
-import type { Consent, PolicyEvidence, PolicyObserverPort, SubjectReference } from "../index.js";
+import type { CallContext, ObserverPort } from "@open-marketing/contracts";
+import type { Consent, PolicyEvidence, SubjectReference } from "../index.js";
 
 export const context: CallContext = { scope: { ownerId: "owner", workspaceId: "workspace" }, principal: { kind: "owner", ownerId: "owner" }, correlationId: "correlation", traceId: "trace", runId: "run" };
 export const subject: SubjectReference = { scope: context.scope, subjectId: "subject" };
@@ -11,7 +11,7 @@ export const otherWorkspace: CallContext = { ...context, scope: { ...context.sco
 export const otherOwner: CallContext = { ...context, scope: { ...context.scope, ownerId: "other-owner" }, principal: { kind: "owner", ownerId: "other-owner" } };
 
 /** Isolated observer double records metadata, clones caller values and never collects payloads. */
-export function memoryObserver(): PolicyObserverPort & { events: Parameters<PolicyObserverPort["observe"]>[0][] } {
-  const events: Parameters<PolicyObserverPort["observe"]>[0][] = [];
+export function memoryObserver(): ObserverPort & { events: Parameters<ObserverPort["observe"]>[0][] } {
+  const events: Parameters<ObserverPort["observe"]>[0][] = [];
   return { events, observe(input) { events.push(structuredClone(input)); } };
 }

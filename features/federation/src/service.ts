@@ -1,9 +1,9 @@
 import { callContextSchema, idSchema, parseBoundary } from "@open-marketing/contracts";
-import type { CallContext, CallOptions, ClockPort, Outcome } from "@open-marketing/contracts";
+import type { CallContext, CallOptions, ClockPort, Outcome, ObserverPort } from "@open-marketing/contracts";
 import type {
   FederationConnectionRepoPort, McpTransportPort, FederationCredentialPort,
   FederatedToolPermissionGate, FederatedCallConfirmation, ExternalMcpToolApprovalRepoPort,
-  FederatedDispatchGatePort, FederationAuditPort, ToolRegistryPort, FederationObserverPort,
+  FederatedDispatchGatePort, FederationAuditPort, ToolRegistryPort,
 } from "./ports.js";
 import type { ExternalToolCall, ExternalToolResult, FederationHost, ReloadReceipt } from "./types.js";
 import { admitCall, isReadOnly } from "./admission.js";
@@ -25,7 +25,7 @@ export type FederationHostDependencies = {
   clock: ClockPort;
 };
 type Invocation = { context: CallContext; call: ExternalToolCall };
-type Workflow = { dependencies: FederationHostDependencies; invocation: Invocation; current: () => boolean; observer?: FederationObserverPort };
+type Workflow = { dependencies: FederationHostDependencies; invocation: Invocation; current: () => boolean; observer?: ObserverPort };
 
 /** Missing even one gate fails closed at invocation, rather than throwing or granting authority. */
 function hasDependencies(required: { dependencies: FederationHostDependencies }): boolean {
@@ -150,7 +150,7 @@ async function runInvocation(required: { workflow: Workflow }, optional?: CallOp
  * @example createFederationHost({ connections, transport, credentials, permissionGate, confirmation, approvalRepo, dispatchGate, audit, registry, clock })
  * @complexity O(1) construction; bounded JSON/schema work per call, <=100 tracked connections.
  */
-export function createFederationHost(required: FederationHostDependencies, optional?: { observer?: FederationObserverPort }): FederationHost {
+export function createFederationHost(required: FederationHostDependencies, optional?: { observer?: ObserverPort }): FederationHost {
   const revisions = new Map<string, number>();
   return {
     async invoke(input, options) {

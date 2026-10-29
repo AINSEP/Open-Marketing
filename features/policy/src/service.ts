@@ -1,5 +1,5 @@
-import type { ClockPort } from "@open-marketing/contracts";
-import type { PolicyObserverPort, PolicyRepoPort } from "./ports.js";
+import type { ClockPort, ObserverPort } from "@open-marketing/contracts";
+import type { PolicyRepoPort } from "./ports.js";
 import type { PolicyService } from "./types.js";
 import { boundary, failure, validateEvidence, validateRequest } from "./validation.js";
 
@@ -10,7 +10,7 @@ import { boundary, failure, validateEvidence, validateRequest } from "./validati
  */
 export function createPolicyService(
   required: { repo: PolicyRepoPort; clock: ClockPort },
-  optional?: { observer?: PolicyObserverPort },
+  optional?: { observer?: ObserverPort },
 ): PolicyService {
   return {
     async snapshot(input, options) {

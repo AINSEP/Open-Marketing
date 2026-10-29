@@ -1,12 +1,12 @@
 import type { z } from "zod";
-import type { CallContext, CallOptions, Outcome } from "@open-marketing/contracts";
-import type { CampaignRepoPort, CampaignSqlPort, CampaignObserverPort } from "../ports.js";
+import type { CallContext, CallOptions, Outcome, ObserverPort } from "@open-marketing/contracts";
+import type { CampaignRepoPort, CampaignSqlPort } from "../ports.js";
 import type { CampaignRecord, LaunchProposal } from "../types.js";
 import { campaignId, createInputSchema, fail, parseBoundary, recordSchema, proposalBinding, proposalSchema, success, digest, observationSchema } from "../rules.js";
 import { boundRecord, checkCancelled, existingDraft, existingProposal, getInputSchema, listInputSchema, observeInputSchema, proposalInputSchema, proposalGetSchema, proposalForRecord, withObservation } from "../repo-rules.js";
 import { neutralCampaignRecordSchema, saveNeutralCampaignSchema, type NeutralCampaignRecord } from "../neutral-launch.js";
 
-interface Dependencies { db: CampaignSqlPort; observer?: CampaignObserverPort }
+interface Dependencies { db: CampaignSqlPort; observer?: ObserverPort }
 const recordQuery = `SELECT c.campaign_id, c.operation_id, c.record_json, (SELECT r.observation_json FROM campaign_revision r
  WHERE r.owner_id=c.owner_id AND r.workspace_id=c.workspace_id AND r.campaign_id=c.campaign_id
  ORDER BY r.revision DESC LIMIT 1) AS observation_json FROM campaign c
@@ -18,7 +18,7 @@ const recordQuery = `SELECT c.campaign_id, c.operation_id, c.record_json, (SELEC
  * @example createSqlCampaignRepo({ db: serverQueryable }, { observer });
  * @complexity Indexed O(log n) lookup; at most three SQL calls per operation.
  */
-export function createSqlCampaignRepo(required: { db: CampaignSqlPort }, optional: { observer?: CampaignObserverPort } = {}): CampaignRepoPort {
+export function createSqlCampaignRepo(required: { db: CampaignSqlPort }, optional: { observer?: ObserverPort } = {}): CampaignRepoPort {
   const dependencies: Dependencies = { ...required, ...optional };
   return {
     saveNeutral(input, options) { return sqlBoundary({ dependencies, context: input?.context, operation: "campaigns.repo.saveNeutral", execute: async () => {

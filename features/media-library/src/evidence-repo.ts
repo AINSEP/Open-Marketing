@@ -1,7 +1,7 @@
 import { parseBoundary, idSchema } from '@open-marketing/contracts';
-import type { CallContext, Outcome, Scope } from '@open-marketing/contracts';
+import type { CallContext, Outcome, Scope, ObserverPort } from '@open-marketing/contracts';
 import type { AssetCost, AssetProvenance, PlacementCrop, ProvenanceLink } from './types.js';
-import type { MediaObserverPort, MediaRepoPort } from './ports.js';
+import type { MediaRepoPort } from './ports.js';
 import { boundary } from './boundary.js';
 import { checkContext, costSchema, cropSchema, fail, linkSchema, success } from './validation.js';
 
@@ -15,7 +15,7 @@ export interface EvidenceStore {
  * Corrections append a replacement observation, never update or net signed money.
  * @complexity O(e) bounded at 1,000 rows per evidence read. @example createEvidenceRepo({ store })
  */
-export function createEvidenceRepo(required: { store: EvidenceStore; scope?: Scope }, optional?: { observer?: MediaObserverPort }): MediaRepoPort {
+export function createEvidenceRepo(required: { store: EvidenceStore; scope?: Scope }, optional?: { observer?: ObserverPort }): MediaRepoPort {
   return {
     async saveCrop(input, options) {
       const context = checkContext({ context: input.context, options, scope: required.scope });

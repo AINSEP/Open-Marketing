@@ -3,6 +3,7 @@ import { appErrorSchema, callContextSchema, idSchema, scopeSchema } from "@open-
 import type { AppError, CallOptions, Outcome, Scope } from "@open-marketing/contracts";
 import type { CredentialReference } from "./types.js";
 
+export const reservedPurposeId = /^(oauth-client|developer-token|plugin-secret)\./;
 export const referenceSchema = z.strictObject({ scope: scopeSchema, connectionId: idSchema, version: z.number().int().min(1).max(2147483647) });
 export const secretSchema = z.strictObject({ ciphertext: z.string().min(1).max(131072), version: z.number().int().min(1).max(2147483647), aadDigest: z.string().regex(/^[a-f0-9]{64}$/) });
 export const connectSchema = z.strictObject({ context: callContextSchema, request: z.strictObject({ pluginId: idSchema, returnUri: z.string().url().max(2048) }) });

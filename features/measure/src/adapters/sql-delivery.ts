@@ -1,43 +1,50 @@
+import { z } from "zod";
 import { callContextSchema, idSchema, parseBoundary } from "@open-marketing/contracts";
-import type { CallContext, ClockPort, IdPort, ServiceContext } from "@open-marketing/contracts";
-import type { ConversionDeliveryStatePort, MeasureAuditPort, MeasureObserverPort, MeasureSqlDatabase, MeasureSqlQueryable } from "../ports.js";
+import type { CallContext, ClockPort, IdPort, ServiceContext, ObserverPort } from "@open-marketing/contracts";
+import type { ConversionDeliveryStatePort, MeasureAuditPort, MeasureSqlDatabase, MeasureSqlQueryable } from "../ports.js";
 import type { ConversionDispatchRecord } from "../types.js";
-import { dispatchRecordSchema, failure, scopeKey, serviceContextSchema } from "../rules.js";
-import { validateDeliveryTransition } from "../delivery/ledger-rules.js";
+import { deliveryStateInputSchema, dispatchRecordSchema, failure, scopeKey, serviceContextSchema } from "../rules.js";
+import { mergeDeliveryDiagnostics, validateDeliveryTransition } from "../delivery/ledger-rules.js";
 import { sqlBoundary, unwrap } from "./sql-boundary.js";
 
-/** SQL dispatch claim + append-only history, sharing the memory ledger suite.
+/** SQL dispatch claim + append-only history and scoped latest-evidence reads.
  * Transactions must serialize competing claims. No mutable overwrite or retry loop.
+ * Appends merge diagnostics without rejecting delivery; confirmed stages and latest observation time persist.
  * @example createSqlConversionDeliveryState({ database }, { observer })
  * @complexity Indexed latest-record lookup and append, O(log n). */
-export function createSqlConversionDeliveryState(required: { database: MeasureSqlDatabase }, optional?: { observer?: MeasureObserverPort }): ConversionDeliveryStatePort {
+export function createSqlConversionDeliveryState(required: { database: MeasureSqlDatabase }, optional?: { observer?: ObserverPort }): ConversionDeliveryStatePort {
   return {
-    async begin(input, options) {
-      const context = parseBoundary({ schema: serviceContextSchema, input: input.context });
-      if (!context.ok) return context;
-      const parsed = parseBoundary({ schema: dispatchRecordSchema, input: input.record });
+    async read(input, options) {
+      const parsed = parseBoundary({ schema: z.strictObject({ context: serviceContextSchema, deliveryId: idSchema }), input });
       if (!parsed.ok) return parsed;
-      if (parsed.value.status !== "dispatching") return failure({ code: "invalid_input", message: "Claim must begin dispatching" });
-      return sqlBoundary({ context: asCallContext({ context: input.context }), operation: "measure.sql.claimDelivery", observer: optional?.observer, work: () => required.database.transaction({ work: async ({ session: transaction }) => {
-        const previous = await latestRecord({ transaction, context: input.context, deliveryId: parsed.value.deliveryId });
+      return sqlBoundary({ context: asCallContext({ context: parsed.value.context }), operation: "measure.sql.readDelivery", observer: optional?.observer, work: async () => {
+        const latest = await latestRecord({ transaction: required.database, ...parsed.value });
+        return latest?.record ?? null;
+      } }, options);
+    },
+    async begin(input, options) {
+      const parsed = parseBoundary({ schema: deliveryStateInputSchema, input });
+      if (!parsed.ok) return parsed;
+      if (parsed.value.record.status !== "dispatching") return failure({ code: "invalid_input", message: "Claim must begin dispatching" });
+      return sqlBoundary({ context: asCallContext({ context: parsed.value.context }), operation: "measure.sql.claimDelivery", observer: optional?.observer, work: () => required.database.transaction({ work: async ({ session: transaction }) => {
+        const previous = await latestRecord({ transaction, context: parsed.value.context, deliveryId: parsed.value.record.deliveryId });
         if (previous) {
-          if (previous.record.identity !== parsed.value.identity || previous.record.subjectId !== parsed.value.subjectId || previous.record.eventId !== parsed.value.eventId) return unwrap({ outcome: failure({ code: "conflict", message: "Delivery ID already binds another payload" }) });
+          if (previous.record.identity !== parsed.value.record.identity || previous.record.subjectId !== parsed.value.record.subjectId || previous.record.eventId !== parsed.value.record.eventId) return unwrap({ outcome: failure({ code: "conflict", message: "Delivery ID already binds another payload" }) });
           return { acquired: false, record: previous.record };
         }
-        await insertRecord({ transaction, context: input.context, record: parsed.value, version: 1 });
-        return { acquired: true, record: parsed.value };
+        await insertRecord({ transaction, context: parsed.value.context, record: parsed.value.record, version: 1 });
+        return { acquired: true, record: parsed.value.record };
       } }) }, options);
     },
     async append(input, options) {
-      const context = parseBoundary({ schema: serviceContextSchema, input: input.context });
-      if (!context.ok) return context;
-      const parsed = parseBoundary({ schema: dispatchRecordSchema, input: input.record });
+      const parsed = parseBoundary({ schema: deliveryStateInputSchema, input });
       if (!parsed.ok) return parsed;
-      return sqlBoundary({ context: asCallContext({ context: input.context }), operation: "measure.sql.appendDelivery", observer: optional?.observer, work: () => required.database.transaction({ work: async ({ session: transaction }) => {
-        const previous = await latestRecord({ transaction, context: input.context, deliveryId: parsed.value.deliveryId });
-        unwrap({ outcome: validateDeliveryTransition({ previous: previous?.record, record: parsed.value }) });
-        await insertRecord({ transaction, context: input.context, record: parsed.value, version: (previous?.version ?? 0) + 1 });
-        return parsed.value;
+      return sqlBoundary({ context: asCallContext({ context: parsed.value.context }), operation: "measure.sql.appendDelivery", observer: optional?.observer, work: () => required.database.transaction({ work: async ({ session: transaction }) => {
+        const previous = await latestRecord({ transaction, context: parsed.value.context, deliveryId: parsed.value.record.deliveryId });
+        unwrap({ outcome: validateDeliveryTransition({ previous: previous?.record, record: parsed.value.record }) });
+        const record = { ...parsed.value.record, diagnostics: mergeDeliveryDiagnostics({ before: previous?.record.diagnostics, after: parsed.value.record.diagnostics }) };
+        await insertRecord({ transaction, context: parsed.value.context, record, version: (previous?.version ?? 0) + 1 });
+        return record;
       } }) }, options);
     },
   };
@@ -54,7 +61,7 @@ async function insertRecord(required: { transaction: MeasureSqlQueryable; contex
   await required.transaction.query({ text: "INSERT INTO measure_conversion_delivery (scope_key,delivery_id,version,record_json,context_json,subject_id,event_id) VALUES ($1,$2,$3,$4,$5,$6,$7)", values: [scopeKey({ scope: required.context.scope }), required.record.deliveryId, required.version, JSON.stringify(required.record), JSON.stringify(required.context), required.record.subjectId, required.record.eventId] });
 }
 /** Durable redacted egress audit; IDs/clock/DB are caller-owned. */
-export function createSqlMeasureAudit(required: { database: MeasureSqlDatabase; ids: IdPort; clock: ClockPort }, optional?: { observer?: MeasureObserverPort }): MeasureAuditPort {
+export function createSqlMeasureAudit(required: { database: MeasureSqlDatabase; ids: IdPort; clock: ClockPort }, optional?: { observer?: ObserverPort }): MeasureAuditPort {
   return {
     async record(input, options) {
       const context = parseBoundary({ schema: callContextSchema, input: input.context });

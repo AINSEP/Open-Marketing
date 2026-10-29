@@ -1,6 +1,6 @@
 import type { UploadMediaDeps, ResolveMediaRenditionDeps, PutBlobInput, BlobStorePort as JiniBlobStorePort } from '@jini-ai/cms/media';
-import type { Outcome, CallContext, CallOptions, ObserverPort } from '@open-marketing/contracts';
-import type { Asset, AssetCost, AssetImportRequest, AssetQuery, AssetPage, ImportedAsset, PlacementCropRequest, PlacementCrop, ProvenanceLink, ImageInspection } from './types.js';
+import type { Outcome, CallContext, CallOptions } from '@open-marketing/contracts';
+import type { MediaLibrary, Asset, AssetCost, AssetImportRequest, AssetQuery, AssetPage, ImportedAsset, PlacementCropRequest, PlacementCrop, ProvenanceLink, ImageInspection } from './types.js';
 
 /** Public upstream dependencies for the feature adapter; no Jini internals or driver types. */
 export type JiniMediaDependencies = UploadMediaDeps & ResolveMediaRenditionDeps;
@@ -13,6 +13,7 @@ export interface MediaRepoPort {
 }
 /** OM Outcome/scope adapter over public Jini media services and repositories. No duplicate asset store. */
 export interface JiniMediaPort {
+    read(required: Parameters<MediaLibrary['readImage']>[0], optional?: CallOptions): ReturnType<MediaLibrary['readImage']>;
     save(required: { context: CallContext; asset: Asset }, optional?: CallOptions): Promise<Outcome<Asset>>;
     get(required: { context: CallContext; assetId: string }, optional?: CallOptions): Promise<Outcome<Asset>>;
     findByDigest(required: { context: CallContext; contentDigest: string }, optional?: CallOptions): Promise<Outcome<Asset | null>>;
@@ -26,6 +27,7 @@ export interface BlobStorePort {
 }
 /** Guarded Jini URL import adapter: host guard owns DNS/peer/redirect policy; OM validates bytes and decoded dimensions. */
 export interface GuardedAssetImportPort {
+    upload(required: Parameters<MediaLibrary['uploadImage']>[0], optional?: CallOptions): ReturnType<MediaLibrary['uploadImage']>;
     import(required: { context: CallContext; request: AssetImportRequest }, optional?: CallOptions): Promise<Outcome<ImportedAsset>>;
 }
 /** Adapter to Jini registerTransform/resolveMediaRendition, using injected placement presets. */
@@ -43,4 +45,3 @@ export interface ImageInspectionPort {
 export interface MediaAuditPort {
     record(required: { context: CallContext; operationId: string; assetId: string }, optional?: CallOptions): Promise<Outcome<void>>;
 }
-export type MediaObserverPort = ObserverPort;

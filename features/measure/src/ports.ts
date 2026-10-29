@@ -1,4 +1,5 @@
-import type { CallContext, CallOptions, TimeWindow, ObserverPort, Outcome, ServiceContext, SqlSession } from "@open-marketing/contracts";
+import type { CallContext, CallOptions, TimeWindow, Outcome, ServiceContext, SqlSession } from "@open-marketing/contracts";
+import type { ConversionDeliveryOutcome } from "./types.js";
 import type { AttributionTouch, MeasureGrant, ResolvedConversionInput, AttributionResult, AttributionSummary, CacQuery, ConversionDispatchRecord, ConversionInput, ConversionReceipt, PlatformMetricSnapshot, TrackedLink, TrackedLinkRequest, VerifiedConversionSource } from "./types.js";
 
 /** Caller owns current contacts/erasure lookup. A missing/erased subject is a typed failure.
@@ -26,10 +27,11 @@ export interface MeasurementShareabilityPort {
   assess(required: { context: CallContext; event: ConversionInput }, optional?: CallOptions): Promise<Outcome<{ readonly allowed: boolean; readonly reason?: string }>>;
 }
 /** Typed backend capability only. deliveryId is stable across reconciliation.
- * Adapters must not retry an uncertain non-idempotent effect. */
+ * Adapters must not retry an uncertain non-idempotent effect. Diagnostics require
+ * explicit vendor evidence; delivered does not imply processed or attributed. */
 export interface ConversionDeliveryPort {
-  deliver(required: { context: ServiceContext; event: ResolvedConversionInput; grant: MeasureGrant; deliveryId?: string }, optional?: CallOptions): Promise<Outcome<{ readonly status: "delivered" | "unknown" }>>;
-  reconcile?(required: { context: ServiceContext; deliveryId: string; event: ResolvedConversionInput; grant: MeasureGrant }, optional?: CallOptions): Promise<Outcome<{ readonly status: "delivered" | "unknown" }>>;
+  deliver(required: { context: ServiceContext; event: ResolvedConversionInput; grant: MeasureGrant; deliveryId?: string }, optional?: CallOptions): Promise<Outcome<ConversionDeliveryOutcome>>;
+  reconcile?(required: { context: ServiceContext; deliveryId: string; event: ConversionInput & { readonly identifiers?: Readonly<Record<string, string>> }; grant: MeasureGrant; receiptId?: string }, optional?: CallOptions): Promise<Outcome<ConversionDeliveryOutcome>>;
 }
 /** Returns one account/period observation; platform conversion totals are not inputs. */
 export interface PlatformReportingPort {
@@ -60,10 +62,21 @@ export interface ConversionVerificationPort {
 /** Reads CURRENT grant authority immediately before dispatch. */
 export interface MeasurementGrantPort {
   current(required: { context: ServiceContext; grantId: string }, optional?: CallOptions): Promise<Outcome<MeasureGrant>>;
+  /** Create immutable authority; identical retries return current revocation state.
+   * Changed content conflicts; revoked input or mismatched scope is forbidden.
+   * @example grants.grant({ context, grant }) */
+  grant(required: { context: CallContext; grant: MeasureGrant }, optional?: CallOptions): Promise<Outcome<MeasureGrant>>;
+  /** Idempotently revoke in this scope; missing/foreign grants are forbidden.
+   * @example grants.revoke({ context, grantId }) */
+  revoke(required: { context: CallContext; grantId: string }, optional?: CallOptions): Promise<Outcome<MeasureGrant>>;
 }
 /** Durable claim with append-only outcomes. Existing dispatching/unknown claims
- * require reconciliation and NEVER authorize a fresh send. */
+ * require reconciliation and NEVER authorize a fresh send. Appends without new
+ * diagnostics retain the previous verified diagnostic observation. */
 export interface ConversionDeliveryStatePort {
+  /** Latest evidence in this scope, or null; never authorizes egress.
+   * @example ledger.read({ context, deliveryId }) */
+  read(required: { context: ServiceContext; deliveryId: string }, optional?: CallOptions): Promise<Outcome<ConversionDispatchRecord | null>>;
   begin(required: { context: ServiceContext; record: ConversionDispatchRecord }, optional?: CallOptions): Promise<Outcome<{ readonly acquired: boolean; readonly record: ConversionDispatchRecord }>>;
   append(required: { context: ServiceContext; record: ConversionDispatchRecord }, optional?: CallOptions): Promise<Outcome<ConversionDispatchRecord>>;
 }
@@ -76,7 +89,6 @@ export type MeasureSqlDatabase = SqlSession;
 export interface MeasureTransactionalJobPort {
   enqueue(required: { transaction: MeasureSqlQueryable; source: VerifiedConversionSource; event: ConversionInput; context: CallContext }, optional?: CallOptions): Promise<Outcome<{ readonly jobId: string }>>;
 }
-export type MeasureObserverPort = ObserverPort;
 
 /** Owning privacy API clears reloadable order references; immutable IDs/digests remain.
  * Idempotent and scoped; does not authorize delivery or erase append-only evidence.

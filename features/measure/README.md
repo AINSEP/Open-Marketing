@@ -77,8 +77,8 @@ again after lookup and the pending audit. Local sandbox/read-only modes deny
 production delivery. Cancellation stops egress but cannot discard evidence after
 possible egress. A shared withdrawal/erasure barrier remains an integration need.
 
-`MeasureGrant` locally replaces `eventTypes` with 1..16 `definitionIds`; shared
-contract alignment belongs to step0a. Plugins own credentials, vendor mappings,
+`MeasureGrant` aliases the canonical contract with 1..16 open `definitionIds`; memory and SQL stores support immutable creation and irreversible revocation, with owner controls and server composition deferred to W21-CONVERSION-GRANT-SURFACES.
+Plugins own credentials, vendor mappings,
 guarded HTTP and reconciliation. Admit the generic `CONVERSION_EVENT_CAPABILITY`
 (`conversion.event.v1`), preserving the shared event ID across destinations.
 `conversion.adjustment.v1` is reserved in documentation only; no adjustment fields,

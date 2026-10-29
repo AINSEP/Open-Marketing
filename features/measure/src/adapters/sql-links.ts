@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { callContextSchema, idSchema, parseBoundary } from "@open-marketing/contracts";
-import type { IdPort } from "@open-marketing/contracts";
-import type { MeasureObserverPort, MeasureSqlDatabase, TrackedLinkPort } from "../ports.js";
+import type { IdPort, ObserverPort } from "@open-marketing/contracts";
+import type { MeasureSqlDatabase, TrackedLinkPort } from "../ports.js";
 import { failure, linkRequestSchema, nextId, scopeKey } from "../rules.js";
 import { prepareTrackedLink, validateTrackedDestination } from "../links/links.js";
 import { sqlBoundary, unwrap } from "./sql-boundary.js";
@@ -11,7 +11,7 @@ const linkSchema = z.strictObject({ linkId: idSchema, url: z.string().max(4096),
  * URL policy is applied again on read. No fetch or redirect chain is followed.
  * @example createSqlTrackedLink({ database, ids, baseUrl, allowedOrigins })
  * @complexity Indexed O(log n) storage plus bounded URL policy. */
-export function createSqlTrackedLink(required: { database: MeasureSqlDatabase; ids: IdPort; baseUrl: string; allowedOrigins: readonly string[]; allowedQueryKeys?: readonly string[] }, optional?: { observer?: MeasureObserverPort }): TrackedLinkPort {
+export function createSqlTrackedLink(required: { database: MeasureSqlDatabase; ids: IdPort; baseUrl: string; allowedOrigins: readonly string[]; allowedQueryKeys?: readonly string[] }, optional?: { observer?: ObserverPort }): TrackedLinkPort {
   return {
     async create(input, options) {
       const context = parseBoundary({ schema: callContextSchema, input: input.context });

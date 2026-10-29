@@ -1,20 +1,20 @@
 /** Paste-token ingress. Credential contents remain opaque to the feature. */
 import { z } from "zod";
-import { callContextSchema, connectIntegrationTokenSchema } from "@open-marketing/contracts";
-import type { CallContext, CallOptions, Outcome } from "@open-marketing/contracts";
+import { callContextSchema, connectIntegrationTokenSchema, pluginSecretSetSchema } from "@open-marketing/contracts";
+import type { CallContext, CallOptions, Outcome, PluginSecretSet, PluginSecretStatus } from "@open-marketing/contracts";
 import type { CredentialBrokerPort, CredentialAuditPort, CredentialLockPort, CredentialRepoPort, SecretSealerPort } from "./ports.js";
 import type { ConnectionSummary, CredentialReference } from "./types.js";
 import { withCredentialLock } from "./locks.js";
-import { boundary, failure, sameScope, summarySchema } from "./rules.js";
+import { boundary, failure, reservedPurposeId, sameScope, summarySchema } from "./rules.js";
 
-const tokenSchema = connectIntegrationTokenSchema.extend({ context: callContextSchema, purpose: z.enum(["oauth-client", "developer-token"]).optional() });
+const clientFieldsSchema = z.array(z.string()).max(32).refine(fields => !fields.includes("clientId") && !fields.includes("clientSecret"));
+const tokenSchema = connectIntegrationTokenSchema.extend({ context: callContextSchema, purpose: z.literal("oauth-client").optional(), clientFields: clientFieldsSchema.optional() });
 const clientPrefix = "om.oauth.client.v1:";
-const developerPrefix = "om.developer-token.v1:";
-const developerSchema = z.string().regex(/^[A-Za-z0-9]{22}$/).nullable();
-const clientSchema = z.strictObject({ clientId: z.string().min(1).max(2048), clientSecret: z.string().min(1).max(8192).optional() }).nullable();
-const metaClientSchema = clientSchema.unwrap().extend({ configId: z.string().regex(/^[1-9][0-9]{0,127}$/) }).nullable();
-type OAuthClientConfiguration = z.infer<typeof metaClientSchema> | z.infer<typeof clientSchema>;
-type TokenInput = z.infer<typeof tokenSchema>;
+const pluginSecretPrefix = "om.plugin-secret.v1:";
+const clientSchema = z.object({ clientId: z.string().min(1).max(2048), clientSecret: z.string().min(1).max(8192).optional() }).nullable();
+type OAuthClientConfiguration = z.infer<typeof clientSchema> & Readonly<Record<string, string | undefined>> | null;
+type TokenInput = Omit<z.infer<typeof tokenSchema>, "clientFields"> & { clientFields?: readonly string[] };
+type StoredTokenInput = Omit<TokenInput, "purpose"> & { purpose?: TokenInput["purpose"] | "plugin-secret" };
 type TokenDependencies = { repo: CredentialRepoPort; sealer: SecretSealerPort; locks: CredentialLockPort; audit: CredentialAuditPort };
 type ReaderDependencies = { context: CallContext; pluginId: string; repo: CredentialRepoPort; broker: CredentialBrokerPort; sealer: SecretSealerPort };
 
@@ -26,10 +26,11 @@ type ReaderDependencies = { context: CallContext; pluginId: string; repo: Creden
  */
 export async function connectCredentialToken(required: TokenInput & TokenDependencies, optional?: CallOptions): Promise<Outcome<ConnectionSummary>> {
   return boundary({ run: async () => {
-    const parsed = tokenSchema.safeParse({ context: required.context, connectionId: required.connectionId, pluginId: required.pluginId, plaintext: required.plaintext, purpose: required.purpose });
+    const parsed = tokenSchema.safeParse({ context: required.context, connectionId: required.connectionId, pluginId: required.pluginId, plaintext: required.plaintext, purpose: required.purpose, clientFields: required.clientFields });
     if (!parsed.success || Buffer.byteLength(parsed.data.plaintext) > 65536) return failure({ code: "invalid_input" });
     const plaintext = purposePayload({ input: parsed.data });
     if (!plaintext.ok) return plaintext;
+    if (Buffer.byteLength(plaintext.value) > 65536) return failure({ code: "invalid_input" });
     const input = { ...parsed.data, plaintext: plaintext.value };
     if (input.context.principal.kind !== "owner" || input.context.principal.ownerId !== input.context.scope.ownerId) return failure({ code: "forbidden" });
     const reference = { scope: input.context.scope, connectionId: input.connectionId, version: 1 };
@@ -38,7 +39,7 @@ export async function connectCredentialToken(required: TokenInput & TokenDepende
 }
 
 /** A duplicate cannot replace another plugin or restore revoked authority. @complexity O(b), fixed I/O. */
-async function saveToken(required: { input: TokenInput; reference: CredentialReference; dependencies: TokenDependencies }, optional?: CallOptions): Promise<Outcome<ConnectionSummary>> {
+async function saveToken(required: { input: StoredTokenInput; reference: CredentialReference; dependencies: TokenDependencies }, optional?: CallOptions): Promise<Outcome<ConnectionSummary>> {
   const { input, dependencies } = required;
   const existing = await dependencies.repo.get({ context: input.context, connectionId: input.connectionId }, optional);
   if (!existing.ok) return existing;
@@ -55,42 +56,68 @@ async function saveToken(required: { input: TokenInput; reference: CredentialRef
   return tokenSummary({ summary: stored.value, input });
 }
 
+/** Owner-only replacement/clear of one plugin's sealed field map; null clears the whole map.
+ * Reuses the scoped lock, version CAS and metadata-only audit. Failures are redacted.
+ * @complexity O(b) time/space, payload <=64 KiB; fixed repository I/O.
+ */
+export async function setCredentialPluginSecret(required: TokenDependencies & { context: CallContext; request: PluginSecretSet }, optional?: CallOptions): Promise<Outcome<PluginSecretStatus>> {
+  return boundary({ run: async () => {
+    const parsed = z.strictObject({ context: callContextSchema, request: pluginSecretSetSchema }).safeParse({ context: required.context, request: required.request });
+    if (!parsed.success) return failure({ code: "invalid_input" });
+    const { context, request } = parsed.data;
+    if (context.principal.kind !== "owner" || context.principal.ownerId !== context.scope.ownerId) return failure({ code: "forbidden" });
+    const plaintext = pluginSecretPrefix + JSON.stringify(request.values);
+    if (Buffer.byteLength(plaintext) > 65536) return failure({ code: "invalid_input" });
+    const input = { context, pluginId: request.pluginId, connectionId: "plugin-secret." + request.pluginId, plaintext, purpose: "plugin-secret" as const };
+    const reference = { scope: context.scope, connectionId: input.connectionId, version: 1 };
+    const saved = await withCredentialLock({ locks: required.locks, reference, run: () => saveToken({ input, reference, dependencies: required }, optional) }, optional);
+    return saved.ok ? { ok: true, value: { configured: request.values !== null } } : saved;
+  } }, optional);
+}
+
+/** Host-only read for the bound plugin; returns only requested own fields, with no caching.
+ * Missing/cleared is null; foreign, revoked and malformed records fail closed.
+ * @complexity Fixed audited I/O and O(b + f) time/space, b<=64 KiB and f<=32 names.
+ */
+export async function readCredentialPluginSecrets(required: ReaderDependencies & { secretFields: readonly string[] }, optional?: CallOptions): Promise<Outcome<Readonly<Record<string, string>> | null>> {
+  if (required.context.principal.kind !== "service") return failure({ code: "forbidden" });
+  if (!z.array(z.string()).max(32).safeParse(required.secretFields).success) return failure({ code: "invalid_input" });
+  const read = await readTagged({ ...required, connectionId: "plugin-secret." + required.pluginId, prefix: pluginSecretPrefix, schema: pluginSecretSetSchema.shape.values }, optional);
+  if (!read.ok || read.value === null) return read;
+  const values = read.value;
+  return { ok: true, value: Object.fromEntries(required.secretFields.filter(field => Object.hasOwn(values, field)).map(field => [field, values[field]])) };
+}
+
+/** Secret-free status via the same audited reader. @complexity Same bounded I/O as the reader. */
+export async function credentialPluginSecretStatus(required: ReaderDependencies, optional?: CallOptions): Promise<Outcome<PluginSecretStatus>> {
+  const read = await readCredentialPluginSecrets({ ...required, secretFields: [] }, optional);
+  return read.ok ? { ok: true, value: { configured: read.value !== null } } : read;
+}
+
 /** Validate the distinct client purpose before sealing; ordinary paste cannot claim it. @complexity O(b), b <=64 KiB. */
 function purposePayload(required: { input: TokenInput }): Outcome<string> {
   const input = required.input;
-  if (!input.purpose) return /^(oauth-client|developer-token)\./.test(input.connectionId) || input.plaintext.startsWith(clientPrefix) || input.plaintext.startsWith("om.developer-token.") ? failure({ code: "forbidden" }) : { ok: true, value: input.plaintext };
-  if (input.purpose === "developer-token") return developerPayload({ input });
+  if (!input.purpose) return reservedPurposeId.test(input.connectionId) || input.plaintext.startsWith(clientPrefix) || input.plaintext.startsWith("om.developer-token.") || input.plaintext.startsWith("om.plugin-secret.") ? failure({ code: "forbidden" }) : { ok: true, value: input.plaintext };
   if (input.connectionId !== "oauth-client." + input.pluginId) return failure({ code: "invalid_input" });
-  try { return { ok: true, value: clientPrefix + JSON.stringify(oauthClientSchema({ pluginId: input.pluginId }).parse(JSON.parse(input.plaintext))) }; }
+  try { return { ok: true, value: clientPrefix + JSON.stringify(declaredClientSchema({ clientFields: input.clientFields ?? [] }).parse(JSON.parse(input.plaintext))) }; }
   catch { return failure({ code: "invalid_input" }); }
 }
 
-/** Meta requires its user-token Business Login config ID; other plugins reject that field.
- * JSON null still clears either configuration. @complexity O(1) schema selection, no effects.
+/** Keep base client fields and optional declared extras; strip all undeclared keys.
+ * JSON null clears configuration. @complexity O(f), f<=32 declared extra fields; no effects.
  */
-function oauthClientSchema(required: { pluginId: string }): typeof clientSchema | typeof metaClientSchema {
-  return required.pluginId === "meta-ads" ? metaClientSchema : clientSchema;
+function declaredClientSchema(required: { clientFields: readonly string[] }): z.ZodType<OAuthClientConfiguration> {
+  const extras = Object.fromEntries(required.clientFields.map(field => [field, z.string().min(1).max(2048).optional()]));
+  return z.object({ ...extras, ...clientSchema.unwrap().shape }).nullable();
 }
 
-/** Google-only compatibility configuration; JSON null clears it. @complexity O(b), b<=64 KiB. */
-function developerPayload(required: { input: TokenInput }): Outcome<string> {
-  if (required.input.pluginId !== "google-ads" || required.input.connectionId !== "developer-token.google-ads") return failure({ code: "invalid_input" });
-  try { return { ok: true, value: developerPrefix + JSON.stringify(developerSchema.parse(JSON.parse(required.input.plaintext))) }; }
-  catch { return failure({ code: "invalid_input" }); }
-}
-
-/** Host-only Google configuration decoder; never returns OAuth material. Missing is compatible.
- * @complexity Fixed audited broker/repository I/O; O(b) crypto/JSON, b<=64 KiB; no vendor call. */
-export async function readCredentialDeveloperToken(required: ReaderDependencies, optional?: CallOptions): Promise<Outcome<string | null>> {
-  if (required.pluginId !== "google-ads" || required.context.principal.kind !== "service") return failure({ code: "forbidden" });
-  return readTagged({ ...required, connectionId: "developer-token.google-ads", prefix: developerPrefix, schema: developerSchema }, optional);
-}
-
-/** Host-only purpose decoder; Meta additionally requires configId, other plugins reject it.
+/** Host-only purpose decoder; returns base fields plus the caller's declared extras.
  * Null clears configuration without reviving revoked token IDs.
  * @complexity Fixed broker/repository I/O and O(b) crypto/JSON, b <=64 KiB; no provider call. */
-export async function readCredentialOAuthClient(required: ReaderDependencies, optional?: CallOptions): Promise<Outcome<OAuthClientConfiguration>> {
-  return readTagged({ ...required, connectionId: "oauth-client." + required.pluginId, prefix: clientPrefix, schema: oauthClientSchema({ pluginId: required.pluginId }) }, optional);
+export async function readCredentialOAuthClient(required: ReaderDependencies & { clientFields?: readonly string[] }, optional?: CallOptions): Promise<Outcome<OAuthClientConfiguration>> {
+  const fields = clientFieldsSchema.safeParse(required.clientFields ?? []);
+  if (!fields.success) return failure({ code: "invalid_input" });
+  return readTagged({ ...required, connectionId: "oauth-client." + required.pluginId, prefix: clientPrefix, schema: declaredClientSchema({ clientFields: fields.data }) }, optional);
 }
 
 /** Read only the bound plugin/purpose; decrypt the broker's current version after refresh.
@@ -116,7 +143,7 @@ async function readTagged<T>(required: ReaderDependencies & { connectionId: stri
 }
 
 /** Reject unexpected repository fields or identity drift before returning an owner DTO. @complexity O(summary bytes). */
-function tokenSummary(required: { summary: ConnectionSummary; input: TokenInput }): Outcome<ConnectionSummary> {
+function tokenSummary(required: { summary: ConnectionSummary; input: StoredTokenInput }): Outcome<ConnectionSummary> {
   const parsed = summarySchema.safeParse(required.summary);
   if (!parsed.success) return failure({ code: "protocol_mismatch" });
   const summary = parsed.data;

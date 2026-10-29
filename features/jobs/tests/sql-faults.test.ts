@@ -2,17 +2,75 @@ import { describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createJobService, createSqlJobRepo, jobTenant } from "../index.js";
+import { appendJobEvidence, enqueueInlineJob, createJobService, createSqlJobRepo, jobTenant } from "../index.js";
 import type { JobDispatchPort } from "../index.js";
 import { sqliteFixture } from "./sql-fixture.js";
 import { clockFixture, context, idsFixture, job, policy } from "./fixtures.js";
+import type { UnitOfWork } from "@open-marketing/contracts";
 describe("SQLite fault injection", () => {
-    it("failed enqueue journal append rolls back the job insert", async () => {
+    it("returns the committed dispatch checkpoint when the clock reaches expiry after the transaction", async () => {
         const fixture = sqliteFixture({});
         try {
-            fixture.native.exec("CREATE TRIGGER fail_enqueue BEFORE INSERT ON job_attempt WHEN NEW.event_type = 'enqueue' BEGIN SELECT RAISE(ABORT, 'injected'); END");
-            const repo = createSqlJobRepo({ database: fixture.database, clock: clockFixture({}), ids: idsFixture({}), retryPolicy: policy });
-            expect(await repo.enqueue({ context, job })).toMatchObject({ ok: false, error: { code: "unavailable" } });
+            const input = { database: fixture.database, clock: clockFixture({}), ids: idsFixture({}), context, job, leaseMs: 100 };
+            const queued = await enqueueInlineJob(input);
+            if (!queued.ok || queued.value.kind !== "inserted") throw new Error("Expected inline claim");
+            const leased = queued.value.job;
+            const repo = createSqlJobRepo({ ...input, retryPolicy: policy });
+            await repo.outbox.beginDispatch({ id: leased.id, tenantId: leased.tenantId, token: leased.leaseToken!, now: 0 });
+            const database: UnitOfWork = { async transaction(request) {
+                const result = await fixture.database.transaction(request);
+                input.clock.advance({ milliseconds: 100 });
+                return result;
+            } };
+            const checkpoint = { ...input, jobId: leased.id, event: "step", evidence: { phase: "dispatch" } };
+            expect(await appendJobEvidence({ ...checkpoint, database })).toEqual({ ok: true, value: undefined });
+            expect(fixture.native.prepare("SELECT event_type FROM job_attempt WHERE event_type='step'").all()).toEqual([{ event_type: "step" }]);
+            expect(await appendJobEvidence({ ...checkpoint, event: "next-step" })).toMatchObject({ ok: false, error: { code: "conflict" } });
+            expect(fixture.native.prepare("SELECT event_type FROM job_attempt WHERE event_type='next-step'").all()).toEqual([]);
+        } finally { fixture.close(); }
+    });
+    it("competing inline calls reserve once and cannot reclaim expired work or change its intent", async () => {
+        const fixture = sqliteFixture({});
+        try {
+            const input = { database: fixture.database, clock: clockFixture({}), ids: idsFixture({}), context, job, leaseMs: 100 };
+            const results = await Promise.all([enqueueInlineJob(input), enqueueInlineJob(input)]);
+            expect(results.map(result => result.ok && result.value.kind)).toEqual(["inserted", "existing"]);
+            expect(results[0]).toMatchObject({ ok: true, value: { job: { state: "leased", attempts: 1, leaseExpiresAt: 100, context } } });
+            input.clock.advance({ milliseconds: 100 });
+            expect(await enqueueInlineJob(input)).toMatchObject({ ok: true, value: { kind: "existing", job: { attempts: 1, leaseExpiresAt: 100 } } });
+            expect(await enqueueInlineJob({ ...input, job: { ...job, payload: { amount: 11 } } })).toEqual({ ok: true, value: { kind: "conflict" } });
+            expect(fixture.native.prepare("SELECT event_type FROM job_attempt ORDER BY sequence").all()).toEqual([{ event_type: "enqueue" }, { event_type: "claim" }]);
+        } finally { fixture.close(); }
+    });
+    it("checkpoint failure rolls back evidence and exact expiry blocks a new dispatch step", async () => {
+        const fixture = sqliteFixture({});
+        try {
+            const input = { database: fixture.database, clock: clockFixture({}), ids: idsFixture({}), context, job, leaseMs: 100 };
+            const queued = await enqueueInlineJob(input);
+            if (!queued.ok || queued.value.kind !== "inserted") throw new Error("Expected inline claim");
+            const leased = queued.value.job;
+            const repo = createSqlJobRepo({ ...input, retryPolicy: policy });
+            await repo.outbox.beginDispatch({ id: leased.id, tenantId: leased.tenantId, token: leased.leaseToken!, now: 0 });
+            const checkpoint = { ...input, jobId: leased.id, event: "step", evidence: { phase: "dispatch" } };
+            fixture.native.exec("CREATE TRIGGER fail_step BEFORE INSERT ON job_attempt WHEN NEW.event_type='step' BEGIN SELECT RAISE(ABORT, 'injected'); END");
+            expect(await appendJobEvidence(checkpoint)).toMatchObject({ ok: false, error: { code: "unavailable" } });
+            fixture.native.exec("DROP TRIGGER fail_step");
+            input.clock.advance({ milliseconds: 100 });
+            expect(await appendJobEvidence(checkpoint)).toMatchObject({ ok: false, error: { code: "conflict" } });
+            expect(fixture.native.prepare("SELECT event_type FROM job_attempt WHERE event_type='step'").all()).toEqual([]);
+            expect(await appendJobEvidence({ ...checkpoint, evidence: { phase: "observation" } })).toEqual({ ok: true, value: undefined });
+        } finally { fixture.close(); }
+    });
+    it.each(["repository", "inline", "joined"] as const)("failed enqueue/claim journal rolls back the intent and reservation: %s", async mode => {
+        const fixture = sqliteFixture({});
+        try {
+            fixture.native.exec("CREATE TRIGGER fail_enqueue BEFORE INSERT ON job_attempt WHEN NEW.event_type = '" + (mode === "joined" ? "claim" : "enqueue") + "' BEGIN SELECT RAISE(ABORT, 'injected'); END");
+            const input = { database: fixture.database, clock: clockFixture({}), ids: idsFixture({}), context, job, leaseMs: 100 };
+            let result;
+            if (mode === "repository") result = await createSqlJobRepo({ ...input, retryPolicy: policy }).enqueue({ context, job });
+            else if (mode === "inline") result = await enqueueInlineJob(input);
+            else result = await fixture.database.transaction({ work: ({ session }) => enqueueInlineJob({ ...input, database: session }) });
+            expect(result).toMatchObject({ ok: false, error: { code: "unavailable" } });
             expect(fixture.native.prepare("SELECT COUNT(*) AS count FROM job").get()).toEqual({ count: 0 });
             expect(fixture.native.prepare("SELECT COUNT(*) AS count FROM job_attempt").get()).toEqual({ count: 0 });
         } finally { fixture.close(); }

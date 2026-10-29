@@ -1,4 +1,4 @@
-import type { AccountBinding, CallContext, IdPort, Outcome, WorkspaceRepository } from "../index.js";
+import type { AccountBinding, CallContext, IdPort, Outcome, Scope, WorkspaceRepository } from "../index.js";
 
 export const ownerScope = { ownerId: "owner-a", workspaceId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" };
 export const otherScope = { ownerId: "owner-b", workspaceId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" };
@@ -19,6 +19,6 @@ export function unwrap<T>(required: { result: Outcome<T> }): T {
   if (!required.result.ok) throw new Error(`Unexpected fixture failure: ${required.result.error.code}`);
   return required.result.value;
 }
-export async function resolveOwner(required: { repo: WorkspaceRepository }): Promise<CallContext> {
-  return unwrap({ result: await required.repo.resolve({ session: { sessionId: "session-a" }, workspaceId: ownerScope.workspaceId }) });
+export function ownerContext(required: { scope: Scope }): CallContext {
+  return { scope: required.scope, principal: { kind: "owner", ownerId: required.scope.ownerId }, correlationId: "c", traceId: "t" };
 }

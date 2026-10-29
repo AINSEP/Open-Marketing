@@ -7,13 +7,14 @@ import type { AccountBinding } from "./types.js";
 /** Trusted provisioning data, owned by the server rather than agent input. */
 export type WorkspaceRecord = Scope;
 export type WorkspaceConnectionRecord = { readonly scope: Scope; readonly connectionId: string };
-/** Repository adapters expose the same resolve/bind/find seam. */
-export type WorkspaceRepository = import("./ports.js").WorkspaceRepoPort & import("./ports.js").AccountBindingLookupPort;
+/** Repository adapters expose the same scoped write, lookup and listing seams. */
+export type WorkspaceRepository = import("./ports.js").WorkspaceRepoPort & import("./ports.js").AccountBindingLookupPort & import("./ports.js").AccountBindingListPort;
 /** Internal persistence seam: implementations enforce ownership and uniqueness atomically on bind. */
 export interface WorkspaceStore {
   hasWorkspace(required: { scope: Scope }): Promise<boolean>;
   bind(required: { binding: AccountBinding }): Promise<Outcome<AccountBinding>>;
   find(required: { scope: Scope; externalAccountId: string }): Promise<AccountBinding | null>;
+  list(required: { scope: Scope; after?: string; limit: number }): Promise<readonly AccountBinding[]>;
 }
 
 /** Generate a canonical UUID via the server's injected ID source; no persistence effects.

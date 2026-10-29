@@ -1,13 +1,13 @@
-import type { CallContext, CallOptions, Outcome, SqlSession, UnitOfWork } from "@open-marketing/contracts";
-import type { CanonicalIdentityPort, PolicyObserverPort, PolicyRepoPort } from "./ports.js";
+import type { CallContext, CallOptions, ObserverPort, Outcome, SqlSession, UnitOfWork } from "@open-marketing/contracts";
+import type { PolicyRepoPort } from "./ports.js";
 import type { PolicyEvidence } from "./types.js";
-import { boundary, evidenceSchema, evidenceLimit, failure, referenceSchema, sameScope, validateEvidence, validateRequest } from "./validation.js";
-import { checkAppend, projectSnapshot, rootsFor } from "./projection.js";
+import { boundary, evidenceSchema, evidenceLimit, failure, sameScope, validateEvidence, validateRequest } from "./validation.js";
+import { checkAppend, projectSnapshot } from "./projection.js";
 
 /** The server owns transactions; a supplied session joins its current transaction. */
 export type PolicySqlClient = SqlSession;
 export type PolicySqlPool = UnitOfWork;
-export type SqlPolicyOptions = { readonly pool: PolicySqlPool; readonly maxEvidence?: number; readonly observer?: PolicyObserverPort };
+export type SqlPolicyOptions = { readonly pool: PolicySqlPool; readonly maxEvidence?: number; readonly observer?: ObserverPort };
 
 type Session = { client: PolicySqlClient; context: CallContext; maxEvidence: number };
 
@@ -16,7 +16,7 @@ type Session = { client: PolicySqlClient; context: CallContext; maxEvidence: num
  * @example createSqlPolicyRepo({ pool, observer }).appendEvidence({ context, evidence })
  * @complexity O(n) for n scoped evidence records, bounded at maxEvidence; 1 bulk read per operation.
  */
-export function createSqlPolicyRepo(required: SqlPolicyOptions): PolicyRepoPort & CanonicalIdentityPort {
+export function createSqlPolicyRepo(required: SqlPolicyOptions): PolicyRepoPort {
   const maxEvidence = evidenceLimit({ value: required.maxEvidence });
   return {
     async snapshot(input, options) {
@@ -42,28 +42,7 @@ export function createSqlPolicyRepo(required: SqlPolicyOptions): PolicyRepoPort 
         return { ok: true, value: evidence };
       } });
     },
-    async resolve(input, options) {
-      const invalid = validateRequest({ context: input.context, subjectId: input.identifier, options });
-      if (invalid) return invalid;
-      return transaction({ ...required, context: input.context, options, operation: "policy.sql.resolve", work: async client => {
-        const subject = await readIdentifier({ client, context: input.context, identifier: input.identifier });
-        if (!subject.ok) return subject;
-        const evidence = await readEvidence({ client, context: input.context, maxEvidence });
-        if (!evidence.ok) return evidence;
-        const roots = rootsFor({ evidence: evidence.value });
-        if (!roots.ok) return roots;
-        return { ok: true, value: { scope: structuredClone(input.context.scope), subjectId: roots.value.get(subject.value) ?? subject.value } };
-      } });
-    },
   };
-}
-
-/** Read-only identity port over the same durable canonical evidence.
- * @example createSqlCanonicalIdentity({ pool }).resolve({ context, identifier })
- * @complexity O(n) bounded scoped evidence; identifier lookup uses its unique index.
- */
-export function createSqlCanonicalIdentity(required: SqlPolicyOptions): CanonicalIdentityPort {
-  return createSqlPolicyRepo(required);
 }
 
 /** One bounded scoped read, never truncate authority/evidence on overflow. @complexity O(n) time/space. */
@@ -91,14 +70,6 @@ function decodeEvidence(required: { row: Record<string, unknown>; context: CallC
 async function insertEvidence(required: { client: PolicySqlClient; evidence: PolicyEvidence }): Promise<void> {
   await required.client.query({ text: "INSERT INTO policy_evidence (owner_id, workspace_id, id, subject_id, kind, recorded_at, source_id, payload) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)", values: [required.evidence.scope.ownerId, required.evidence.scope.workspaceId, required.evidence.id, required.evidence.subjectId, required.evidence.kind, required.evidence.recordedAt, required.evidence.sourceId, JSON.stringify(required.evidence)] });
 }
-/** Missing/ambiguous bindings return explicit unavailable, never manufacture an identity. @complexity O(log n). */
-async function readIdentifier(required: { client: PolicySqlClient; context: CallContext; identifier: string }): Promise<Outcome<string>> {
-  const result = await required.client.query({ text: "SELECT subject_id FROM policy_subject_identifier WHERE owner_id = $1 AND workspace_id = $2 AND identifier = $3 LIMIT 2", values: [required.context.scope.ownerId, required.context.scope.workspaceId, required.identifier] });
-  if (result.rows.length !== 1) return failure({ code: "unavailable", message: "Canonical identifier missing or ambiguous" });
-  const parsed = referenceSchema.safeParse({ scope: required.context.scope, subjectId: result.rows[0].subject_id });
-  return parsed.success ? { ok: true, value: parsed.data.subjectId } : failure({ code: "unavailable", message: "Invalid stored identity" });
-}
-
 type TransactionInput<T> = SqlPolicyOptions & { context: CallContext; options?: CallOptions; operation: string; work: (client: PolicySqlClient) => Promise<Outcome<T>> };
 /** Delegate transaction ownership, checking cancellation before root work returns.
  * A joined call leaves the final commit/rollback decision with the outer caller.

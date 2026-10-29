@@ -30,7 +30,7 @@ All changes are within features/policy. No commits/pushes or unrelated edits.
 - tests/{fixtures,sql-fixture,service.test,adapters.test}.ts: deterministic data, actual in-memory SQLite query-port binding, service and adapter failure/cap/corruption tests.
 - README.md, CHARACTERIZATION.md, progress-ledger.md, HANDOFF.md: usage, approved behavior, limits, implementation state and review evidence.
 
-src/gates.ts, src/index.ts and tests/gates.test.ts remain unchanged.
+src/gates.ts and tests/gates.test.ts remain unchanged; the unused src/index.ts barrel was removed.
 
 ## TESTS
 

@@ -1,43 +1,64 @@
 import { describe, expect, it, vi } from "vitest";
 import { createFakeClock } from "@open-marketing/om-clock";
-import { createOutbox, retryDelay } from "../src/index.js";
-import type { OutboxJob, TransportResult } from "../src/types.js";
-import { MemoryStore } from "./memory-store.js";
+import { createOutbox, createMemoryOutboxStore, retryDelay } from "../index.js";
+import type { OutboxJob, OutboxPorts, TransportResult } from "../src/types.js";
 const policy = { maxAttempts: 3, baseDelayMs: 10, maxDelayMs: 20, leaseMs: 100 };
 const request = { tenantId: "tenant-a", idempotencyKey: "key", requestDigest: "digest", operation: "write", payload: "private-body" };
 function setup({ idempotent = false }: {
     idempotent?: boolean;
 }) {
     const clock = { ...createFakeClock({ initial: 0 }) };
-    const store = new MemoryStore();
+    const store = createMemoryOutboxStore({});
     let id = 0;
     const authorize = vi.fn(async (_job: OutboxJob) => true);
     const dispatch = vi.fn(async (): Promise<TransportResult> => ({ kind: "success" }));
     const observe = vi.fn();
-    const outbox = createOutbox({ ports: { store, clock, generateId: () => String(++id), authorize, transport: { idempotent, dispatch }, observe }, inputPolicy: policy });
-    return { clock, store, authorize, dispatch, observe, outbox };
+    const dispatchClaim = vi.fn<NonNullable<OutboxPorts['dispatchClaim']>>().mockResolvedValue(null);
+    const outbox = createOutbox({ ports: { store, clock, generateId: () => String(++id), authorize, dispatchClaim, transport: { idempotent, dispatch }, observe }, inputPolicy: policy });
+    return { clock, store, authorize, dispatch, dispatchClaim, observe, outbox };
 }
+describe("claim-owned dispatch", () => {
+    it("returns the claim handler result without ordinary dispatch-start or completion", async () => {
+        const { outbox, store, dispatch, dispatchClaim } = setup({});
+        const beginDispatch = vi.spyOn(store, "beginDispatch");
+        const complete = vi.spyOn(store, "complete");
+        const result = { kind: "completed", state: "succeeded", jobId: "claim-handler-result" } as const;
+        dispatchClaim.mockResolvedValue(result);
+        await outbox.enqueue(request);
+        expect(await outbox.processOne()).toEqual(result);
+        expect(dispatchClaim).toHaveBeenCalledExactlyOnceWith({ job: expect.objectContaining({ ...request, state: "leased", leaseToken: "2" }), signal: undefined });
+        expect(beginDispatch).not.toHaveBeenCalled(); expect(complete).not.toHaveBeenCalled();
+        expect(dispatch).not.toHaveBeenCalled();
+    });
+    it("uses the ordinary fenced transport when the claim handler returns null", async () => {
+        const { outbox, store, dispatch, dispatchClaim } = setup({});
+        const beginDispatch = vi.spyOn(store, "beginDispatch");
+        const complete = vi.spyOn(store, "complete");
+        await outbox.enqueue(request);
+        expect(await outbox.processOne()).toMatchObject({ kind: "completed", state: "succeeded" });
+        expect(dispatchClaim).toHaveBeenCalledTimes(1);
+        expect(beginDispatch).toHaveBeenCalledTimes(1); expect(complete).toHaveBeenCalledTimes(1);
+        expect(dispatch).toHaveBeenCalledTimes(1);
+    });
+    it("propagates claim handler failure without falling back or acknowledging", async () => {
+        const { outbox, store, dispatch, dispatchClaim } = setup({});
+        const beginDispatch = vi.spyOn(store, "beginDispatch");
+        const complete = vi.spyOn(store, "complete");
+        dispatchClaim.mockRejectedValue(new Error("claim handler unavailable"));
+        await outbox.enqueue(request);
+        await expect(outbox.processOne()).rejects.toThrow("claim handler unavailable");
+        expect(beginDispatch).not.toHaveBeenCalled(); expect(complete).not.toHaveBeenCalled();
+        expect(dispatch).not.toHaveBeenCalled();
+        expect(store.snapshot({})[0]?.state).toBe("leased");
+    });
+});
 describe("idempotency", () => {
     it("rejects oversized fields before persistence", async () => {
         const { outbox, store } = setup({});
         for (const invalid of [{ ...request, tenantId: "x".repeat(257) }, { ...request, payload: "x".repeat(262145) }]) {
             await expect(outbox.enqueue(invalid)).rejects.toThrow(TypeError);
         }
-        expect(store.snapshot()).toEqual([]);
-    });
-    it("atomically deduplicates concurrent requests scoped by tenant", async () => {
-        const { outbox, store } = setup({});
-        const results = await Promise.all([outbox.enqueue(request), outbox.enqueue(request)]);
-        expect(results.map(value => value.kind)).toEqual(["inserted", "existing"]);
-        expect(store.snapshot()).toHaveLength(1);
-        expect((await outbox.enqueue({ ...request, tenantId: "tenant-b" })).kind).toBe("inserted");
-    });
-    it("rejects changed digest or content without overwriting", async () => {
-        const { outbox, store } = setup({});
-        await outbox.enqueue(request);
-        expect((await outbox.enqueue({ ...request, requestDigest: "other" })).kind).toBe("conflict");
-        expect((await outbox.enqueue({ ...request, payload: "different" })).kind).toBe("conflict");
-        expect(store.snapshot()[0]?.payload).toBe(request.payload);
+        expect(store.snapshot({})).toEqual([]);
     });
 });
 describe("enqueue timing", () => {
@@ -49,7 +70,7 @@ describe("enqueue timing", () => {
         expect(await outbox.processOne()).toEqual({ kind: "idle" });
         clock.advance({ milliseconds: 89 });
         expect(await outbox.processOne()).toEqual({ kind: "idle" });
-        expect(store.snapshot()[0]).toMatchObject({ state: "pending", attempts: 0, leaseToken: null });
+        expect(store.snapshot({})[0]).toMatchObject({ state: "pending", attempts: 0, leaseToken: null });
         expect(authorize).not.toHaveBeenCalled(); expect(dispatch).not.toHaveBeenCalled();
         clock.advance({ milliseconds: 1 });
         expect(await outbox.processOne()).toMatchObject({ kind: "completed", state: "succeeded" });
@@ -68,13 +89,13 @@ describe("enqueue timing", () => {
     it("accepts the maximum safe epoch without claiming it early", async () => {
         const { outbox, store } = setup({});
         await outbox.enqueue({ ...request, availableAt: Number.MAX_SAFE_INTEGER });
-        expect(store.snapshot()[0]?.availableAt).toBe(Number.MAX_SAFE_INTEGER);
+        expect(store.snapshot({})[0]?.availableAt).toBe(Number.MAX_SAFE_INTEGER);
         expect(await outbox.processOne()).toEqual({ kind: "idle" });
     });
     it.each([-1, 0.5, Number.MAX_SAFE_INTEGER + 1, NaN, Infinity, -Infinity, "100", null])("rejects invalid timing %s before persistence", async availableAt => {
         const { outbox, store } = setup({});
         await expect(outbox.enqueue({ ...request, availableAt: availableAt as number })).rejects.toMatchObject({ name: "JobStoreError", code: "invalid_input" });
-        expect(store.snapshot()).toEqual([]);
+        expect(store.snapshot({})).toEqual([]);
     });
     it.each([undefined, 100])("keeps the first schedule %s on duplicates and still rejects malformed timing", async availableAt => {
         const { outbox, store, clock } = setup({});
@@ -83,7 +104,7 @@ describe("enqueue timing", () => {
         clock.advance({ milliseconds: 10 });
         expect(await outbox.enqueue({ ...request, availableAt: 200 })).toEqual({ kind: "existing", job: first.job });
         await expect(outbox.enqueue({ ...request, availableAt: null as unknown as number })).rejects.toMatchObject({ code: "invalid_input" });
-        expect(store.snapshot()).toEqual([first.job]);
+        expect(store.snapshot({})).toEqual([first.job]);
     });
 });
 describe("dispatch leases", () => {
@@ -92,7 +113,7 @@ describe("dispatch leases", () => {
         await outbox.enqueue(request);
         await Promise.all([outbox.processOne(), outbox.processOne()]);
         expect(dispatch).toHaveBeenCalledTimes(1);
-        expect(store.snapshot()[0]?.state).toBe("succeeded");
+        expect(store.snapshot({})[0]?.state).toBe("succeeded");
     });
     it("checks halt after enqueue and never dispatches a denied job", async () => {
         const { outbox, authorize, dispatch, store } = setup({});
@@ -100,7 +121,7 @@ describe("dispatch leases", () => {
         authorize.mockResolvedValue(false);
         expect(await outbox.processOne()).toMatchObject({ kind: "completed", state: "denied" });
         expect(dispatch).not.toHaveBeenCalled();
-        expect(store.snapshot()[0]?.state).toBe("denied");
+        expect(store.snapshot({})[0]?.state).toBe("denied");
     });
     it("authorization cannot mutate the persisted request or its lease fence", async () => {
         const { outbox, authorize, dispatch } = setup({});
@@ -119,22 +140,7 @@ describe("dispatch leases", () => {
         expect(await outbox.processOne()).toEqual({ kind: "stale" });
         expect(dispatch).not.toHaveBeenCalled();
         await outbox.processOne();
-        expect(store.snapshot()[0]?.state).toBe("reconcile");
-    });
-    it("fences stale ack and retry by token, tenant, and exact lease expiry", async () => {
-        const { outbox, store } = setup({});
-        await outbox.enqueue(request);
-        const job = (await store.claim({ now: 0, leaseToken: "token", leaseExpiresAt: 100, maxAttempts: 3 }))!;
-        for (const fence of [
-            { id: job.id, tenantId: request.tenantId, token: "wrong", now: 1 },
-            { id: job.id, tenantId: "other", token: "token", now: 1 },
-            { id: job.id, tenantId: request.tenantId, token: "token", now: 100 },
-        ]) {
-            expect(await store.complete(fence, { state: "succeeded" })).toBe(false);
-            expect(await store.complete(fence, { state: "retry", availableAt: 200 })).toBe(false);
-        }
-        expect(await store.recoverExpired({ now: 100, limit: 100 })).toBe(1);
-        expect(await store.claim({ now: 100, leaseToken: "new", leaseExpiresAt: 200, maxAttempts: 3 })).toBeNull();
+        expect(store.snapshot({})[0]?.state).toBe("reconcile");
     });
     it("lost completion cannot cause blind redispatch", async () => {
         const { outbox, store, clock, dispatch } = setup({});
@@ -144,7 +150,7 @@ describe("dispatch leases", () => {
         clock.advance({ milliseconds: 100 });
         await outbox.processOne();
         expect(dispatch).toHaveBeenCalledTimes(1);
-        expect(store.snapshot()[0]?.state).toBe("reconcile");
+        expect(store.snapshot({})[0]?.state).toBe("reconcile");
     });
 });
 describe("retries and uncertainty", () => {
@@ -153,11 +159,11 @@ describe("retries and uncertainty", () => {
         dispatch.mockResolvedValue({ kind: "failure", classification: "transient" });
         await outbox.enqueue(request);
         await outbox.processOne();
-        expect(store.snapshot()[0]?.availableAt).toBe(10);
+        expect(store.snapshot({})[0]?.availableAt).toBe(10);
         expect(await outbox.processOne()).toEqual({ kind: "idle" });
         clock.advance({ milliseconds: 10 });
         await outbox.processOne();
-        expect(store.snapshot()[0]?.availableAt).toBe(30);
+        expect(store.snapshot({})[0]?.availableAt).toBe(30);
         clock.advance({ milliseconds: 20 });
         expect(await outbox.processOne()).toMatchObject({ state: "failed" });
         clock.advance({ milliseconds: 1000 });

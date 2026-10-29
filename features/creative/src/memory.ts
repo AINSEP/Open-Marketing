@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { generationCostQuoteSchema, parseBoundary } from "@open-marketing/contracts";
-import type { CallContext, GenerationApprovalRequirement, GenerationCostQuote, Outcome } from "@open-marketing/contracts";
-import type { CreativeAssetPort, CreativeAuditPort, CreativeJobPort, CreativeObserverPort, CreativeRepoPort, CreativeSpendPort, GenerationCapabilityPort } from "./ports.js";
+import type { CallContext, GenerationApprovalRequirement, GenerationCostQuote, Outcome, ObserverPort, ObserverEvent } from "@open-marketing/contracts";
+import type { CreativeAssetPort, CreativeAuditPort, CreativeJobPort, CreativeRepoPort, CreativeSpendPort, GenerationCapabilityPort } from "./ports.js";
 import type { GenerationCostObservation, GenerationProvenance, GenerationStatus } from "./types.js";
 import { costSchema, evidenceId, failure, freezeValue, generationOutputSchema, pollRequestSchema, provenanceSchema, receipt, sameEvidence, scopedKey, success, validContext } from "./rules.js";
 import { validateStatus } from "./repository-rules.js";
@@ -203,7 +203,7 @@ export function createMemoryCreativeAudit(required: Record<string, never>): Memo
   return { events, async record(input) { events.push(structuredClone(input)); return success({ value: undefined }); } };
 }
 /** Passive observation double with no runtime singleton. @complexity O(1) append. */
-export function createMemoryCreativeObserver(required: Record<string, never>): CreativeObserverPort & { readonly events: Parameters<CreativeObserverPort["observe"]>[0][] } {
-  const events: Parameters<CreativeObserverPort["observe"]>[0][] = [];
+export function createMemoryCreativeObserver(required: Record<string, never>): ObserverPort & { readonly events: ObserverEvent[] } {
+  const events: ObserverEvent[] = [];
   return { events, observe(input) { events.push(structuredClone(input)); } };
 }

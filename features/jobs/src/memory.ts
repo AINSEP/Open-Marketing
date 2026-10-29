@@ -1,5 +1,5 @@
-import type { ObserverEvent, Outcome } from "@open-marketing/contracts";
-import type { JobDispatchPort, JobAuthorizationPort, JobObserverPort } from "./ports.js";
+import type { ObserverEvent, ObserverPort, Outcome } from "@open-marketing/contracts";
+import type { JobDispatchPort, JobAuthorizationPort } from "./ports.js";
 import type { ProcessResult } from "./types.js";
 import { jobFailure } from "./errors.js";
 import { parseJobCall } from "./schema.js";
@@ -28,7 +28,7 @@ export function createMemoryJobAuthorization(required: { allowed?: boolean }): J
     };
 }
 /** Observer double returns detached events and supports reset for independent tests. @complexity O(n) snapshot/reset, O(1) append. */
-export function createMemoryJobObserver(required: { maxEvents?: number }): JobObserverPort & { snapshot(required: Record<string, never>): readonly ObserverEvent[]; reset(required: Record<string, never>): void } {
+export function createMemoryJobObserver(required: { maxEvents?: number }): ObserverPort & { snapshot(required: Record<string, never>): readonly ObserverEvent[]; reset(required: Record<string, never>): void } {
     const events: ObserverEvent[] = [];
     const maxEvents = required.maxEvents ?? 10000;
     if (!Number.isSafeInteger(maxEvents) || maxEvents < 1 || maxEvents > 100000) throw new RangeError("Invalid observer capacity");

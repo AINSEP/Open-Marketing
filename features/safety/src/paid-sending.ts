@@ -42,7 +42,13 @@ function key(required: { context: CallContext }): string {
     return JSON.stringify(["paid-sending", required.context.scope.ownerId, required.context.scope.workspaceId]);
 }
 /** All four methods use the same serialized store and typed/observed boundary. */
-function service(required: { store: Store; observer: ObserverPort; clock: ClockPort }): PaidSendingAllowances {
+function service(required: { store: Store; observer: ObserverPort; clock: ClockPort }, optional?: { accountingServiceId?: string }): PaidSendingAllowances {
+    /** Authenticated scope owners manage settings; the configured server service only accounts. */
+    function admitted(input: { context: CallContext; operation: string }): boolean {
+        const { principal, scope } = input.context;
+        if (principal.kind === "owner") return principal.ownerId === scope.ownerId;
+        return (input.operation === "reserve" || input.operation === "settle") && principal.kind === "service" && principal.serviceId === optional?.accountingServiceId;
+    }
     async function access<T>(input: Access<T>): Promise<Outcome<T>> {
         let result: Outcome<T>;
         try { result = await required.store.access(input); }
@@ -56,7 +62,7 @@ function service(required: { store: Store; observer: ObserverPort; clock: ClockP
         if (!parsed.ok) return parsed;
         if (optional?.signal?.aborted) return failure({ code: "cancelled", message: "Paid sending cancelled" });
         const context = parsed.value.context;
-        if (context.principal.kind !== "owner" || context.principal.ownerId !== context.scope.ownerId) return failure({ code: "forbidden", message: "Paid sending accounting requires owner scope" });
+        if (!admitted({ context, operation: input.operation })) return failure({ code: "forbidden", message: "Paid sending accounting caller forbidden" });
         return access({ context, operation: input.operation, operationId: input.operationId, write: input.write, evidence: parsed.value, change: input.change(parsed.value) });
     }
     return {
@@ -75,14 +81,21 @@ function update(required: { current: State; settings: PaidSendingAllowance }): O
     Object.assign(required.current, required.settings);
     return parsed;
 }
+/** Known, current USD bounds must cover the estimate and bind the exact arguments. */
+function exactQuote(required: { quote: z.infer<typeof quoteSchema>; argumentsDigest: string; now: number }): boolean {
+    const { quote, argumentsDigest, now } = required;
+    if (quote.status !== "known" || quote.expiresAt <= now || quote.argumentsDigest !== argumentsDigest) return false;
+    return quote.upperBound !== null && quote.estimated !== null && quote.upperBound.currency === "USD" && quote.estimated.currency === "USD" && quote.upperBound.minorUnits >= quote.estimated.minorUnits;
+}
 /** Reserve conservatively: unresolved bounds count every day, settled charges on dispatch day.
- * A repeated operation never changes its frozen quote/day. @complexity O(r), r <=1,000. */
+ * Only unsettled operations replay their frozen quote/day; settled keys conflict.
+ * @complexity O(r), r <=1,000. */
 function reserve(required: { current: State; input: z.infer<typeof reserveSchema>; now: number }): Outcome<z.infer<typeof reservationSchema>> {
     const { current, input, now } = required;
     const quote = input.quote;
-    if (quote.status !== "known" || quote.expiresAt <= now || quote.argumentsDigest !== input.argumentsDigest) return failure({ code: "forbidden", message: "exact_spend_required" });
-    if (!quote.upperBound || !quote.estimated || quote.upperBound.currency !== "USD" || quote.estimated.currency !== "USD" || quote.upperBound.minorUnits < quote.estimated.minorUnits) return failure({ code: "forbidden", message: "exact_spend_required" });
+    if (!quote.upperBound || !exactQuote({ quote, argumentsDigest: input.argumentsDigest, now })) return failure({ code: "forbidden", message: "exact_spend_required" });
     const prior = current.reservations.find(record => record.reservation.operationId === input.operationId);
+    if (prior && prior.actual !== null) return failure({ code: "conflict", message: "Paid sending operation already settled" });
     if (prior) return sameValue({ left: prior.quote, right: quote }) ? success({ value: prior.reservation }) : failure({ code: "conflict", message: "Paid sending operation changed" });
     if (current.reservations.length >= 1000) return failure({ code: "limit_exceeded", message: "Paid sending reservation capacity reached" });
     if (!current.cycle || now >= current.cycle.end) current.cycle = { day: localDay({ now, timezone: current.timezone }), end: nextRollover({ now, timezone: current.timezone }) };
@@ -114,9 +127,10 @@ function settle(required: { current: State; settlement: z.infer<typeof settlemen
 }
 /** Atomic state + append-only journal over existing tables; <=4 MiB snapshot, 1,000 reservations.
  * Revision tracks every accounting write. Corrupt/oversized storage fails closed.
- * @example createSqlPaidSendingAllowances({ db, clock, observer, timezone: "America/Los_Angeles" })
+ * Optional accountingServiceId admits that authenticated service for reserve/settle only.
+ * @example createSqlPaidSendingAllowances({ db, clock, observer, timezone: "America/Los_Angeles" }, { accountingServiceId: "sending-worker" })
  * @complexity O(r+o) bounded serialization and constant SQL queries per operation. */
-export function createSqlPaidSendingAllowances(required: { db: SafetySqlDatabase; clock: ClockPort; observer: ObserverPort; timezone: string }): PaidSendingAllowances {
+export function createSqlPaidSendingAllowances(required: { db: SafetySqlDatabase; clock: ClockPort; observer: ObserverPort; timezone: string }, optional?: { accountingServiceId?: string }): PaidSendingAllowances {
     const initial = defaults(required);
     return service({ ...required, store: { access: input => required.db.transaction({ work: async ({ session }) => {
         const scopeKey = key(input);
@@ -137,12 +151,13 @@ export function createSqlPaidSendingAllowances(required: { db: SafetySqlDatabase
         await session.query({ text: "INSERT INTO safety_journal (scope_key, sequence, kind, operation_id, payload) VALUES ($1,$2,$3,$4,$5)", values: [scopeKey, current.revision, kind, input.operationId,
             JSON.stringify({ before, after: settings({ current }), evidence: input.evidence, recordedAt: required.clock.now({}), context: input.context })] });
         return result;
-    } }) } });
+    } }) } }, optional);
 }
 /** Synchronous scoped mutation is the SQL adapter double; failed changes never leak state.
- * @example createMemoryPaidSendingAllowances({ timezone: "UTC", clock, observer })
+ * Optional accountingServiceId admits that authenticated service for reserve/settle only.
+ * @example createMemoryPaidSendingAllowances({ timezone: "UTC", clock, observer }, { accountingServiceId: "sending-worker" })
  * @complexity O(r+o) bounded snapshot copies; no I/O or hidden clock. */
-export function createMemoryPaidSendingAllowances(required: { timezone: string; observer: ObserverPort; clock: ClockPort }): PaidSendingAllowances {
+export function createMemoryPaidSendingAllowances(required: { timezone: string; observer: ObserverPort; clock: ClockPort }, optional?: { accountingServiceId?: string }): PaidSendingAllowances {
     const initial = defaults(required);
     const states = new Map<string, State>();
     return service({ ...required, store: { async access(input) {
@@ -150,5 +165,5 @@ export function createMemoryPaidSendingAllowances(required: { timezone: string; 
         const result = input.change({ current });
         if (result.ok && input.write) { current.revision++; states.set(key(input), current); }
         return result;
-    } } });
+    } } }, optional);
 }

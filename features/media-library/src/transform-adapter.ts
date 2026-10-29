@@ -1,8 +1,8 @@
 import { registerTransform, resolveMediaRendition, withTransformRegistryLock, sniffContentType, mimeForTransformFormat, MediaValidationError } from '@jini-ai/cms/media';
 import type { TransformDefinitionRecord, ImageTransformerPort as JiniImageTransformerPort } from '@jini-ai/cms/media';
 import { parseBoundary } from '@open-marketing/contracts';
-import type { CallContext, CallOptions, Outcome, Scope } from '@open-marketing/contracts';
-import type { ImageInspectionPort, ImageTransformPort, JiniMediaDependencies, MediaObserverPort } from './ports.js';
+import type { CallContext, CallOptions, Outcome, Scope, ObserverPort } from '@open-marketing/contracts';
+import type { ImageInspectionPort, ImageTransformPort, JiniMediaDependencies } from './ports.js';
 import type { PlacementCrop, PlacementCropPreset, PlacementCropRequest } from './types.js';
 import { createJiniMediaAdapter } from './jini-media.js';
 import { selectPreset } from './rules.js';
@@ -17,7 +17,7 @@ import { checkContext, cropRequestSchema, cropSchema, fail, presetSchema, succes
  * Without inspection the injected codec owns pixel validity; the memory transformer proves orchestration only.
  * @complexity O(p + bytes), p capped at 100 presets. @example createJiniImageTransform({ scope, dependencies })
  */
-export function createJiniImageTransform(required: { scope: Scope; dependencies: JiniMediaDependencies }, optional?: { observer?: MediaObserverPort; placementPresets?: readonly PlacementCropPreset[]; inspection?: ImageInspectionPort }): ImageTransformPort {
+export function createJiniImageTransform(required: { scope: Scope; dependencies: JiniMediaDependencies }, optional?: { observer?: ObserverPort; placementPresets?: readonly PlacementCropPreset[]; inspection?: ImageInspectionPort }): ImageTransformPort {
   const media = createJiniMediaAdapter(required, optional);
   const presets = structuredClone(optional?.placementPresets ?? PLACEMENT_CROP_PRESETS);
   return {

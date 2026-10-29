@@ -43,6 +43,10 @@ export type ImageInspectionLimits = { readonly maxEdge: number; readonly maxPixe
 export type ProvenanceLink = { readonly provenance: AssetProvenance; readonly assetId?: string };
 /** Thin OM orchestration: evidence/cost/placement policy over public Jini media operations. */
 export interface MediaLibrary {
+    /** Admit bounded still-image bytes into canonical storage; e.g. uploadImage({ context, bytes, filename, contentTypes }). */
+    uploadImage(required: { context: CallContext; bytes: Uint8Array; filename: string; contentTypes: readonly string[] }, optional?: CallOptions): Promise<Outcome<Asset>>;
+    /** Read an active scoped image; maxBytes bounds returned bytes after the existing bounded blob read. */
+    readImage(required: { context: CallContext; assetId: string; maxBytes: number }, optional?: CallOptions): Promise<Outcome<{ asset: Asset; bytes: Uint8Array }>>;
     importAsset(required: { context: CallContext; request: AssetImportRequest }, optional?: CallOptions): Promise<Outcome<Asset>>;
     createCrop(required: { context: CallContext; request: PlacementCropRequest }, optional?: CallOptions): Promise<Outcome<PlacementCrop>>;
     list(required: { context: CallContext; query: AssetQuery }, optional?: CallOptions): Promise<Outcome<AssetPage>>;

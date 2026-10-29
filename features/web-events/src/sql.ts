@@ -1,8 +1,8 @@
-import { epochSchema } from "@open-marketing/contracts";
+import { digestSchema, epochSchema } from "@open-marketing/contracts";
 import type { CallContext, CallOptions, ClockPort, Outcome, SqlSession, UnitOfWork } from "@open-marketing/contracts";
 import type { WebEventRepoPort } from "./ports.js";
 import type { AttributionTouch, Visit, WebEvent } from "./types.js";
-import { bindVisit, boundary, checkVisitReplay, eventSchema, failure, replayDigest, storedDigestSchema, storedEvent, touchSchema, validateBinding, validateContext, validateRead, validateRecord, validateSubject, validateVisit, visitSchema } from "./rules.js";
+import { bindVisit, boundary, checkVisitReplay, storedEventSchema, failure, replayDigest, storedDigestSchema, storedEvent, touchSchema, validateBinding, validateContext, validateRead, validateRecord, validateSubject, validateVisit, visitSchema } from "./rules.js";
 
 type SessionInput = { session: SqlSession; context: CallContext };
 type SqlOptions = { pool: UnitOfWork; clock: ClockPort };
@@ -17,6 +17,21 @@ const subjectPredicate = "(e.subject_id = $3 OR (e.subject_id IS NULL AND EXISTS
  */
 export function createSqlWebEventRepo(required: SqlOptions): WebEventRepoPort {
   return {
+    async lastHeartbeat(input, options) {
+      const invalid = validateContext({ context: input.context, options });
+      if (invalid) return invalid;
+      if (!digestSchema.safeParse(input.destinationId).success) return failure({ code: "invalid_input" });
+      return transaction({ ...required, options, work: async session => {
+        // Scoped payload scan until measured volume justifies a dedicated index/migration.
+        const result = await session.query({ text: "SELECT payload FROM web_event WHERE owner_id = $1 AND workspace_id = $2 AND json_extract(payload, '$.properties.destinationId') = $3 ORDER BY json_extract(payload, '$.receivedAt') DESC LIMIT 1", values: [...scopeValues(input), input.destinationId] });
+        if (result.rows.length === 0) return { ok: true, value: null };
+        const payload = result.rows[0].payload;
+        if (typeof payload !== "string" || payload.length > 20000) return failure({ code: "unavailable" });
+        const event = storedEventSchema.safeParse(JSON.parse(payload));
+        if (!event.success || event.data.properties.destinationId !== input.destinationId) return failure({ code: "unavailable" });
+        return { ok: true, value: event.data.receivedAt };
+      } });
+    },
     async recordTouch(request, options) {
       const invalid = validateRecord({ ...request, options });
       if (invalid) return invalid;
@@ -65,7 +80,7 @@ export function createSqlWebEventRepo(required: SqlOptions): WebEventRepoPort {
       if (invalid) return invalid;
       const input = structuredClone({ context: request.context, subjectId: request.subjectId, window: request.window, limit: request.limit });
       return transaction({ ...required, options, work: async session => {
-        const result = await session.query({ text: recordSelect + " WHERE e.owner_id = $1 AND e.workspace_id = $2 AND " + subjectPredicate + " AND e.occurred_at >= $4 AND e.occurred_at < $5 ORDER BY e.occurred_at, t.touch_id COLLATE BINARY LIMIT $6", values: [...scopeValues(input), input.subjectId, input.window.start, input.window.end, input.limit] });
+        const result = await session.query({ text: recordSelect + " WHERE e.owner_id = $1 AND e.workspace_id = $2 AND " + subjectPredicate + " AND e.occurred_at >= $4 AND e.occurred_at < $5 ORDER BY e.occurred_at DESC, t.touch_id COLLATE BINARY DESC LIMIT $6", values: [...scopeValues(input), input.subjectId, input.window.start, input.window.end, input.limit] });
         return decodeTouches({ rows: result.rows });
       } });
     },
@@ -100,7 +115,7 @@ async function readRecord(required: SessionInput & { event: WebEvent }): Promise
 function decodeRecord(required: { row: Record<string, unknown> }): Outcome<StoredRecord> {
   const row = required.row;
   if (typeof row.payload !== "string" || row.payload.length > 20000 || typeof row.click_identifiers !== "string" || row.click_identifiers.length > 16384) return failure({ code: "unavailable" });
-  const event = eventSchema.safeParse(JSON.parse(row.payload));
+  const event = storedEventSchema.safeParse(JSON.parse(row.payload));
   const touch = touchSchema.safeParse({ touchId: row.touch_id, eventId: row.event_id, occurredAt: row.occurred_at, linkId: row.link_id, campaignId: row.campaign_id, clickIdentifiers: JSON.parse(row.click_identifiers) });
   if (!event.success || !touch.success || !storedDigestSchema.safeParse(row.semantic_digest).success) return failure({ code: "unavailable" });
   if (!metadataMatches({ row, event: event.data as WebEvent, touch: touch.data })) return failure({ code: "unavailable" });
@@ -110,8 +125,7 @@ function decodeRecord(required: { row: Record<string, unknown> }): Outcome<Store
 function metadataMatches(required: { row: Record<string, unknown>; event: WebEvent; touch: AttributionTouch }): boolean {
   const { event, row, touch } = required;
   const eventColumnsMatch = event.eventId === row.event_id && (event.subjectId ?? null) === row.subject_id && (event.anonymousId ?? null) === row.anonymous_id && event.occurredAt === row.occurred_at && event.cursor === row.cursor;
-  const identifiersOnly = Object.keys(event.properties).every(key => key === "linkId" || key === "campaignId");
-  return eventColumnsMatch && identifiersOnly && touch.linkId === (event.properties.linkId ?? null) && touch.campaignId === (event.properties.campaignId ?? null);
+  return eventColumnsMatch && touch.linkId === (event.properties.linkId ?? null) && touch.campaignId === (event.properties.campaignId ?? null);
 }
 /** Decode the bounded bulk result without returning a partial attribution list on corruption. */
 function decodeTouches(required: { rows: Record<string, unknown>[] }): Outcome<readonly AttributionTouch[]> {

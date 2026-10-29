@@ -34,9 +34,13 @@ describe("contacts service identity", () => {
     expect(stored).toHaveLength(2);
     expect(stored).toEqual(expect.arrayContaining([expect.objectContaining({ kind: "email", normalizedValue: "alice@example.test", normalizationVersion: "v1", keyVersion: "v1" }), expect.objectContaining({ kind: "phone", normalizedValue: "+12133734253" })]));
     const destination = value({ outcome: await service.identifiersFor(sharing(created)) });
-    expect(destination.identifiers).toEqual({ email: "69b1145a03334875161ea18c1373b5703aeeff144990a9f847867ff83ed5aaad", phone: "9f7ec22d72092cd3c0b58726ed9c2d91b92e51a3f29837508fb2948bb22dd2fd" });
+    expect(destination.identifiers).toEqual({ email: "69b1145a03334875161ea18c1373b5703aeeff144990a9f847867ff83ed5aaad", phone: "9f7ec22d72092cd3c0b58726ed9c2d91b92e51a3f29837508fb2948bb22dd2fd", phone_digits: "1f81adb30e11317806be982cc82769fbf8627833a89dd87cb24d282f71828830" });
+    expect(destination.identifierDigests.phone_digits).toBe(destination.identifierDigests.phone);
+    expect(destination.identifiers.phone_digits).not.toBe(destination.identifiers.phone);
     expect(destination.identifierDigests.email).not.toBe(destination.identifiers.email);
     expect(JSON.stringify(destination)).not.toContain("alice@example.test");
+    expect(JSON.stringify(destination)).not.toContain("12133734253");
+    expect(JSON.stringify(destination)).not.toContain("+12133734253");
   });
   it("keeps email aliases/dots and opaque customer ID case distinct", async () => {
     const { service } = fixture();

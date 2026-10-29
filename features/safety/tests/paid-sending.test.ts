@@ -29,11 +29,11 @@ for (const adapter of ["memory", "sql"] as const) describe("paid sending setting
 
 /** One shared runtime suite exercises both adapters; no sender or provider is constructed. */
 for (const adapter of ["memory", "sql"] as const) describe("paid sending accounting / " + adapter, () => {
-    function fixture() {
+    function fixture(required: { accountingServiceId?: string } = {}) {
         const time = timing({ now: Date.parse("2026-11-01T06:30:00Z") }); // LA Oct 31, before DST fallback.
         const sql = adapter === "sql" ? sqliteFixture({}) : undefined;
         const dependencies = { clock: time.clock, observer: { observe() {} }, timezone: "America/Los_Angeles" };
-        const open = () => sql ? createSqlPaidSendingAllowances({ ...dependencies, db: sql.port }) : createMemoryPaidSendingAllowances(dependencies);
+        const open = () => sql ? createSqlPaidSendingAllowances({ ...dependencies, db: sql.port }, required) : createMemoryPaidSendingAllowances(dependencies, required);
         return { time, sql, open, allowances: open(), close() { sql?.close(); } };
     }
     function request(required: { operationId: string; amount?: number; now: number }) {
@@ -71,6 +71,54 @@ for (const adapter of ["memory", "sql"] as const) describe("paid sending account
             expect(await f.allowances.reserve({ ...second, context: otherContext })).toMatchObject({ ok: true });
             if (f.sql) expect(await f.open().reserve(request({ operationId: "after-restart", now }))).toMatchObject({ ok: false, error: { message: "exact_spend_required" } });
         } finally { f.close(); }
+    });
+    it("frees a definite failure, rejects its operation replay and re-charges linked corrections", async () => {
+        const f = fixture(); const now = f.time.clock.now({});
+        const input = request({ operationId: "failed", amount: 500, now });
+        try {
+            const reservation = unwrap({ outcome: await f.allowances.reserve(input) });
+            const settlement = { reservationId: reservation.reservationId, observationId: "failure-receipt", actual: { currency: "USD", minorUnits: 0 } };
+            unwrap({ outcome: await f.allowances.settle({ context, settlement }) });
+            expect(await f.allowances.reserve(request({ operationId: "after-failure", amount: 400, now }))).toMatchObject({ ok: true });
+            expect(await f.allowances.reserve(input)).toMatchObject({ ok: false, error: { code: "conflict", message: "Paid sending operation already settled" } });
+            unwrap({ outcome: await f.allowances.settle({ context, settlement: { ...settlement, observationId: "reconciled", correctsObservationId: "failure-receipt", actual: { currency: "USD", minorUnits: 100 } } }) });
+            expect(await f.allowances.reserve(input)).toMatchObject({ ok: false, error: { code: "conflict" } });
+            expect(await f.allowances.reserve(request({ operationId: "over-corrected-day", amount: 1, now }))).toMatchObject({ ok: false, error: { message: "exact_spend_required" } });
+            f.time.setNow({ now: Date.parse("2026-11-01T07:00:00Z") });
+            expect(await f.allowances.reserve(request({ operationId: "next-corrected-day", amount: 100, now }))).toMatchObject({ ok: true });
+        } finally { f.close(); }
+    });
+    it("replays an unknown outcome unchanged and holds its exposure on the next local day", async () => {
+        const f = fixture(); const input = request({ operationId: "unknown-outcome", amount: 500, now: f.time.clock.now({}) });
+        try {
+            const reservation = unwrap({ outcome: await f.allowances.reserve(input) });
+            f.time.setNow({ now: Date.parse("2026-11-01T07:00:00Z") });
+            const allowances = f.sql ? f.open() : f.allowances;
+            expect(await allowances.reserve(input)).toEqual({ ok: true, value: reservation });
+            expect(reservation.dispatchDay).toBe("America/Los_Angeles:2026-10-31");
+            expect(await allowances.reserve(request({ operationId: "after-unknown", amount: 1, now: f.time.clock.now({}) }))).toMatchObject({ ok: false, error: { message: "exact_spend_required" } });
+        } finally { f.close(); }
+    });
+    it("admits only the configured accounting service and keeps settings owner-only", async () => {
+        const f = fixture({ accountingServiceId: "sending-worker" }); const unconfigured = fixture();
+        const worker = { ...context, principal: { kind: "service" as const, serviceId: "sending-worker" } };
+        const foreign = { ...worker, principal: { kind: "service" as const, serviceId: "other-worker" } };
+        const input = request({ operationId: "worker-send", amount: 500, now: f.time.clock.now({}) });
+        const settlement = { reservationId: input.operationId, observationId: "worker-cost", actual: { currency: "USD", minorUnits: 100 } };
+        try {
+            const settings = unwrap({ outcome: await f.allowances.get({ context }) });
+            for (const serviceContext of [worker, foreign]) {
+                expect(await f.allowances.get({ context: serviceContext })).toMatchObject({ ok: false, error: { code: "forbidden" } });
+                expect(await f.allowances.set({ context: serviceContext, settings })).toMatchObject({ ok: false, error: { code: "forbidden" } });
+            }
+            expect(await f.allowances.reserve({ ...input, context: foreign })).toMatchObject({ ok: false, error: { code: "forbidden" } });
+            expect(await f.allowances.settle({ context: foreign, settlement })).toMatchObject({ ok: false, error: { code: "forbidden" } });
+            expect(await unconfigured.allowances.reserve({ ...input, context: worker })).toMatchObject({ ok: false, error: { code: "forbidden" } });
+            expect(await unconfigured.allowances.settle({ context: worker, settlement })).toMatchObject({ ok: false, error: { code: "forbidden" } });
+            unwrap({ outcome: await f.allowances.reserve({ ...input, context: worker }) });
+            unwrap({ outcome: await f.allowances.settle({ context: worker, settlement }) });
+            expect(await f.allowances.reserve(request({ operationId: "owner-remainder", amount: 400, now: f.time.clock.now({}) }))).toMatchObject({ ok: true });
+        } finally { f.close(); unconfigured.close(); }
     });
     it("resets settled charges at local midnight, retains pending costs, and uses the DST day", async () => {
         const f = fixture(); const now = f.time.clock.now({});
