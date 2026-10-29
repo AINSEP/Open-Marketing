@@ -3,7 +3,7 @@
   "capabilities": [
     {"capabilityId": "reddit_ads.list_businesses.v1", "version": 1, "pluginId": "reddit-ads", "schemaFingerprint": "8026b011795f91513527b7d17b9843ce72ea85e784338857a5661bd701106bea", "admitted": false, "effects": ["read"]},
     {"capabilityId": "report.account-spend.v1", "version": 1, "pluginId": "reddit-ads", "schemaFingerprint": "9417cb7aa3f7e04d9600113ae6c1882f66e17e2fa683d402f9050c8e4e397e28", "admitted": false, "effects": ["read"]}
-  , {"capabilityId":"report.metrics.v1","version":1,"pluginId":"reddit-ads","schemaFingerprint":"7b3e2322598e56a395adb9da10494c98a7bb80888c81b0a330a6cc4de1fafb5b","admitted":false,"effects":["read"]}, {"capabilityId":"campaign.status.v1","version":1,"pluginId":"reddit-ads","schemaFingerprint":"7b3e2322598e56a395adb9da10494c98a7bb80888c81b0a330a6cc4de1fafb5b","admitted":false,"effects":["read"]}],
+  , {"capabilityId":"report.metrics.v1","version":1,"pluginId":"reddit-ads","schemaFingerprint":"fb1c856dfc858b4718dfb80402ddc6ab04e1953020c81c599c258a882c93f187","admitted":false,"effects":["read"]}, {"capabilityId":"campaign.status.v1","version":1,"pluginId":"reddit-ads","schemaFingerprint":"fb1c856dfc858b4718dfb80402ddc6ab04e1953020c81c599c258a882c93f187","admitted":false,"effects":["read"]}],
   "tools": [
     {"name": "list_businesses", "effects": ["read"], "capabilityId": "reddit_ads.list_businesses.v1"},
     {"name": "list_accounts", "effects": ["read"], "available": false, "reason": "NEEDS: official v3 list request/response schema"},

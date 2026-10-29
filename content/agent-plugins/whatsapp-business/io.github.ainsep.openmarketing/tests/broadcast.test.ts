@@ -14,11 +14,12 @@ it("declares the WhatsApp consent/suppression channel", () => {
 
 describe("primary-evidence rate selection (synthetic amounts)", () => {
   it.each([
-    ["15555550100", "marketing", 10001n, "1"],
+    ["15555550100", "marketing", 40001n, "max"],
     ["18095550100", "marketing", 40001n, "1809"],
     ["18295550100", "utility", 50000n, "1829"],
     ["18495550100", "authentication", 60000n, "1849"],
-    ["15555550100", "authentication", 30001n, "1"],
+    ["15555550100", "authentication", 60000n, "max"],
+    ["18765550100", "marketing", 40001n, "max"],
     ["447700900000", "marketing", 40001n, "max"],
   ] as const)("selects %s / %s", (digits, category, micros, matchedPrefix) => {
     expect(maximumRate({ digits, category }, { rates: fixtureRates })).toMatchObject({ ok: true, value: { micros, matchedPrefix } });
@@ -141,10 +142,10 @@ describe("approval and price evidence before authority", () => {
     expect(f.reads).toHaveLength(1); expect(f.state.authority).toBe(0); expect(f.calls).toHaveLength(0);
   });
   it.each([
-    ["+15555550100", "MARKETING", 2],
+    ["+15555550100", "MARKETING", 5],
     ["+18095550100", "MARKETING", 5],
     ["+18295550100", "UTILITY", 5],
-    ["+15555550100", "AUTHENTICATION", 4],
+    ["+15555550100", "AUTHENTICATION", 6],
     ["+447700900000", "MARKETING", 5],
   ] as const)("quotes %s/%s at a conservative %s cents", async (recipient, category, minorUnits) => {
     const f = broadcastFixture({ templates: { data: [{ ...approvedTemplate, category }] } });
@@ -173,7 +174,7 @@ describe("approval and price evidence before authority", () => {
     expect(Object.keys(authority).sort()).toEqual(["argumentsDigest", "execute", "quote"]);
     expect(authority.argumentsDigest).toBe(createHash("sha256").update(JSON.stringify(request)).digest("hex"));
     expect(authority.quote.argumentsDigest).toBe(authority.argumentsDigest);
-    expect(authority.quote.pricingEvidenceId).toBe(createHash("sha256").update(JSON.stringify(["2026-10-01", "1", "marketing", "0.010001"])).digest("hex"));
+    expect(authority.quote.pricingEvidenceId).toBe(createHash("sha256").update(JSON.stringify(["2026-10-01", "max", "marketing", "0.040001"])).digest("hex"));
   });
   it("refuses empty production rates, missing categories and malformed decimals before any reservation", async () => {
     const production = broadcastFixture();

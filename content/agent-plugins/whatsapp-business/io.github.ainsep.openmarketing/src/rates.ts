@@ -15,10 +15,11 @@ export type Rates = z.infer<typeof ratesSchema>;
 /** No verified USD CSV was retrievable. Never populate this from fixture rates. */
 export const usdRates: Rates = {};
 /** Partial mapping: only prefixes recorded from Meta pricing.md in the binding review.
+ * Unmapped +1 numbers take the max-rate path until the full NANP market list is transcribed.
  * Complete the remaining NANP exceptions and market mapping before adding production rates.
  */
 const prefixMarkets: Readonly<Record<string, string>> = {
-  "1": "North America", "1809": "Rest of Latin America", "1829": "Rest of Latin America", "1849": "Rest of Latin America",
+  "1809": "Rest of Latin America", "1829": "Rest of Latin America", "1849": "Rest of Latin America",
 };
 const rateEvidenceSchema = z.object({ micros: z.bigint(), matchedPrefix: z.string(), rateString: z.string() });
 

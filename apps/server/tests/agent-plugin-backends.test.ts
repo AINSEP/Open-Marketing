@@ -589,6 +589,8 @@ it('native bundle digests cover actual bytes, change on rebuild, and reject over
 /** Actual plugin transports against a bounded synthetic social account, never native fetch. */
 function socialVendor(required: { failLinkedIn?: boolean; failRead?: boolean; includeTikTok?: boolean; failTikTok?: boolean } = {}) {
     const rows = new Map<string, Record<string, unknown>>(); let meta = 200, linkedin = 400;
+    // Existing single-link Meta creative that verifies the reviewed destination before any POST.
+    rows.set('987', { id: '987', account_id: '123', object_story_spec: { link_data: { link: 'https://example.test/landing' } } });
     const fetchFixture: typeof fetch = async (url, init) => {
         const uri = new URL(String(url));
         if (uri.hostname === 'business-api.tiktok.com') return tikTokDeploymentResponse({ uri, init, rows, fail: required.failTikTok });
@@ -634,7 +636,7 @@ function tikTokDeploymentResponse(required: { uri: URL; init?: RequestInit; rows
 }
 const socialCampaign: NeutralCampaignLaunch = { schemaVersion: 2, operationId: 'social-draft', name: 'Traffic', objective: 'traffic',
     schedule: { window: { start: 1791849600000, end: 1792022400000 }, timezone: 'UTC' }, audience: { countries: ['US'] }, ads: [{ creativeId: 'creative', destinationUrl: 'https://example.test/landing' }], creativeDigest: 'a'.repeat(64),
-    targets: ['meta-ads', 'linkedin-ads'].map(pluginId => ({ pluginId, connectionId: 'connection', accountId: '123', dailyBudget: { currency: 'USD', minorUnits: 4321 }, expectedExposure: { currency: 'USD', minorUnits: 10000 } })) };
+    targets: ['meta-ads', 'linkedin-ads'].map(pluginId => ({ pluginId, connectionId: 'connection', accountId: '123', dailyBudget: { minorUnits: 4321, currency: 'USD' }, expectedExposure: { minorUnits: 10000, currency: 'USD' } })) }; // stored (parsed) key order
 function socialMetadata(required: { pluginId: string }) {
     const common = { accountId: '123', currency: 'USD', currencyExponent: 2, timezone: 'UTC', creativeId: 'creative', creativeDigest: 'a'.repeat(64) };
     return { scope: context.scope, connectionId: 'connection', resolved: required.pluginId === 'meta-ads'
@@ -651,7 +653,7 @@ function usePreparedSocialPlans(required: { ports: Parameters<typeof bindAgentPl
         'meta-ads': {
             campaign: { kind: 'create-campaign', name: 'Traffic', objective: 'OUTCOME_TRAFFIC', specialAdCategories: [] },
             adset: { kind: 'create-adset', name: 'Traffic', campaignId: { from: 'campaign' }, targeting: { countries: ['US'], age_min: 18, age_max: 65 }, billingEvent: 'IMPRESSIONS', optimizationGoal: 'LINK_CLICKS', dailyBudgetMinor: 4321, schedule: socialCampaign.schedule.window },
-            ad: { kind: 'create-ad', name: 'Traffic', creativeId: '987', adsetId: { from: 'adset' } },
+            ad: { kind: 'create-ad', name: 'Traffic', creativeId: '987', adsetId: { from: 'adset' }, destinationUrl: socialCampaign.ads[0]!.destinationUrl },
         },
         'linkedin-ads': {
             group: { kind: 'create_campaign_group_draft', name: 'Traffic', runSchedule: socialCampaign.schedule.window },
@@ -938,7 +940,8 @@ it('unadmitted preparation/dispatch and unresolved or incompatible metadata perf
         expect(f.accesses).toEqual([]); expect(f.calls).toEqual([]); expect(f.native.prepare('SELECT id FROM job').all()).toEqual([]);
     } finally { f.close(); }
 });
-it.each(['meta-ads', 'linkedin-ads'])('rejects unverified %s destinations without credentials, egress or enqueue', async pluginId => {
+// Meta now carries ad.destinationUrl in its plan and verifies it against the creative (GET) before any POST.
+it.each(['linkedin-ads'])('rejects unverified %s destinations without credentials, egress or enqueue', async pluginId => {
     const f = await fixture({ admitted: true, only: pluginId });
     f.states.get(pluginId)!.metadata.campaignFixture = socialMetadata({ pluginId });
     const campaign = { ...socialCampaign, targets: socialCampaign.targets.filter(target => target.pluginId === pluginId) };

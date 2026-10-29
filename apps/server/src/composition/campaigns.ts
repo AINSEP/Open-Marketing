@@ -2,7 +2,7 @@
 import { z } from 'zod';
 import { createHash } from 'node:crypto';
 import { callContextSchema, idSchema, boundedJsonSchema, neutralCampaignLaunchSchema, parseBoundary } from '@open-marketing/contracts';
-import type { CallContext, CampaignValidationEvidence, ClockPort, IdPort, NeutralCampaignLaunch, ObserverPort, Outcome, UnitOfWork } from '@open-marketing/contracts';
+import type { CallContext, CallOptions, CampaignValidationEvidence, ClockPort, IdPort, NeutralCampaignLaunch, ObserverPort, Outcome, UnitOfWork } from '@open-marketing/contracts';
 import { createCampaignService } from '@open-marketing/campaigns';
 import type { CampaignRepoPort, CampaignJobPort, CampaignJob, CampaignSafetyPort, CampaignCapabilityPort } from '@open-marketing/campaigns';
 import { appendJobEvidence, enqueueInlineJob, createSqlJobRepo, jobTenant, JobStoreError } from '@open-marketing/jobs';
@@ -169,7 +169,7 @@ const acknowledgement = z.object({ entityIds: z.array(idSchema).min(1).max(500).
  * @complexity <=4 sequential destinations and <=500 evidence entities, total review <=64KiB. */
 export function bindPausedCampaignDeployment(required: {
     unit: UnitOfWork; repo: CampaignRepoPort; safety: SafetyService; confirmations: ConfirmationExchangePort; clock: ClockPort; ids: IdPort; observer: ObserverPort;
-    prepare(input: { context: CallContext; campaign: NeutralCampaignLaunch; operationId: string }): Promise<Outcome<{ calls: readonly CampaignConstituent[]; validation: readonly CampaignValidationEvidence[] }>>;
+    prepare(input: { context: CallContext; campaign: NeutralCampaignLaunch; operationId: string }, optional?: CallOptions): Promise<Outcome<{ calls: readonly CampaignConstituent[]; validation: readonly CampaignValidationEvidence[] }>>;
     definitions(input: { context: CallContext }): Promise<Outcome<readonly OmToolDefinition[]>>;
     execute(input: { context: CallContext; call: CampaignConstituent; authorization: FrozenDispatchRequest; permit: DispatchPermit; signal?: AbortSignal;
         checkpoint(input: { step: string; phase: string; references?: unknown; record?: unknown }): Promise<Outcome<void>> }): Promise<Outcome<unknown>>;
@@ -180,7 +180,7 @@ export function bindPausedCampaignDeployment(required: {
     /** Parse stored v2 intent and prepare all destinations before the owning review;
      * invalid stored intent returns a typed failure. Snapshot every executable/schema.
      * @complexity <=4 targets, one guarded vendor dry run per supported destination. */
-    async function prepareEffect(input: { context: CallContext; call: import('@open-marketing/contracts').ToolCall }): Promise<Outcome<EffectRequest>> {
+    async function prepareEffect(input: { context: CallContext; call: import('@open-marketing/contracts').ToolCall }, optional?: CallOptions): Promise<Outcome<EffectRequest>> {
         const parsed = deploymentInput.safeParse(input.call.input);
         if (!parsed.success) return localFailure({ code: 'invalid_input', message: 'Invalid neutral campaign key' });
         const stored = await required.repo.getNeutral({ context: input.context, ...parsed.data });
@@ -190,7 +190,7 @@ export function bindPausedCampaignDeployment(required: {
         if (!parsedCampaign.ok) return parsedCampaign;
         const campaign = parsedCampaign.value;
         if (campaign.schedule.window.end <= required.clock.now({})) return localFailure({ code: 'expired', message: 'Campaign schedule has ended' });
-        const prepared = await required.prepare({ context: input.context, campaign, operationId: input.call.operationId });
+        const prepared = await required.prepare({ context: input.context, campaign, operationId: input.call.operationId }, optional);
         if (!prepared.ok) return prepared;
         const { calls, validation } = prepared.value;
         const checked = await checkCalls({ context: input.context, campaign, calls });

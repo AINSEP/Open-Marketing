@@ -384,7 +384,7 @@ export async function bootServer(required: {
         const campaignUnavailable = async () => localFailure<never>({ code: 'not_implemented', message: 'NEEDS: admitted plugin binding and scoped campaign metadata' });
         services.campaignDeployment = bindPausedCampaignDeployment({ ...required, unit: database.unit, repo: services.campaigns,
             safety: halt.safety, confirmations: resources.confirmations,
-            prepare: input => pluginBackends?.prepareCampaign(input) ?? campaignUnavailable(),
+            prepare: (input, optional) => pluginBackends?.prepareCampaign(input, optional) ?? campaignUnavailable(),
             definitions: input => pluginBackends?.definitions(input) ?? campaignUnavailable(),
             execute: input => pluginBackends?.executeCampaign(input) ?? campaignUnavailable(), read: input => pluginBackends?.readCampaign(input) ?? campaignUnavailable() });
         Object.assign(services, { safety: { ...services.safety, halt: halt.halt } });

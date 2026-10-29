@@ -42,7 +42,7 @@
             "read"
           ]
         }
-      , {"capabilityId":"report.metrics.v1","version":1,"pluginId":"reddit-ads","schemaFingerprint":"7b3e2322598e56a395adb9da10494c98a7bb80888c81b0a330a6cc4de1fafb5b","admitted":false,"effects":["read"]}, {"capabilityId":"campaign.status.v1","version":1,"pluginId":"reddit-ads","schemaFingerprint":"7b3e2322598e56a395adb9da10494c98a7bb80888c81b0a330a6cc4de1fafb5b","admitted":false,"effects":["read"]}]
+      , {"capabilityId":"report.metrics.v1","version":1,"pluginId":"reddit-ads","schemaFingerprint":"fb1c856dfc858b4718dfb80402ddc6ab04e1953020c81c599c258a882c93f187","admitted":false,"effects":["read"]}, {"capabilityId":"campaign.status.v1","version":1,"pluginId":"reddit-ads","schemaFingerprint":"fb1c856dfc858b4718dfb80402ddc6ab04e1953020c81c599c258a882c93f187","admitted":false,"effects":["read"]}]
     }
   }
 }

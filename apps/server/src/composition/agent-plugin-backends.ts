@@ -644,7 +644,7 @@ async function prepareDestination(required: { dependencies: Dependencies; contex
     const { dependencies, context, target } = required;
     const execution = await pluginExecution({ dependencies, context, pluginId: target.pluginId,
         connection: { connectionId: target.connectionId, accountId: target.accountId }, effects: ['read'] }, optional);
-    if (!execution) return localFailure({ message: 'Plugin unadmitted: ' + target.pluginId });
+    if (!execution) return localFailure({ message: 'Plugin unadmitted or account binding not current: ' + target.pluginId });
     const { state } = execution;
     const fixture = z.object({ scope: scopeSchema, connectionId: idSchema, resolved: boundedJsonSchema }).safeParse(state.metadata.campaignFixture);
     if (dependencies.mode !== 'sandbox' || !fixture.success) return localFailure({ code: 'not_implemented', message: 'NEEDS: scoped campaign account, creative and declaration metadata' });

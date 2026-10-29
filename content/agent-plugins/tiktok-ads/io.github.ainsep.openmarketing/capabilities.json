@@ -116,7 +116,7 @@
       "capabilityId": "conversion.signup-trial.v1",
       "version": 1,
       "pluginId": "tiktok-ads",
-      "schemaFingerprint": "2fa7895d14ca0d7fca7d4b2a892a6fafd74123f841147d0e13a6f3fe743542a9",
+      "schemaFingerprint": "8646427ea13bead0282b49124a44bff4a3d52f26ada5482248a73a472f5a2c68",
       "admitted": false,
       "effects": [
         "conversion"
