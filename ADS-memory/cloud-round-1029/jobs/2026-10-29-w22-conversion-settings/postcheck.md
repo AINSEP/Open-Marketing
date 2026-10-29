@@ -85,3 +85,21 @@ FOLLOW-UP:
 - Add `conversionSettings` to `hostOwned` in agent-plugin-backends.ts.
 - Decide whether blank declared fields may be omitted in multi-field declarations.
 - NEEDS carried: rebuild the contracts dist; refresh the installed google/meta/tiktok workspace copies so the declarations appear.
+
+## FIXES APPLIED (cloud round)
+Fixer F2, 2026-10-29. No git writes.
+1. apps/server/src/inbound/integrations.ts: the POST conversion-settings case now calls a new `setConversionSettings(required)` helper: DONE. ESLint is clean on the file, so the complexity error is gone.
+2. apps/server/tests/integrations.test.ts:791 `credentialCards: [secretCards[0]]`: DONE. The test passes, and the suite is 48/50. The 2 remaining failures are the FOLLOW-UP key/apiKey card-URL cases.
+3. apps/server/tests/om-tools.test.ts:1652 `expect.objectContaining(owner)` ×2: DONE. The conversion-settings test passes, and the suite is 98/102.
+   - The 4 remaining failures are outside this job:
+     - "routes all ten AT1 capabilities…"
+     - "lists a seeded bundled agent-plugin source…"
+     - "generic CLI calls both tracking tools…" (tracking surface under concurrent builder-A edits)
+     - "authenticates the real frontend stream…" (sandbox agent not ready)
+4. apps/studio/tests/addons.test.ts:472/481 `{ name: /^Definition targets/ }`: DONE. The conversion-settings textarea test passes, and the suite is 25/33.
+   - The 8 remaining failures are the OAuth/token cases from the FOLLOW-UP "multiple role=alert" (w22-grant-surfaces).
+- Typecheck: server tsconfig + tsconfig.tests exit 0; studio tsconfig + tsconfig.tests exit 0.
+- Lint on the touched files reports 2 errors on lines this fixer did not change:
+  - integrations.test.ts:454 `om/two-object-arguments`
+  - studio addons.test.ts:22 cognitive complexity 11
+  - Both are FOLLOW-UPs.

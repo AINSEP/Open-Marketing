@@ -21,10 +21,7 @@ export async function handleIntegrationRequest(required: {
     if (context.data.principal.kind !== 'owner' || context.data.principal.ownerId !== context.data.scope.ownerId) return denied({ code: 'forbidden' });
     switch (required.request.method + ' ' + required.request.path) {
         case 'GET /api/addons/v1/integrations/conversion-settings': return conversionSettings(required);
-        case 'POST /api/addons/v1/integrations/conversion-settings': {
-            const body = await readBody(required);
-            return respond({ outcome: body.ok ? await required.integrations.setConversionSettings({ context: required.context, request: body.value }, { signal: required.request.signal }) : body });
-        }
+        case 'POST /api/addons/v1/integrations/conversion-settings': return setConversionSettings(required);
         case 'GET /api/addons/v1/integrations/credential-asset': return credentialAsset(required);
         case 'POST /api/addons/v1/integrations/plugin-secret': return setPluginSecret(required);
         case 'GET /api/addons/v1/integrations/plugin-secret': return pluginSecretStatus(required);
@@ -54,6 +51,12 @@ type IntegrationInput = Parameters<typeof handleIntegrationRequest>[0];
 async function conversionSettings(required: IntegrationInput): Promise<HttpResponse> {
     const query = parseBoundary({ schema: setConversionSettingsSchema.pick({ pluginId: true }), input: required.request.query ?? {} });
     return respond({ outcome: query.ok ? await required.integrations.conversionSettings({ context: required.context, ...query.value }, { signal: required.request.signal }) : query });
+}
+
+/** Owner replacement; the body is read only after the owner check in handleIntegrationRequest. */
+async function setConversionSettings(required: IntegrationInput): Promise<HttpResponse> {
+    const body = await readBody(required);
+    return respond({ outcome: body.ok ? await required.integrations.setConversionSettings({ context: required.context, request: body.value }, { signal: required.request.signal }) : body });
 }
 
 /** Binary icon delivery only; specimens are never executed. CSP also confines direct SVG views. */

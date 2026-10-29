@@ -75,3 +75,13 @@ FOLLOW-UP:
 - Owner decision: should `cancelled` or transient `unavailable` pre-egress refusals stay terminal `not_sent`, or should they leave the claim re-acquirable?
 - google-ads skills/google-ads/references/README.md:11 still says a request-status SUCCESS "establishes `delivered`". That contradicts the new :42 semantics; CUT 6 limited the edits.
 - NEEDS carried: rebuild measure and google-ads dists after the fixes; wire diagnostics read/refresh across all surfaces.
+
+## FIXES APPLIED (cloud round)
+Fixer F2, 2026-10-29. No git writes.
+1. Strip `identifiers` before `policy.assess` in `conversionCurrent` (apps/server/src/composition/agent-plugin-backends.ts): DONE, exact text from the brief.
+   - Regression coverage: the existing agent-plugin-jobs.test.ts cases fail without this fix, as R1 reproduced (25 failures before, 5 after). These are "claim-less readback …" ×3 (they assert `input.event` has no `identifiers`) and "keeps a native-fetch exception uncertain". All of them now pass.
+2. `om/two-object-arguments`: hoisted `const observed: typeof fetch` in `conversionCall`: DONE. ESLint is clean on agent-plugin-backends.ts.
+- Evidence:
+  - `vitest run tests/agent-plugin-jobs.test.ts`: 46/51. The 5 failures are exactly the FOLLOW-UP halt/SQLite cases and were not chased.
+  - server `tsc --noEmit` (tsconfig.json and tsconfig.tests.json): exit 0.
+- The prepareDestination message change in the same file belongs to Fixer F1, not to this fix.

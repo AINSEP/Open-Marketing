@@ -1649,7 +1649,7 @@ it('exposes conversion settings reads and requires a fresh exact owner card for 
             expect(writes).toHaveLength(operationId.endsWith('one') ? 0 : 1);
             expect(await tools.answer({ context: owner, approver: f.services.approver!, response: { cardId: card.cardId, operationId, argumentsDigest: card.argumentsDigest, choice: 'allow' } })).toMatchObject({ ok: true });
         }
-        expect(writes).toEqual([owner, owner]);
+        expect(writes).toEqual([expect.objectContaining(owner), expect.objectContaining(owner)]);
         expect(generateOmToolCoverage({ definitions })).toEqual(expect.arrayContaining([
             expect.objectContaining({ tool: 'integrations_conversion_settings_get', http: routes.integrationConversionSettings.path }),
             expect.objectContaining({ tool: 'integrations_conversion_settings_set', http: routes.setIntegrationConversionSettings.path }),

@@ -926,11 +926,11 @@ async function conversionCall(required: { dependencies: Dependencies; authority:
         const deps = pluginDependencies(wrapped);
         if (!deps.ok) return conversionOutcome({ attempt, action: required.action, result: deps });
         const guarded = deps.value.fetch;
-        const backend = (module.createConversionDelivery as Factory<Required<ConversionDeliveryPort>>)({ ...deps.value,
-            fetch: async (url: Parameters<typeof fetch>[0], options?: RequestInit) => {
-                try { return await guarded(url, options); }
-                catch { if (!attempt.egressed) attempt.refused = true; throw new Error('Conversion transport unavailable'); }
-            },
+        const observed: typeof fetch = async (url, options) => {
+            try { return await guarded(url, options); }
+            catch { if (!attempt.egressed) attempt.refused = true; throw new Error('Conversion transport unavailable'); }
+        };
+        const backend = (module.createConversionDelivery as Factory<Required<ConversionDeliveryPort>>)({ ...deps.value, fetch: observed,
             authority: { async dispatch(call: { execute(input: { isCurrent(): boolean }): Promise<Outcome<ConversionDeliveryOutcome>> }) {
                 const authorized = await conversionCurrent({ ...required, execution });
                 return authorized.ok ? call.execute({ isCurrent: () => !required.signal?.aborted }) : authorized;
@@ -981,7 +981,8 @@ async function conversionCurrent(required: { authority: ConversionAuthority; inp
     if (!grant.ok) return grant;
     if (hash({ value: grant.value }) !== hash({ value: required.input.grant }) || grant.value.revoked
         || required.execution.dependencies.clock.now({}) >= grant.value.expiresAt) return localFailure({ code: 'forbidden', message: 'Conversion grant changed' });
-    const consent = await required.authority.policy.assess({ context: required.execution.context, event: required.input.event }, { signal: required.signal });
+    const { identifiers: _identifiers, ...event } = required.input.event;
+    const consent = await required.authority.policy.assess({ context: required.execution.context, event }, { signal: required.signal });
     if (!consent.ok) return consent;
     if (!consent.value.allowed) return localFailure({ code: 'forbidden', message: 'Conversion consent withdrawn' });
     return { ok: true, value: undefined };

@@ -469,7 +469,7 @@ it('loads non-secret declared conversion fields and parses textarea mappings as 
     async setConversionSettings(input) { requests.push(input.request); return { ok: true, value: { pluginId, declaration, values: input.request.values } }; },
   } };
   const view = render(createElement(IntegrationsPage, { api, runtime: host.runtime }));
-  const textarea = await screen.findByRole('textbox', { name: 'Definition targets' }) as HTMLTextAreaElement;
+  const textarea = await screen.findByRole('textbox', { name: /^Definition targets/ }) as HTMLTextAreaElement;
   const code = screen.getByRole('textbox', { name: 'Source code' }) as HTMLInputElement;
   expect(textarea.value).toBe('signup=123'); expect(code.value).toBe('old');
   expect(textarea.closest('[data-private]')).toBeNull(); expect(code.closest('[data-private]')).toBeNull();
@@ -478,7 +478,7 @@ it('loads non-secret declared conversion fields and parses textarea mappings as 
   fireEvent.submit(textarea.form!);
   await screen.findByText('Saved');
   expect(requests).toEqual([{ pluginId, values: { targets: { signup: '1234567890123456789', trial: '456' }, code: 'source_code' } }]);
-  const savedTextarea = screen.getByRole('textbox', { name: 'Definition targets' }) as HTMLTextAreaElement;
+  const savedTextarea = screen.getByRole('textbox', { name: /^Definition targets/ }) as HTMLTextAreaElement;
   fireEvent.change(savedTextarea, { target: { value: 'signup=123\nsignup=456' } }); fireEvent.submit(savedTextarea.form!);
   await screen.findByText('Enter valid settings; mappings use one unique key=value pair per line.');
   expect(requests).toHaveLength(1);

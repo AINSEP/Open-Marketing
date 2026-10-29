@@ -788,7 +788,7 @@ it('isolates bad conversion declarations from credential cards and refuses undec
     const f = conversionFixture();
     try {
         const readCredentialCards: NonNullable<IntegrationDependencies['readCredentialCards']> = async input => parseCredentialCardManifest({ ...input,
-            raw: JSON.stringify({ name: input.pluginId, extensions: { 'io.github.ainsep.openmarketing': { credentialCards: [{ ...fixtureCard, saveKind: 'api-key', secretFields: [{ name: 'token', label: 'Token' }] }], conversionSettings: { fields: 'invalid' } } } }) });
+            raw: JSON.stringify({ name: input.pluginId, extensions: { 'io.github.ainsep.openmarketing': { credentialCards: [secretCards[0]], conversionSettings: { fields: 'invalid' } } } }) });
         const parsed = unwrap({ result: await readCredentialCards({ context: owner, pluginId: 'fixture-plugin' }) });
         expect(parsed.credentialCards).toHaveLength(1); expect(parsed.conversionSettings).toBeNull();
         const integrations = createIntegrations({ ...f.dependencies, readCredentialCards });
