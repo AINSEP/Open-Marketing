@@ -1,0 +1,13 @@
+
+ RUN  v3.2.4 /home/user/Open-Marketing/apps/studio
+
+ ✓ tests/chat-parity.test.ts (21 tests) 2508ms
+   ✓ renders real model and effort drop-ups in sample mode and never writes preview selections  957ms
+   ✓ renders server usage through Jini for 'estimated completion' without sample prices or false success  367ms
+   ✓ renders server usage through Jini for 'unavailable cost' without sample prices or false success  330ms
+
+ Test Files  1 passed (1)
+      Tests  21 passed (21)
+   Start at  19:53:20
+   Duration  5.38s (transform 645ms, setup 0ms, collect 1.90s, tests 2.51s, environment 542ms, prepare 176ms)
+

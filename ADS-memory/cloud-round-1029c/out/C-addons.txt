@@ -1,0 +1,16 @@
+
+ RUN  v3.2.4 /home/user/Open-Marketing/apps/studio
+
+ ✓ tests/addons.test.ts (33 tests) 4951ms
+   ✓ saves/clears the From address and restores confirmed values when refused  407ms
+   ✓ mounts 'Plugins' from an ADD-ONS link and restores the hash route  597ms
+   ✓ mounts 'Agent Plugins' from an ADD-ONS link and restores the hash route  375ms
+   ✓ mounts 'Skills' from an ADD-ONS link and restores the hash route  323ms
+   ✓ mounts 'Integrations' from an ADD-ONS link and restores the hash route  783ms
+   ✓ loads non-secret declared conversion fields and parses textarea mappings as exact string values on save  308ms
+
+ Test Files  1 passed (1)
+      Tests  33 passed (33)
+   Start at  19:52:49
+   Duration  7.91s (transform 795ms, setup 0ms, collect 2.12s, tests 4.95s, environment 473ms, prepare 115ms)
+

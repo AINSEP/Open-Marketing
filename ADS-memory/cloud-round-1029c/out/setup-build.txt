@@ -1,0 +1,17 @@
+features/workspaces build: Done
+features/safety build: Done
+features/measure build$ node ../../development/scripts/build.mjs
+features/measure build: @open-marketing/measure: 58 freshly emitted executable/declaration outputs attested
+features/measure build: Done
+
+⚡ Done in 39ms
+
+⚡ Done in 32ms
+
+⚡ Done in 35ms
+
+⚡ Done in 28ms
+
+⚡ Done in 27ms
+
+⚡ Done in 27ms

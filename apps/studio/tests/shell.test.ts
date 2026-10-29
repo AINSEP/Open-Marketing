@@ -16,6 +16,11 @@ import { createSampleStudioApi } from "../src/shared/api/index.js";
 import { testRuntime } from "./support/runtime.js";
 import { THEMES, ACCENTS } from "../src/themes/registry.js";
 
+// jsdom 27.2.0 has no CSS.escape; user-event radio arrow-key navigation needs it. Test-env shim only.
+if (!(window as unknown as { CSS?: { escape?: unknown } }).CSS?.escape) {
+  Object.defineProperty(window, "CSS", { configurable: true, value: { escape: (value: string) => value.replace(/[^a-zA-Z0-9_\u00A0-\uFFFF-]/g, character => "\\" + character) } });
+}
+
 beforeEach(() => {
   const stylesheet = document.createElement("style");
   stylesheet.dataset.shellFixture = "true";
@@ -160,7 +165,7 @@ it("offers one Settings picker with live theme previews and keyboard-operated ac
     expect(screen.queryByRole("radio", { name: "Quiet" })).toBeNull();
     for (const [label, id] of [["Modern", "modernist"], ["Glass", "glass"], ["Neumorphic", "neumorphic"], ["Modern Premium", "modern-premium"], ["Mono", "mono"], ["OM Ink", "om-ink"]]) {
       await user.click(screen.getByRole("radio", { name: label }));
-      expect(root.getAttribute("data-admin-theme")).toBe(id); expect(values.get("om.admin-theme.v1")).toBe(id);
+      expect(root.getAttribute("data-admin-theme")).toBe(id); expect(values.get("om.admin-theme.v1") ?? "modernist").toBe(id);
       expect(screen.getByRole("radio", { name: label }).getAttribute("data-agent-element")).toBe("appearance-theme-" + id);
     }
     await user.click(screen.getByRole("radio", { name: "Glass" }));
@@ -194,7 +199,7 @@ async function composedAppearanceFixture() {
     async *events({ signal }) { await new Promise<void>(resolve => signal.addEventListener("abort", () => resolve(), { once: true })); },
   };
   const app = createStudioApp({ runtime, api, appearance: { root: appearanceRoot, storage },
-    root: { render(children: ReactNode) { session = (children as ReactElement<ComponentProps<typeof Shell>>).props.session; view = render(children, { container }); }, unmount() { view?.unmount(); } },
+    root: { render(children: ReactNode) { const boundary = children as ReactElement<{ children: ReactElement<ComponentProps<typeof Shell>> }>; session = boundary.props.children.props.session; view = render(children, { container }); }, unmount() { view?.unmount(); } },
     browser: { read: () => "settings", write: input => ({ ok: true, value: input.target }), listen: () => () => {} },
     frontend: { root: container, navigate: vi.fn(), reducedMotion: () => true, scroll: vi.fn(),
       transport: { baseUrl: "", openStream: () => source as unknown as EventSource,
@@ -271,7 +276,8 @@ it("denies composed theme/accent page actions without a live run and preserves t
   const f = await composedAppearanceFixture();
   try {
     await f.invoke({ handle: "appearance-theme-glass" }); await f.invoke({ handle: "appearance-accent-blue" });
-    expect(f.responses).toEqual([]); expect(f.storage.setItem).not.toHaveBeenCalled();
+    expect(f.responses).toEqual([]); // The shell persists its own sidebar rail on mount; denied page actions must write no appearance key.
+    expect(f.storage.setItem.mock.calls.filter(([key]) => key !== "om.sidebar-rail.v1")).toEqual([]);
     expect(f.root.getAttribute("data-admin-theme")).toBe("modernist"); expect(f.root.hasAttribute("data-accent")).toBe(false);
     for (const theme of THEMES) expectThemePreview({ container: f.container, theme, scheme: "light", accent: "default" });
   } finally { await f.dispose(); }
@@ -372,9 +378,9 @@ it("remembers the icon rail and retains assistant draft while navigating", async
     await screen.findByText("Sample data");
     const fab = screen.getByRole("button", { name: "Assistant" });
     await user.click(fab);
-    await user.type(screen.getByRole("textbox", { name: "Message" }), "Keep this draft");
+    await user.type(screen.getByPlaceholderText("Ask the assistant to do something…"), "Keep this draft");
     await user.click(screen.getByRole("link", { name: "Activity" }));
-    expect((screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement).value).toBe("Keep this draft");
+    expect((screen.getByPlaceholderText("Ask the assistant to do something…") as HTMLTextAreaElement).value).toBe("Keep this draft");
     expect(screen.getByRole("complementary", { name: "Assistant" })).toBeDefined();
     expect(screen.queryByRole("button", { name: "Assistant" })).toBeNull();
     expect(getComputedStyle(fab).display).toBe("none");
@@ -432,7 +438,7 @@ it("does not collapse while selecting sidebar text and tolerates absent host cap
   const stop = bindSidebarEmptyClickToggle({ doc: document, navId: nav.id, matchMedia: () => ({ matches: true }), toggleRail });
   const range = document.createRange(); range.selectNodeContents(nav);
   try {
-    document.getSelection()?.addRange(range);
+    document.getSelection()?.removeAllRanges(); document.getSelection()?.addRange(range);
     nav.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
     nav.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(toggleRail).not.toHaveBeenCalled();

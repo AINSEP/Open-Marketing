@@ -1,0 +1,10 @@
+
+ RUN  v3.2.4 /home/user/Open-Marketing/apps/studio
+
+ ✓ tests/navigation.test.ts (6 tests) 22ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  19:53:32
+   Duration  620ms (transform 186ms, setup 0ms, collect 349ms, tests 22ms, environment 0ms, prepare 69ms)
+

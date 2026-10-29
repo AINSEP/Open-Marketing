@@ -73,9 +73,9 @@ it('captures initial and committed screen views, ignoring stale/duplicate acknow
   const { runtime } = testRuntime(); const track = vi.fn();
   const route = createNavigationController({ browser: null, timers: runtime.timers, timeoutMs: 5000, track });
   route.rendered({ target: 'workspaces' }); route.rendered({ target: 'workspaces' }); route.select({ target: 'campaigns' });
-  route.rendered({ target: 'workspaces' }); expect(track.mock.calls).toEqual([[{ name: 'screen.viewed', fields: { screen: 'workspaces' } }]]);
+  route.rendered({ target: 'workspaces' }); expect(track.mock.calls).toEqual([[{ name: 'screen.viewed' }, { properties: { screen: 'workspaces' } }]]);
   route.rendered({ target: 'campaigns' }); route.rendered({ target: 'campaigns' });
-  expect(track.mock.calls).toEqual([[{ name: 'screen.viewed', fields: { screen: 'workspaces' } }], [{ name: 'screen.viewed', fields: { screen: 'campaigns' } }]]);
+  expect(track.mock.calls).toEqual([[{ name: 'screen.viewed' }, { properties: { screen: 'workspaces' } }], [{ name: 'screen.viewed' }, { properties: { screen: 'campaigns' } }]]);
   track.mockImplementation(() => { throw new Error('capture'); }); route.select({ target: 'creative' });
   expect(() => route.rendered({ target: 'creative' })).not.toThrow(); expect(route.getSnapshot()).toBe('creative'); route.dispose();
   route.rendered({ target: 'settings' }); expect(track).toHaveBeenCalledTimes(3);

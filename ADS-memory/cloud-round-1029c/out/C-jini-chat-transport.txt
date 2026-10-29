@@ -1,0 +1,10 @@
+
+ RUN  v3.2.4 /home/user/Open-Marketing/apps/studio
+
+ ✓ tests/jini-chat-transport.test.ts (16 tests) 170ms
+
+ Test Files  1 passed (1)
+      Tests  16 passed (16)
+   Start at  19:53:29
+   Duration  1.66s (transform 261ms, setup 0ms, collect 1.23s, tests 170ms, environment 0ms, prepare 65ms)
+

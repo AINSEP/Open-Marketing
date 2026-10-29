@@ -180,7 +180,7 @@ it('passes the current bind token and shows surface spend approvals in the exist
     // This fixture starts headlessly; Jini reads its initial transcript only when mounted.
     const view = render(createElement(OMChatPane, { session: f.session, api: f.api, runtime: f.host.runtime, sample: false, available: true, open: true, toggle() {} }));
     expect(f.starts).toEqual([expect.objectContaining({ frontendSessionId: 'frontend', frontendBindToken: 'fixture-current-token' })]);
-    expect(f.session.getSnapshot().cards).toHaveLength(1); expect(screen.getByText('Exact spend approval')).toBeTruthy();
+    expect(f.session.getSnapshot().cards).toHaveLength(1); expect(screen.getByRole('heading', { name: 'Exact spend approval' })).toBeTruthy();
     expect(screen.queryByText('Always allow')).toBeNull(); expect(screen.queryByText('Allow for this chat')).toBeNull();
     await act(async () => { await f.stop(); }); expect(f.session.getSnapshot().cards).toEqual([]); expect(screen.queryByText('Exact spend approval')).toBeNull(); view.unmount();
 });

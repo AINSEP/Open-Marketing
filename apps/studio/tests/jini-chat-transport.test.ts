@@ -134,10 +134,10 @@ it('selected add-ons add instructions; removing them removes the instruction and
     } finally { f.release(); f.session.dispose(); }
   }
 });
-it('rejects unsupported image input before starting a run', async () => {
+it('rejects invalid image attachments before starting a run', async () => {
   const f = fixture({ kind: 'memory' });
   try {
-    await expect(f.session.transport.startRun({ ...f.input, attachments: [{ path: 'image', name: 'image.png', kind: 'image' }] }, recorder().handlers)).rejects.toThrow('This server does not accept image attachments. Your message was not sent.');
+    await expect(f.session.transport.startRun({ ...f.input, attachments: [{ path: 'image', name: 'image.png', kind: 'image' }] }, recorder().handlers)).rejects.toThrow('Invalid attachment.');
     expect(f.starts()).toBe(0);
   } finally { f.session.dispose(); }
 });

@@ -1,0 +1,19 @@
+
+ RUN  v3.2.4 /home/user/Open-Marketing/apps/studio
+
+ ✓ tests/shell.test.ts (24 tests) 14333ms
+   ✓ left navigation changes the center canvas and labels every route as sample data  986ms
+   ✓ keeps appearance Settings usable before workspace data arrives  461ms
+   ✓ offers one Settings picker with live theme previews and keyboard-operated accents  2684ms
+   ✓ executes every composed theme/accent page handle and renders its actual preview colours  4375ms
+   ✓ shows the FAB only while the assistant is closed and returns focus on Escape  652ms
+   ✓ applies sidebar, dock and FAB placement rules to the rendered shell  825ms
+   ✓ collapses each group with the keyboard and keeps SOON previews navigable  1283ms
+   ✓ remembers the icon rail and retains assistant draft while navigating  1305ms
+   ✓ keeps the rail usable when storage reads and writes fail  548ms
+
+ Test Files  1 passed (1)
+      Tests  24 passed (24)
+   Start at  19:52:58
+   Duration  17.23s (transform 696ms, setup 0ms, collect 2.05s, tests 14.33s, environment 480ms, prepare 85ms)
+

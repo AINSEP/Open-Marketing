@@ -229,7 +229,8 @@ it('clears the token before a failed response and redacts tainted errors from th
   await waitFor(() => expect((screen.getByLabelText('Access token') as HTMLInputElement).value).toBe(''));
   expect(requests).toHaveLength(1);
   await act(async () => { pending.resolve({ ok: false, error: { code: 'unavailable', message: 'fixture-secret-never-in-chat', retryable: false } }); });
-  expect(screen.getByRole('alert').textContent).not.toContain('fixture-secret');
+  const alerts = screen.getAllByRole('alert'); expect(alerts.length).toBeGreaterThan(0);
+  for (const alert of alerts) expect(alert.textContent).not.toContain('fixture-secret');
 });
 
 it.each([
@@ -302,7 +303,7 @@ it('starts sign-in through one policy card and reads its operation before offeri
   await sample.addons!.setOAuthClient({ request: { pluginId: 'sample-oauth-service', client: { clientId: 'fixture-client' } } });
   let operationId = ''; const names: string[] = []; let approved = false;
   const api: StudioApiPort = { ...sample,
-    async tool(input) { if (input.call.name === 'om_message_connections') return { ok: true, value: { status: 'completed', output: { items: [] } } }; names.push(input.call.name); operationId = input.call.operationId; return { ok: true, value: { status: 'pending', operationId, cardId: 'oauth-card' } }; },
+    async tool(input) { if (input.call.name === 'om_message_connections' || input.call.name === 'om_measure_grants_list') return { ok: true, value: { status: 'completed', output: { items: [] } } }; names.push(input.call.name); operationId = input.call.operationId; return { ok: true, value: { status: 'pending', operationId, cardId: 'oauth-card' } }; },
     async approvalCard() { return { ok: true, value: { cardId: 'oauth-card', operationId, argumentsDigest: 'a'.repeat(64), arguments: { tool: 'integrations_oauth_start', input: { pluginId: 'sample-oauth-service' } }, classification: 'write', allowedChoices: ['allow', 'cancel'], expiresAt: 301000 } }; },
     async approve() { approved = true; return { ok: true, value: { status: 'recorded' } }; },
     async operation() { return approved ? { ok: true, value: { status: 'completed', operationId, output: { transactionId: 'transaction', authorizationUrl: 'https://accounts.example.test/authorize?state=fixture', expiresAt: 61000 } } } : { ok: true, value: { status: 'pending', operationId } }; },
@@ -329,7 +330,7 @@ it.each(['cancelled', 'interrupted', 'completed'] as const)('blocks another OAut
   await sample.addons!.setOAuthClient({ request: { pluginId: 'sample-oauth-service', client: { clientId: 'fixture-client' } } });
   let operationId = ''; let starts = 0; let reconciled = false; const reads: string[] = [];
   const api: StudioApiPort = { ...sample,
-    async tool(input) { if (input.call.name === 'om_message_connections') return { ok: true, value: { status: 'completed', output: { items: [] } } }; starts++; operationId = input.call.operationId; return { ok: true, value: { status: 'pending', operationId, cardId: 'oauth-card' } }; },
+    async tool(input) { if (input.call.name === 'om_message_connections' || input.call.name === 'om_measure_grants_list') return { ok: true, value: { status: 'completed', output: { items: [] } } }; starts++; operationId = input.call.operationId; return { ok: true, value: { status: 'pending', operationId, cardId: 'oauth-card' } }; },
     async approvalCard() { return { ok: true, value: oauthCard({ operationId }) }; },
     async operation(input) {
       reads.push(input.operationId);
@@ -372,7 +373,7 @@ it.each(['valid', 'wrong-operation', 'wrong-card'] as const)('recovers a failed 
   await sample.addons!.setOAuthClient({ request: { pluginId: 'sample-oauth-service', client: { clientId: 'fixture-client' } } });
   let operationId = ''; let starts = 0; let repaired = false; const cards: string[] = []; const operations: string[] = [];
   const api: StudioApiPort = { ...sample,
-    async tool(input) { if (input.call.name === 'om_message_connections') return { ok: true, value: { status: 'completed', output: { items: [] } } }; starts++; operationId = input.call.operationId; return { ok: true, value: { status: 'pending', operationId, cardId: 'oauth-card' } }; },
+    async tool(input) { if (input.call.name === 'om_message_connections' || input.call.name === 'om_measure_grants_list') return { ok: true, value: { status: 'completed', output: { items: [] } } }; starts++; operationId = input.call.operationId; return { ok: true, value: { status: 'pending', operationId, cardId: 'oauth-card' } }; },
     async operation(input) { operations.push(input.operationId); return { ok: true, value: { status: 'pending', operationId, cardId: 'oauth-card' } }; },
     async approvalCard(input) {
       cards.push(input.cardId);

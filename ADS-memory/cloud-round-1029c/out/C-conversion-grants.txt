@@ -1,0 +1,10 @@
+
+ RUN  v3.2.4 /home/user/Open-Marketing/apps/studio
+
+ ✓ tests/conversion-grants.test.ts (4 tests) 699ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  19:53:27
+   Duration  2.02s (transform 284ms, setup 0ms, collect 574ms, tests 699ms, environment 474ms, prepare 77ms)
+

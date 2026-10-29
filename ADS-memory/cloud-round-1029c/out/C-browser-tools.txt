@@ -1,0 +1,11 @@
+
+ RUN  v3.2.4 /home/user/Open-Marketing/apps/studio
+
+ ✓ tests/browser-tools.test.ts (16 tests) 941ms
+   ✓ passes the current bind token and shows surface spend approvals in the existing inline card  376ms
+
+ Test Files  1 passed (1)
+      Tests  16 passed (16)
+   Start at  19:53:16
+   Duration  3.52s (transform 417ms, setup 0ms, collect 1.68s, tests 941ms, environment 575ms, prepare 96ms)
+

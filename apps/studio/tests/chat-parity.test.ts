@@ -235,7 +235,7 @@ function serverUsageFixture(required: { usage: AssistantUsage; cancelled: boolea
 it.each([
   { name: 'estimated completion', cancelled: false, durationMs: 13000, costBasis: 'estimated', costUsdMicros: '230000', complete: true, line: 'Done · 13s · $0.23 · total $0.23' },
   { name: 'unavailable cost', cancelled: false, durationMs: 21000, costBasis: 'unavailable', complete: false, line: 'Done · 21s' },
-  { name: 'partial cancellation', cancelled: true, durationMs: 23000, costBasis: 'estimated', costUsdMicros: '110000', complete: false, line: 'Canceled · 23s · $0.11 · total $0.11' },
+  { name: 'partial cancellation', cancelled: true, durationMs: 23000, costBasis: 'estimated', costUsdMicros: '110000', complete: false, line: 'Stopped · 23s · $0.11 · total $0.11' },
 ] as const)('renders server usage through Jini for $name without sample prices or false success', async scenario => {
   const usage: AssistantUsage = { kind: 'usage', durationMs: scenario.durationMs, costBasis: scenario.costBasis,
     complete: scenario.complete, ...('costUsdMicros' in scenario ? { costUsdMicros: scenario.costUsdMicros } : {}) };
