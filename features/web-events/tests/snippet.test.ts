@@ -183,4 +183,16 @@ describe("first-party snippet source", () => {
     expect(set).toHaveBeenCalledWith({ action: "accept" });
     expect(webEventInstallSource({ collectionPath: "//invalid" }).ok).toBe(false);
   });
+  it("omGrantConsent called before the Jini client loads is queued once and replayed on ready", () => {
+    const { window, document } = installer();
+    const set = vi.fn(async () => ({}));
+    window.omGrantConsent!();
+    window.omGrantConsent!();
+    expect(set).not.toHaveBeenCalled();
+    document.dispatchEvent(new CustomEvent("jini:consent-ready", { detail: { set } }));
+    expect(set).toHaveBeenCalledTimes(1);
+    expect(set).toHaveBeenCalledWith({ action: "accept" });
+    document.dispatchEvent(new CustomEvent("jini:consent-ready", { detail: { set } }));
+    expect(set).toHaveBeenCalledTimes(1);
+  });
 });

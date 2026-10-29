@@ -100,7 +100,8 @@ export function webEventSnippetSource(required: { collectionPath: string; tags?:
  * collector stores ad click IDs) on window.jiniConsentQueue. Collection and tags wait for Jini's durable
  * marketing grant; captured landing data stays in page memory until then.
  * Sites with their own CMP (banner mode headless) call window.omGrantConsent(), a bridge to
- * window.jiniConsent.set({ action: "accept" }).
+ * window.jiniConsent.set({ action: "accept" }); a call made before the Jini client loads is queued once and
+ * replayed on its jini:consent-ready event.
  * Withdrawal: window.jiniConsent.open() or a footer link with class "jini-consent-reopen" reopens the
  * choice; withdrawing calls revoke(), which stops further collection and sends DELETE <collectionPath>
  * so the server clears OM's visit cookie. revoke() returns false once a tag ran (Jini then reloads).
@@ -127,7 +128,17 @@ export function webEventInstallSource(required: { collectionPath: string; tags?:
         return !tagRan;
       } };
     } });
-  window.omGrantConsent = () => window.jiniConsent ? window.jiniConsent.set({ action: "accept" }) : undefined;
+  let queuedGrant = false;
+  window.omGrantConsent = () => {
+    if (window.jiniConsent) return window.jiniConsent.set({ action: "accept" });
+    if (queuedGrant) return undefined;
+    queuedGrant = true;
+    window.document.addEventListener("jini:consent-ready", event => {
+      const api = window.jiniConsent || (event && event.detail);
+      if (api) api.set({ action: "accept" });
+    }, { once: true });
+    return undefined;
+  };
   return ${source.value}({ now: () => Date.now(), nextId: () => crypto.randomUUID(), location: window.location,
     fetch: window.fetch.bind(window), document: window.document, consent, signal: stop.signal, activated: () => { tagRan = true; } }).catch(() => {});
 })();` };
