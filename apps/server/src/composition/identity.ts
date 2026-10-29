@@ -2,10 +2,10 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import { idSchema, epochSchema } from '@open-marketing/contracts';
-import type { CallContext, CallOptions, CampaignKey, ClockPort, IdPort, ObserverPort, Outcome, UnitOfWork } from '@open-marketing/contracts';
-import { createContactService, createSqlContactRepo } from '@open-marketing/contacts';
+import type { CallContext, CallOptions, CampaignKey, ClockPort, IdPort, ObserverPort, Outcome, ServiceContext, UnitOfWork } from '@open-marketing/contracts';
+import { createContactService, createSqlContactRepo, destinationIdentifierHash } from '@open-marketing/contacts';
 import { createPolicyService, createSqlPolicyRepo, type PolicyService, type SubjectPolicy } from '@open-marketing/policy';
-import { createSqlWebEventRepo, createWebEventService, landingPropertiesSchema, type ObservedCampaignPort, type Visit, type VisitTokenPort } from '@open-marketing/web-events';
+import { createSqlWebEventRepo, createWebEventService, landingPropertiesSchema, type ObservedCampaignPort, type Visit, type VisitTokenPort, type WebEventService } from '@open-marketing/web-events';
 import type { ConversionIdentifiersPort, AttributionTouchPort, MetricsRepoPort } from '@open-marketing/measure';
 import type { AccountBindingLookupPort } from '@open-marketing/workspaces';
 import type { AgentPluginState } from './agent-plugin-backends.js';
@@ -81,7 +81,10 @@ export function bindIdentity(required: { unit: UnitOfWork; clock: ClockPort; ids
             const basic = Object.keys(input.event.properties).every(key => landingPropertyKeys.includes(key));
             return { ok: true, value: { allowed: basic && input.event.subjectId === undefined } };
         } } });
-    const identifiers: ConversionIdentifiersPort = { identifiersFor: (input, options) => contacts.identifiersFor(input, options) };
+    const identifiers: ConversionIdentifiersPort = { async identifiersFor(input, options) {
+        const found = await contacts.identifiersFor(input, options);
+        return found.ok ? { ok: true, value: await withWebsiteContext({ webEvents, clock: required.clock, context: input.context, found: found.value }, options) } : found;
+    } };
     const touches: AttributionTouchPort = { async touchesFor(input, options) {
         const result = await webEvents.touchesFor(input, options);
         return result.ok ? { ok: true, value: result.value.map(({ touchId, occurredAt, linkId, campaignId }) => ({ touchId, occurredAt, linkId, campaignId })) } : result;
@@ -91,6 +94,24 @@ export function bindIdentity(required: { unit: UnitOfWork; clock: ClockPort; ids
         return 'query' in required.unit ? contacts.merge(input, options) : required.subjectLane.run({ context: input.context, subjectIds: [input.sourceSubjectId, input.targetSubjectId], work: () => contacts.merge(input, options) }, options);
     } }, policy, webRepo, webEvents, identifiers, touches,
         forTransaction: (input: { unit: UnitOfWork }): { policy: PolicyService; contactsRepo: typeof contactsRepo } => bindIdentity({ ...required, unit: input.unit }) };
+}
+
+type FoundIdentifiers = { subjectId: string; identifiers: Readonly<Record<string, string>>; identifierDigests: Readonly<Record<string, string>> };
+/** The newest consented touch in 30 days carrying the user-agent/page-URL pair adds both identifiers and digests.
+ * No such touch, or an unreadable one, adds nothing; contacts' own denial/failure paths are unchanged.
+ * @complexity One <=10-touch read; O(1) hashing. */
+export async function withWebsiteContext(required: { webEvents: Pick<WebEventService, 'touchesFor'>; clock: ClockPort; context: ServiceContext; found: FoundIdentifiers }, options?: CallOptions): Promise<FoundIdentifiers> {
+    const { context, found } = required;
+    const now = required.clock.now({});
+    const touches = await required.webEvents.touchesFor({ context: { scope: context.scope, principal: { kind: 'service', serviceId: context.serviceId }, correlationId: context.correlationId, traceId: context.traceId },
+        subjectId: found.subjectId, window: { start: Math.max(0, now - 30 * 86400000), end: now + 1 }, limit: 10 }, options);
+    const pair = touches.ok ? touches.value.find(touch => touch.clickIdentifiers.client_user_agent && touch.clickIdentifiers.event_source_url)?.clickIdentifiers : undefined;
+    if (!pair) return found;
+    const agent = destinationIdentifierHash({ normalizedValue: pair.client_user_agent });
+    const url = destinationIdentifierHash({ normalizedValue: pair.event_source_url });
+    if (!agent.ok || !url.ok) return found;
+    return { subjectId: found.subjectId, identifiers: { ...found.identifiers, client_user_agent: pair.client_user_agent, event_source_url: pair.event_source_url },
+        identifierDigests: { ...found.identifierDigests, client_user_agent: agent.value, event_source_url: url.value } };
 }
 
 type MembershipDependencies = { metrics: Pick<MetricsRepoPort, 'observedCampaigns'>; accounts: AccountBindingLookupPort;

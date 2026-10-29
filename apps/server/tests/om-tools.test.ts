@@ -93,7 +93,7 @@ it('exposes tracking setup/readiness as schema-bound read tools through owner HT
     const f = fixture({});
     const source = 'fixture installer text';
     const tracking: NonNullable<OmFeatureServices['tracking']> = {
-        snippet: vi.fn(async () => ({ ok: true as const, value: { source, campaignUrlTemplates: [] } })),
+        snippet: vi.fn(async () => ({ ok: true as const, value: { source, campaignUrlTemplates: [], consentBanner: { head: '', body: '' } } })),
         readiness: vi.fn(async () => ({ ok: true as const, value: { status: 'missing' as const, heartbeatAt: null, fallbackUrl: null } })),
     };
     const services = { ...f.services, tracking };
@@ -928,7 +928,7 @@ function toolCliFixture(required: { confirmed?: boolean; file?: string } = {}) {
 it('generic CLI calls both tracking tools through the existing HTTP dispatcher', async () => {
     const f = toolCliFixture({ file: JSON.stringify({ destinationUrl: 'https://site.example' }) });
     const tracking: NonNullable<OmFeatureServices['tracking']> = {
-        async snippet() { return { ok: true, value: { source: 'installer', campaignUrlTemplates: [] } }; },
+        async snippet() { return { ok: true, value: { source: 'installer', campaignUrlTemplates: [], consentBanner: { head: '', body: '' } } }; },
         async readiness() { return { ok: true, value: { status: 'missing', heartbeatAt: null, fallbackUrl: null } }; },
     };
     const tools = createOmTools({ ...f, confirmations: f.services.confirmations, authorize: () => ({ ok: true, value: undefined }),

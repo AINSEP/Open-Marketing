@@ -1,5 +1,9 @@
 /** First-party public ingress. Scope, time, visit identity and authority come from server composition. */
+import { readFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { z } from 'zod';
+import { renderBanner } from '@jini-ai/cookie-consent/render';
+import { handleReceipt, readConsent, type ConsentRecordPort } from '@jini-ai/cookie-consent/server';
 import { epochSchema, idSchema, parseBoundary } from '@open-marketing/contracts';
 import type { CallContext, ClockPort, ObserverPort, Outcome } from '@open-marketing/contracts';
 import type { FormPublication } from '@open-marketing/forms';
@@ -15,11 +19,28 @@ import { handleMessagingWebhook } from './messaging-webhooks.js';
 type PublicInput = { request: HttpRequest; context: CallContext; forms: ReturnType<typeof bindForms>;
     identity: ReturnType<typeof bindIdentity>; visits: ReturnType<typeof createVisitTokens>; clock: ClockPort;
     campaigns: CampaignRepoPort; links: TrackedLinkPort; observer?: ObserverPort; publicOrigin?: string;
-    webhooks?: Parameters<typeof handleMessagingWebhook>[0]['webhooks'] };
+    webhooks?: Parameters<typeof handleMessagingWebhook>[0]['webhooks']; consent: { store: ConsentRecordPort; ids: () => string } };
+/** One OM privacy-policy version for every visitor consent receipt (no per-workspace setting yet). */
+export const OM_CONSENT_POLICY = '2026-10-29';
+/** Shared Jini banner render for hosted pages and owner-installed sites: 'jini' is the built-in banner,
+ * 'headless' keeps the site's own CMP driving window.jiniConsent. Grants wait for a stored receipt.
+ * @example omConsentBanner({ mode: 'jini' }, { nonce }) */
+export function omConsentBanner(required: { mode: 'jini' | 'headless' }, optional?: { nonce?: string }): { head: string; body: string } {
+    const { head, body } = renderBanner({ mode: required.mode, client: { contract: 1, policy: OM_CONSENT_POLICY, regionMode: 'auto' }, copy: {} },
+        { clientSrc: '/consent/client.min.js', evidence: { mode: 'durable', endpoint: '/consent' }, ...(optional?.nonce ? { nonce: optional.nonce } : {}) });
+    return { head, body };
+}
+/** Server-side gate: the visitor's own Jini choice cookie, GPC/DNT and policy version decide; the
+ * browser payload never does. No receipt read per event (Jini readConsent design). @complexity O(cookie header). */
+function marketingAllowed(required: { request: HttpRequest; clock: ClockPort }): boolean {
+    const headers = required.request.headers ?? {};
+    return readConsent({ cookieHeader: headers.cookie, policy: OM_CONSENT_POLICY, regionMode: 'auto' },
+        { secGpc: headers['sec-gpc'], dnt: headers.dnt, nowMs: required.clock.now({}) }).allowed.marketing;
+}
 const clickIdentifier = z.string().min(1).max(2048).regex(/^[A-Za-z0-9._-]+$/);
 const landingSchema = z.strictObject({ consent: z.literal(true), eventId: idSchema, schema: z.literal('om.web.landing'), version: z.literal(1),
     source: z.literal('first-party'), name: z.literal('landing'), occurredAt: epochSchema,
-    properties: landingPropertiesSchema.extend({ fbc: clickIdentifier.optional(), fbp: clickIdentifier.optional() }) });
+    properties: landingPropertiesSchema.omit({ client_user_agent: true }).extend({ fbc: clickIdentifier.optional(), fbp: clickIdentifier.optional() }) });
 function response<T>(required: { result: Outcome<T>; status?: number }): HttpResponse {
     if (required.result.ok) return { status: required.status ?? 200, body: required.result };
     const status = required.result.error.code === 'unavailable' ? 503 : required.result.error.code === 'conflict' ? 409 : required.result.error.code === 'forbidden' ? 403 : 400;
@@ -48,16 +69,43 @@ async function visit(required: PublicInput): Promise<Outcome<{ token: string; an
     const issued = required.visits.issue({ context: required.context });
     const stored = await required.identity.webRepo.saveVisit({ context: required.context, visit: issued.visit });
     if (!stored.ok) return stored;
-    const secure = required.publicOrigin && required.request.headers?.host === new URL(required.publicOrigin).host ? '; Secure' : '';
     return { ok: true, value: { token: issued.token, anonymousId: issued.visit.anonymousId,
-        headers: { 'set-cookie': cookieName(required) + '=' + issued.token + '; Path=/; HttpOnly; SameSite=Strict; Max-Age=3600' + secure } } };
+        headers: { 'set-cookie': cookieName(required) + '=' + issued.token + '; Path=/; HttpOnly; SameSite=Strict; Max-Age=3600' + secureFlag(required) } } };
 }
-/** Render the hosted form without issuing visits or cookies; collection requires page consent. */
+function secureFlag(required: { request: HttpRequest; publicOrigin?: string }): string {
+    return required.publicOrigin && required.request.headers?.host === new URL(required.publicOrigin).host ? '; Secure' : '';
+}
+/** Withdrawal (Jini adapter revoke): clear OM's HttpOnly visit cookie; nothing else is written. */
+function withdraw(required: PublicInput): HttpResponse {
+    return { status: 204, contentType: 'text/plain; charset=utf-8', body: '',
+        headers: { 'set-cookie': cookieName(required) + '=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0' + secureFlag(required) } };
+}
+/** Jini receipt endpoint. The Request URL uses the public origin (or the local host) so Jini's origin check is meaningful. */
+async function consentReceipt(required: PublicInput): Promise<HttpResponse> {
+    const headers = required.request.headers ?? {};
+    const base = required.publicOrigin && headers.host === new URL(required.publicOrigin).host ? required.publicOrigin : 'http://' + (headers.host ?? '127.0.0.1');
+    const raw = required.request.readRawBody ? await required.request.readRawBody({}) : { ok: true as const, value: new TextEncoder().encode(JSON.stringify(required.request.body ?? null)) };
+    if (!raw.ok) return response({ result: raw });
+    const forwarded = ['origin', 'content-type', 'cookie', 'sec-gpc', 'dnt'].flatMap(name => headers[name] === undefined ? [] : [[name, headers[name]] as [string, string]]);
+    const request = new Request(new URL(required.request.path, base), { method: 'POST', headers: forwarded, body: new Uint8Array(raw.value) });
+    const result = await handleReceipt({ request, ports: { store: required.consent.store, policy: () => OM_CONSENT_POLICY, ids: required.consent.ids, now: () => required.clock.now({}) } }, { regionMode: 'auto' });
+    return { status: result.status, contentType: result.headers.get('content-type') ?? 'application/json', body: await result.text() };
+}
+let consentClient: Promise<string> | undefined;
+/** Serve the published Jini client as an inert asset, read once on first request. */
+async function consentClientScript(): Promise<HttpResponse> {
+    consentClient ??= readFile(createRequire(import.meta.url).resolve('@jini-ai/cookie-consent/client.min.js'), 'utf8');
+    try { return { status: 200, contentType: 'text/javascript; charset=utf-8', body: await consentClient }; }
+    catch { consentClient = undefined; return { status: 503, body: localFailure({ message: 'Consent client unavailable' }) }; }
+}
+/** Render the hosted form and the Jini banner without issuing visits or cookies; collection waits for a stored marketing grant. */
 async function formGet(required: PublicInput & { slug: string }): Promise<HttpResponse> {
     const rendered = await required.forms.forms.renderHostedForm({ context: required.context, slug: required.slug });
     if (!rendered.ok) return response({ result: rendered });
-    return { status: 200, contentType: 'text/html; charset=utf-8', body: '<!doctype html><html><head><meta charset="utf-8"><title>OM sandbox lead</title></head><body><h1>Local sandbox lead</h1><p>Stored only in this local sandbox.</p>' + rendered.value.html + '<script src="/web-events.js" defer></script></body></html>',
-        headers: { 'content-security-policy': "default-src 'none'; script-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'" } };
+    const nonce = required.consent.ids();
+    const banner = omConsentBanner({ mode: 'jini' }, { nonce });
+    return { status: 200, contentType: 'text/html; charset=utf-8', body: '<!doctype html><html><head><meta charset="utf-8"><title>OM sandbox lead</title>' + banner.head + '</head><body><h1>Local sandbox lead</h1><p>Stored only in this local sandbox.</p>' + rendered.value.html + '<script src="/web-events.js" defer></script>' + banner.body + '</body></html>',
+        headers: { 'content-security-policy': "default-src 'none'; script-src 'self'; style-src 'nonce-" + nonce + "'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'" } };
 }
 /** Unique URL-encoded fields from transport; immutable descriptors define the answer allowlist.
  * Server metadata is separated before the owning forms validation/digest boundary.
@@ -73,7 +121,7 @@ async function formPost(required: PublicInput & { slug: string }): Promise<HttpR
     const fields = parsed.value;
     const metadata = z.strictObject({ publicationId: z.literal(saved.value.publicationId), attemptId: idSchema, visitToken: z.string().max(1024).optional() }).safeParse({ publicationId: fields.om_publication, attemptId: fields._attempt, visitToken: fields.om_vt });
     if (!metadata.success) return { status: 400, body: localFailure({ code: 'invalid_input', message: 'Invalid form metadata' }) };
-    const verified = await verifyOptionalVisit({ request: required.request, visits: required.visits, context: required.context, token: metadata.data.visitToken });
+    const verified = await verifyOptionalVisit({ request: required.request, visits: required.visits, context: required.context, token: metadata.data.visitToken, consented: marketingAllowed(required) });
     if (!verified.ok) return response({ result: verified });
     const body = answers({ fields, publication: saved.value });
     if (!body.ok) return response({ result: body });
@@ -81,10 +129,12 @@ async function formPost(required: PublicInput & { slug: string }): Promise<HttpR
     if (!result.ok || !required.request.headers?.accept?.includes('text/html')) return response({ result, status: 202 });
     return { status: 202, contentType: 'text/html; charset=utf-8', body: '<!doctype html><title>Received</title><h1>Received</h1><p>Your local sandbox submission will be processed in the background.</p>' };
 }
-/** Explicit tokens must authenticate; absent/invalid cookies keep the lead unattributed.
+/** Without a stored marketing grant the lead stays unattributed (enquiry still accepted).
+ * Explicit tokens must authenticate; absent/invalid cookies keep the lead unattributed.
  * Returns the verified token without writing visits; at most one scoped verification.
  * @complexity O(h), h is the bounded request-cookie header length; no storage writes. */
-async function verifyOptionalVisit(required: { request: HttpRequest; visits: ReturnType<typeof createVisitTokens>; context: CallContext; token?: string }): Promise<Outcome<string | undefined>> {
+async function verifyOptionalVisit(required: { request: HttpRequest; visits: ReturnType<typeof createVisitTokens>; context: CallContext; token?: string; consented: boolean }): Promise<Outcome<string | undefined>> {
+    if (!required.consented) return { ok: true, value: undefined };
     if (required.token !== undefined) {
         const result = await required.visits.tokens.verify({ context: required.context, visitToken: required.token });
         return result.ok ? { ok: true, value: required.token } : result;
@@ -130,7 +180,12 @@ async function landingProperties(required: PublicInput & { properties: z.infer<t
     }
     const { utm_source, utm_medium, om_a, utm_id, gclid, gbraid, wbraid, fbclid } = required.properties;
     const metadata = Object.fromEntries(Object.entries({ utm_source, utm_medium, om_a, utm_id, gclid, gbraid, wbraid, fbclid }).filter((entry): entry is [string, string] => entry[1] !== undefined));
-    return { ok: true, value: { ...metadata, ...heartbeatProperties(required), ...(linkId ? { linkId } : {}), ...(campaign ? { campaignId: campaign } : {}) } };
+    return { ok: true, value: { ...metadata, ...heartbeatProperties(required), ...userAgentProperty(required), ...(linkId ? { linkId } : {}), ...(campaign ? { campaignId: campaign } : {}) } };
+}
+/** Server-captured only after the consent gate; a browser-supplied client_user_agent is rejected by landingSchema. */
+function userAgentProperty(required: { request: HttpRequest }): Record<string, string> {
+    const agent = required.request.headers?.['user-agent']?.trim();
+    return agent && agent.length <= 1024 ? { client_user_agent: agent } : {};
 }
 /** Only the transport-validated Origin can bind readiness; absent/mismatched evidence
  * drops page metadata without discarding the landing. O(u), URL <=2048 characters. */
@@ -150,13 +205,15 @@ async function linkedCampaign(required: PublicInput & { properties: z.infer<type
     return { ok: true, value: link.value.campaignId };
 }
 
-/** Require literal consent before visit/cookie/touch effects; consent is transport metadata only. */
+/** A stored Jini marketing grant (cookie, policy, GPC/DNT) is required before visit/cookie/touch effects;
+ * the body's literal consent is still parsed but authorises nothing. */
 async function collect(required: PublicInput): Promise<HttpResponse> {
     const raw = required.request.readBody ? await required.request.readBody({}) : { ok: true as const, value: required.request.body };
     if (!raw.ok) return response({ result: raw });
     const parsed = parseBoundary({ schema: landingSchema, input: raw.value });
     if (!parsed.ok) return response({ result: parsed });
     if (parsed.value.occurredAt > required.clock.now({}) + 60000) return { status: 400, body: localFailure({ code: 'invalid_input', message: 'Landing time is in the future' }) };
+    if (!marketingAllowed(required)) return { status: 403, body: localFailure({ code: 'forbidden', message: 'Visitor marketing consent required' }) };
     const properties = await landingProperties({ ...required, properties: parsed.value.properties });
     if (!properties.ok) return response({ result: properties });
     const current = await visit(required);
@@ -173,14 +230,17 @@ function snippet(): HttpResponse {
     if (!source.ok) return response({ result: source });
     return { status: 200, contentType: 'text/javascript; charset=utf-8', body: source.value };
 }
+const fixedRoutes = new Map<string, (required: PublicInput) => HttpResponse | Promise<HttpResponse>>([
+    ['GET /web-events.js', snippet], ['POST /c', collect], ['DELETE /c', withdraw],
+    ['POST /consent', consentReceipt], ['GET /consent/client.min.js', consentClientScript]]);
 /** Public paths only; transport enforces the local or configured public Host/Origin before parsing.
  * No owner credential, caller scope/subject or marketing permission enters this boundary.
  * @example handlePublicRequest({ request, context: serverScope, forms, identity, visits, ... });
  * @complexity Bounded body/fields, fixed route set, <=2 ID lookups and one collection write. */
 export async function handlePublicRequest(required: PublicInput): Promise<HttpResponse> {
     if (required.request.path.startsWith('/hooks/agent-plugins/')) return handleMessagingWebhook({ ...required, observer: required.observer ?? { observe() {} } });
-    if (required.request.path === '/web-events.js' && required.request.method === 'GET') return snippet();
-    if (required.request.path === '/c' && required.request.method === 'POST') return collect(required);
+    const fixed = fixedRoutes.get(required.request.method + ' ' + required.request.path);
+    if (fixed) return fixed(required);
     const slug = /^\/f\/([A-Za-z0-9_-]{1,100})$/.exec(required.request.path)?.[1];
     if (!slug) return { status: 404, body: localFailure({ code: 'invalid_input', message: 'Public route unavailable' }) };
     return required.request.method === 'GET' ? formGet({ ...required, slug }) : formPost({ ...required, slug });

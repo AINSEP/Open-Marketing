@@ -13,7 +13,8 @@ export interface LifecyclePort { start(required: Record<string, never>): Promise
  * callers may still supply body directly. Query values are unique; duplicates fail at ingress. */
 export interface HttpRequest {
  readonly path: string;
- readonly method: "GET" | "POST";
+ /** DELETE is admitted by transport only for the public withdrawal route (DELETE /c). */
+ readonly method: "GET" | "POST" | "DELETE";
  readonly authorization?: string;
  readonly headers?: Readonly<Record<string, string | undefined>>;
  readonly query?: Readonly<Record<string, string>>;

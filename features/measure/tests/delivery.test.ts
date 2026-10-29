@@ -397,6 +397,37 @@ describe("dispatch security", () => {
     expect(reconciled?.event.identifiers?.click_id).toBe("current-click");
     expect(backend.calls({})).toBe(1);
   });
+  const legacy = { ...event, eventId: "legacy-commit", identifierDigests: { email: "e".repeat(64), phone: "b".repeat(64) } };
+  const superset = { email: "e".repeat(64), phone: "b".repeat(64), phone_digits: "d".repeat(64), client_user_agent: "c".repeat(64), event_source_url: "f".repeat(64) };
+  const supersetIdentifiers = { email: "hashed-email", phone: "hashed-phone", phone_digits: "hashed-digits", client_user_agent: "Fixture/1.0", event_source_url: "https://site.example/landing" };
+  it("dispatches a legacy {email, phone} commit once with the resolved superset, without changing the committed identity", async () => {
+    let sent: Parameters<ConversionDeliveryPort["deliver"]>[0] | undefined;
+    let sends = 0;
+    const delivery: ConversionDeliveryPort = { async deliver(input) { sends++; sent = input; return { ok: true, value: { status: "delivered" } }; } };
+    const ledger = createMemoryConversionDeliveryState({});
+    const identifiers = createIdentifiers({ event: { ...legacy, identifierDigests: superset, identifiers: supersetIdentifiers } });
+    const f = fixture({ identifiers, delivery, ledger, verification: createMemoryConversionVerification({ events: [{ scope, event: legacy }] }) });
+    f.policy.replace({ evidence: [{ ...consent, identifierKeys: ["email", "phone"] }] });
+    const input = { ...f.input, event: legacy };
+    expect(await f.dispatcher.dispatch(input)).toEqual({ ok: true, value: { status: "delivered" } });
+    expect(await f.dispatcher.dispatch(input)).toMatchObject({ ok: true, value: { status: "delivered" } });
+    expect(sends).toBe(1);
+    expect(sent?.event.identifiers).toEqual(supersetIdentifiers);
+    expect(sent?.event.identifierDigests).toEqual(superset);
+    expect(input.event.identifierDigests).toEqual({ email: "e".repeat(64), phone: "b".repeat(64) });
+    expect(JSON.stringify(ledger.history({}))).not.toContain("Fixture/1.0");
+  });
+  it.each([
+    { name: "changed committed digest", digests: { ...superset, phone: "1".repeat(64) } },
+    { name: "missing committed key", digests: { email: "e".repeat(64), phone_digits: "d".repeat(64) } },
+  ])("refuses a legacy commit with a $name", async ({ digests }) => {
+    const delivery = createMemoryConversionDelivery({});
+    const identifiers = createIdentifiers({ event: { ...legacy, identifierDigests: digests, identifiers: Object.fromEntries(Object.keys(digests).map(key => [key, "value-" + key])) } });
+    const f = fixture({ identifiers, delivery, verification: createMemoryConversionVerification({ events: [{ scope, event: legacy }] }) });
+    f.policy.replace({ evidence: [{ ...consent, identifierKeys: ["email", "phone"] }] });
+    expect(await f.dispatcher.dispatch({ ...f.input, event: legacy })).toMatchObject({ ok: false, error: { code: "forbidden", message: "Identifier evidence does not match the committed event" } });
+    expect(delivery.calls({})).toBe(0);
+  });
   it("requires a definition-bound grant and rejects identifier-bearing worker input", async () => {
     const delivery = createMemoryConversionDelivery({});
     const f = fixture({ delivery });

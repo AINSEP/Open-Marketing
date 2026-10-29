@@ -3,9 +3,11 @@ import type { Outcome, TrackingTagOutput } from "@open-marketing/contracts";
 import { z } from "zod";
 import { clickKeys, failure } from "./rules.js";
 
-/** Inert expression invoked with { now, nextId, location, fetch, document, consent }.
+/** Inert expression invoked with { now, nextId, location, fetch, document, consent, signal?, activated? }.
  * Host supplies admitted plugin tags and visitor consent (true or a promise resolving true).
  * Captured landing data stays in page memory; POST and tags wait for literal true consent.
+ * An aborted signal (consent withdrawn) is checked once before the POST and before each tag;
+ * activated() is called before each tag runs, since tags cannot be unloaded.
  * POST contains bounded claims and a query/fragment-free page URL. Ingress authenticates
  * visit, origin and scope. No vendor bootstrap, cookies, listeners or retry queue lives here.
  * @example webEventSnippetSource({ collectionPath: "/c", tags })
@@ -18,7 +20,7 @@ export function webEventSnippetSource(required: { collectionPath: string; tags?:
   // Safe to embed inside a host script element even if plugin text contains </script>.
   const tags = JSON.stringify(parsed.data.map(tag => tag.snippet)).replace(/</g, "\\u003c");
   const keys = JSON.stringify(["linkId", ...clickKeys]);
-  return { ok: true, value: `(async function({ now, nextId, location, fetch, document, consent }) {
+  return { ok: true, value: `(async function({ now, nextId, location, fetch, document, consent, signal, activated }) {
   if (typeof location.search !== "string" || location.search.length > 16384) return;
   const params = new URLSearchParams(location.search);
   const properties = {};
@@ -80,18 +82,28 @@ export function webEventSnippetSource(required: { collectionPath: string; tags?:
     }
   }
   async function activateTags() {
-    for (const snippet of ${tags}) await activate({ snippet });
+    for (const snippet of ${tags}) {
+      if (signal && signal.aborted) return;
+      if (activated) activated();
+      await activate({ snippet });
+    }
   }
   if (await consent !== true) return;
+  if (signal && signal.aborted) return;
   const collection = fetch(${JSON.stringify(required.collectionPath)}, { method: "POST", mode: "same-origin", credentials: "same-origin", referrerPolicy: "no-referrer", headers: { "Content-Type": "application/json" }, body });
   void activateTags().catch(() => {});
   return collection;
 })` };
 }
 
-/** Browser installer: collection and tags wait for window.omConsent===true at load or
- * window.omGrantConsent(). Captured landing data stays in page memory until that grant.
- * Repeated grants resolve the same signal once.
+/** Browser installer: registers ONE @jini-ai/cookie-consent adapter (category marketing, because the
+ * collector stores ad click IDs) on window.jiniConsentQueue. Collection and tags wait for Jini's durable
+ * marketing grant; captured landing data stays in page memory until then.
+ * Sites with their own CMP (banner mode headless) call window.omGrantConsent(), a bridge to
+ * window.jiniConsent.set({ action: "accept" }).
+ * Withdrawal: window.jiniConsent.open() or a footer link with class "jini-consent-reopen" reopens the
+ * choice; withdrawing calls revoke(), which stops further collection and sends DELETE <collectionPath>
+ * so the server clears OM's visit cookie. revoke() returns false once a tag ran (Jini then reloads).
  * Returns invalid_input for an unsafe path or tags; never executes on the server.
  * @example webEventInstallSource({ collectionPath: "/c", tags })
  * @complexity O(source bytes), bounded by the expression generator's two-tag limit.
@@ -99,12 +111,24 @@ export function webEventSnippetSource(required: { collectionPath: string; tags?:
 export function webEventInstallSource(required: { collectionPath: string; tags?: readonly TrackingTagOutput[] }): Outcome<string> {
   const source = webEventSnippetSource(required);
   if (!source.ok) return source;
+  const path = JSON.stringify(required.collectionPath);
   return { ok: true, value: `(() => {
-  // The visitor page calls window.omGrantConsent() only after its consent UI grants permission.
   let grant;
-  const consent = window.omConsent === true ? true : new Promise(resolve => { grant = resolve; });
-  window.omGrantConsent = () => { window.omConsent = true; if (grant) { grant(true); grant = undefined; } };
+  let tagRan = false;
+  const stop = new AbortController();
+  const consent = new Promise(resolve => { grant = resolve; });
+  (window.jiniConsentQueue = window.jiniConsentQueue || []).push({ id: "om-web-events", kind: "consent-adapter", category: "marketing",
+    grant({ signal }) {
+      if (signal.aborted || stop.signal.aborted) return null;
+      if (grant) { grant(true); grant = undefined; }
+      return { revoke() {
+        stop.abort();
+        window.fetch(${path}, { method: "DELETE", mode: "same-origin", credentials: "same-origin" }).catch(() => {});
+        return !tagRan;
+      } };
+    } });
+  window.omGrantConsent = () => window.jiniConsent ? window.jiniConsent.set({ action: "accept" }) : undefined;
   return ${source.value}({ now: () => Date.now(), nextId: () => crypto.randomUUID(), location: window.location,
-    fetch: window.fetch.bind(window), document: window.document, consent }).catch(() => {});
+    fetch: window.fetch.bind(window), document: window.document, consent, signal: stop.signal, activated: () => { tagRan = true; } }).catch(() => {});
 })();` };
 }

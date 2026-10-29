@@ -4,7 +4,9 @@ import { z } from "zod";
 const clickIdentifierSchema = z.string().min(1).max(2048).regex(/^[A-Za-z0-9._-]+$/).refine(value => value.trim() === value);
 
 /** Visitor-controlled attribution claims; ordinary UTMs never establish paid attribution.
- * Ingress supplies authenticated identity/scope separately. Raw page URLs are never persisted. */
+ * Ingress supplies authenticated identity/scope separately. The query/fragment-free page origin+path is
+ * kept only in the mutable touch map (as event_source_url, with the server-captured client_user_agent)
+ * and purged on erasure. client_user_agent is server-supplied after visitor consent; ingress rejects it from browsers. */
 export const landingPropertiesSchema = z.strictObject({
   linkId: z.string().min(1).max(256).regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/).refine(value => value.trim() === value).optional(),
   campaignId: z.string().max(256).optional(),
@@ -17,6 +19,7 @@ export const landingPropertiesSchema = z.strictObject({
   }).optional(),
   gclid: clickIdentifierSchema.optional(), gbraid: clickIdentifierSchema.optional(),
   wbraid: clickIdentifierSchema.optional(), fbclid: clickIdentifierSchema.optional(),
+  client_user_agent: z.string().min(1).max(1024).optional(),
 });
 export type LandingProperties = z.infer<typeof landingPropertiesSchema>;
 /** Collector evidence only: ready means an accepted landing within the last seven days. */

@@ -37,6 +37,16 @@ describe("bounded measurement adapters", () => {
     port.replace({ evidence: [consent, { ...consent, withdrawn: true }] });
     expect(await port.assess({ context, event })).toMatchObject({ ok: true, value: { allowed: false } });
   });
+  it("phone consent evidence also covers a phone_digits commit, and withdrawal still wins", async () => {
+    const clock = createFakeClock({ initial: 300 });
+    const committed = { ...event, identifierDigests: { phone: "b".repeat(64), phone_digits: "d".repeat(64) } };
+    const port = createMemoryMeasurementShareability({ clock, evidence: [{ ...consent, identifierKeys: ["phone"] }] });
+    expect(await port.assess({ context, event: committed })).toMatchObject({ ok: true, value: { allowed: true } });
+    port.replace({ evidence: [{ ...consent, identifierKeys: ["email"] }] });
+    expect(await port.assess({ context, event: { ...event, identifierDigests: { phone_digits: "d".repeat(64) } } })).toMatchObject({ ok: true, value: { allowed: false } });
+    port.replace({ evidence: [{ ...consent, identifierKeys: ["phone"] }, { ...consent, identifierKeys: ["phone"], withdrawn: true }] });
+    expect(await port.assess({ context, event: committed })).toMatchObject({ ok: true, value: { allowed: false } });
+  });
   it("empty committed-inbox fixtures deny verification", async () => {
     const port = createMemoryConversionVerification({});
     const serviceContext = { scope, serviceId: "worker", correlationId: "c", traceId: "t" };

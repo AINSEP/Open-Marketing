@@ -19,7 +19,7 @@ export interface NodeHttpListener extends HttpListenerPort { origin(required: Re
  */
 function requestMetadata(required: { incoming: IncomingMessage; signal: AbortSignal }): Outcome<HttpRequest> {
     const incoming = required.incoming;
-    if (incoming.method !== 'GET' && incoming.method !== 'POST') return localFailure({ code: 'invalid_input', message: 'Only GET and POST are supported' });
+    if (!allowedMethod({ method: incoming.method, url: incoming.url })) return localFailure({ code: 'invalid_input', message: 'Only GET and POST are supported' });
     if (!incoming.url || incoming.url.length > 4096 || !incoming.url.startsWith('/') || incoming.url.startsWith('//')) {
         return localFailure({ code: 'invalid_input', message: 'Invalid request target' });
     }
@@ -35,11 +35,17 @@ function requestMetadata(required: { incoming: IncomingMessage; signal: AbortSig
         let body: Promise<Outcome<unknown>> | undefined;
         let bytes: Promise<Outcome<Uint8Array>> | undefined;
         const readBytes = () => bytes ??= readRawBody({ incoming, maxBytes: bodyLimit({ path: url.pathname }) });
-        return { ok: true, value: { method: incoming.method, path: url.pathname, query, headers,
+        return { ok: true, value: { method: incoming.method as HttpRequest['method'], path: url.pathname, query, headers,
             authorization: headers.authorization, signal: required.signal,
             readRawBody: readBytes,
             readBody: () => body ??= readJsonBody({ incoming, readBytes }) } };
     } catch { return localFailure({ code: 'invalid_input', message: 'Invalid request URL' }); }
+}
+
+/** GET/POST everywhere; DELETE only for the exact public withdrawal path. @complexity O(1). */
+function allowedMethod(required: { method: string | undefined; url: string | undefined }): boolean {
+    if (required.method === 'GET' || required.method === 'POST') return true;
+    return required.method === 'DELETE' && required.url === '/c';
 }
 
 /** Raw image uploads and image-bearing model requests have explicit bounds; ordinary JSON stays at 128 KiB. */
@@ -152,7 +158,9 @@ function trustedOrigin(required: { request: HttpRequest; origin: string; publicO
 function publicRoute(required: { request: HttpRequest }): boolean {
     const { method, path } = required.request;
     if (path === '/web-events.js') return method === 'GET';
-    if (path === '/c') return method === 'POST';
+    if (path === '/c') return method === 'POST' || method === 'DELETE';
+    if (path === '/consent') return method === 'POST';
+    if (path === '/consent/client.min.js') return method === 'GET';
     return /^\/f\/[A-Za-z0-9_-]{1,100}$/.test(path);
 }
 

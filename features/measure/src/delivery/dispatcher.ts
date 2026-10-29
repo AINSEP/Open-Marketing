@@ -3,7 +3,7 @@ import type { CallContext, CallOptions, ClockPort, Outcome, ServiceContext, Obse
 import type { ConversionIdentifiersPort, ConversionDeliveryPort, ConversionDeliveryStatePort, ConversionVerificationPort, MeasureAuditPort, MeasurementGrantPort, MeasurementShareabilityPort } from "../ports.js";
 import type { ConversionDispatcher, ConversionDispatchRecord, ConversionInput, MeasureGrant } from "../types.js";
 import { runBoundary } from "../boundary.js";
-import { assessmentSchema, claimSchema, deliveryStatusSchema, dispatchRecordSchema, eventIdentity, failure, identifierLookupSchema, measureGrantSchema, sameScope, verificationSchema } from "../rules.js";
+import { assessmentSchema, claimSchema, deliveryStatusSchema, dispatchRecordSchema, failure, identifierLookupSchema, measureGrantSchema, sameScope, verificationSchema } from "../rules.js";
 import { mergeDeliveryDiagnostics } from "./ledger-rules.js";
 import { deliveryIdentity, parseDeliveryInput, parseResolvedDeliveryInput } from "./input.js";
 
@@ -88,8 +88,9 @@ function settledOutcome(required: { record: ConversionDispatchRecord }): Outcome
   return { ok: true, value: { status: "unknown", diagnostics: record.diagnostics } };
 }
 /** Resolve current contacts evidence before final gates. Contacts alone normalizes/hashes;
- * measure compares committed digests and never persists the resolved identifiers.
- * @complexity One lookup; O(k log k) comparison for at most 16 keys. */
+ * every committed digest must still match; the resolved superset (e.g. phone_digits, user agent/URL)
+ * is forwarded transiently only. The committed event, identity and ledger never change.
+ * @complexity One lookup; O(k) comparison for at most 16 keys. */
 async function resolveIdentifiers(required: { dependencies: Dependencies; input: DispatchInput }, optional?: CallOptions): Promise<Outcome<ResolvedDeliveryInput>> {
   const event = required.input.event;
   const outcome = await required.dependencies.identifiers.identifiersFor({ context: required.input.context, subjectId: event.subjectId, destination: event.destination, purpose: event.purpose }, optional);
@@ -97,9 +98,9 @@ async function resolveIdentifiers(required: { dependencies: Dependencies; input:
   const parsed = parseBoundary({ schema: identifierLookupSchema, input: outcome.value });
   if (!parsed.ok) return parsed;
   const evidence = parsed.value;
-  const resolved = { ...event, identifierDigests: evidence.identifierDigests };
-  if (evidence.subjectId !== event.subjectId || eventIdentity({ event: resolved }) !== eventIdentity({ event })) return failure({ code: "forbidden", message: "Identifier evidence does not match the committed event" });
-  return parseResolvedDeliveryInput({ input: { ...required.input, event: { ...event, identifiers: evidence.identifiers } } });
+  const committed = Object.entries(event.identifierDigests).every(([key, digest]) => Object.hasOwn(evidence.identifierDigests, key) && evidence.identifierDigests[key] === digest);
+  if (evidence.subjectId !== event.subjectId || !committed) return failure({ code: "forbidden", message: "Identifier evidence does not match the committed event" });
+  return parseResolvedDeliveryInput({ input: { ...required.input, event: { ...event, identifierDigests: evidence.identifierDigests, identifiers: evidence.identifiers } } });
 }
 /** Audit before the final authority read; do not await another external operation
  * between those gates and capability invocation. @complexity Two gates and one audit. */

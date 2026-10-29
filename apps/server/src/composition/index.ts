@@ -52,6 +52,8 @@ import { bindAgentPluginHaltJobs, createFormWorkers } from './workers.js';
 import { createLocalAgent, createNodeAgentEffects, type AgentEffects } from './agent.js';
 import { createFrontendSessions, type FrontendSessions } from '../inbound/frontend.js';
 import { join } from 'node:path';
+import { createConsentFileRecords, createNodeConsentFiles } from '@jini-ai/cookie-consent/node';
+import { writeJsonFileAtomicAsync } from '@jini-ai/platform/fs';
 import type Database from 'better-sqlite3';
 import type { CallContext, ClockPort, IdPort, ObserverPort, Outcome, UnitOfWork } from '@open-marketing/contracts';
 import { z } from 'zod';
@@ -165,6 +167,12 @@ type BootRequestInput = {
     fs: LocalFilesystem; studioRoot: string; context: CallContext; services: OwnerServices; integrations: Integrations; ids: IdPort; agent: ReturnType<typeof createLocalAgent>; clock: ClockPort; observer: ObserverPort; model: { credentials: ModelCredentials; upstream: ModelUpstream; usage?: Parameters<typeof handleModelRequest>[0]['usage'] }; publicServices: Omit<Parameters<typeof handlePublicRequest>[0], 'request' | 'context'>;
 };
 
+/** Visitor consent receipts: Jini's immutable file records over the published platform atomic writer. Inert until first write. */
+function consentReceiptStore(required: { stateRoot: string }) {
+    return createConsentFileRecords({ directory: join(required.stateRoot, 'consent-receipts'),
+        files: createNodeConsentFiles({ atomicWrite: (input, options) => writeJsonFileAtomicAsync(input, options) }) });
+}
+
 /** Trace one HTTP handler using only trusted owner identity, method and response status.
  * Returns the original response; application errors propagate to the listener's existing 503 boundary.
  * @complexity O(1) instrumentation time/space around one handler invocation; no request data retained.
@@ -187,7 +195,7 @@ async function handleBootRequest(required: BootRequestInput): Promise<HttpRespon
     if (required.request.path === '/health' && required.request.method === 'GET') {
         return { status: 200, body: { ok: true, value: { ready: true, mode: 'local' } } };
     }
-    if (required.request.path.startsWith('/f/') || required.request.path === '/c' || required.request.path === '/web-events.js' || required.request.path.startsWith('/hooks/agent-plugins/')) {
+    if (required.request.path.startsWith('/f/') || required.request.path === '/c' || required.request.path === '/web-events.js' || required.request.path.startsWith('/consent') || required.request.path.startsWith('/hooks/agent-plugins/')) {
         const trace = ownerContext({ request: required.request, context: required.context, ids: required.ids });
         return handlePublicRequest({ ...required.publicServices, request: required.request,
             context: { ...trace, principal: { kind: 'service', serviceId: 'public-ingress' } } });
@@ -328,6 +336,7 @@ export async function bootServer(required: {
         const measure = createSqlMeasureRepo({ database: measureDb, jobs: { async enqueue() { return localFailure({ code: 'forbidden', message: 'Conversions denied in local sandbox' }); } } }, { observer: required.observer });
         resources.privacy = bindPrivacy({ unit: database.unit, identity, subjects: forms.subjects, measure, clock: required.clock, ids: required.ids, observer: required.observer, subjectLane });
         const publicServices: BootRequestInput['publicServices'] = { forms, identity, visits, clock: required.clock, observer: required.observer, campaigns: services.campaigns, publicOrigin: config.value.publicOrigin,
+            consent: { store: consentReceiptStore({ stateRoot: config.value.stateRoot }), ids: () => required.ids.next({}) },
             links: createSqlTrackedLink({ database: measureDb, ids: required.ids, baseUrl: 'https://sandbox.example.test/l/', allowedOrigins: ['https://sandbox.example.test'] }, { observer: required.observer }) };
         services.formSubjects = forms.subjects;
         const audit = bindCatalogAudit({ unit: database.unit, clock: required.clock, ids: required.ids, observer: required.observer });

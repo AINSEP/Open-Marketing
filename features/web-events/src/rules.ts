@@ -10,13 +10,17 @@ const opaqueId = idSchema.regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/).refine(value =>
 const clickId = landingPropertiesSchema.shape.gclid.unwrap();
 /** MVP click keys shared by collection mapping and the emitted browser source. */
 export const clickKeys = ["gclid", "gbraid", "wbraid", "fbclid"] as const;
+/** Server-captured website-conversion pair, stored only together in the mutable touch map. */
+const contextKeys = ["client_user_agent", "event_source_url"] as const;
+const contextValue = z.string().min(1).max(1024);
 /** One landing schema/version; authority-bearing scope is supplied separately by ingress. */
 export const eventSchema = z.strictObject({ eventId: opaqueId, schema: z.literal("om.web.landing"), version: z.literal(1), source: z.literal("first-party"), subjectId: opaqueId.optional(), anonymousId: opaqueId.optional(), name: z.literal("landing"), properties: landingPropertiesSchema, occurredAt: epochSchema, receivedAt: epochSchema, cursor: epochSchema, traceId: opaqueId }).refine(value => value.subjectId !== undefined || value.anonymousId !== undefined);
 /** Storage accepts only sanitized identifiers, never raw URLs or macro metadata. */
 export const storedEventSchema = eventSchema.safeExtend({ properties: z.strictObject({ linkId: opaqueId.optional(), campaignId: opaqueId.optional(), destinationId: digestSchema.optional() }) });
 /** Authenticator/storage outputs remain tainted until these strict schemas accept them. */
 export const visitSchema = z.strictObject({ visitId: opaqueId, scope: scopeSchema, anonymousId: opaqueId, subjectId: opaqueId.nullable(), expiresAt: epochSchema });
-export const touchSchema = z.strictObject({ touchId: opaqueId, eventId: opaqueId, occurredAt: epochSchema, linkId: opaqueId.nullable(), campaignId: opaqueId.nullable(), clickIdentifiers: z.strictObject({ gclid: clickId.optional(), gbraid: clickId.optional(), wbraid: clickId.optional(), fbclid: clickId.optional() }) });
+export const touchSchema = z.strictObject({ touchId: opaqueId, eventId: opaqueId, occurredAt: epochSchema, linkId: opaqueId.nullable(), campaignId: opaqueId.nullable(), clickIdentifiers: z.strictObject({ gclid: clickId.optional(), gbraid: clickId.optional(), wbraid: clickId.optional(), fbclid: clickId.optional(),
+  client_user_agent: contextValue.optional(), event_source_url: contextValue.optional() }) });
 export const storedDigestSchema = digestSchema;
 
 /** Stable sanitized failure: never includes boundary inputs or driver diagnostics. */
@@ -83,7 +87,16 @@ export function mapTouch(required: { event: WebEvent; touchId: string }): Attrib
     const value = properties[key];
     if (typeof value === "string") clickIdentifiers[key] = value;
   }
+  Object.assign(clickIdentifiers, contextPair({ properties }));
   return { touchId: required.touchId, eventId: required.event.eventId, occurredAt: required.event.occurredAt, linkId: typeof properties.linkId === "string" ? properties.linkId : null, campaignId: campaignClaim({ properties }), clickIdentifiers };
+}
+/** User agent + query/fragment-free page URL only as a pair, each <=1024 characters; otherwise neither is stored. */
+function contextPair(required: { properties: WebEvent["properties"] }): Record<string, string> {
+  const { client_user_agent: agent, pageUrl } = required.properties;
+  if (typeof agent !== "string" || typeof pageUrl !== "string" || !URL.canParse(pageUrl)) return {};
+  const page = new URL(pageUrl);
+  const url = page.origin + page.pathname;
+  return contextValue.safeParse(agent).success && contextValue.safeParse(url).success ? { client_user_agent: agent, event_source_url: url } : {};
 }
 /** Repository ingress checks event/touch agreement; adapters own receipt time and cursor. */
 export function validateRecord(required: { context: CallContext; event: WebEvent; touch: AttributionTouch; options?: CallOptions }): Failure | undefined {
@@ -104,7 +117,7 @@ function touchMatches(required: { expected: AttributionTouch; actual: Attributio
 }
 /** Normalize allowlisted click key order before equality/digest operations. */
 function canonicalClicks(required: { clicks: Readonly<Record<string, string>> }): Record<string, string> {
-  return Object.fromEntries(clickKeys.filter(key => required.clicks[key] !== undefined).map(key => [key, required.clicks[key]]));
+  return Object.fromEntries([...clickKeys, ...contextKeys].filter(key => required.clicks[key] !== undefined).map(key => [key, required.clicks[key]]));
 }
 /** Replay excludes generated metadata; a digest retains no raw click identifiers.
  * @complexity O(p), bounded envelope; no randomness or I/O.

@@ -31,7 +31,8 @@ export function createMemoryMeasurementShareability(required: { clock?: ClockPor
       const now = required.clock.now({});
       const matches = bounded.value.filter(item => sameScope({ left: item.scope, right: input.context.scope }) && item.subjectId === parsed.value.subjectId && item.destination === parsed.value.destination && item.purpose === parsed.value.purpose);
       if (matches.some(item => item.withdrawn)) return { ok: true, value: { allowed: false, reason: "withdrawn" } };
-      const allowed = matches.some(item => item.expiresAt > now && Object.keys(parsed.value.identifierDigests).every(key => item.identifierKeys.includes(key)));
+      // phone_digits is an alias of phone: contacts derives both from the same HMAC.
+      const allowed = matches.some(item => item.expiresAt > now && Object.keys(parsed.value.identifierDigests).every(key => item.identifierKeys.includes(key) || (key === "phone_digits" && item.identifierKeys.includes("phone"))));
       return { ok: true, value: { allowed, reason: allowed ? undefined : "missing_purpose_bound_consent" } };
     },
   };

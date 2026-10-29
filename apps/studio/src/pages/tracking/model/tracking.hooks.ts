@@ -8,16 +8,17 @@ import type { StudioApiPort, StudioRuntime } from '../../../shared/api/index.js'
 
 const destinationSchema = z.url({ protocol: /^https$/ }).max(2048);
 const campaignKeysSchema = z.array(campaignKeySchema).max(2);
-const setupOutputSchema = z.strictObject({ source: z.string().max(64512), campaignUrlTemplates: z.array(z.strictObject({ campaignKey: campaignKeySchema, template: z.string().max(4096) })).max(2) });
+const setupOutputSchema = z.strictObject({ source: z.string().max(64512), campaignUrlTemplates: z.array(z.strictObject({ campaignKey: campaignKeySchema, template: z.string().max(4096) })).max(2),
+  consentBanner: z.strictObject({ head: z.string().max(65536), body: z.string().max(65536) }) });
 const readinessSchema = z.strictObject({ status: z.enum(['missing', 'stale', 'ready']), heartbeatAt: epochSchema.nullable(), fallbackUrl: z.url({ protocol: /^https$/ }).nullable() });
 export type TrackingTemplate = z.infer<typeof setupOutputSchema>['campaignUrlTemplates'][number];
 export type TrackingProps = { api: StudioApiPort; runtime: StudioRuntime };
 
 /** JSON is only an optional bounded CampaignKey input, never a connection or executable code. */
-function setupInput(required: { destinationUrl: string; campaignKeys: string }) {
+function setupInput(required: { destinationUrl: string; campaignKeys: string; consentBanner: boolean }) {
   try {
-    return parseBoundary({ schema: z.strictObject({ destinationUrl: destinationSchema, campaignKeys: campaignKeysSchema }),
-      input: { destinationUrl: required.destinationUrl, campaignKeys: JSON.parse(required.campaignKeys || '[]') } });
+    return parseBoundary({ schema: z.strictObject({ destinationUrl: destinationSchema, campaignKeys: campaignKeysSchema, consentBanner: z.boolean() }),
+      input: { destinationUrl: required.destinationUrl, campaignKeys: JSON.parse(required.campaignKeys || '[]'), consentBanner: required.consentBanner } });
   } catch { return unavailable({ message: 'Enter a destination and up to two campaign keys as JSON.' }); }
 }
 function unavailable(required: { message: string }): Outcome<never> {
@@ -44,6 +45,7 @@ export function useTracking(required: TrackingProps) {
   const [destinationUrl, setDestination] = useState('');
   const [campaignKeys, setCampaignKeys] = useState('');
   const [fallbackSlug, setFallback] = useState('');
+  const [consentBanner, setConsentBanner] = useState(true);
   const [setup, setSetup] = useState<z.infer<typeof setupOutputSchema> | null>(null);
   const [readiness, setReadiness] = useState<z.infer<typeof readinessSchema> | null>(null);
   const [busy, setBusy] = useState(false);
@@ -64,7 +66,7 @@ export function useTracking(required: TrackingProps) {
   };
   const generate = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); setSetup(null);
-    const input = setupInput({ destinationUrl, campaignKeys });
+    const input = setupInput({ destinationUrl, campaignKeys, consentBanner });
     if (!input.ok) { setError('Enter an HTTPS destination and up to two valid campaign keys.'); return; }
     const result = await request({ name: 'om_web_events_snippet', input: input.value });
     const parsed = result.ok ? setupOutputSchema.safeParse(result.value) : null;
@@ -82,9 +84,10 @@ export function useTracking(required: TrackingProps) {
   };
   const changeDestination = (event: ChangeEvent<HTMLInputElement>) => { setDestination(event.target.value); setSetup(null); setReadiness(null); };
   const changeKeys = (event: ChangeEvent<HTMLTextAreaElement>) => { setCampaignKeys(event.target.value); setSetup(null); };
+  const changeConsentBanner = (event: ChangeEvent<HTMLInputElement>) => { setConsentBanner(event.target.checked); setSetup(null); };
   const changeFallback = (event: ChangeEvent<HTMLInputElement>) => { setFallback(event.target.value); setReadiness(null); };
   const selectSource = () => { sourceRef.current?.focus(); sourceRef.current?.select(); };
   const selectFallback = () => { if (readiness?.fallbackUrl) { setDestination(readiness.fallbackUrl); setSetup(null); setReadiness(null); } };
-  return { destinationUrl, campaignKeys, fallbackSlug, setup, readiness, busy, error, sourceRef,
-    generate, checkReadiness, changeDestination, changeKeys, changeFallback, selectSource, selectFallback };
+  return { destinationUrl, campaignKeys, fallbackSlug, consentBanner, setup, readiness, busy, error, sourceRef,
+    generate, checkReadiness, changeDestination, changeKeys, changeConsentBanner, changeFallback, selectSource, selectFallback };
 }

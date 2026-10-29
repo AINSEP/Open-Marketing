@@ -53,6 +53,24 @@ export function webEventRepoSuite(required: { name: string; create: (required: {
       const changedTime = event({ occurredAt: 101 });
       expect(await fixture.repo.recordTouch({ context, event: changedTime, touch: touch({ event: changedTime }) })).toMatchObject({ ok: false, error: { code: "conflict" } });
     });
+    it("stores the user-agent/page-URL pair only together, replays it and purges it on erasure", async () => {
+      const paired = event({ subjectId: "subject", properties: { ...event().properties, client_user_agent: "Fixture/1.0", pageUrl: destinationUrl + "?email=secret#frag" } });
+      const saved = touch({ event: paired });
+      expect(saved.clickIdentifiers).toMatchObject({ client_user_agent: "Fixture/1.0", event_source_url: destinationUrl });
+      expect(await fixture.repo.recordTouch({ context, event: paired, touch: saved })).toEqual({ ok: true, value: saved });
+      expect(await fixture.repo.recordTouch({ context, event: paired, touch: { ...saved, touchId: "retry" } })).toEqual({ ok: true, value: saved });
+      const changedAgent = event({ ...paired, properties: { ...paired.properties, client_user_agent: "Other/2.0" } });
+      expect(await fixture.repo.recordTouch({ context, event: changedAgent, touch: touch({ event: changedAgent }) })).toMatchObject({ ok: false, error: { code: "conflict" } });
+      const lone = event({ eventId: "lone", subjectId: "subject", properties: { ...event().properties, client_user_agent: "Fixture/1.0" } });
+      const loneTouch = touch({ event: lone, touchId: "lone-touch" });
+      expect(loneTouch.clickIdentifiers).not.toHaveProperty("client_user_agent");
+      expect(await fixture.repo.recordTouch({ context, event: lone, touch: { ...loneTouch, clickIdentifiers: { ...loneTouch.clickIdentifiers, client_user_agent: "Fixture/1.0" } } })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+      expect(await fixture.repo.recordTouch({ context, event: lone, touch: loneTouch })).toEqual({ ok: true, value: loneTouch });
+      expect(await fixture.repo.purgeSubject({ context, subjectId: "subject" })).toEqual({ ok: true, value: undefined });
+      const query = { context, subjectId: "subject", window: { start: 0, end: 500 }, limit: 100 };
+      const after = await fixture.repo.touchesFor(query);
+      expect(after.ok && after.value.map(item => item.clickIdentifiers)).toEqual([{}, {}]);
+    });
     it("isolates scoped keys and does not allow touch-ID collisions", async () => {
       expect((await fixture.repo.recordTouch({ context, event: event(), touch: touch() })).ok).toBe(true);
       for (const alternate of [otherOwner, otherWorkspace]) {

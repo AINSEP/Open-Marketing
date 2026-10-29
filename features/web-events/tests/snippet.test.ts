@@ -5,7 +5,7 @@ import type { TrackingTagOutput } from "@open-marketing/contracts";
 import { campaign, destinationUrl, encodedCampaign } from "./fixtures.js";
 import { webEventSnippetSource, webEventInstallSource } from "../index.js";
 
-type Bootstrap = (required: { now: () => number; nextId: () => string; location: { search: string; href?: string }; fetch: typeof fetch; document?: Document; consent?: unknown }) => Promise<unknown>;
+type Bootstrap = (required: { now: () => number; nextId: () => string; location: { search: string; href?: string }; fetch: typeof fetch; document?: Document; consent?: unknown; signal?: AbortSignal }) => Promise<unknown>;
 function snippet(required: { tags?: readonly TrackingTagOutput[] } = {}): Bootstrap {
   const result = webEventSnippetSource({ collectionPath: "/c", ...required });
   if (!result.ok) throw new Error("Invalid source fixture");
@@ -124,39 +124,63 @@ describe("first-party snippet source", () => {
     const source = webEventSnippetSource({ collectionPath: "/c", tags });
     expect(source.ok && source.value).not.toContain("</script>");
   });
-  it.each([undefined, false, "true"])("installer waits for visitor grant before one landing and tag activation: %j", async omConsent => {
+  type Adapter = { id: string; kind: string; category: string; grant(required: { signal: AbortSignal }): { revoke(): boolean } | null };
+  function installer(required: { tags?: readonly TrackingTagOutput[]; jiniConsent?: unknown } = {}) {
     const fixture = browser();
     fixture.location.search += "&utm_source=fixture-ads&utm_medium=paid&om_a=account&utm_id=campaign";
     const document = globalThis.document.implementation.createHTMLDocument("fixture");
-    const window = { ...fixture, document, omConsent, omGrantConsent: () => {} };
-    const source = webEventInstallSource({ collectionPath: "/c", tags: [{ snippet: "<script>fixtureTag();</script>", campaignUrlTemplate: destinationUrl }] });
+    const window: Record<string, unknown> & { jiniConsentQueue?: Adapter[]; omGrantConsent?: () => unknown } = { ...fixture, document, jiniConsent: required.jiniConsent };
+    const source = webEventInstallSource({ collectionPath: "/c", tags: required.tags ?? [{ snippet: "<script>fixtureTag();</script>", campaignUrlTemplate: destinationUrl }] });
     if (!source.ok) throw new Error("Invalid installer fixture");
-    const pending = runInNewContext(source.value, { window, URL, URLSearchParams, Date: { now: fixture.now }, crypto: { randomUUID: fixture.nextId } });
+    const pending = runInNewContext(source.value, { window, URL, URLSearchParams, AbortController, Date: { now: fixture.now }, crypto: { randomUUID: fixture.nextId } }) as Promise<unknown>;
+    return { fixture, document, window, pending, adapter: () => window.jiniConsentQueue![0] };
+  }
+  it("registers one marketing consent adapter and sends nothing before Jini's grant", async () => {
+    const { fixture, document, window, adapter } = installer();
     await Promise.resolve();
+    expect(window.jiniConsentQueue).toHaveLength(1);
+    expect(adapter()).toMatchObject({ id: "om-web-events", kind: "consent-adapter", category: "marketing" });
     expect(fixture.fetch).not.toHaveBeenCalled();
     expect(document.scripts).toHaveLength(0);
+    expect(adapter().grant({ signal: AbortSignal.abort() })).toBeNull();
+    await Promise.resolve();
+    expect(fixture.fetch).not.toHaveBeenCalled();
+  });
+  it("collects once after the grant, keeps landing data captured at load, and revoke() withdraws", async () => {
+    const { fixture, document, pending, adapter } = installer();
     fixture.location.search = "?utm_id=changed&gclid=changed";
-    window.omGrantConsent();
-    window.omGrantConsent();
+    const revoker = adapter().grant({ signal: new AbortController().signal });
+    adapter().grant({ signal: new AbortController().signal });
     await pending;
     expect(document.scripts).toHaveLength(1);
     expect(document.scripts[0].textContent).toBe("fixtureTag();");
+    expect(fixture.fetch).toHaveBeenCalledTimes(1);
     expect(JSON.parse(fixture.fetch.mock.calls[0][1]?.body as string)).toMatchObject({ consent: true, occurredAt: 100, eventId: "browser-event",
       properties: { gclid: "google", gbraid: "bridge", wbraid: "web", fbclid: "meta", utm_source: "fixture-ads", utm_medium: "paid", om_a: "account", utm_id: "campaign" } });
-    window.omGrantConsent();
-    await Promise.resolve();
-    expect(document.scripts).toHaveLength(1);
-    expect(fixture.fetch).toHaveBeenCalledTimes(1);
+    expect(revoker!.revoke()).toBe(false);
+    expect(fixture.fetch).toHaveBeenLastCalledWith("/c", { method: "DELETE", mode: "same-origin", credentials: "same-origin" });
+    expect(adapter().grant({ signal: new AbortController().signal })).toBeNull();
+    expect(fixture.fetch).toHaveBeenCalledTimes(2);
   });
-  it("installer activates when the visitor already granted consent", async () => {
-    const fixture = browser();
+  it("revoke() before any tag ran reports a clean stop", async () => {
+    const { fixture, pending, adapter } = installer({ tags: [] });
+    const revoker = adapter().grant({ signal: new AbortController().signal });
+    await pending;
+    expect(revoker!.revoke()).toBe(true);
+    expect(fixture.fetch).toHaveBeenCalledTimes(2);
+  });
+  it("stops before the POST and before each tag once the signal aborts", async () => {
     const document = globalThis.document.implementation.createHTMLDocument("fixture");
-    const source = webEventInstallSource({ collectionPath: "/c", tags: [{ snippet: "<script>fixtureTag();</script>", campaignUrlTemplate: destinationUrl }] });
-    if (!source.ok) throw new Error("Invalid installer fixture");
-    await runInNewContext(source.value, { window: { ...fixture, document, omConsent: true }, URL, URLSearchParams, Date: { now: fixture.now }, crypto: { randomUUID: fixture.nextId } });
-    expect(document.scripts).toHaveLength(1);
-    expect(fixture.fetch).toHaveBeenCalledTimes(1);
-    expect(JSON.parse(fixture.fetch.mock.calls[0][1]?.body as string)).toMatchObject({ consent: true });
+    const fixture = browser();
+    await snippet({ tags })({ ...fixture, document, consent: true, signal: AbortSignal.abort() } as Parameters<Bootstrap>[0]);
+    expect(fixture.fetch).not.toHaveBeenCalled();
+    expect(document.scripts).toHaveLength(0);
+  });
+  it("omGrantConsent bridges an own CMP to window.jiniConsent", async () => {
+    const set = vi.fn(async () => ({}));
+    const { window } = installer({ jiniConsent: { set } });
+    window.omGrantConsent!();
+    expect(set).toHaveBeenCalledWith({ action: "accept" });
     expect(webEventInstallSource({ collectionPath: "//invalid" }).ok).toBe(false);
   });
 });

@@ -29,7 +29,14 @@ export function event(required: Partial<WebEvent> = {}): WebEvent {
 }
 export function touch(required: { event?: WebEvent; touchId?: string } = {}): AttributionTouch {
   const input = required.event ?? event();
-  return { touchId: required.touchId ?? "touch", eventId: input.eventId, occurredAt: input.occurredAt, linkId: typeof input.properties.linkId === "string" ? input.properties.linkId : null, campaignId: typeof input.properties.campaignId === "string" ? input.properties.campaignId : null, clickIdentifiers: Object.fromEntries(Object.entries(input.properties).filter(([key]) => ["gclid", "gbraid", "wbraid", "fbclid"].includes(key))) as Record<string, string> };
+  return { touchId: required.touchId ?? "touch", eventId: input.eventId, occurredAt: input.occurredAt, linkId: typeof input.properties.linkId === "string" ? input.properties.linkId : null, campaignId: typeof input.properties.campaignId === "string" ? input.properties.campaignId : null, clickIdentifiers: { ...Object.fromEntries(Object.entries(input.properties).filter(([key]) => ["gclid", "gbraid", "wbraid", "fbclid"].includes(key))) as Record<string, string>, ...contextPair({ event: input }) } };
+}
+/** Expected server-captured pair: both keys or neither; URL without query/fragment. */
+function contextPair(required: { event: WebEvent }): Record<string, string> {
+  const { client_user_agent: agent, pageUrl } = required.event.properties;
+  if (typeof agent !== "string" || typeof pageUrl !== "string") return {};
+  const page = new URL(pageUrl);
+  return { client_user_agent: agent, event_source_url: page.origin + page.pathname };
 }
 export function clockFixture(): { clock: ClockPort; time: { now: number } } {
   const time = { now: 1000 };

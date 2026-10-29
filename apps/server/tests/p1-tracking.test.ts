@@ -10,6 +10,7 @@ import { createSubjectLane } from '../src/composition/subject-lane.js';
 import { bindTracking } from '../src/composition/tracking.js';
 import { createNodeHttpListener } from '../src/inbound/http.js';
 import { bootServer, type ServerBootIo } from '../src/composition/index.js';
+import { OM_CONSENT_POLICY } from '../src/inbound/public.js';
 
 const context: CallContext = { scope: { ownerId: 'owner', workspaceId: 'workspace' }, principal: { kind: 'owner', ownerId: 'owner' }, correlationId: 'correlation', traceId: 'trace' };
 const key = { pluginId: 'fixture-ads', accountId: 'account', vendorCampaignId: 'campaign' };
@@ -105,6 +106,22 @@ it('allows tag-free snippets without a host and preserves plugin refusals', asyn
     expect(await f.service.snippet({ context, destinationUrl: 'https://site.example/landing', campaignKeys: [key] })).toEqual(refused);
     f.invoke.mockResolvedValue({ ok: true, value: { snippet: '', campaignUrlTemplate: '' } });
     expect(await f.service.snippet({ context, destinationUrl: 'https://site.example/landing', campaignKeys: [key] })).toMatchObject({ ok: false, error: { code: 'invalid_input' } });
+});
+it.each([
+    { consentBanner: undefined, banner: '"banner":"jini"', body: true },
+    { consentBanner: true, banner: '"banner":"jini"', body: true },
+    { consentBanner: false, banner: '"banner":"headless"', body: false },
+])('renders the shared Jini consent banner for both modes: %j', async ({ consentBanner, banner, body }) => {
+    const f = trackingFixture({ hostMissing: true });
+    const result = await f.service.snippet({ context, destinationUrl: 'https://site.example/landing', ...(consentBanner === undefined ? {} : { consentBanner }) });
+    if (!result.ok) throw new Error('Snippet fixture failed');
+    expect(result.value.consentBanner.head).toContain(banner);
+    expect(result.value.consentBanner.head).toContain('"policy":"' + OM_CONSENT_POLICY + '"');
+    expect(result.value.consentBanner.head).toContain('<script src="/consent/client.min.js"');
+    expect(result.value.consentBanner.head).toContain('"endpoint":"/consent"');
+    expect(result.value.consentBanner.body.includes('id="jini-consent"')).toBe(body);
+    expect(result.value.source).toContain('jiniConsentQueue');
+    expect(result.value.source).toContain('"marketing"');
 });
 it.each([
     { published: true, publicOrigin: 'https://public.example', expected: 'https://public.example/f/lead' },

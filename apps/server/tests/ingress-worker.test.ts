@@ -7,7 +7,7 @@ import { createSubjectLane } from '../src/composition/subject-lane.js';
 import { expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import * as fs from 'node:fs/promises';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { removeStateRoot } from './state-root.js';
 import { join } from 'node:path';
@@ -20,11 +20,12 @@ import { createNodeBootIo } from '../src/composition/serve.js';
 import { createLocalAuth, provisionLocalOwner } from '../src/composition/local-auth.js';
 import { bindServerDatabase, provisionWorkspace } from '../src/composition/database.js';
 import { bindForms, seedSandboxForm } from '../src/composition/forms.js';
-import { bindIdentity, createVisitTokens, localKey, processingAllowed } from '../src/composition/identity.js';
+import { bindIdentity, createVisitTokens, localKey, processingAllowed, withWebsiteContext } from '../src/composition/identity.js';
 import { bindPrivacy } from '../src/composition/privacy.js';
 import { createFormWorkers } from '../src/composition/workers.js';
 import { createNodeHttpListener } from '../src/inbound/http.js';
-import { handlePublicRequest } from '../src/inbound/public.js';
+import { handlePublicRequest, OM_CONSENT_POLICY } from '../src/inbound/public.js';
+import type { ConsentRecord } from '@jini-ai/cookie-consent/server';
 import { handleOwnerRequest } from '../src/inbound/owner.js';
 import { createSqlCampaignRepo } from '@open-marketing/campaigns';
 import { createMemoryConfirmationExchange, createSqlSafetyRepo } from '@open-marketing/safety';
@@ -38,6 +39,19 @@ function answerAudit() {
         answers.push(structuredClone(input.answer));
         return { ok: true as const, value: undefined };
     } };
+}
+
+/** Visitor's own Jini choice cookie; `stored: false` is an unconfirmed (pending) durable grant. */
+function jiniChoice(required: { at: number; marketing?: boolean; stored?: boolean }): string {
+    const marketing = required.marketing ?? true;
+    const choice = { v: 1, p: OM_CONSENT_POLICY, c: { functional: marketing, analytics: marketing, marketing }, t: required.at, a: marketing ? 'accept' : 'reject',
+        ...(required.stored === false ? { q: 1 } : { r: 'fixture-receipt-0001' }) };
+    return 'jini_choices=' + encodeURIComponent(JSON.stringify(choice));
+}
+/** In-memory Jini receipt store double (ConsentRecordPort). */
+function consentStore() {
+    const records: ConsentRecord[] = [];
+    return { records, async save(input: { record: ConsentRecord }) { records.push(structuredClone(input.record)); } };
 }
 
 /** Real boot/HTTP/kernel/file; host scheduler is manually advanced, never a fake outbox. */
@@ -95,7 +109,7 @@ async function fixture(_input: Record<string, never>) {
                 return handleOwnerRequest({ request, context: trace, services: { campaigns, safety, confirmations, formSubjects: composed.forms.subjects } });
             }
             return handlePublicRequest({ request, context: trace, forms: composed.forms, identity: composed.identity, visits: composed.visits, clock, campaigns,
-                links: composed.links });
+                links: composed.links, consent: composed.consent });
         } });
         if (!started.ok) throw new Error('Listener failed');
         origin = listener.origin({})!;
@@ -114,7 +128,7 @@ async function fixture(_input: Record<string, never>) {
         const measure = createSqlMeasureRepo({ database: measureDb, jobs: { async enqueue() { throw new Error('No conversions'); } } });
         const campaigns = createSqlCampaignRepo({ db: { query: input => database.unit.transaction({ work: ({ session }) => session.query(input) }) } });
         const links = createSqlTrackedLink({ database: measureDb, ids, baseUrl: 'https://sandbox.example.test/l/', allowedOrigins: ['https://sandbox.example.test'] });
-        return { forms, identity, visits, database, campaigns, links, subjectLane,
+        return { forms, identity, visits, database, campaigns, links, subjectLane, consent: { store: consentStore(), ids: () => randomUUID() },
             jobs: createSqlJobRepo({ database: database.unit, clock, ids, retryPolicy: formRetryPolicy }),
             privacy: bindPrivacy({ unit: database.unit, subjectLane, identity, subjects: forms.subjects, measure, clock, ids, observer }) };
     }
@@ -123,6 +137,7 @@ async function fixture(_input: Record<string, never>) {
         context, clock, events, adapters: () => composed,
         get native() { return native; }, get origin() { return origin; },
         headers: { authorization: 'Bearer ' + credentials.token },
+        granted: () => jiniChoice({ at: now }),
         async drain() {
             if (!workerCallback) throw new Error('Worker not scheduled');
             const next = new Promise<void>(resolve => { finished = resolve; });
@@ -185,14 +200,14 @@ it('public lead acceptance is async, exact, linked to a landing, visible in stud
         if (!campaign.ok) throw new Error('Campaign fixture failed');
         const link = await initial.links.create({ context: f.context, request: { destinationUrl: 'https://sandbox.example.test/lead', campaignId: campaign.value.campaignId, utm: {} } });
         if (!link.ok) throw new Error('Link fixture failed');
-        const landing = await fetch(f.origin + '/c', { method: 'POST', headers: { 'content-type': 'application/json' },
+        const landing = await fetch(f.origin + '/c', { method: 'POST', headers: { 'content-type': 'application/json', cookie: f.granted() },
             body: JSON.stringify({ consent: true, eventId: 'landing-one', schema: 'om.web.landing', version: 1, source: 'first-party', name: 'landing', properties: { linkId: link.value.linkId, campaignId: campaign.value.campaignId,
                 utm_source: 'google-ads', utm_medium: 'cpc', om_a: 'account', utm_id: 'campaign', pageUrl: 'https://sandbox.example.test/lead', gclid: 'first-party-click', fbclid: 'untrusted-click', fbc: 'legacy-click', fbp: 'legacy-browser' }, occurredAt: f.clock.now({}) }) });
         expect(landing.status).toBe(202);
         expect(await landing.json()).toEqual({ ok: true, value: { accepted: true } });
-        const cookie = landing.headers.get('set-cookie')!.split(';')[0];
+        const cookie = landing.headers.get('set-cookie')!.split(';')[0] + '; ' + f.granted();
         const page = await form({ fixture: f });
-        expect(page.html).not.toMatch(/checked(?:=|\s|>)/);
+        expect(page.html.slice(0, page.html.indexOf('<section id="jini-consent"'))).not.toMatch(/checked(?:=|\s|>)/);
         const fields = { ...page.fields, email: 'Lead@Example.test', marketing: 'on' };
         const receipt = await submit({ fixture: f, fields, cookie });
         expect(count({ fixture: f, table: 'contact_subject' })).toBe(0);
@@ -221,7 +236,7 @@ it('public lead acceptance is async, exact, linked to a landing, visible in stud
         expect(f.events).toEqual(expect.arrayContaining([expect.objectContaining({ operation: 'server.forms.worker', correlationId: 'lead-correlation', traceId: 'lead-trace', outcome: 'accepted' })]));
         await f.restart();
         // The fixture listener chooses a new port; keep the original consented token for replay.
-        const replayCookie = 'om_visit_' + new URL(f.origin).port + '=' + cookie.slice(cookie.indexOf('=') + 1);
+        const replayCookie = 'om_visit_' + new URL(f.origin).port + '=' + cookie.slice(cookie.indexOf('=') + 1, cookie.indexOf(';')) + '; ' + f.granted();
         expect(await submit({ fixture: f, fields, cookie: replayCookie })).toEqual(receipt);
         const replay = await f.adapters().forms.accept({ context: f.context, ...receipt });
         expect(replay).toMatchObject({ ok: true, value: { subjectId: subject.value.subjectId } });
@@ -241,7 +256,7 @@ it.each([
         if (!campaign.ok) throw new Error('Invalid fixture key');
         const get = vi.spyOn(binding.campaigns, 'get');
         const response = await handlePublicRequest({ context: f.context, ...binding, clock: f.clock,
-            request: { method: 'POST', path: '/c', headers: origin ? { origin } : {}, body: {
+            request: { method: 'POST', path: '/c', headers: { cookie: f.granted(), ...(origin ? { origin } : {}) }, body: {
                 consent: true, eventId: 'origin-landing', schema: 'om.web.landing', version: 1, source: 'first-party', name: 'landing', occurredAt: f.clock.now({}),
                 properties: { campaignId: campaign.value, utm_source: 'google-ads', utm_medium: 'paid', om_a: 'account', utm_id: 'campaign',
                     pageUrl: 'https://sandbox.example.test/lead?private=value#fragment', gclid: 'untrusted' },
@@ -270,10 +285,10 @@ it.each([undefined, false, 'true'])('rejects collection without literal consent 
         expect(await denied.json()).toMatchObject({ ok: false, error: { code: 'invalid_input' } });
         expect(denied.headers.get('set-cookie')).toBeNull();
         for (const table of ['web_visit', 'web_event', 'web_touch'] as const) expect(count({ fixture: f, table })).toBe(0);
-        const accepted = await fetch(f.origin + '/c', { method: 'POST', headers,
+        const accepted = await fetch(f.origin + '/c', { method: 'POST', headers: { ...headers, cookie: f.granted() },
             body: JSON.stringify({ ...body, consent: true, eventId: 'consented-landing' }) });
         expect(accepted.status).toBe(202);
-        const cookie = accepted.headers.get('set-cookie')!.split(';')[0];
+        const cookie = accepted.headers.get('set-cookie')!.split(';')[0] + '; ' + f.granted();
         const deniedWithCookie = await fetch(f.origin + '/c', { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify(body) });
         expect(deniedWithCookie.status).toBe(400);
         expect(deniedWithCookie.headers.get('set-cookie')).toBeNull();
@@ -281,7 +296,7 @@ it.each([undefined, false, 'true'])('rejects collection without literal consent 
     } finally { await f.close(); }
 });
 
-it('leaves hosted GET untracked, issues Secure visits after consent and keeps the CSP unchanged', async () => {
+it('leaves hosted GET untracked with the nonce\'d banner CSP and issues Secure visits after a stored grant', async () => {
     const f = await fixture({});
     try {
         const response = await handlePublicRequest({ context: f.context, ...f.adapters(), clock: f.clock, publicOrigin: 'https://public.example',
@@ -289,13 +304,122 @@ it('leaves hosted GET untracked, issues Secure visits after consent and keeps th
         expect(response.status).toBe(200);
         expect(response.headers?.['set-cookie']).toBeUndefined();
         expect(response.body).not.toContain('name="om_vt"');
-        expect(response.headers?.['content-security-policy']).toBe("default-src 'none'; script-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
+        const nonce = /style-src 'nonce-([^']+)'/.exec(response.headers?.['content-security-policy'] ?? '')?.[1];
+        expect(nonce).toBeTruthy();
+        expect(response.headers?.['content-security-policy']).toBe("default-src 'none'; script-src 'self'; style-src 'nonce-" + nonce + "'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
+        expect(response.body).toContain('<style data-jini-consent-style nonce="' + nonce + '"');
+        expect(response.body).toContain('id="jini-consent-config"');
+        expect(response.body).toContain('<script src="/consent/client.min.js"');
         for (const table of ['web_visit', 'web_event', 'web_touch'] as const) expect(count({ fixture: f, table })).toBe(0);
         const collected = await handlePublicRequest({ context: f.context, ...f.adapters(), clock: f.clock, publicOrigin: 'https://public.example',
-            request: { method: 'POST', path: '/c', headers: { host: 'public.example' }, body: { consent: true, eventId: 'secure-landing',
+            request: { method: 'POST', path: '/c', headers: { host: 'public.example', cookie: f.granted() }, body: { consent: true, eventId: 'secure-landing',
                 schema: 'om.web.landing', version: 1, source: 'first-party', name: 'landing', occurredAt: f.clock.now({}), properties: {} } } });
         expect(collected.status).toBe(202);
         expect(collected.headers?.['set-cookie']).toContain('; Secure');
+    } finally { await f.close(); }
+});
+
+it.each([
+    { name: 'no choice', choice: 'none', signal: {} },
+    { name: 'pending grant', choice: 'pending', signal: {} },
+    { name: 'reject', choice: 'reject', signal: {} },
+    { name: 'GPC', choice: 'granted', signal: { 'sec-gpc': '1' } },
+    { name: 'DNT', choice: 'granted', signal: { dnt: '1' } },
+] as const)('writes no visit, cookie or touch without a stored marketing grant: $name', async ({ choice, signal }) => {
+    const f = await fixture({});
+    try {
+        const cookies = { none: '', pending: jiniChoice({ at: f.clock.now({}), stored: false }), reject: jiniChoice({ at: f.clock.now({}), marketing: false }), granted: f.granted() };
+        const body = JSON.stringify({ consent: true, eventId: 'gated-landing', schema: 'om.web.landing', version: 1, source: 'first-party', name: 'landing', occurredAt: f.clock.now({}), properties: { gclid: 'click' } });
+        const denied = await fetch(f.origin + '/c', { method: 'POST', headers: { 'content-type': 'application/json', ...(signal as Record<string, string>), cookie: cookies[choice] }, body });
+        expect(denied.status).toBe(403);
+        expect(denied.headers.get('set-cookie')).toBeNull();
+        for (const table of ['web_visit', 'web_event', 'web_touch'] as const) expect(count({ fixture: f, table })).toBe(0);
+        const granted = await fetch(f.origin + '/c', { method: 'POST', headers: { 'content-type': 'application/json', cookie: f.granted() }, body });
+        expect(granted.status).toBe(202);
+        expect(count({ fixture: f, table: 'web_touch' })).toBe(1);
+    } finally { await f.close(); }
+});
+
+it('stores a same-origin Jini receipt, serves the client and clears the visit cookie on DELETE /c', async () => {
+    const f = await fixture({});
+    try {
+        const receipt = await fetch(f.origin + '/consent', { method: 'POST', headers: { origin: f.origin, 'content-type': 'application/json' },
+            body: JSON.stringify({ policy: OM_CONSENT_POLICY, action: 'accept' }) });
+        expect(receipt.status).toBe(201);
+        const records = f.adapters().consent.store.records;
+        expect(records).toEqual([expect.objectContaining({ policyVersion: OM_CONSENT_POLICY, action: 'accept', choices: { necessary: true, functional: true, analytics: true, marketing: true } })]);
+        expect(await receipt.json()).toEqual({ id: records[0].id });
+        const stale = await fetch(f.origin + '/consent', { method: 'POST', headers: { origin: f.origin, 'content-type': 'application/json' }, body: JSON.stringify({ policy: 'old', action: 'accept' }) });
+        expect(stale.status).toBe(409);
+        expect(records).toHaveLength(1);
+        const client = await fetch(f.origin + '/consent/client.min.js');
+        expect(client.status).toBe(200);
+        expect(client.headers.get('content-type')).toContain('text/javascript');
+        expect((await client.text()).length).toBeGreaterThan(1000);
+        const landing = await fetch(f.origin + '/c', { method: 'POST', headers: { 'content-type': 'application/json', cookie: f.granted() },
+            body: JSON.stringify({ consent: true, eventId: 'withdrawn-landing', schema: 'om.web.landing', version: 1, source: 'first-party', name: 'landing', occurredAt: f.clock.now({}), properties: {} }) });
+        const visit = landing.headers.get('set-cookie')!.split(';')[0];
+        const withdrawn = await fetch(f.origin + '/c', { method: 'DELETE', headers: { origin: f.origin, cookie: visit } });
+        expect(withdrawn.status).toBe(204);
+        expect(withdrawn.headers.get('set-cookie')).toBe(visit.split('=')[0] + '=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0');
+        expect(count({ fixture: f, table: 'web_touch' })).toBe(1);
+        expect((await fetch(f.origin + '/f/lead', { method: 'DELETE', headers: { origin: f.origin } })).status).toBe(400);
+    } finally { await f.close(); }
+});
+
+it('accepts a form POST without a grant unattributed even with a valid visit cookie', async () => {
+    const f = await fixture({});
+    try {
+        const binding = f.adapters();
+        const { visit, token } = binding.visits.issue({ context: f.context });
+        expect(await binding.identity.webRepo.saveVisit({ context: f.context, visit })).toMatchObject({ ok: true });
+        const page = await form({ fixture: f });
+        const cookie = 'om_visit_' + new URL(f.origin).port + '=' + token;
+        const receipt = await submit({ fixture: f, fields: { ...page.fields, email: 'ungranted@example.test', om_vt: token }, cookie });
+        expect(await binding.forms.accept({ context: f.context, ...receipt })).toMatchObject({ ok: true });
+        expect(f.native.prepare('SELECT subject_id FROM web_visit').all()).toEqual([{ subject_id: null }]);
+    } finally { await f.close(); }
+});
+
+it('captures the user agent only on consented /c, rejects a browser-supplied one, enriches identifiers after binding and erases them', async () => {
+    const f = await fixture({});
+    try {
+        const binding = f.adapters();
+        const host = new URL(f.origin).host;
+        const landing = (input: { eventId: string; cookie?: string; properties?: Record<string, string> }) => handlePublicRequest({ context: f.context, ...binding, clock: f.clock,
+            request: { method: 'POST', path: '/c', headers: { host, origin: 'https://sandbox.example.test', 'user-agent': '  Fixture-Agent/1.0  ', ...(input.cookie ? { cookie: input.cookie } : {}) }, body: {
+                consent: true, eventId: input.eventId, schema: 'om.web.landing', version: 1, source: 'first-party', name: 'landing', occurredAt: f.clock.now({}),
+                properties: { pageUrl: 'https://sandbox.example.test/lead?private=value', ...input.properties } } } });
+        expect((await landing({ eventId: 'ungranted' })).status).toBe(403);
+        expect((await landing({ eventId: 'spoofed', cookie: f.granted(), properties: { client_user_agent: 'Spoofed/1.0' } })).status).toBe(400);
+        for (const table of ['web_visit', 'web_event', 'web_touch'] as const) expect(count({ fixture: f, table })).toBe(0);
+        const collected = await landing({ eventId: 'consented', cookie: f.granted() });
+        expect(collected.status).toBe(202);
+        expect(JSON.parse(z.object({ click_identifiers: z.string() }).parse(f.native.prepare('SELECT click_identifiers FROM web_touch').get()).click_identifiers))
+            .toEqual({ client_user_agent: 'Fixture-Agent/1.0', event_source_url: 'https://sandbox.example.test/lead' });
+        expect(JSON.stringify(f.native.prepare('SELECT payload FROM web_event').all())).not.toContain('Fixture-Agent');
+        const cookie = collected.headers!['set-cookie'].split(';')[0] + '; ' + f.granted();
+        const page = await form({ fixture: f });
+        const receipt = await submit({ fixture: f, fields: { ...page.fields, email: 'ua-lead@example.test' }, cookie });
+        await f.drain();
+        const accepted = await binding.forms.accept({ context: f.context, ...receipt });
+        if (!accepted.ok) throw new Error('Acceptance failed');
+        const service = { scope: f.context.scope, serviceId: 'measure-worker', correlationId: 'c', traceId: 't' };
+        const found = { subjectId: accepted.value.subjectId, identifiers: { email: 'hashed-email' }, identifierDigests: { email: 'a'.repeat(64) } };
+        const sha = (value: string) => createHash('sha256').update(value).digest('hex');
+        expect(await withWebsiteContext({ webEvents: binding.identity.webEvents, clock: f.clock, context: service, found })).toEqual({ subjectId: accepted.value.subjectId,
+            identifiers: { email: 'hashed-email', client_user_agent: 'Fixture-Agent/1.0', event_source_url: 'https://sandbox.example.test/lead' },
+            identifierDigests: { email: 'a'.repeat(64), client_user_agent: sha('Fixture-Agent/1.0'), event_source_url: sha('https://sandbox.example.test/lead') } });
+        expect(await withWebsiteContext({ webEvents: binding.identity.webEvents, clock: f.clock, context: service, found: { ...found, subjectId: 'unbound-subject' } })).toEqual({ ...found, subjectId: 'unbound-subject' });
+        const request = await binding.privacy.privacy.requestErasure({ context: f.context, subjectId: accepted.value.subjectId });
+        if (!request.ok) throw new Error('Erasure failed');
+        for (let step = 0; step < 6; step++) {
+            const advanced = await binding.privacy.privacy.advance({ context: f.context, requestId: request.value.requestId });
+            if (advanced.ok && advanced.value.status === 'complete') break;
+        }
+        expect(f.native.prepare('SELECT click_identifiers FROM web_touch').all()).toEqual([{ click_identifiers: '{}' }]);
+        expect(await withWebsiteContext({ webEvents: binding.identity.webEvents, clock: f.clock, context: service, found })).toEqual(found);
+        binding.privacy.participants.dispose({});
     } finally { await f.close(); }
 });
 
@@ -306,8 +430,8 @@ it.each(['expired', 'duplicate', 'forged'])('keeps a form lead unattributed with
         const { visit, token } = binding.visits.issue({ context: f.context });
         expect(await binding.identity.webRepo.saveVisit({ context: f.context, visit })).toMatchObject({ ok: true });
         const validCookie = 'om_visit_' + new URL(f.origin).port + '=' + token;
-        let cookie = validCookie;
         if (reason === 'expired') f.advance({ ms: 3600001 });
+        let cookie = f.granted() + '; ' + validCookie;
         if (reason === 'duplicate') cookie += '; ' + validCookie;
         if (reason === 'forged') cookie += '0';
         const page = await form({ fixture: f });
@@ -334,14 +458,14 @@ it('attributes a bare OM campaign ID only after a scoped lookup and rejects unkn
         const record = vi.spyOn(binding.identity.webEvents, 'recordTouch');
         const get = vi.spyOn(binding.campaigns, 'get');
         for (const campaignId of ['missing-campaign', other.value.campaignId]) {
-            const rejected = await handlePublicRequest({ context: f.context, ...binding, clock: f.clock, request: { method: 'POST', path: '/c', body: {
+            const rejected = await handlePublicRequest({ context: f.context, ...binding, clock: f.clock, request: { method: 'POST', path: '/c', headers: { cookie: f.granted() }, body: {
                 consent: true, eventId: 'rejected-' + campaignId, schema: 'om.web.landing', version: 1, source: 'first-party', name: 'landing', occurredAt: f.clock.now({}), properties: { campaignId },
             } } });
             expect(rejected.status).toBe(403);
         }
         expect(record).not.toHaveBeenCalled();
         expect(f.native.prepare('SELECT COUNT(*) AS n FROM web_event').get()).toEqual({ n: 0 });
-        const request = { method: 'POST' as const, path: '/c', body: { consent: true, eventId: 'direct-landing', schema: 'om.web.landing', version: 1,
+        const request = { method: 'POST' as const, path: '/c', headers: { cookie: f.granted() }, body: { consent: true, eventId: 'direct-landing', schema: 'om.web.landing', version: 1,
             source: 'first-party', name: 'landing', occurredAt: f.clock.now({}), properties: { campaignId: own.value.campaignId } } };
         const response = await handlePublicRequest({ context: f.context, ...binding, clock: f.clock, request });
         expect(response).toMatchObject({ status: 202, body: { ok: true, value: { accepted: true } } });
@@ -361,7 +485,7 @@ it('rejects a tracked-link campaign outside scope and a conflicting campaign cla
         if (!link.ok) throw new Error('Missing fixture link');
         const base = { consent: true, eventId: 'foreign-campaign', schema: 'om.web.landing', version: 1, source: 'first-party', name: 'landing', occurredAt: f.clock.now({}) };
         for (const campaignId of [undefined, 'conflicting-campaign']) {
-            const response = await fetch(f.origin + '/c', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...base, properties: { linkId: link.value.linkId, campaignId } }) });
+            const response = await fetch(f.origin + '/c', { method: 'POST', headers: { 'content-type': 'application/json', cookie: f.granted() }, body: JSON.stringify({ ...base, properties: { linkId: link.value.linkId, campaignId } }) });
             expect(response.status).toBe(403);
         }
         expect(f.native.prepare('SELECT COUNT(*) AS n FROM web_event').get()).toEqual({ n: 0 });
@@ -439,7 +563,7 @@ it('duplicate fields, wrong scope, forged/expired visits and address properties 
         const duplicate = await fetch(f.origin + '/f/lead', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: data });
         expect(duplicate.status).toBe(400);
         const forged = { ...page.fields, email: 'denied@example.test', om_vt: token + '0' };
-        expect((await fetch(f.origin + '/f/lead', { method: 'POST', body: new URLSearchParams(forged) })).status).toBe(403);
+        expect((await fetch(f.origin + '/f/lead', { method: 'POST', headers: { cookie: f.granted() }, body: new URLSearchParams(forged) })).status).toBe(403);
         expect(await binding.visits.tokens.verify({ context: { ...f.context, scope: { ...f.context.scope, workspaceId: randomUUID() } }, visitToken: token })).toMatchObject({ ok: false });
         f.advance({ ms: 3600001 });
         expect(await binding.visits.tokens.verify({ context: f.context, visitToken: token })).toMatchObject({ ok: false });
@@ -717,7 +841,7 @@ it.each([
         const binding = f.adapters();
         const { visit, token } = binding.visits.issue({ context: f.context });
         expect(await binding.identity.webRepo.saveVisit({ context: f.context, visit })).toMatchObject({ ok: true });
-        const cookie = 'om_visit_' + new URL(f.origin).port + '=' + token;
+        const cookie = 'om_visit_' + new URL(f.origin).port + '=' + token + '; ' + f.granted();
         const total = evidence === 'over-limit' ? 101 : evidence === 'saturated' ? 100 : 2;
         for (let i = 0; i < total; i++) {
             const occurredAt = f.clock.now({}) - age;

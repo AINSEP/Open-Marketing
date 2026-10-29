@@ -6,11 +6,12 @@ export function TrackingPage(props: TrackingProps) {
   const tracking = useTracking(props);
   return <section className="settings-card" aria-label="Tracking setup">
     <h2>Tracking setup</h2>
-    <p>Proxy /c, /web-events.js and /f/* to OM on your HTTPS site origin.</p>
+    <p>Proxy /c, /web-events.js, /consent, /consent/client.min.js and /f/* to OM on your HTTPS site origin.</p>
     <form onSubmit={tracking.generate}>
       <fieldset disabled={tracking.busy}>
         <label>Destination URL<input type="url" required maxLength={2048} value={tracking.destinationUrl} onChange={tracking.changeDestination} /></label>
         <label>Campaign keys (optional JSON, up to 2)<textarea maxLength={2048} value={tracking.campaignKeys} onChange={tracking.changeKeys} placeholder={'[{"pluginId":"…","accountId":"…","vendorCampaignId":"…"}]'} /></label>
+        <label><input type="checkbox" checked={tracking.consentBanner} onChange={tracking.changeConsentBanner} /> Show OM consent banner (turn off if your site has its own consent manager)</label>
         <button type="submit">Generate setup</button>
         <label>Fallback form slug (optional)<input maxLength={100} value={tracking.fallbackSlug} onChange={tracking.changeFallback} /></label>
         <button type="button" onClick={tracking.checkReadiness}>Check readiness</button>
@@ -19,7 +20,10 @@ export function TrackingPage(props: TrackingProps) {
     {tracking.busy && <p role="status">Checking tracking…</p>}
     {tracking.error && <p role="alert">{tracking.error}</p>}
     {tracking.setup && <div>
-      <p>Install this JavaScript on your destination. Tracking and tags wait for visitor consent: set window.omConsent = true before loading, or call window.omGrantConsent() after consent.</p>
+      <p>Install this JavaScript on your destination. Nothing is collected and no tag runs until the visitor accepts marketing consent and the choice is stored.</p>
+      <label>Consent banner head (put in &lt;head&gt;)<textarea readOnly rows={4} value={tracking.setup.consentBanner.head} /></label>
+      <label>Consent banner body (put before &lt;/body&gt;)<textarea readOnly rows={4} value={tracking.setup.consentBanner.body} /></label>
+      <p>Own consent manager: call window.omGrantConsent() after the visitor accepts. Withdrawal: add a footer link with class jini-consent-reopen (or call window.jiniConsent.open()); withdrawing stops collection and clears OM's visit cookie.</p>
       <label>Installation source<textarea readOnly rows={8} ref={tracking.sourceRef} value={tracking.setup.source} /></label>
       <button type="button" onClick={tracking.selectSource}>Select source to copy</button>
       <p>Copy the selected source with your browser’s Copy command.</p>
