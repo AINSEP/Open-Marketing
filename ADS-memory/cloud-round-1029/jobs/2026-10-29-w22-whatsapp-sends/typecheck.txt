@@ -1,0 +1,15 @@
+corepack pnpm --dir content/agent-plugins/whatsapp-business typecheck; corepack pnpm --filter @open-marketing/server typecheck
+
+B1 scope override: plugin only; no server files change, so server typecheck skipped.
+Run 1: corepack pnpm --dir content/agent-plugins/whatsapp-business typecheck
+Exit 2. tsc --noEmit -p tsconfig.json
+tests/broadcast.test.ts(28,86) and (182,75): TS2322, inferred empty-object array entry permits undefined record values and is not assignable to Rates.
+Fix: annotate the two invalid-rate test arrays as Rates[]. No production source errors.
+pnpm also warned that local node_modules is missing; no install attempted.
+
+Run 2 (one permitted corrective rerun): corepack pnpm --dir content/agent-plugins/whatsapp-business typecheck
+> @open-marketing-plugin/whatsapp-business@0.1.0 typecheck
+> tsc --noEmit -p tsconfig.json
+Exit 0. PASS. No diagnostics.
+
+No tests, builds, installs or om:check run. No server typecheck (review/Coordinator override; no server edits).

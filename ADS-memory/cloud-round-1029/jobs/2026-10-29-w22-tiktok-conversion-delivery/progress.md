@@ -1,0 +1,20 @@
+# W22 TikTok conversion delivery — B1
+
+Programmer persona loaded. Implementing plan.md as amended by review.md and the Coordinator override. No tests, builds, installs, indexing, commits or pushes. One final package typecheck only.
+
+- DONE: Verified the old factory/event/configuration mismatch in current source and A3. Confirmed existing definitionIds and post-credential fence; no replacement mechanism needed.
+- DONE: Read approved Meta/A3 patterns and searched Tovu, upcoming Jini source and installed Jini 0.6.15-rc.2 for Events delivery/money mapping. No reusable TikTok implementation found; existing TikTok transport and contracts helpers remain owners.
+- DONE (scope 1): src/events.ts now exports the canonical factory/request/outcome and projects identifiers before strict payload parsing, checks scope/grants, maps Money and constructs the existing transport per send. src/events-payload.ts adds optional value/currency; src/index.ts exports the replacement; src/transport.ts uses canonical service context and the direct payload import. Consumed-callback guard and uncertainFailure retained. Regression assertions are in tests/events.test.ts; not run.
+- DONE (scope 2): tests/fixtures.ts uses server-shaped configuration and measure-shaped signup/trial events; Events fixtures use recording fetch and canonical credential access. Existing fixture({kind}) remains for gateway/transport suites. Exposed existing fixture fetch/credentials to let the real factory exercise the same fault state; no new runtime port.
+- DONE (scopes 3–4): tests/events.test.ts migrated once on fixture fetch. Preserved consent/fence, duplicate claims/execute, uncertainty, redaction, seven-day boundary and strict batch assertions; removed host-mode and obsolete fields. Added only approved projection/real-factory, missing URL, unsupported definition/constructor, USD/JPY/KWD and malformed-settings assertions. Tests written, not run.
+- DONE (scope 5): README.md changed only the factory bullet and the last sentence of the mapping paragraph. evidence/primary-sources.json appends only properties.value/currency and one phone/value/currency evidence line to event/track; inspectedAt remains 2026-10-13.
+- DONE (scope 6): corepack pnpm --dir content/agent-plugins/tiktok-ads typecheck — EXIT 0, first and only invocation. Output in typecheck.txt. No tests, builds, installs, indexing, runtime probes, om:check, commit or push.
+- DONE (scope 7): report.md records all eight edited lane files, +229/-145 (+84 net) against this run's starting content, vendor URLs (including the official plus-form phone hashing source), static quality/architecture review, verification limits and Coordinator/dependent-job NEEDS.
+
+HANDOFF: B1 implementation complete within approved scope; first/only typecheck passed. Tests written, not run. Dist rebuild and runtime fingerprint recomputation remain Coordinator-owned, serialized after conversion-settings; pixelId and consented event_source_url remain dependent-job work. No other files edited.
+
+Locked lane files: src/events.ts, src/events-payload.ts, src/index.ts, src/transport.ts, tests/fixtures.ts, tests/events.test.ts, evidence/primary-sources.json (under content/agent-plugins/tiktok-ads/io.github.ainsep.openmarketing/) and content/agent-plugins/tiktok-ads/README.md. Job records: progress.md, typecheck.txt, report.md only. Preserve all existing dirty work. plugin.json/capabilities.json/dist are Coordinator-owned and remain untouched.
+
+Pattern priming: the dispatch provided and approved Meta capi.ts as the seed; using that shape with TikTok's existing single-send transport and consumed callback guard. No new approval needed.
+
+Design checks: pure bounded request/grant/projection mapping precedes authority and credentials; real factory + recording fixture fetch asserts exact POST/body, typed refusal, money and diagnostics. Existing duplicate-claim, repeated-execute and partial-invalid-batch cases protect against extra sends. Input maps <=16 keys and bounded JSON; one <=15s POST, <=1MiB receipt, no retry. All owned functions use object parameters; no core/shared-contract edits.

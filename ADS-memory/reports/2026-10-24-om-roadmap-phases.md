@@ -37,7 +37,6 @@ Binding engineering rules for every phase:
 ## Phase 3 — "Optimise and scale"
 - Optimisation proposals as exact approval cards: creative fatigue, pacing, budget shifts.
 - A/B tests.
-- Landing pages through a Tovu handoff plugin. OM builds no page builder.
 - CRM sync (HubSpot/webhooks).
 - Weekly client report.
 - Teams and agency workspaces: full Jini user-management adoption.

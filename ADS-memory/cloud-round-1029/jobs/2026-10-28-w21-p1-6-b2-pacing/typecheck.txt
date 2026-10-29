@@ -1,0 +1,1 @@
+corepack pnpm --filter @open-marketing/server typecheck

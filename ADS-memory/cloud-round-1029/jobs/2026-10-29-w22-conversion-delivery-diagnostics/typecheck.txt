@@ -1,0 +1,36 @@
+1. corepack pnpm --filter @open-marketing/measure typecheck
+> @open-marketing/measure@0.0.0 typecheck /Users/la/Programming/Open-Marketing/features/measure
+> tsc --noEmit && tsc -p tsconfig.tests.json
+EXIT 2
+tests/delivery.test.ts(390,99): error TS2322: Type '{ context: { scope: { ownerId: string; workspaceId: string; }; serviceId: string; correlationId: string; traceId: string; }; deliveryId: string; event: ConversionInput & { readonly identifiers?: Readonly<...> | undefined; }; grant: { ...; }; receiptId?: string | undefined; }' is not assignable to type '{ context: { scope: { ownerId: string; workspaceId: string; }; serviceId: string; correlationId: string; traceId: string; }; event: ResolvedConversionInput; grant: { kind: "measurement"; ... 10 more ...; revoked: boolean; }; deliveryId?: string | undefined; }'.
+  Types of property 'event' are incompatible.
+    Type 'ConversionInput & { readonly identifiers?: Readonly<Record<string, string>> | undefined; }' is not assignable to type 'ResolvedConversionInput'.
+      Type 'ConversionInput & { readonly identifiers?: Readonly<Record<string, string>> | undefined; }' is not assignable to type '{ readonly identifiers: Readonly<Record<string, string>>; }'.
+        Types of property 'identifiers' are incompatible.
+          Type 'Readonly<Record<string, string>> | undefined' is not assignable to type 'Readonly<Record<string, string>>'.
+            Type 'undefined' is not assignable to type 'Readonly<Record<string, string>>'.
+Correction: type the existing reconciliation capture with the reconcile input and use optional identifier access. No assertion removed; uncertain-send dispatch recovery still verifies current identifiers.
+
+2. corepack pnpm --dir content/agent-plugins/google-ads typecheck
+> @open-marketing/plugin-google-ads@0.1.0 typecheck /Users/la/Programming/Open-Marketing/content/agent-plugins/google-ads
+> tsc -p tsconfig.json --noEmit
+EXIT 0 — no diagnostics.
+
+3. corepack pnpm --filter @open-marketing/server typecheck
+> @open-marketing/server@0.0.0 typecheck /Users/la/Programming/Open-Marketing/apps/server
+> tsc --noEmit && tsc -p tsconfig.tests.json
+EXIT 0 — no diagnostics.
+
+4. corepack pnpm --filter @open-marketing/measure typecheck (one allowed corrective rerun)
+> tsc --noEmit && tsc -p tsconfig.tests.json
+EXIT 0 — no diagnostics (measure corrective rerun).
+
+5. corepack pnpm --filter @open-marketing/server typecheck (one corrective rerun)
+Static function-quality review found conversionOutcome one branch above the <=10 cognitive limit. Replaced safeParse/ternary fallback with Zod catch's same explicit unavailable failure fallback; classifications unchanged, one branch removed. Existing malformed-result fixture covers this behavior. This is a source quality correction, not a compiler error.
+> tsc --noEmit && tsc -p tsconfig.tests.json
+EXIT 0 — no diagnostics (server corrective rerun).
+
+Final verification: all three package typechecks passed. Measure/server used one corrective rerun each; Google passed once. No further typecheck runs.
+After measure's successful check, one existing assertion's expected object was aligned with not_sent/forbidden; no production or type declaration changed and no third run was made. This assertion-only final edit is not covered by a fresh compiler invocation.
+Final git diff --check restricted to the 16 approved implementation/test/plugin-doc files: EXIT 0, no whitespace diagnostics.
+No tests, builds, installs, om:check, live vendor calls, commits or pushes.

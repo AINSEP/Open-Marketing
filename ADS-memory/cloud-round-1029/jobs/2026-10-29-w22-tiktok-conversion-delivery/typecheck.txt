@@ -1,0 +1,6 @@
+
+> @open-marketing-plugin/tiktok-ads@0.1.0 typecheck /Users/la/Programming/Open-Marketing/content/agent-plugins/tiktok-ads
+> tsc --noEmit -p tsconfig.json
+
+
+EXIT 0

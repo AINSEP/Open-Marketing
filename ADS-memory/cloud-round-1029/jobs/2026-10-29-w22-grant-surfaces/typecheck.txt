@@ -1,0 +1,51 @@
+ATTEMPT 1
+COMMAND: corepack pnpm --filter @open-marketing/measure typecheck
+EXIT: 0
+
+> @open-marketing/measure@0.0.0 typecheck /Users/la/Programming/Open-Marketing/features/measure
+> tsc --noEmit && tsc -p tsconfig.tests.json
+
+
+ATTEMPT 2
+COMMAND: corepack pnpm --filter @open-marketing/server typecheck
+EXIT: 0
+
+> @open-marketing/server@0.0.0 typecheck /Users/la/Programming/Open-Marketing/apps/server
+> tsc --noEmit && tsc -p tsconfig.tests.json
+
+
+ATTEMPT 3
+COMMAND: corepack pnpm --filter @open-marketing/studio typecheck
+EXIT: 2
+
+> @open-marketing/studio@0.0.0 typecheck /Users/la/Programming/Open-Marketing/apps/studio
+> tsc --noEmit && tsc -p tsconfig.tests.json
+
+tests/conversion-grants.test.ts(44,96): error TS18047: 'call.input' is possibly 'null'.
+tests/conversion-grants.test.ts(44,108): error TS2339: Property 'grantId' does not exist on type 'string | number | boolean | JSONType[] | { [key: string]: JSONType; }'.
+  Property 'grantId' does not exist on type 'string'.
+tests/conversion-grants.test.ts(45,53): error TS2698: Spread types may only be created from object types.
+tests/conversion-grants.test.ts(90,27): error TS2531: Object is possibly 'null'.
+tests/conversion-grants.test.ts(90,48): error TS2339: Property 'grantId' does not exist on type 'string | number | boolean | JSONType[] | { [key: string]: JSONType; }'.
+  Property 'grantId' does not exist on type 'string'.
+/Users/la/Programming/Open-Marketing/apps/studio:
+ ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @open-marketing/studio@0.0.0 typecheck: `tsc --noEmit && tsc -p tsconfig.tests.json`
+Exit status 2
+
+ATTEMPT 4
+COMMAND: corepack pnpm --filter @open-marketing/studio typecheck
+EXIT: 0
+
+> @open-marketing/studio@0.0.0 typecheck /Users/la/Programming/Open-Marketing/apps/studio
+> tsc --noEmit && tsc -p tsconfig.tests.json
+
+
+ATTEMPT 5
+COMMAND: corepack pnpm --filter @open-marketing/measure typecheck
+EXIT: 0
+
+> @open-marketing/measure@0.0.0 typecheck /Users/la/Programming/Open-Marketing/features/measure
+> tsc --noEmit && tsc -p tsconfig.tests.json
+
+
+Tests, builds, installs, om:check, indexing: NOT RUN.

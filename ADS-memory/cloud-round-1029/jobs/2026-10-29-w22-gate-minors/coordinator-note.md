@@ -1,0 +1,3 @@
+# COORDINATOR NOTE for the trim (f6, 10-29; wins over plan.md)
+Add item 11: apps/server/src/inbound/owner.ts ~:325 returns "Image upload unavailable" for every rejected upload, incl. a non-image file → return the specific reason (unsupported type / too large) from the existing upload result. Verify first.
+Add item 12: apps/server/tests/p1-alerts.test.ts — pacing post-check fix 2 (exact text in 2026-10-28-w21-p1-6-b2-pacing/postcheck.md "Small fixes" 2): add binding-foreign without a row to evidenceFixture bindings and return it from the paged mock in the join test; keep invokeCapability called once. Lock group w14-alerts.

@@ -1,0 +1,4 @@
+
+> @open-marketing/contracts@0.0.0 typecheck /Users/la/Programming/Open-Marketing/packages/contracts
+> tsc --noEmit && tsc -p tsconfig.tests.json
+

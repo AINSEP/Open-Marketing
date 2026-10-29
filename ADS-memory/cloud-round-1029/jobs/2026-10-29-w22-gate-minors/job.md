@@ -1,0 +1,15 @@
+# Job W22-GATE-MINORS
+Binding: development/COMMON.md incl. §13 simplicity rules; ctx-wave-1029.md (incl. its 10-29 ADDENDUM); owner rules: no hard-coded vendors in core (vendor code only in content/agent-plugins/<vendor>), the OM assistant must be able to do everything Studio can (close HTTP + om-tool + om CLI + Studio together for user-facing features), one approval rule (exact card for spend; no Always allow for spend), consent rechecked at dispatch, OM stores nothing about a visitor before visitor consent (memory om-tracking-consent-first), types derived from Zod, money in integer micros, fn(required, optional?), complexity ≤10 / nesting ≤3, apps/server bootServer is at complexity EXACTLY 10 (zero new increments). OM is on @jini-ai/* 0.6.15-rc.2 (reuse published Jini first; map /Users/la/Programming/Jini/CAPABILITIES.md read-only). SEARCH Tovu + Jini (read-only) for an existing implementation before planning any mechanism; report what you found. Coordinator is the ONLY integrator for package.json / pnpm-lock.yaml / packages/contracts / plugin dist rebuilds / migrations.ts registration — report NEEDS lines with exact text. Many jobs run in parallel: list EVERY file you will edit in the plan (the coordinator sets build locks from that list); never touch files outside your plan. Keep the plan to ONE ≤90-min build; if it cannot fit, do the MAJOR part and mark the tail DEFERRED.
+
+Spec: the optional MINORs that post-checks logged for a gate job (coordinator-notes-1028.md, open-marketing-74 + 8b sections; each item's job dir postcheck.md). VERIFY each is still real in the current code; list stale ones under DISPUTED. Items:
+1. campaign-validate regression test: a validate row whose effects are ['read','write'] → forbidden, zero fetches (apps/server/tests/agent-plugin-backends.test.ts or campaign-launch.test.ts).
+2. features/jobs handlers.ts ~:95: a claim handler resolving {ok:true,value:null} falls back to ordinary send after acting → wrap as {settled} and unwrap in outbox (both sides) + regression.
+3. features/safety paid-sending.ts :47,:50,:65 rename param `write` → `operation`; reserve (:96) is at complexity exactly 10 — only simplify if trivial.
+4. features/brand/index.ts export the brand revision schemas; om-tools.ts ~:755-757 import them instead of re-declaring.
+5. om-tool-coverage.ts ~:148 add om_leads_list / om_leads_set_stage.
+6. apps/server/src/alerts/rules.ts ~:75 localeCompare → code-point compare; alerts/index.ts ~:4-5 drop unused weekly re-exports; weekly report: a permanent read error silently skips the week → surface it as unavailable.
+7. web-events tracking.ts ~:37 host-less snippet; identity.ts ~:80 use Object.keys(landingPropertiesSchema.shape) instead of a hand list.
+8. google-business-profile posts.ts ~:30 observer outcome = result status/error code (recompute posts.ts fingerprint rows plugin.json ~:91 + capabilities.json ~:10; real-factory test expects "published").
+9. linkedin-ads tests/dispatch.test.ts :3,:5 unused imports.
+10. provider-settings.ts ~:104-109 duplicated upsert SQL → one statement.
+Each fix ≤ a few lines; no new mechanisms. Lane: exactly the files above plus their tests.

@@ -1,0 +1,1 @@
+corepack pnpm --filter @open-marketing/measure typecheck; corepack pnpm --filter @open-marketing/server typecheck; corepack pnpm --filter @open-marketing/studio typecheck

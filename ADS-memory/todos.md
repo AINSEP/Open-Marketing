@@ -1,64 +1,40 @@
 # Open Marketing — todos
 
-## ⚡ STATUS 2026-10-25 night (b5) — READ FIRST
-**Branches:**
-- `om/clean-slate` (pushed 55cf681): P0 done, plus QW1–4, DC1 and OB2 R1.
-- `om/cleanup-1025` (pushed 4659d96, not yet merged): OB2 R2 shared `packages/om-db` fixture plus test fixes TF1–5. Typecheck-green; NOT cloud-tested.
+## ⚡ RESUME HERE (2026-10-28; open-marketing-8b)
+**Current remaining work:** `codex-runs/handoff-1028/E1-SESSION-CATALOG.md` §C/§D + `codex-runs/coordinator-notes-1028.md` (open-marketing-8b section). Later coordinator/owner decisions supersede the catalog's old P1 sequencing.
+- Required rc.2 jobs → integration pass → commit → push → ONE cloud test → fixes; merging remains owner-controlled. P1 proceeds in parallel; see its roadmap item below.
+- **Current wave source is built/post-checked where cited below, uncommitted and untested; nothing from this wave is pushed or cloud-tested.** Individual in-flight jobs and deferred acceptance remain explicit.
 
-**In flight:** 25 Codex pipelines (plan → build; owner: no review, no Coordinator verification), in `ADS-memory/.local-artifacts/codex-runs/2026-10-25-w-*` (wave 1, 14 jobs) and `2026-10-25-w2-*` (wave 2, 11 jobs).
-- Each job dir has `stage`, `plan.md` and `B1.md`.
-- Driver: `pipeline-1025.sh`; lane locks in `locks-1025/` (coarse: server, studio, plugins-new16, migrations, …).
-- Builds edit the working tree of the main checkout on `om/cleanup-1025` (uncommitted until the Coordinator commits them, labelled untested).
+## ⚡ STATUS 2026-10-28 — READ FIRST
+- The 10-25 wave, 10-26 fixes/round 2 and 10-27 corrections have scoped reports; the old running-wave and defect counts are historical (`codex-runs/2026-10-28-audit-todos/report.md`).
+- **Phase A source done except rc.2 mail:** A3-mail + A2d-mail provider construction/host registry/fence → A7 part 2 worker mail binding. `w7-a2d-mail` built descriptors only; `w11-host-meta-cleanup` already excludes host-owned `mailAdapters`. Job dirs below are under `codex-runs/2026-10-28-*` unless dated otherwise.
+- **Source follow-ups complete:** A7 part 1 OAuth discovery/boot cleanup (`w13-a7-1b`), mail-provider agent tool + CLI (`w13-provider-settings-tool`) and A6 part 2 (`w12-a6-part2`) are source built, post-checked, uncommitted, untested (their post-check verdicts: READY TO COMMIT). `w13-p1-breakdown/report.md` is complete read-only analysis; its proposed jobs are not implementation evidence.
+- **Jini installed: `@jini-ai/*` 0.6.15-rc.2** (bumped from rc.1 by open-marketing-8b 2026-10-28, frozen lockfile); all Jini-user typechecks passed after the bump (`coordinator-notes-1028.md`, 8b section). `@jini-ai/infra` and `@jini-ai/provider-plugins` are not OM dependencies yet.
+- **rc.2 contents (installed):** `createDeadlineSignal`, mail `createMailAdapterContext` (now/settings), `canonicalJson`/`canonicalArgumentDigest`. **Not in rc.2:** `ResponseLimitExceededError`, packer `excludeSuffixes`/`includeTests`, the cms jsdom 26/27 peer and the Bash sandbox fix. They come in rc.3/final (tovu-45 correction, `coordinator-notes-1028.md`). Ignore the jsdom peer warning until rc.3.
+- Jini contact: **tovu-45**; OM contact: **open-marketing-8b**. Jini changes land in Jini and publish to npm; OM consumes only published versions.
+- OM already implements due-time scheduling. Remaining Jini outbox adapter/conformance adoption is tracked under the infrastructure swap and upstream asks below.
+- Owner: **NO commit/push yet.**
+- **Preserved handoff notes:**
+  - `codex-runs/run-phase-retry.sh` line 4 still stubs every `*review` phase to "skipped". If you want Codex reviews, delete that case line and keep `--ignore-user-config`. Don't restore the `.bak`; it predates `--ignore-user-config`.
+  - P0-2c's historical complexity/signature findings belong in the final gate sweep below; the dispatch/withdrawal race tests are written, not run (`2026-10-28-audit-todos/report.md`).
+  - Remote report branches `test-checkpoint-1025` and `test-cleanup-1025` on ainsep: delete them when no longer needed, but ask the owner first.
+  - Studio dev server (was b5's): `cd apps/studio && ./node_modules/.bin/vite --host 127.0.0.1 --port 3005 --strictPort`.
 
-**Wave 1 jobs:**
-- cleanup batches 3–5: oe3-plugins-fed, oe4-jobs, oe5-schemas;
-- P1: p1-metrics-google-meta, p1-invoker, p1-web-events, p1-leads (migration v23), p1-alerts (v24);
-- plugins: vendor-cards-r2, messaging-r2;
-- studio: bw-theme, chat-polish;
-- content: chart-plugins (ECharts + Chart.js), ad-copy-skill.
+## ⚡ STATUS — integration and acceptance after the source wave
+**Historical branches:** `om/clean-slate` was pushed at 55cf681 (P0, QW1–4, DC1, OB2 R1); `om/cleanup-1025` was pushed at 4659d96 (OB2 R2 shared SQL fixture + TF1–5). Those checkpoints predate the current wave.
 
-**Wave 2 jobs:**
-- p1-reporting (v25), brand (v26);
-- metrics-a/b/c (the remaining 13 ad plugins on report.metrics.v1);
-- gbp-plugin, skills2, topic-plugins (seo, email-lifecycle), offline-conv;
-- reports only: test-quality, tovu-jini-audit.
+**Integration pass (after required rc.2 mail jobs):** contracts dist FIRST → plugin/feature dists → fingerprints (including Reddit) → chart dependency locking → lockfile NEEDS → provenance → ONE lint + typechecks → ONE gate/docs job. Source review/post-checks remain required before accepting integration (E1 catalog §C5; latest coordinator notes).
+- Build inventory is source built (`2026-10-28-w2-build-inventory`), post-checked, uncommitted, untested; the command covers all 22 executable plugins. Actual builds remain pending.
+- Lockfile NEEDS: remove unused `yaml`/`semver`/`zod`/`@jini-ai/agent-plugins` from features/plugins, and Higgsfield's unused `@open-marketing/plugins` devDependency. These differ from the completed QW1 removals (catalog §C5; coordinator notes).
+- Rebuild stale plugin/feature distributions and refresh **593 provenance entries** before cloud testing; source completion is not artifact acceptance.
+- Gate/docs job: Microsoft CAPI dispatch complexity; TikTok cosmetics/dead `haltStopPermit` and evidence prose; Google/Microsoft stale prose and Microsoft skill token wording; skeleton Meta manifest compatibility. The A6p2 assertion-order fix is already applied; don't re-add it unless lint/cloud flags it (latest 8b notes).
+- Observability facade/providers and Jini outbox adoption remain separate below. Cloud `om:check`, test quality/coverage and Mac .dmg acceptance remain open.
 
-**Known integrator follow-ups after the builds:**
-- package.json + lockfile importers for any new workspace packages (features/leads, features/brand; chart plugin deps);
-- final migration numbering check (v23–v26);
-- server/studio wiring NEEDS listed in each B1.md.
-
-**OVERNIGHT (owner 2026-10-25 late):** let the Codex wave finish; NO Opus review and NO commits overnight (another agent is using the Claude credits).
-**MORNING (after the 4 AM reset), in order:**
-1. Opus 5.5 reviews all 25 jobs (over-engineering, bugs, Jini duplication) → `ADS-memory/reports/2026-10-26-opus-review-wave.md`.
-2. Codex fix runs for blockers/majors.
-3. Commit each job's files (untested) and push om/cleanup-1025.
-4. One cloud test run, then Codex fixes, then merge into om/clean-slate if green.
-
-**Then:**
-0. **OWNER REMINDER:** when the Codex jobs finish, review every job's changes with **Opus 5.5** for over-engineering, bugs, AND duplication of Jini (published 0.6.12 or the coming 0.6.15 list in codex-runs/ctx-wave.md) BEFORE committing or merging.
-1. Commit each job's files (untested).
-2. ONE cloud test run (Claude cloud env "Open Marketing", setup installs Node 24.2.0 + pnpm 10.24.0; build all packages first).
-3. Codex fixes from the report.
-4. Merge into om/clean-slate.
-
-**Remaining after this wave (not started):**
-- observability trim (waits for Jini names);
-- switch to Jini 0.6.15 (waits for publish; outbox first, the SQLite adapter must pass `fencedOutboxConformance`);
-- the P1 real-account reconciliation gate (owner accounts);
-- plugin wiring of the 16 new plugins via the new invoker;
-- P2 launch translation for Meta/LinkedIn destinations, plus `campaign.validate.v1` pre-flight;
-- Google search-term report + negative keywords (P3 waste control);
-- organic publish contract (P4);
-- complexity/lint sweep (CX1);
-- full `om:check` in the cloud;
-- Mac .dmg (local).
-
-**Owner decisions pending:**
-- the 4 simplicity rules + 7 audit rules;
-- trademark search (OOSA name clash);
-- official vendor logos;
-- black/white theme as default;
+**Owner decisions / pointers:**
+- seven simplicity rules adopted → cleanup owner-decision item below;
+- theme default → OM Ink visual-acceptance item below;
+- trademark and official logos → their DEFERRED items below;
+- `composition/addons.ts:160` trusting the plugin's own `admitted` flag is intended under unrestricted plugins (owner-approved 2026-10-28; code comment handled separately).
 - delete /Users/la/Programming/autofix.log.
 
 **Rules learned today:**
@@ -68,12 +44,12 @@
 - every Codex brief carries the Jini CAPABILITIES.md pointer and the P0 lessons (`ADS-memory/reports/2026-10-25-p0-lessons.md`).
 
 
-Updated 2026-10-25 by open-marketing-b5. Newest priorities first.
+Updated 2026-10-28 for open-marketing-8b (W13; approved audit §5 plus later coordinator evidence). Newest priorities first.
 
 ## HIGH PRIORITY — next Codex credits: roadmap Phases 0–4
 The full plan is in `ADS-memory/reports/2026-10-24-om-roadmap-phases.md`. The debate merged it to 5 phases, P0–P4.
 
-- [ ] **Architecture debate 2026-10-25** (Opus 5.5 / Codex 6.1 Sol / Gemini 4 Argon, 2 rounds): `ADS-memory/reports/2026-10-25-om-architecture-debate.md`.
+- [x] **Architecture debate 2026-10-25 — accepted by owner** (Opus 5.5 / Codex 6.1 Sol / Gemini 4 Argon, including the final round-3 ballot): `ADS-memory/reports/2026-10-25-om-architecture-debate.md`.
   - **3–0:**
     - `leads` slice;
     - one capability catalog + invoker;
@@ -87,7 +63,7 @@ The full plan is in `ADS-memory/reports/2026-10-24-om-roadmap-phases.md`. The de
     - Reporting in `measure`.
     - Money in integer micros.
     - No v1 compatibility: launch v2 replaces v1.
-    - **NEXT:** P0-1 contracts.
+    - P0-1 contracts completed; see the committed P0 ledger below.
 - [x] **Owner decision:** reporting goes in `measure` (2026-10-25; the vote was 3–0 in round 3).
 - [x] **P0 DONE 2026-10-25** (typechecks green; most tests not yet run):
   - P0-1 contracts 5f9c781 + launch v2 b15fa55;
@@ -96,48 +72,44 @@ The full plan is in `ADS-memory/reports/2026-10-24-om-roadmap-phases.md`. The de
   - P0-2c consent barrier + subject lane 5c2b8c8;
   - P0-2d jobs availableAt 124d607.
 
-  Still open: the Jini user-management permission-catalog injection ask (P0-3), and an `availableAt` ask for the Jini outbox.
-- [ ] (original P0 item) **P0 Contracts.** Freeze these before the new plugins are wired:
+  P0-3 asks were filed; publication/installed-version/consumer status is consolidated under Known Jini asks below. OM due-time scheduling is already implemented; only the Jini fenced-outbox adapter/conformance adoption remains under the swap.
+- [x] (original P0 item) **P0 Contracts frozen and committed** (P0 ledger above; upstream request filed separately):
   - approver/actor contract;
   - `report.metrics.v1` (per-campaign, per-day);
   - capability IDs;
   - NeutralCampaignLaunch v2;
   - consent/erasure dispatch barrier;
   - upstream Jini request for an instance-injected permission catalog.
-- [ ] **Pre-P1 check:** 1–2 days read-only on one real Google account and one real Meta account. Spend must match the vendor dashboards within ~1%, and a test lead must be credited to the right campaign.
-- [ ] **P1 "Know if my ads work":**
-  - tracking snippet and tags, UTM policy;
-  - destination check;
-  - form lead → lead inbox;
-  - per-campaign results;
-  - 3 alerts;
-  - Jini owner identity on approvals.
-- [ ] **P2 "Launch better and close the loop":**
-  - offline conversions;
-  - leads/sales objectives and local targeting;
-  - pre-flight checks;
-  - brand kit and catalog;
-  - all 16 ad plugins on report.metrics.v1.
-- [ ] **P3 "Optimise and scale":**
-  - optimisation proposals;
-  - A/B tests;
-  - Tovu landing-page handoff;
-  - CRM sync;
+- [ ] **Pre-P1 check — BLOCKED on Google/Meta accounts:** 1–2 days read-only on one real Google account and one real Meta account. Spend must match the vendor dashboards within ~1%, and a test lead must be credited to the right campaign. Real-account reconciliation remains a release gate for Results.
+- [ ] **P1 "Know if my ads work" — START NOW, in parallel with remaining Phase A/Jini work** (owner 2026-10-28; `codex-runs/2026-10-28-w13-p1-breakdown/report.md` now lists the proposed job split, analysis only):
+  - Snippet/collection, CampaignKey/UTM handling, leads/reporting backends and local-token approval identity exist (`2026-10-25-w-p1-{web-events,leads}`, `2026-10-25-w2-p1-reporting`, P0 ledger); this is not product acceptance.
+  - Remaining: production reporting bindings, destination/tracking readiness surfaces, lead inbox and per-campaign Results through HTTP + studio + om CLI/MCP, Jini owner-identity binding, then real-account acceptance (P1 breakdown §1/§2).
+  - Three-alert evaluation/requeue, provider selection and its tool/CLI are source built (`2026-10-28-w7-a5-alerts`, `w12-a7-composition`, `w12-a6-part2`, `w13-provider-settings-tool`), post-checked, uncommitted, untested. Mail delivery still needs rc.2 A3-mail + A2d-mail + A7 part 2.
+  - **Coordinator decisions, owner-delegated 2026-10-28:** halt keeps ending in reconcile (fail-safe; revisit with real accounts); alert From address = owner setting with plugin-manifest `alertFrom` as default (verified sender domain), landing with rc.2 mail/P1; mail-provider changes need a fresh owner card every time (`ownerOnly`).
+  - **Snapchat reporting decision (2026-10-28):** cap by ≤31 local calendar days, replacing the 744-elapsed-hour guard built in `w2-plugin-minors`; verify against Snapchat docs in the P1 reporting job so DST does not refuse a 31-day report. Job: `2026-10-28-w14-p1-9-snapchat-cap` (building; Snap docs: DAY windows within 31 days in the account time zone).
+- [ ] **P2 "Launch better and close the loop" — backend/content partly built:**
+  - Qualified/won conversion and brand backends exist (`2026-10-25-w2-offline-conv`, `2026-10-25-w2-brand`); connect outcomes, delivery diagnostics and brand/catalog product surfaces.
+  - Finish leads/sales launch translations, local targeting and exact-plan `campaign.validate.v1` pre-flight/card binding.
+  - Close declared metrics/status gaps rather than claiming all 16 plugins support `report.metrics.v1`: Apple reporting rows were removed (`2026-10-28-w10-cleanup-small-plugins`); VK/Amazon gaps and LINE null spend still need acceptance (`2026-10-28-audit-todos/report.md`).
+- [ ] **P3 "Optimise and scale" — methods in skills; product calculations/execution still open:**
+  - optimisation proposals, starting with Google search-query report + negative keywords;
+  - A/B execution/readout, sample-size and fatigue calculations in code (`2026-10-25-w2-skills2` provides methods only);
+  - CRM sync — choice DEFERRED by owner 2026-10-28;
   - weekly report;
   - teams/agency via Jini user-management.
-- [ ] **P4 "Grow beyond paid":**
+- [ ] **P4 "Grow beyond paid" — plugin pieces exist; product workflows remain:**
   - audiences;
-  - messaging journeys (Resend/Twilio/WhatsApp/SES);
-  - organic social and Google Business Profile;
+  - messaging journeys (Resend/Twilio/WhatsApp/SES), consent-authorized durable sends and hosted webhooks; see Messaging R2 below;
+  - organic social and Google Business Profile publication (unsupported placeholder rows were removed in `2026-10-28-w10-cleanup-small-plugins`; this is not a working publishing workflow);
   - multi-touch attribution, only if the data warrants it.
 
-## HIGH PRIORITY (later) — gap analysis vs open-source ad tools (owner, 2026-10-25)
-Read their code and list what they do that OM doesn't. License rules: MIT/Apache can be adapted with provenance; AGPL (Postiz) is reference-only, never copy code. None are cloned yet; clone them into `/Users/la/Programming/OSS-Marketing-Repos` (recon docs stay there).
-- [ ] Agentic Ads Studio (MIT): AI-generated ads, campaign management, Meta/Google/TikTok integrations.
-- [ ] Adport (Apache 2.0): agentic ad management across 11 platforms over MCP and CLI.
-- [ ] OpenAdKit (MIT): AI ad copy, campaign planning, creative optimisation.
-- [ ] Postiz (AGPL 3.0): AI-assisted social posting, scheduling, analytics. Reference only.
-- [ ] Open Marketing / OOSA (MIT): AI brand kits, marketing creatives, ad images. Name clash with OM to check.
+## HIGH PRIORITY (later) — gap analysis vs open-source ad tools — HELD (owner, 2026-10-28)
+Recon is done; further gap review remains HELD until the owner releases it. License rules: MIT/Apache can be adapted with provenance; AGPL (Postiz) is reference-only, never copy code. Recon docs are in `/Users/la/Programming/OSS-Marketing-Repos/docs` (combined synthesis below; verified by `2026-10-28-audit-todos/report.md`).
+- [x] Agentic Ads Studio (MIT): recon done; AI-generated ads, campaign management, Meta/Google/TikTok integrations.
+- [x] Adport (Apache 2.0): recon done; agentic ad management across 11 platforms over MCP and CLI.
+- [x] OpenAdKit (MIT): recon done; AI ad copy, campaign planning, creative optimisation.
+- [x] Postiz (AGPL 3.0): recon done; AI-assisted social posting, scheduling, analytics. Reference only.
+- [x] Open Marketing / OOSA (MIT): recon done; AI brand kits, marketing creatives, ad images. Name clearance stays separate.
 - [x] DONE 2026-10-25: 5 Opus recons → combined list at `/Users/la/Programming/OSS-Marketing-Repos/docs/2026-10-25-ad-tools-gap-synthesis.md` (20 ranked gaps).
   - **Top for P0:**
     - Adport's metric definitions and reporting-semantics doc;
@@ -150,15 +122,15 @@ Read their code and list what they do that OM doesn't. License rules: MIT/Apache
   - **P3:** rule packs → approval cards; fatigue computed in code.
   - **P4:** Google Business Profile; the organic publish contract.
 - [x] **Blind Codex check (10-25):** `codex-runs/2026-10-25-blind-*/analysis.md`. It agrees: port NO runtime code from any of the five. Take a few ideas only: Adport reporting techniques, OOSA templates/brand conventions for P2, a P4 checklist from Postiz.
-- [ ] **Codex gap review → revised top 8** (`codex-runs/2026-10-25-gap-review/analysis.md`):
-  1. Freeze P0 contracts, merging gaps 1–3 into one reporting workstream.
-  2. Prove one Google/Meta lead journey with the real-account check.
-  3. P1 results and alerts, including freshness, disapprovals, pacing and reconnect. Reconnect status ALREADY exists in OM.
-  4. A lead-focused local launch plus pre-flight.
-  5. Qualified/won outcomes back to the platforms, with delivery diagnostics.
-  6. A small brand profile plus copy variants.
+- [ ] **Codex gap review → revised top 8 — analysis done; residual delivery below** (`codex-runs/2026-10-25-gap-review/analysis.md`, current disposition in `2026-10-28-audit-todos/report.md`; no new gap review):
+  1. DONE: P0 contracts frozen and committed; reporting is one workstream in measure.
+  2. Prove one Google/Meta lead journey — account-blocked at the Pre-P1 check.
+  3. Close P1 Results/alerts surfaces and mail, including freshness, disapprovals, pacing and existing reconnect status.
+  4. Finish a lead-focused local launch plus pre-flight.
+  5. Wire qualified/won outcomes to the platforms and expose delivery diagnostics; conversion backend exists.
+  6. Expose the built brand profile/copy content through product surfaces (`2026-10-25-w2-brand`, `2026-10-25-w-ad-copy-skill`).
   7. Waste control: Google search-query report + negative keywords first.
-  8. The Apple migration.
+  8. DONE: Apple migration implementation committed; integration/acceptance remains in its item below.
 
   **Missed by the synthesis:**
   - calls, bookings and manual won entry;
@@ -167,36 +139,29 @@ Read their code and list what they do that OM doesn't. License rules: MIT/Apache
   - the owner's target cost per lead plus "insufficient data" outcomes;
   - connection-to-launch readiness states.
 - [x] **Apple v1 migration BUILT and committed 2026-10-25** (reporting stays not_implemented until Apple's semantics are confirmed; plugin still disabled pending integration). Original item: **TIME-BOUND, CONFIRMED by Apple:** Campaign Management API v5 sunsets **2027-01-26** (Apple Ads Platform API Preview Release Notes p.4, https://ads.apple.com/adsdam/app-store/us/en_us/documents/api-preview-guide.pdf#page=4). Migrating needs endpoint shapes, `adAccountId` context and response envelopes (pp.6–7). Migrate or explicitly defer apple-search-ads. Migrate OM's apple-search-ads plugin to Ads Platform API v1 before then.
-- [ ] Owner: trademark search for "Open Marketing" before a public launch (OOSA clash).
+- [ ] **DEFERRED by owner 2026-10-28:** trademark search for "Open Marketing" before a public launch (OOSA clash).
 
 ## HIGH PRIORITY — swap OM infrastructure to Jini (owner, 2026-10-24: "it should use Jini's stuff")
-- [ ] **Codex plan first, then a staged swap.** Replace OM-built infrastructure with Jini 0.6.x wherever Jini covers it:
-  - **Outbox:** `@jini-ai/infra/events/outbox` (0.5.4, retained owner) in place of OM's `features/jobs` outbox. Keep these invariants: ONE outbox, atomic intent+enqueue, idempotency keys, unknown outcomes never blindly retried.
+- [ ] **Staged Jini adoption — rc.2 installed; remaining swaps need semantic parity.** Audit: `codex-runs/2026-10-28-w6-audit-jini-local/report.md`; later decisions: `coordinator-notes-1028.md` (e1 adoption trims and latest 8b/tovu-45 update).
+  - **Outbox R1 OPEN:** add published `@jini-ai/infra` (not an OM dependency yet), then adapt `@jini-ai/infra/events/outbox` to OM's jobs boundary and pass `fencedOutboxConformance`. Keep these invariants: ONE outbox, atomic intent+enqueue, idempotency keys, unknown outcomes never blindly retried.
   - **Outbound webhooks:** `@jini-ai/integrations/webhooks` (subscriptions, delivery worker, signing, keyring).
   - **Scheduling + event log:** `@jini-ai/daemon` scheduler and the sqlite event-log.
-  - **Email:** `@jini-ai/platform/mail` (engine, policy, feedback/suppression, sender verification), plus `@jini-ai/platform` aws-sigv4 for SES.
-  - **Gap check:** grep OM for any other self-built infra Jini already ships (http guarded fetch, secrets, rate limits, retries) and list it.
+  - **Email:** `@jini-ai/platform/mail` (engine, policy, feedback/suppression, sender verification), plus `@jini-ai/platform` aws-sigv4 for SES; rc.2's `createMailAdapterContext` (installed) unlocks A3-mail/A2d-mail and A7 part 2 (`2026-10-28-w15-a3-mail`, in flight).
+  - **Audit dispositions:** R4 om-db and R7 Google stdio adoption: nothing to build (`w8-jini-omdb`, `w8-jini-gads-stdio`, skipped-no-build); the obsolete stdio surface was later deleted by `w10-cleanup-google-ms`.
+  - **Readers R5:** two agent readers are source built (`w8-jini-app-readers`), post-checked, uncommitted, untested. Plugin readers A/B and server readers wait for rc.3/final (`ResponseLimitExceededError` is not in rc.2; preserve each plugin's BOM/UTF-8/error semantics and add required dependencies through the integrator).
+  - **Packing R9:** `w8-jini-packing` built nothing against rc.1; revive after rc.3/final supplies `excludeSuffixes`/`includeTests` and allow-path precedence (not in rc.2). Keep reseeding; early dedup was not added upstream.
+  - **Deadline/digest:** adopt rc.2's `createDeadlineSignal` in Twilio/WhatsApp/X through the integrator (`2026-10-28-w15-deadline`, in flight). Digest DECIDED (8b, 2026-10-28): keep contracts `canonicalizeArguments` (sync, used by safety + plugins; contracts stays pure). Jini's `canonicalArgumentDigest` is async, so there is no swap and no job. Revisit only if Jini adds a sync digest.
   - **Missing from Jini:** propose it as an upstream Jini addition, never an OM-local copy.
 
 ## QUEUED — observability extension points (owner, 2026-10-25)
 The owner is building Jini adapters for OpenTelemetry, PostHog and Sentry so we can observe data and fix problems. OM needs the same paradigm, consumed from published Jini only.
-- [ ] **Jini jobs (tovu-9b, 2026-10-25):** three cloud prototypes, none published yet:
-  - Observability 1, `trig_011TCXaeCEWMmrteveG7aZju`: port extension, plus OTel and Sentry on assistant tool calls; branches `cloud/observability-1025-*`; likely finished.
-  - Observability 2, `trig_01GwvNHGFS9qExmmcEQyygLc`: OTel and Sentry move into provider plugins, plus a PostHog adapter.
-  - Langfuse AI-run tracing, `trig_01KGGir41wJ2xstx2YJR44PE`: contract in Jini agent-runtime, so OM can reuse it; branches `cloud/ai-tracing-1025-*`.
-- [ ] **OB1 demo built, NOT committed** (R1 server + R2 studio; typechecks green). Codex brief: `codex-runs/2026-10-25-observability-demo/`. Before/after screenshots are in b5's scratchpad. Agreed with tovu-9b (10-25) to converge on Jini's shape; the fix pass is:
-  - **ONE generic decorator per chokepoint:** `withObservability({ api, observability })` over every API method (`trackOperation`/`reportError`). No approve special case in `shared/api/telemetry.ts`.
-  - **Remove the hand-written server approve tracker:** in `inbound/owner.ts`, replace it with a chokepoint decorator.
-  - **Analytics is a SEPARATE port:** `capture(name, properties)`, primitives only, plus an allowlist/redaction step; injected `track` = `analytics.capture`. Drop the per-event strict union in `packages/contracts/src/telemetry`.
-  - **Delete the 22-line `useApprovalExposure`:** fire shown/expired as one-liners where they happen.
-  - **Readable times in the Events panel.**
+- [ ] **OB1 demo committed in 4016dbe; facade-aligned fix pass remains.** Brief: `codex-runs/2026-10-25-observability-demo/`. Reuse Jini's single `deps.tracker` facade (`capture`/`error`/`span`); remove remaining approval-specific tracking/exposure plumbing and simplify schemas as part of that adoption, without inventing another OM port.
+  - Readable Events times are source built (`codex-runs/2026-10-28-w2-event-times`), post-checked, uncommitted, untested; no remaining timestamp implementation task.
   - **WHO did it (owner, via tovu-9b 10-25):** every tracked operation/event carries `user.id`, the pseudonymous principal id, never email or name. Analytics runs only after consent.
-  - **Single-object port inputs:** `capture({ name, properties, userId })` and `trackOperation({ name, attributes })`. The OB1 `track(name, fields)` positional signature must become a single object, which also satisfies the OM lint rule.
-  - **Final Jini names:** from tovu-9b after Jini cloud run 2 (~4 PM PT 10-25).
-- [ ] **Owner rule:** OTel, Sentry and PostHog are swappable provider plugins, never core. Product analytics sits behind a generic analytics contract.
-- [ ] **Expected release:** port shape and version settle at review/merge, probably a Jini 0.6.x after 0.6.14. tovu-9b will send the interface summary and spec path around 4 PM PT. Don't code against branches.
-- [ ] **Already available:** OM declares `@jini-ai/diagnostics` 0.6.12, whose `./observability` export has an OTel `ObservabilityPort` + noop + hooks, but OM wires none of it. Tovu's usage is in `apps/website/src/platform/observability/`; DB, outbound-HTTP and agent-run spans are nested under the request span.
-- [ ] **OM plan:** inject the port in the server composition (noop by default; on only via explicit config). Then add spans for HTTP, DB, plugin tool calls, vendor dispatch and agent runs. Use the PostHog/Sentry adapters once Jini publishes them. Never send ad-account PII or secrets.
+  - **Single-object inputs** remain required; align calls to the published facade instead of preserving the obsolete separate analytics-port design.
+- [x] **Owner rule accepted:** OTel, Sentry and PostHog are swappable provider plugins, never core. Product analytics uses the generic published Jini contract. Don't code against branches. Adoption/acceptance is the separate open item below.
+- [ ] **Available vs adopted:** OM has `@jini-ai/diagnostics` 0.6.15-rc.2; Studio telemetry and owner approval tracking already use observability. The published `./observability/node` `createTracker` facade is available; `@jini-ai/provider-plugins` is not an OM dependency yet (`2026-10-28-w6-audit-jini-local/report.md`, E1 catalog §D).
+- [ ] **OM adoption:** wire the published tracker at composition (noop by default; explicit configuration to enable providers), then HTTP, DB, plugin tool calls, vendor dispatch and agent-run spans. Add the published provider package through the integrator; prove identity, consent and redaction at the boundaries. Never send ad-account PII or secrets. The separate cookie-consent redesign must not be rebuilt on the old consent/browser-analytics bridge.
 
 ## QUEUED — over-engineering cleanup (Codex audit 2026-10-25)
 - [x] **Quick wins DONE 2026-10-25, about −1,200 net lines; typechecks green, tests not run:**
@@ -205,59 +170,39 @@ The owner is building Jini adapters for OpenTelemetry, PostHog and Sentry so we 
   - QW2 2900f9c (features/tests, −186);
   - QW3 a7b3356 (server + JS1-B, −245);
   - QW4 eb65a0b (plugins, −29).
-- [ ] **Integrator follow-up from QW1:** remove the unused dependency declarations A7 lists (om-clock ×15, agent core/protocol, desktop desktop-host, plugins ajv, clock zod, fast-check outside safety, sqlite in federation/plugins, root @eslint/js/@playwright/test/fast-check). This is a lockfile change, so verify each first; some are Jini peers.
+- [x] **Integrator follow-up from QW1 — named removals verified** (`codex-runs/2026-10-28-audit-todos/report.md`): root/agent/desktop/plugins/federation manifests are clean of the historical unused declarations. The five remaining `om-clock` declarations in forms/measure/jobs/privacy/policy have real callers. QW1 is committed in 313c3e8; the different current lockfile NEEDS are under the integration pass above.
 Full report: `ADS-memory/.local-artifacts/codex-runs/2026-10-25-overengineering-audit/audit.md`, with 20 ranked findings and 7 proposed rule changes (owner decisions). The biggest waste is parallel implementations: old feature stacks stay tested while the server runs a different path.
 - [ ] **Batch 1 — mechanical pruning:**
-  - delete the unused jini-compat `claimBatch`;
-  - drop unused factory dependencies (audit, media, measure);
-  - remove the workspace lookup wrappers;
-  - remove observer aliases and re-export blocks.
-- [ ] **Batch 2 — one SQL/session protocol:** replace the feature-invented SQL shapes, plus one shared SQLite test fixture. Remove the unused PostgreSQL branch if the owner confirms.
-- [ ] **Batch 3 — one plugin/federation implementation:** the unconstructed `features/plugins` lifecycle and `features/federation` host duplicate the server path.
-- [ ] **Batch 4 — jobs owns every transition:** remove duplicated lease/journal SQL, the policy identity leftovers and the double worker path.
-- [ ] **Batch 5 — schema/utility consolidation:** OAuth schemas, media tool schemas, sorted-JSON encoders, observer doubles.
-- [ ] **Focused audits (10-25):** `codex-runs/2026-10-25-oe-audit-{plugins,tests,studio-server}/audit.md`.
-  - **Plugins:** 23 copies of stream-reading code, 1,392 lines of repeated fixtures, 524 lines of repeated manifest tests, duplicate request paths inside Naver/Pinterest/Yandex, and a hand-rolled MCP server in google-ads.
-  - **Tests:** about 300–450 lines; redundant fake adapters added on top of the required memory + real pair, a test-only HTTP fixture, and a forms spike that re-implements production.
-  - **Studio/server:** about 400–500 lines; an unused SSE client (115 + 65 test lines), duplicated read-model types, extra chat state, and dead methods. The large server files mostly earn their keep.
-  - **Quick wins (by hand):**
-    - delete the SSE client;
-    - delete `selectModel`, studio `createConversation`, the nav text parser and server `JiniRuntimePort`;
-    - remove 3 redundant fake test adapters;
-    - delete the Naver duplicate reader;
-    - delete the version-literal manifest assertions.
-  - **New Jini asks:**
-    - a byte-limited Response reader (plugins);
-    - `@jini-ai/ui/fetch-query` clock/scheduler injection;
-    - `@jini-ai/mcp` `createMcpToolServer` hosting options (frame limit, serial, EOF).
-  - **tovu-9b accepted all 3 for Jini 0.6.15 (10-25):** a public bounded-body reader with `onLimit: 'reject'|'truncate'` (default reject, built on #7), fetch-query clock/scheduler injection, and createMcpToolServer `maxFrameBytes`/serial/EOF options. These land in a follow-up round after the current 5 groups.
-  - **OM plugin kit (published, bundled per plugin):** bounded-JSON snapshot, CAPI binding schemas, exact money math, and test/conformance helpers.
-- [ ] **Simplicity-lens audits (10-25):** `codex-runs/2026-10-25-oe-audit-{features,data-model,tooling-deps,public-surface}/audit.md`. Diminishing returns: about 300–400 + 100–130 (plus 190 config) + 130–170 lines, and no whole tables to drop.
+  - `claimBatch` is committed gone (JS1-A); workspace wrappers/schema derivations and audit/media/measure factory dependency cleanup are source built (`2026-10-28-prune-batch1`, `2026-10-28-w2-factory-tail`), post-checked, uncommitted, untested. Measure's stale HANDOFF claims were corrected by factory-tail FIX 8.
+  - **Only residual:** observer aliases/re-export blocks, deferred to the later barrel batch (`prune-batch1/postcheck.md`, including audit's optional internal schema re-export).
+- [x] **Batch 2 — one SQL/session protocol, source built and post-checked** (`packages/om-db` shared fixture committed in 4659d96; canonical feature `SqlSession` aliases are uncommitted wave source; `2026-10-28-audit-todos/report.md`), untested. The unused PostgreSQL branch is already removed (JS1-B); cloud conformance remains separate.
+- [ ] **Batch 3 — lifecycle consolidated; federation residual:** oe3 option A puts plugin lifecycle in the feature slice (`2026-10-27-r3-oe3fix`). Inspector retirement is source built (`2026-10-28-oe-inspector-stack`), post-checked, uncommitted, untested; server federation orchestration vs exported feature host still needs consolidation.
+  - Inspector's Higgsfield test/docs tail and ZIP/NUL boundary tests are source built (`w2-higgsfield-tail`, `w2-upload-boundary-tests`), post-checked, uncommitted, untested. Remaining out-of-lane inspector actions: obsolete Meta portable suite/docs, integration-pass unused dependencies, and N6 MCP server-entry validation parity. Owner admission intent is recorded above.
+- [x] **Batch 4 — jobs owns every transition, scoped source cleanup built** (`codex-runs/2026-10-25-w-oe4-jobs`, verified by `2026-10-28-audit-todos/report.md`), post-checked, uncommitted, untested: jobs owns lease/checkpoint operations, policy identity leftovers and the duplicate worker path are removed. Jini cutover/cloud acceptance remain separate.
+- [ ] **Batch 5 — schemas/utilities partly consolidated:** OAuth/media schemas are source built (`2026-10-25-w-oe5-schemas`); safety reuses contracts' canonical serializer (`2026-10-28-w5-contracts-helpers`) and LinkedIn uses it (`w10-cleanup-tiktok-li`), post-checked, uncommitted, untested. Remaining sorted-JSON/observer consolidation must preserve durable digest bytes; contracts `canonicalizeArguments` stays (rc.2's digest is async; decision under the Jini swap item).
+- [ ] **Focused audits (10-25) — analysis DONE, selected actions built:** `codex-runs/2026-10-25-oe-audit-{plugins,tests,studio-server}/audit.md`.
+  - Mechanical quick wins are complete per `2026-10-28-audit-todos/report.md`; duplicated factory fixtures are trimmed (`2026-10-28-oe-test-trims`), post-checked, uncommitted, untested.
+  - Agent reader adoption is built (`w8-jini-app-readers`); plugin/server readers await rc.3/final and their semantic keep-lists. Google stdio was deleted (`w10-cleanup-google-ms`), so no independent hosting replacement remains.
+  - Re-check remaining fixture/manifest duplication and Naver/Pinterest/Yandex paths individually before deleting; old aggregate counts are not a current backlog. Keep required shared memory/real behavior suites.
+  - Bounded readers, fetch-query clock/scheduler injection and MCP hosting controls are published in rc.1; adoption dispositions are under the Jini swap/ask checklist. Reuse contracts' bounded-JSON/CAPI/money helpers and existing suites, not a new plugin kit.
+- [ ] **Simplicity-lens audits (10-25) — analysis DONE:** `codex-runs/2026-10-25-oe-audit-{features,data-model,tooling-deps,public-surface}/audit.md`.
   - **Recurring owner decisions:**
     1. Public signatures can be narrowed (scaffolding isn't frozen forever).
     2. B1 means shared behavior evidence. It doesn't mean extra forwarding adapters or hand-copied type declarations, so types are derived from schemas.
     3. A helper split out without removing branches earns no credit.
     4. Retire j00's scaffold-layout test (`development/tests/skeleton.test.ts`).
-  - **Quick wins:**
-    - delete the 22 forwarding build configs;
-    - remove the orphan dev launcher;
-    - delete the agent's unused event client;
-    - derive the audit/privacy declarations from their schemas;
-    - remove the unused contract declarations;
-    - replace the comparator with the Jini export.
-- [ ] **Round-3 simplicity audits (10-25):** `codex-runs/2026-10-25-oe-audit-{small-features,server-src,studio,plugins-simplicity}/audit.md`.
-  - **Small features:** modest; the duplicated workspace auth/context construction is the main item.
-  - **Server:** 200–300 lines (command handling, a test-only coverage formatter, obsolete adapters).
-  - **Studio:** 200–250 lines (obsolete chat CSS, repeated theme constants), plus 45–50 after a Jini publish.
-  - **Plugins:** Meta's unused hosted-MCP stack, and Google's extra layers.
-- [ ] **Owner decision:** adopt the 7 proposed rules (e.g. "every required factory dependency must be read or used"; "retire the superseded implementation before accepting integration").
+  - Build-config/launcher/event-client deletions, audit/privacy schema derivation and Jini comparator reuse are complete (`2026-10-28-audit-todos/report.md`, `2026-10-28-prune-batch1`, post-checked, uncommitted wave work, untested). Remaining: the eight unused contracts declarations and aliases/barrels through their integrator/later batch; scaffold-layout coverage must be retired without losing useful assertions.
+- [ ] **Round-3 simplicity audits (10-25) — analysis DONE:** `codex-runs/2026-10-25-oe-audit-{small-features,server-src,studio,plugins-simplicity}/audit.md`.
+  - Selected server/studio simplifications and shared owner HTTP/tool presentation are source built (`2026-10-28-hot-server-composition`, `hot-studio`, `oe-owner-presentation`), post-checked, uncommitted, untested. No current hotspot count is established by the old estimates.
+  - Google stdio/extra compatibility layers and Meta/TikTok/LinkedIn transitional paths are removed (`w10-cleanup-google-ms`, `w10-cleanup-tiktok-li`, `w11-host-meta-cleanup`), post-checked, uncommitted, untested. Remaining workspace context duplication, aliases and other unassigned findings need a scoped reference check; don't reopen those deleted stacks.
+- [x] **Owner decision:** adopt the 7 proposed rules — **adopted 2026-10-28; now `development/COMMON.md §13`** (e.g. "every required factory dependency must be read or used"; "retire the superseded implementation before accepting integration").
 
 ## Jini swap (2026-10-25): result of the JS1/JS2/JS3 plans
 OM already delegates to Jini wherever parity exists. What's left are guarantees Jini lacks. Plans: `codex-runs/2026-10-25-jini-swap-*/plan.md`.
 - [x] JS1-A: deleted the unused claimBatch and swapped to Jini `sourceChecksum` (f1c28b0, −160 lines; tests not run because of load).
 - [x] **JS1-B DONE** (a7b3356, with QW3). Was: remove the unused PostgreSQL transaction path (`jini-compat/db/src/transaction.ts`, `ports.ts` dialect, `tests/db/{transaction,migrations}.test.ts`, `fake-client.ts`). First port the unique release/commit/migration assertions into the SQLite tests (plan stage 2, cap 380 lines). Run when load allows.
 - [x] JS2 and JS3 builds skipped (no net deletion now).
-- [ ] **Jini upstream asks sent to tovu-9b (10-25)**, all additive/opt-in:
+- [x] **Jini upstream asks filed/accepted (10-25)**, all additive/opt-in; in **0.6.15-rc.1; rc.2 installed; OM adoption pending** (`@jini-ai/infra` itself is not yet an OM dependency). Keep the adapter/conformance work under the staged swap above; this tick closes filing, not adoption:
   - outbox fencing, reconciliation and receipts;
   - serial pump;
   - event-log conflicts and transactions;
@@ -268,14 +213,14 @@ OM already delegates to Jini wherever parity exists. What's left are guarantees 
   - guarded-reader no-follow;
   - exact-secrets redaction.
 
-  After Jini publishes: swap and delete OM's copies (features/jobs outbox, jini-compat db).
-  **Asks 1–9 are BUILT and committed (10-25)** on Jini branch `feat/om-upstream-1025` (clone `tovu-integration-clones/jini-om1025`) as patch changesets for 0.6.15. Not published yet; the order is 0.6.13 → 0.6.14 → 0.6.15. Notes for the OM swap:
+  In 0.6.15-rc.1; rc.2 installed; OM adoption pending: swap and delete OM's copies (features/jobs outbox, jini-compat db) only where parity is established.
+  **Asks 1–9 are BUILT and committed (10-25)** on Jini branch `feat/om-upstream-1025` (clone `tovu-integration-clones/jini-om1025`) as patch changesets for 0.6.15. In 0.6.15-rc.1; rc.2 installed; OM adoption pending. Notes for the OM swap:
   - `enqueueWithReceipt` is an interface only, so OM's SQLite and memory outbox adapters need their own conformance tests;
   - `pump.stop()` called from inside a pump callback hangs, so never do that;
   - when any pack option is set, a symlinked plugin source folder is skipped by default;
   - mcp keeps its platform peer range at ^0.6.10, but the bounded reader needs platform ≥0.6.15.
 
-  Wait for the publish, then plan the OM swap (outbox first).
+  In 0.6.15-rc.1; rc.2 installed; OM adoption pending (outbox first, after semantic-parity review).
   **Update (10-25):** asks 10–12 are committed too. In ask #1, `enqueueWithReceipt`/`EnqueueReceipt`/the `Tx` generic/`requestDigest` were DROPPED because they were declarations only, with no implementation. Still shipping:
   - fencing (claim → beginDispatch → complete);
   - reconciliation-only recovery;
@@ -299,12 +244,12 @@ OM already delegates to Jini wherever parity exists. What's left are guarantees 
   - A failed InMemoryTransaction commit runs every rollback; several errors become an AggregateError.
   - New overlap conformance case.
 
-  Publish notice comes from tovu-dd. Enqueue is a separate port; FencedOutboxPort and the legacy OutboxPort are unchanged. A SQLite lease race was also fixed.
+  In 0.6.15-rc.1; rc.2 installed; OM adoption pending. Enqueue is a separate port; FencedOutboxPort and the legacy OutboxPort are unchanged. A SQLite lease race was also fixed.
   tovu-9b accepted all 9 (10-25). Target is **Jini 0.6.15**, built in 5 groups: outbox+pump, event-log, db, fetch/mcp/guarded-reader, pack+redact. Each group must prove Tovu's defaults are unchanged. #9 extends the existing `keepIdentifiers` sanitizer option (Jini 31641d1b). tovu-9b reports each group as it lands.
 
 ## QUEUED — Tovu → Jini extraction audit (owner, 2026-10-24)
 OM is now Jini's second consumer, so rule-of-two applies. Find Tovu code that is abstract enough to live in Jini and be reused by OM; don't copy it into OM.
-- [ ] Codex inventory (read-only) of Tovu ↔ OM overlaps. Rank each by reuse value and by how cleanly it separates from Tovu. Candidates seen so far:
+- [x] Codex inventory (read-only) of Tovu ↔ OM overlaps DONE: `ADS-memory/reports/2026-10-25-tovu-jini-extraction-audit.md` (nine ranked candidates). Extraction/publication/OM adoption remain separate. Candidates:
   - credential/connection cards (Tovu credential-cards.ts, connect-card-ui.ts);
   - site guide + capability cards;
   - chat-pane wiring/hooks (Tovu App.tsx/panels.tsx);
@@ -314,100 +259,58 @@ OM is now Jini's second consumer, so rule-of-two applies. Find Tovu code that is
   - mail adapters (tovu-mail-adapters.json);
   - test-rigor/coverage scripts;
   - per-route tool-coverage parity checks.
-- [ ] **Coordinate with the Tovu/Jini owner session (tovu-ed):** Jini changes land in Jini and publish to npm, and OM only consumes published versions.
-- [ ] **Known Jini asks already queued:**
-  - instance-injected permission catalog (user-management);
-  - vendor/effort pickers + authoritative cost in chat;
-  - an effort option in agent-runtime;
-  - a messaging (SMS) engine.
+- [ ] **Known Jini asks — one publication / installed-version / OM-consumer checklist** (requesting is done; consolidate the former upstream chat/permission duplicate here):
+  - **Permission catalog:** filed/built upstream (`ADS-memory/reports/2026-10-26-jini-asks-p0-3.md`); OM consumes rc.2, but user-management is not an OM server dependency (`w13-p1-breakdown/report.md`). Exact released injection API/installed-version/consumer adoption still needs confirmation.
+  - **Vendor/effort pickers, authoritative chat cost and runtime effort:** requests filed; chat/agent-runtime installed at rc.2. Existing OM pickers/usage presentation do not establish acceptance of the exact upstream asks; publication/export and consumer closure remain unverified.
+  - **Messaging/SMS engine:** requested, no published/installed engine or OM adoption established. Keep SMS/WhatsApp plugin-only until a published fit exists.
+  - **Fenced outbox / telemetry facade/providers:** rc.1 published; diagnostics installed, infra/provider-plugins absent. Outbox parity/conformance and tracker/provider adoption are the open swap items above.
+  - **Mail context / deadline / canonical digest:** in rc.2 (installed 2026-10-28). Mail goes through `w15-a3-mail` and deadline through `w15-deadline`; the digest stays contracts `canonicalizeArguments` (sync). **Packer options / typed reader error / cms jsdom peer:** rc.3/final, not yet published; packing and plugin/server readers wait for it (tovu-45 correction, `coordinator-notes-1028.md`).
 
 ## QUEUED — OM's own design system theme: sleek black and white (owner, 2026-10-24)
-- [ ] A NEW theme that does not copy Tovu's look. Sleek black and white: black-on-white in light mode, white-on-black in dark mode. Give it its own design-system values:
+- [x] **OM Ink theme source built** (`codex-runs/2026-10-25-w-bw-theme`, checked by `2026-10-28-audit-todos/report.md`), post-checked, uncommitted, untested. Sleek black and white: black-on-white in light mode, white-on-black in dark mode, with its own design-system values:
   - font pair (display + text; installed or OFL webfonts);
   - neutral palette + a single restrained accent (or none);
   - radius, border, shadow and spacing scale;
   - nav and metric treatments.
-- [ ] This also proves the theming system works: the new theme must need ZERO component edits (tokens only). If it can't be expressed, fix the token contract, not the components.
-- [ ] Decide whether it becomes OM's default theme (likely yes). Before the owner sees it, run a Claude-in-Chrome visual pass that adjusts values only.
-- [ ] Related: the existing Mono theme (TH1) is close in spirit, but it is a palette-only variant; this one is a full design system.
+- [x] **Token-only theme implementation proven:** OM Ink needed ZERO component styling edits (`2026-10-25-w-bw-theme`, checked by `2026-10-28-audit-todos/report.md`), post-checked, uncommitted, untested. Broader hard-coded layout dimensions remain a token-contract limitation.
+- [ ] **OM Ink stays an additional theme** (owner 2026-10-26); Modern remains the default. Browser/contrast acceptance is pending; visual adjustments must change tokens only.
 
 ## QUEUED — marketing skills as agent plugins (owner-approved shape, 2026-10-24)
 Sources: `codex-runs/2026-10-24-marketing-skills/research.md`. Only MIT/Apache sources; each plugin gets a PROVENANCE.md (repo, commit, license, changes). Strip tool/host assumptions and any instruction that escalates tools.
-- [ ] **1. General marketing → `om-playbook`.** Adapt from Corey Haines, Anthropic and Aaron:
+- [x] **1. General marketing → `om-playbook`, source built** (`codex-runs/2026-10-25-w2-skills2`, `2026-10-25-w-ad-copy-skill`, checked by `2026-10-28-audit-todos/report.md`), post-checked, uncommitted, untested. Adapted with per-skill provenance from Corey Haines, Anthropic and Aaron:
   - strategy and briefs;
   - copywriting;
   - landing-page CRO;
   - analytics/attribution;
   - ad creative testing.
-- [ ] **2. Platform-specific skills → each vendor's agent plugin:**
-  - Google's official Ads skills → google-ads;
-  - Meta, LinkedIn, TikTok, Amazon, Pinterest, Reddit, Microsoft skills (Claude Ads, Hyper, Rebecca Rae) → their plugins;
-  - Higgsfield's official skills → higgsfield-media.
-- [ ] **3. Optional topic add-ons as their own agent plugins:** `seo` (Claude SEO), `email-lifecycle` (email-marketing skill + CRM wiki), maybe `social-publishing` (Publora).
-- [ ] **Already in the right format:** Aaron Marketing Skills ships an Agent Plugins 1.0.0 "Portable Lite" build, and Anthropic's marketing plugin is already a plugin. Convert the rest to agent plugins.
-- [ ] **Skill router:** one small way for the assistant to pick the right skill or plugin per task. Check Jini agentic's skill discovery first; Tovu's site_guide pointer pattern is the model. Don't build a framework if Jini covers it.
+- [ ] **2. Platform-specific skills — selected adaptations built; content acceptance/follow-ups remain:** 14 vendor skills with provenance live in each vendor's agent plugin (`2026-10-28-w2-vendor-skills`, `w6-skills-a/b/c/d`; post-checked, uncommitted, untested). Keep Higgsfield's existing provenance. Remaining: VK primary-source facts from `ads.vk.ru/help`, and Microsoft developer-token wording in the integration gate/docs job; general operational updates landed with the plugin cleanups (coordinator notes, e1/8b). Do not reopen the completed adaptation batch.
+- [x] **3. Topic add-ons `seo` + `email-lifecycle`, source built** (`codex-runs/2026-10-25-w2-topic-plugins`, checked by `2026-10-28-audit-todos/report.md`), post-checked, uncommitted, untested; packaged skills and provenance exist.
+  - Optional `social-publishing` (Publora) remains a DEFERRED candidate; not part of the completed pair.
+- [x] **Skill discovery already covers the small-router need:** seven-link playbook hub, `site_guide` and chat add-on discovery (`2026-10-27-r3-small`, verified by `2026-10-28-audit-todos/report.md`), post-checked, uncommitted, untested. Runtime activation still needs acceptance; no new routing framework.
 
 ## QUEUED — more chart plugins (owner: "visualization is really important")
-- [ ] Charts are downloadable chart PLUGINS through Jini's chart contract, never npm deps in OM (owner decisions 4 and 10). Today only the Recharts plugin exists (`content/plugins/charts-recharts`).
-- [ ] **Owner pick (2026-10-24): Apache ECharts and Chart.js.** Build these two first.
-- [ ] Maybe later, experimental, owner undecided: OpenUI (https://github.com/thesysdev/openui), generative UI. Evaluate before adopting.
-- [ ] Other candidates considered (check licenses):
-  - Apache ECharts — Apache-2.0, very rich;
-  - Nivo — MIT;
-  - Chart.js — MIT;
-  - Vega-Lite — BSD-3, declarative, good for the assistant to generate;
-  - maybe Plotly — MIT.
-
-  Pick 2–3 that cover dashboards (time series, funnels, maps, heatmaps) and the Phase 1 results view.
-- [ ] Charts the assistant can render in chat (A2UI) and on the results dashboard.
+- [x] **Downloadable chart PLUGINS built** through Jini's chart contract, **never npm deps in OM** (owner decisions 4 and 10): Recharts, ECharts and Chart.js, bundled/seeded/packaged alike (owner 2026-10-26). Source/artifacts built (`2026-10-25-w-chart-plugins`, `2026-10-28-audit-todos/report.md`), post-checked, uncommitted, untested; artifacts are not cloud/browser acceptance.
+- [x] **Owner pick (2026-10-24): Apache ECharts and Chart.js — artifacts built** (`content/plugins/charts-{echarts,chartjs}/0.1.0`, `2026-10-25-w-chart-plugins`, verified by `2026-10-28-audit-todos/report.md`), post-checked, uncommitted, untested. Source dependency locking remains an integration-pass task (`2026-10-28-w3-gates-charts/postcheck.md`).
+- [ ] **DEFERRED by owner 2026-10-28:** OpenUI (https://github.com/thesysdev/openui), experimental generative UI; evaluate before adopting.
+- [ ] **Chart product acceptance:** A2UI chat provider path exists; Results dashboard use/rendering and browser acceptance remain. Lock reproducible chart dependencies in the integration pass before rebuilding.
 
 ## Finish the stopped plugin pipelines (automation stopped 2026-10-24 23:xx)
 Check each `codex-runs/2026-10-24-plugin-<p>/` folder's R1/R2 status, review and fix files, then commit what is reviewed and typechecks. The scripts `autocr-plugins*.sh` and `autofix-plugins*.sh` can be restarted to finish the loop.
-- [x] DONE (verified 2026-10-25): all 12 ad plugins have R1 (reads + auth) and R2 (paused launch + readback) reviewed and committed. Resend, Twilio, WhatsApp and SES have R1 reviewed and committed. Plugin compile status was per-plugin typecheck only, and nothing is wired into the server yet.
+- [x] DONE (verified 2026-10-25): all 12 ad plugins have R1 (reads + auth) and R2 (paused launch + readback) reviewed and committed. Resend, Twilio, WhatsApp and SES have R1 reviewed and committed. This is a historical per-plugin compile snapshot; current host wiring and residuals are below.
 
 ## In progress / next (carried from 2026-10-24)
-- [ ] **Chat panel parity, remaining gaps.** After commit 2359518 (screenshot in scratchpad, chat-after.png), it is much closer: right dock, "New chat" title, Claude logo + "Opus 5.5", "Default" effort, readable approval summaries. Still missing:
-  - header icon buttons (agents/history/settings/close);
-  - "+" attach;
-  - send arrow;
-  - ▾ chevrons on the pickers;
-  - flatter approval cards (no box-in-box);
-  - a real-run status line.
-
-  Next: a Claude-in-Chrome visual pass that adjusts CSS values only.
-- [ ] **Chat panel parity with Tovu (owner's top UI item).** The owner's list is in `codex-runs/2026-10-24-jini-upgrade/owner-feedback-2254.md`, with screenshots alongside it. It covers:
-  - right-side dock;
-  - Jini header and history;
-  - vendor, model and effort pickers with logo;
-  - readable approval card;
-  - context chips;
-  - status line;
-  - "+" image attach.
-
-  It depends on the chat backend (CB1 R1 is under review; CB1 R2 adds image attachments).
-- [ ] **Upstream Jini gaps.** Ask the Tovu/Jini owner to add these:
-  - vendor and effort picker support plus authoritative cost in @jini-ai/chat;
-  - an effort option in agent-runtime `runProviderToolTurn`;
-  - an instance-injected permission catalog in user-management.
-- [ ] **Commit in-flight work after verification.** All of these need a code review, and Codex left its final typecheck unverified on several:
-  - vendor cards (VC1 R1 + fixes);
-  - chat backend (CB1 R1 + fixes);
-  - Higgsfield server completion (H1 R2 + fixes; byte import still deferred).
-- [ ] **Vendor cards R2:** cards for the 12 new ad plugins and the 4 messaging plugins. The studio card component is a DS2 need.
-- [ ] **Plugin typecheck (b5, 2026-10-25), one folder at a time:** 14 of 16 green. Two fail only on dependencies that aren't installed, because plugin folders aren't workspace members:
-  - x-ads needs `oauth-1.0a` 2.2.6;
-  - amazon-ses needs `@jini-ai/platform` 0.6.12.
-
-  Fix during the wiring pass (install, or add them to the workspace; this touches the lockfile, so it's integrator-only).
-- [ ] **New-plugin wiring pass:** connect all 12 ad plugins and resend-email, twilio-sms, whatsapp-business and amazon-ses to the server (agent-plugin-backends, build script, catalog). Do this AFTER P0 freezes report.metrics.v1.
-- [ ] **Messaging plugins R2:** broadcasts, suppression and webhooks for Resend, SES, Twilio and WhatsApp.
-  - **Email: REUSE Jini.** Make resend-email and amazon-ses adapter modules for `@jini-ai/platform/mail` 0.6.12, the way Tovu's resend plugin does (`tovu-mail-adapters.json`). It provides the provider registry, purpose-scoped mailer, delivery policy with one-click unsubscribe, rate limits, feedback ingest with suppression, and sender-domain verification. Also use `@jini-ai/platform` aws-sigv4 for SES and `@jini-ai/integrations/webhooks`.
-  - **SMS/WhatsApp:** no Jini infrastructure, so they stay plugin-only. A Jini messaging engine is a possible upstream addition.
-- [ ] **Official brand logos:** waiting on the owner's OK to use official kits under each vendor's brand guidelines. Then Codex places them in `<plugin>/io.github.ainsep.openmarketing/assets/` (manifest-declared, digested), with the guideline URL recorded per file.
+- [ ] **Chat panel parity, remaining acceptance.** The header controls, dock/pickers, icon CSS, flatter approval card and status/usage paths exist (`codex-runs/2026-10-25-w-chat-polish`, `2026-10-28-audit-todos/report.md`), post-checked, uncommitted wave source, untested. Remaining: image attachment transport + UI (currently rejected by session), real-run/usage acceptance and a browser comparison with the owner's screenshots. Visual adjustments should change CSS values only.
+- [ ] **Chat panel parity with Tovu (owner's top UI item).** Use `codex-runs/2026-10-24-jini-upgrade/owner-feedback-2254.md` and adjacent screenshots as acceptance evidence; the remaining work is the attachment/live-run/visual pass above, plus authoritative upstream usage integration. CB1 R1's old "under review" status is obsolete; CB1 R2 attachment closure is still outstanding. Track upstream publication/adoption once under Known Jini asks.
+- [ ] **Commit in-flight work after verification — BLOCKED on the integration/release procedure above.** Keep explicit-path batches and owner authorization; no stage/commit/push/merge is authorized by this checklist refresh. Byte import remains deferred for Higgsfield; source/typecheck reports do not prove runtime acceptance.
+- [ ] **Vendor cards R2 — generic cards/extra fields source built:** generic plugin-secret/OAuth handling, Studio cards/provider selection and mail-provider tool/CLI exist (`2026-10-28-w6-secret-attach`, `w6-a6-studio-cards`, `w12-a6-part2`, `w13-provider-settings-tool`), post-checked, uncommitted, untested. Remaining: end-to-end card/status/credential acceptance. Official logos remain separate.
+- [x] **Historical X/SES dependency blockers resolved:** installed `oauth-1.0a` 2.2.6 and `@jini-ai/platform` (now rc.2); scoped compile evidence in `2026-10-27-r3-plugins-d`, `2026-10-27-r3-messaging-measure`, verified by `2026-10-28-audit-todos/report.md`. Post-checked source/dependency changes remain uncommitted and untested; this is not a fresh global compile claim.
+- [ ] **New-plugin wiring — native ABI/dispatcher source built; integration/mail acceptance remains.** A2a-tools + A2b/c/d, A3 native tool/deploy/halt/conversion dispatch and post-A3 transitional cleanup are source built (`2026-10-28-vn-a2a-tools`, `vn-a3-dispatcher`, `w7-a3-b2`, `w10-cleanup-*`, `w11-host-meta-cleanup`), post-checked, uncommitted, untested. Microsoft bound-secret delivery is already complete (`w6-secret-attach`, `w10-cleanup-google-ms`); don't revive the vendor-specific host handoff. Build inventory is complete; actual bundles/fingerprints/provenance/admission acceptance and rc.2 mail remain in the integration sequence above. A7 part 1 (`w13-a7-1b`) is source built, post-checked, uncommitted, untested; later OAuth uploads/removals need restart (accepted post-check limitation).
+- [ ] **Messaging plugins R2 — plugin broadcasts/suppression/webhook pieces exist; durable host closure remains:** source built (`2026-10-25-w-messaging-r2`, `2026-10-27-r3-messaging-wiring`, `2026-10-28-vn-a2d-mail-messaging`), post-checked, uncommitted wave work, untested. Finish server sends, dispatch-time consent-authorized delivery and raw webhook ingress/identity resolution; source support is not an exercised workflow.
+  - **Email: REUSE Jini.** Make resend-email and amazon-ses adapter modules for `@jini-ai/platform/mail` (rc.2 installed with `createMailAdapterContext`; provider construction is the in-flight `w15-a3-mail` job), the way Tovu's resend plugin does (`tovu-mail-adapters.json`). It provides the provider registry, purpose-scoped mailer, delivery policy with one-click unsubscribe, rate limits, feedback ingest with suppression, and sender-domain verification. Also use `@jini-ai/platform` aws-sigv4 for SES and `@jini-ai/integrations/webhooks`. Descriptor-only work is done (`w7-a2d-mail`); A3-mail + A2d-mail + A7 part 2 own the remaining host mail port.
+  - **SMS/WhatsApp:** stay plugin-only; no published Jini messaging-engine adoption is established. Localized WhatsApp opt-outs still need authoritative vocabulary; retain preference-event withdrawal support.
+- [ ] **Official brand logos — DEFERRED by owner 2026-10-28:** keep neutral monograms. Future approved kits must follow each vendor's brand guidelines; put files in `<plugin>/io.github.ainsep.openmarketing/assets/` (manifest-declared, digested), with the guideline URL per file. Google's official button kit is the clean route.
 - [x] **Agent Plugins standard:** DONE 2026-10-25 (b5). Every `$schema` is now the published 1.0.0 (1.1.0 returns 404). This covers portable.ts, fixtures, server and tests. `@open-marketing/plugins` typecheck is green; tests not run. The architecture reports still say 1.1.0.
-- [ ] **Lint/complexity sweep:** cognitive >10 and nesting >3 errors, plus 19 two-object-argument breaches (see `codex-runs/2026-10-24-complexity/CX1.md`).
-- [ ] **Marketing skills:** adapt the top MIT/Apache sources into om-playbook and the vendor plugins (see `codex-runs/2026-10-24-marketing-skills/research.md`). Record license and provenance for each.
-- [ ] **Brand logos:** every card uses neutral monograms. Real logos need each vendor's brand-terms acceptance; Google's official button kit is the clean route.
-- [ ] **Test quality:** coverage and test-quality audit using Tovu's guidance (`codex-runs/2026-10-24-test-quality/tovu-test-guidance.md`): Stryker, tightened TDD audit prompt, count the tests that actually ran.
-- [ ] **T1 full test pass** (owner-approved for the end), then fixes.
+- [ ] **Lint/complexity sweep — scoped fixes built; final gate open:** `2026-10-28-w3-gates-{charts,plugins-a,plugins-b}`, `w3-measure-parse`, `w5-plugin-gates`, hot server/studio and cleanup jobs have post-checks; wave source is uncommitted and untested. Historical CX1 counts are obsolete. After dependencies/dist rebuilds, ONE integration-pass lint + typechecks → ONE gate/docs job (items above). Keep cognitive >10, nesting >3 and signature violations as errors; embedded snippet JS remains a coverage blind spot. Cyclomatic/NLOC stay report-only.
+- [ ] **Test quality — audit DONE; execution BLOCKED on cloud:** `ADS-memory/reports/2026-10-25-test-quality-audit.md`, using `codex-runs/2026-10-24-test-quality/tovu-test-guidance.md`. Selected assertion/fixture trims and upload regressions are written (`2026-10-28-oe-test-trims`, `w2-upload-boundary-tests`), post-checked, uncommitted, untested. Apply remaining selected findings, measure actual executed counts/coverage and Stryker in cloud. The stopped 10-27 test-gap analysis produced no report; don't count it as complete.
+- [ ] **T1 full test pass — BLOCKED on integration → commit → push → ONE cloud test** (owner-approved for the end), then fixes; never run tests on this machine.
 - [ ] **P2 .dmg build:** Node 24.2.0 tarball + fresh builds, after everything above.
