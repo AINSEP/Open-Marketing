@@ -4,9 +4,8 @@ import { MAIL_PROVIDER_SETTING_KEY } from '@jini-ai/platform/mail';
 import { idSchema, mailManifestExtensionSchema, mailProviderSelectionSchema, mailProviderSettingsSchema, parseBoundary } from '@open-marketing/contracts';
 import type { CallContext, Outcome, UnitOfWork, MailProviderSelection, MailProviderSettings } from '@open-marketing/contracts';
 import { listCredentialConnections } from '@open-marketing/credentials';
-import type { Addons } from '../addons.js';
+import type { Addons, AgentPluginState } from '../addons.js';
 import { readAddonCatalog } from '../addon-tools.js';
-import type { AgentPluginState } from '../composition/agent-plugin-backends.js';
 import { alertFailure } from './rules.js';
 
 const alertSenderSchema = z.strictObject({ pluginId: idSchema, connectionId: idSchema, alertFrom: z.unknown() });

@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { appErrorSchema, callContextSchema, digestSchema, epochSchema, idSchema, measurementGrantSchema, moneySchema, parseBoundary, scopeSchema, timeWindowSchema } from "@open-marketing/contracts";
+import { callContextSchema, epochSchema, idSchema, measurementGrantSchema, moneySchema, parseBoundary, scopeSchema, timeWindowSchema } from "@open-marketing/contracts";
 import type { AppError, CallContext, IdPort, Outcome, Scope } from "@open-marketing/contracts";
 import type { ConversionInput, VerifiedConversionSource } from "./types.js";
-import { conversionDiagnosticsSchema, conversionDeliveryOutcomeSchema, conversionSchema, sourceSchema } from "./types.js";
+import { dispatchRecordSchema, conversionDeliveryOutcomeSchema, conversionSchema, sourceSchema } from "./types.js";
 
-export { conversionSchema, sourceSchema } from "./types.js";
+export { conversionSchema, sourceSchema, dispatchRecordSchema } from "./types.js";
 
 const boundedString = z.string().min(1).max(1024);
 const identifierMap = z.record(z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,63}$/), boundedString).refine(value => Object.keys(value).length <= 16);
@@ -25,7 +25,6 @@ export const attributionSchema = z.strictObject({ resultId: idSchema, eventId: i
 export const attributionInputSchema = z.strictObject({ context: callContextSchema, sourceId: idSchema, result: attributionSchema });
 export const summarySchema = z.strictObject({ conversions: epochSchema, modelVersion: idSchema, watermark: epochSchema });
 export const receiptSchema = z.strictObject({ eventId: idSchema, status: z.enum(["accepted", "duplicate"]), jobId: idSchema });
-export const dispatchRecordSchema = z.strictObject({ deliveryId: idSchema, subjectId: idSchema, eventId: idSchema, identity: digestSchema, status: z.enum(["dispatching", "delivered", "unknown", "not_sent"]), recordedAt: epochSchema, diagnostics: conversionDiagnosticsSchema.optional(), reason: appErrorSchema.shape.code.optional(), receiptId: idSchema.optional() });
 export const auditInputSchema = z.strictObject({ context: callContextSchema, operationId: idSchema, outcome: idSchema });
 export const claimSchema = z.strictObject({ acquired: z.boolean(), record: dispatchRecordSchema });
 export const deliveryStatusSchema = conversionDeliveryOutcomeSchema;

@@ -48,6 +48,18 @@ export interface CreativeToolBinding {
     generate(required: { context: CallContext; input: CreativeToolInput; authorization: FrozenDispatchRequest; permit: DispatchPermit }): Promise<Outcome<unknown>>;
 }
 export type OmToolPolicy = 'read' | 'write' | 'destructive' | 'spend' | 'generation' | 'internal';
+
+/** Known irreversible effects win over unknown declarations, which always contribute write.
+ * @complexity O(e) time/space, e <=10 after wire validation; no authority is inferred here.
+ */
+export function toolPolicy(required: { effects: readonly string[] }): OmToolPolicy {
+    if (required.effects.includes('conversion') || required.effects.includes('halt_stop')) return 'internal';
+    if (required.effects.includes('ad_spend')) return 'spend';
+    if (required.effects.includes('destructive')) return 'destructive';
+    if (required.effects.includes('generation')) return 'generation';
+    return required.effects.length > 0 && required.effects.every(effect => effect === 'read') ? 'read' : 'write';
+}
+
 export interface OmToolDefinition extends ToolDescriptor {
     readonly revision: string;
     readonly policy: OmToolPolicy;

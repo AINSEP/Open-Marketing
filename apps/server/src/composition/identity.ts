@@ -8,7 +8,7 @@ import { createPolicyService, createSqlPolicyRepo, type PolicyService, type Subj
 import { createSqlWebEventRepo, createWebEventService, landingPropertiesSchema, type ObservedCampaignPort, type Visit, type VisitTokenPort, type WebEventService } from '@open-marketing/web-events';
 import type { ConversionIdentifiersPort, AttributionTouchPort, MetricsRepoPort } from '@open-marketing/measure';
 import type { AccountBindingLookupPort } from '@open-marketing/workspaces';
-import type { AgentPluginState } from './agent-plugin-backends.js';
+import type { AgentPluginState } from '../addons.js';
 import { localFailure } from './local-auth.js';
 import type { createSubjectLane } from './subject-lane.js';
 

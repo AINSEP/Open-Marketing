@@ -19,18 +19,17 @@ import { dispatchDecision } from '@open-marketing/policy';
 import type { PolicyService } from '@open-marketing/policy';
 import type { ContactService } from '@open-marketing/contacts';
 import type { PaidSendingAllowances } from '@open-marketing/safety';
-import type { Addons } from '../addons.js';
+import type { Addons, AgentPluginState } from '../addons.js';
 import type { AlertMailPort } from '../alerts/email.js';
 import { readAddonCatalog, readBoundedPages } from '../addon-tools.js';
-import { toolPolicy } from '../om-tools.js';
-import type { OmToolDefinition } from '../om-tools.js';
+import { toolPolicy } from '../om-tool-types.js';
+import type { OmToolDefinition } from '../om-tool-types.js';
 import { formRetryPolicy } from './forms.js';
 import { localFailure } from './local-auth.js';
 import { processingAllowed } from './identity.js';
 import type { createSubjectLane } from './subject-lane.js';
 
-/** Internal lifecycle projection; admission is read from installed manifest/capabilities, never chat. */
-export type AgentPluginState = { enabled: boolean; bundled: boolean; admitted: boolean; revision: string; metadata: Record<string, unknown>; entryUrl?: string; capabilities?: unknown; effects?: string[] };
+export type { AgentPluginState } from '../addons.js';
 /** Native namespace import and fetch are injected by serve; fixtures replace both without networking. */
 export type AgentPluginEffects = { fetch: typeof fetch; loadModule(required: { moduleUrl: string }): Promise<object>;
     moduleDigest(required: { moduleUrl: string }): Promise<string>;

@@ -5,7 +5,7 @@ import { setConversionSettingsSchema, pluginSecretQuerySchema, callContextSchema
 import type { CallContext, Outcome } from '@open-marketing/contracts';
 import type { Integrations } from '../integrations.js';
 import type { HttpRequest, HttpResponse } from '../ports.js';
-import type { OmTools } from '../om-tools.js';
+import type { OmTools } from '../om-tool-types.js';
 import { oauthCallbackPath, oauthStartSchema, oauthStatusQuerySchema } from '../integration-oauth-contracts.js';
 
 /** Owner integration management. Trusted boot supplies authenticated scope; never take it from JSON.

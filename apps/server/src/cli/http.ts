@@ -7,7 +7,7 @@ import {
   toolDescriptorSchema, toolOperationSchema, toolResultSchema,
 } from "@open-marketing/contracts";
 import type { AppError, Outcome } from "@open-marketing/contracts";
-import { leadSchema } from '@open-marketing/leads';
+import { leadSchema } from '../lead-route-schema.js';
 
 const campaign = z.strictObject({
   id: idSchema, title: z.string().max(200), detail: z.string().max(1024), status: z.string().max(100),

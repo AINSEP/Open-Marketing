@@ -40,7 +40,7 @@ import type { AuditService } from '@open-marketing/audit';
 import { brandKitSchema, brandRevisionSchema, revisionNumberSchema, expectedRevisionSchema, getBrandRevision, getConfirmedBrand, saveBrandDraft, confirmBrandRevision } from '@open-marketing/brand';
 import type { BrandRepoPort } from '@open-marketing/brand';
 import { assetImportRequestSchema, placementCropRequestSchema, provenanceLinkSchema, type MediaLibrary } from '@open-marketing/media-library';
-import { creativeToolInputSchema } from './om-tool-types.js';
+import { creativeToolInputSchema, toolPolicy } from './om-tool-types.js';
 import type { GenerationStatus } from '@open-marketing/creative';
 import type { ToolOperationStore } from './tool-operations.js';
 import { compactToolOperation } from './tool-operations.js';
@@ -61,16 +61,7 @@ const answerInputSchema = z.strictObject({ context: callContextSchema, response:
 const toolOutputSchema = boundedJsonSchema.refine(value => Buffer.byteLength(JSON.stringify(value)) <= 64512,
     'Tool output exceeds the envelope allowance');
 
-/** Known irreversible effects win over unknown declarations, which always contribute write.
- * @complexity O(e) time/space, e <=10 after wire validation; no authority is inferred here.
- */
-export function toolPolicy(required: { effects: readonly string[] }): OmToolPolicy {
-    if (required.effects.includes('conversion') || required.effects.includes('halt_stop')) return 'internal';
-    if (required.effects.includes('ad_spend')) return 'spend';
-    if (required.effects.includes('destructive')) return 'destructive';
-    if (required.effects.includes('generation')) return 'generation';
-    return required.effects.length > 0 && required.effects.every(effect => effect === 'read') ? 'read' : 'write';
-}
+export { toolPolicy } from './om-tool-types.js';
 
 /** Wire projection deliberately omits invocation callbacks and server configuration. */
 function descriptor(required: { definition: OmToolDefinition }): ToolDescriptor {

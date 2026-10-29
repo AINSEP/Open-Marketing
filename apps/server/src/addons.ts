@@ -6,6 +6,9 @@ import type { AddonRepository } from '@open-marketing/plugins';
 export { addonBoundary, addonFailure } from '@open-marketing/plugins';
 export type { PluginService as Addons, AddonDependencies, AddonRepository, AddonPackageAdapter, AddonDescription, PreparedAddon } from '@open-marketing/plugins';
 
+/** Internal lifecycle projection; admission is read from installed manifest/capabilities, never chat. */
+export type AgentPluginState = { enabled: boolean; bundled: boolean; admitted: boolean; revision: string; metadata: Record<string, unknown>; entryUrl?: string; capabilities?: unknown; effects?: string[] };
+
 /** Fixed-scope SQL repository. Parameterized statements never persist paths, config or credentials.
  * @example const repo = createSqlAddonRepository({ db });
  * @complexity <=1000 summaries; the 1001st persisted row refuses reads rather than truncating.

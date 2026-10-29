@@ -1,6 +1,5 @@
 import type { Outcome, CallContext, CallOptions, Scope, Money, TimeWindow, ServiceContext, MeasurementGrant } from "@open-marketing/contracts";
 import { appErrorSchema, callContextSchema, digestSchema, epochSchema, idSchema, moneySchema, scopeSchema } from "@open-marketing/contracts";
-import type { dispatchRecordSchema } from "./rules.js";
 import { z } from "zod";
 
 /** Shared strict conversion/source schemas stay outside reporting's delivery boundary. */
@@ -66,6 +65,7 @@ export type AttributionResult = { readonly resultId: string; readonly eventId: s
 /** First verified acquisition per canonical subject/definition; watermark uses event time. */
 export type AttributionSummary = { readonly conversions: number; readonly modelVersion: string; readonly watermark: number };
 /** Immutable evidence; uncertain/interrupted attempts require reconciliation. */
+export const dispatchRecordSchema = z.strictObject({ deliveryId: idSchema, subjectId: idSchema, eventId: idSchema, identity: digestSchema, status: z.enum(["dispatching", "delivered", "unknown", "not_sent"]), recordedAt: epochSchema, diagnostics: conversionDiagnosticsSchema.optional(), reason: appErrorSchema.shape.code.optional(), receiptId: idSchema.optional() });
 export type ConversionDispatchRecord = z.infer<typeof dispatchRecordSchema>;
 /** Server-only workflow, never registered as an arbitrary agent tool. */
 export interface ConversionDispatcher {
