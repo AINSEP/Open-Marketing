@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { definePluginTools, epochSchema, parseBoundary } from "@open-marketing/contracts";
 import type { AppError, CallOptions, Outcome, PluginCapabilityDependencies, PluginToolsFactory } from "@open-marketing/contracts";
 import { credentialSchema, configurationSchema, decodeTwilioRead, encodeTwilioRead, invocationSchema, twilioSmsTools } from "./commands.js";
@@ -6,7 +7,7 @@ import type { Credential } from "./commands.js";
 export type { Credential } from "./commands.js";
 
 /** Pure discovery and parsing over the existing read schemas; declarations grant no authority. */
-export const { tools, parseTool }: ReturnType<typeof definePluginTools> = definePluginTools({ tools: twilioSmsTools.map(tool => ({
+export const { tools, parseTool } = definePluginTools({ tools: twilioSmsTools.map(tool => ({
   name: tool.name, description: "Twilio SMS " + tool.name, effects: ["read"], inputSchema: tool.inputSchema,
 })) });
 

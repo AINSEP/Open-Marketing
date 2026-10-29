@@ -1,0 +1,20 @@
+OM cloud round 1029h - VERIFY w23 refactors. Branch cloud/om-verify-1029h (from om/w23-cleanup = main e2ef257a + 2114cc1b, 8fa57a1d, 2e8dbf7e). Time used: ~10 min of 45. Sonnet subagents: 3. Raw outputs: ADS-memory/cloud-round-1029h/out/*.txt
+
+1. BOUNDARIES (om:boundaries, exit 1; out/boundaries.txt)
+ 8 cycle files reported by boundaries.mjs DFS (1029e baseline: 37 DFS lines; 53 cruiser cycles, 41 runtime). Remaining: features/jobs/src/{types,schema}.ts, apps/studio/src/shared/api/types.ts, plugins google-ads schemas.ts, line-ads commands.ts, reddit-ads ports/commands.ts, resend-email commands.ts, vk-ads ports/commands.ts, whatsapp-business transport/ports.ts.
+ apps/server and features/measure: 0 cycles (as expected). No non-cycle boundary violations printed (baseline 2; cli->leads gone). Runtime vs type-only split was not computed (boundaries.mjs does not distinguish).
+2. LINT (om:lint exit 1; out/lint.txt): 49 findings (47 om/two-object-arguments, 2 sonarjs/cognitive-complexity) vs baseline 49; stale-provenance failures 18 -> 0. Studio no-functions-in-component-body 4->0. All remaining PRE-EXISTING (files untouched by w23, e.g. line-ads transport.ts:79, agent-plugin-backends.ts:1103, public-ingress.test.ts, links-grants-boundaries.test.ts:50,94,113); not re-linted on e2ef257a.
+3. TYPECHECK: workspace --no-bail 0 errors (baseline studio 2). Plugins: higgsfield-media 44 errors PRE-EXISTING/ENV (unresolved @jini-ai deps); 20 other plugins clean.
+ twilio-sms TS2742 at src/transport.ts:9 = REGRESSION-fixed: 8fa57a1d dropped `import { z } from "zod"` (needed to name inferred type) and added a ReturnType annotation; restored the import, removed the annotation. Plugin typecheck, tests (71) and build pass. Note: import is otherwise unused (same pattern in whatsapp-business transport.ts).
+4. TESTS (one run, sequential)
+ apps: agent 39/39, desktop 76/77, server 1186/1187, studio 329/329
+ features all pass: audit 96, brand 19, campaigns 115, contacts 111, creative 81, credentials 162, federation 151, forms 97, jobs 203, leads 31, measure 450, media-library 83, plugins 17, policy 118, privacy 42, safety 168, web-events 112, workspaces 50
+ packages: contracts 129, om-clock 8, om-db 34; om:gate-tests 92/92
+ plugins all pass: amazon-ads 111, amazon-ses 82, apple-search-ads 58, google-ads 220, kakao 61, line 107, linkedin 304, meta-ads 464, microsoft 171, naver 129, pinterest 174, reddit 113, resend 71, snapchat 143, tiktok 322, twilio-sms 71, vk 69, whatsapp 116, x-ads 147, yandex 143; apps/server agent-plugin-backends.test.ts 120. No fingerprint mismatches.
+ No-test plugins: anthropic, email-lifecycle, google, om-playbook, openai, seo.
+5. FAILURES
+ - apps/desktop tests/om-server.test.ts "terminates the owned group for descendant": ENV/PRE-EXISTING (zombie reaping in container; same as 1029f; not re-run; w23 diff does not touch apps/desktop).
+ - apps/server tests/om-tools.test.ts:621 30s timeout on full run: ENV load flake; passes alone (102/102, ~24s).
+ - google-business-profile tests/boundaries.test.ts: ENV (ERR_MODULE_NOT_FOUND @cfworker/json-schema via @jini-ai/mcp; needs lockfile change). 37/38.
+ - higgsfield-media: ENV (6/7 files fail to load, unresolved @jini-ai/integrations, @open-marketing/safety); also 44 typecheck errors.
+ REGRESSION-fixed: 1 (twilio-sms TS2742). REGRESSION-open: 0.
