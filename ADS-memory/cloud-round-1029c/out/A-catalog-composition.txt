@@ -1,0 +1,13 @@
+
+ RUN  v3.2.4 /home/user/Open-Marketing/apps/server
+
+ ✓ tests/catalog-composition.test.ts (29 tests) 20013ms
+   ✓ shared generation completion > reaches boot readiness after creative recovery outcome  5295ms
+   ✓ shared generation completion > reaches boot readiness after creative recovery throw  5751ms
+   ✓ real boot injects direct chart inventory into the catalog as providers enable and disable  7050ms
+
+ Test Files  1 passed (1)
+      Tests  29 passed (29)
+   Start at  19:58:13
+   Duration  23.93s (transform 1.78s, setup 0ms, collect 3.56s, tests 20.01s, environment 0ms, prepare 95ms)
+

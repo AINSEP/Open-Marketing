@@ -297,10 +297,18 @@ describe('real feature catalog composition', () => {
     it('closes the feature composition gaps, retaining only the separately optional add-on routes', async () => {
         const f = await fixture();
         try {
-            const definitions = value({ result: await buildOmToolDefinitions({ context: f.owner, services: f.services }) });
+            // Inert stand-ins for the feature seams real composition injects (definitions are only built, never invoked here).
+            const unavailable = async () => ({ ok: false as const, error: { code: 'unavailable' as const, message: 'Fixture stand-in', retryable: false } });
+            const services = { ...f.services, tracking: { snippet: unavailable, readiness: unavailable }, reporting: { results: unavailable, enqueue: unavailable },
+                alerts: { list: unavailable, acknowledge: unavailable } } as unknown as typeof f.services;
+            const providerSettings = { unit: { transaction: unavailable }, addons: { list: unavailable }, agentPluginState: unavailable } as never;
+            const definitions = value({ result: await buildOmToolDefinitions({ context: f.owner, services, providerSettings }) });
             const rows = generateOmToolCoverage({ definitions });
+            // Only the add-on boundary stays optional; conversion settings and OAuth/secret status are gated by that same dependency.
             expect(rows.filter(row => row.status === 'NEEDS' && ['FEATURE_COMPOSITION', 'CREATIVE_DEPENDENCY_I2'].includes(row.needs ?? '')).map(row => row.capability)).toEqual([
-                'Owner route: addons', 'Owner route: addonInstall', 'Owner route: addonSetEnabled', 'Owner route: addonUninstall', 'Owner route: integrations', 'Owner route: integrationDisconnect',
+                'Owner route: addons', 'Owner route: addonInstall', 'Owner route: addonSetEnabled', 'Owner route: addonUninstall', 'Owner route: integrations',
+                'Owner route: integrationConversionSettings', 'Owner route: setIntegrationConversionSettings', 'Owner route: integrationPluginSecretStatus', 'Owner route: integrationDisconnect',
+                'Owner route: integrationOAuthStart', 'Owner route: integrationOAuthStatus', 'Conversion settings', 'Conversion settings',
             ]);
             for (const name of ['om_contacts_resolve', 'om_forms_publish', 'om_jobs_get', 'om_jobs_list', 'om_jobs_cancel', 'om_workspaces_list', 'om_audit_list', 'om_creative_generate', 'om_creative_status', 'om_creative_cancel', 'om_measure_report_cac', 'om_paid_sending_allowance_set']) {
                 expect(definitions.some(tool => tool.name === name)).toBe(true);
